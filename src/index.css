@@ -1,96 +1,134 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* BlueData Agriculture Management System - Design System */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Background & Foreground */
+    --background: 120 10% 98%;
+    --foreground: 150 25% 10%;
 
+    /* Cards & Surfaces */
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 150 25% 10%;
 
+    /* Popover */
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 150 25% 10%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Primary - Forest Green */
+    --primary: 142 45% 28%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Secondary - Soft Sage */
+    --secondary: 140 20% 94%;
+    --secondary-foreground: 142 45% 28%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    /* Muted - Light Gray Green */
+    --muted: 120 10% 95%;
+    --muted-foreground: 150 10% 45%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Accent - Warm Gold */
+    --accent: 45 85% 55%;
+    --accent-foreground: 150 25% 10%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    /* Destructive */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    /* Success */
+    --success: 142 70% 45%;
+    --success-foreground: 0 0% 100%;
+
+    /* Warning */
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    /* Info */
+    --info: 199 89% 48%;
+    --info-foreground: 0 0% 100%;
+
+    /* Borders & Inputs */
+    --border: 140 15% 85%;
+    --input: 140 15% 85%;
+    --ring: 142 45% 28%;
 
     --radius: 0.5rem;
 
-    --sidebar-background: 0 0% 98%;
+    /* Sidebar - Dark Forest Theme */
+    --sidebar-background: 142 40% 18%;
+    --sidebar-foreground: 140 20% 90%;
+    --sidebar-primary: 45 85% 55%;
+    --sidebar-primary-foreground: 150 25% 10%;
+    --sidebar-accent: 142 35% 25%;
+    --sidebar-accent-foreground: 140 20% 95%;
+    --sidebar-border: 142 30% 25%;
+    --sidebar-ring: 45 85% 55%;
+    --sidebar-muted: 142 20% 35%;
 
-    --sidebar-foreground: 240 5.3% 26.1%;
+    /* Table */
+    --table-header: 142 30% 22%;
+    --table-header-foreground: 0 0% 100%;
+    --table-row-hover: 140 25% 96%;
+    --table-row-selected: 142 30% 92%;
+    --table-border: 140 15% 88%;
 
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Chart Colors */
+    --chart-1: 142 45% 35%;
+    --chart-2: 45 85% 55%;
+    --chart-3: 199 89% 48%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 0 72% 51%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 150 20% 8%;
+    --foreground: 140 20% 95%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 150 20% 10%;
+    --card-foreground: 140 20% 95%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 150 20% 10%;
+    --popover-foreground: 140 20% 95%;
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 142 50% 45%;
+    --primary-foreground: 150 25% 10%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 150 15% 18%;
+    --secondary-foreground: 140 20% 90%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 150 15% 15%;
+    --muted-foreground: 140 10% 60%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 45 85% 55%;
+    --accent-foreground: 150 25% 10%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --border: 150 15% 20%;
+    --input: 150 15% 20%;
+    --ring: 142 50% 45%;
+
+    --sidebar-background: 150 25% 6%;
+    --sidebar-foreground: 140 20% 90%;
+    --sidebar-primary: 45 85% 55%;
+    --sidebar-primary-foreground: 150 25% 10%;
+    --sidebar-accent: 150 20% 15%;
+    --sidebar-accent-foreground: 140 20% 95%;
+    --sidebar-border: 150 15% 18%;
+    --sidebar-ring: 45 85% 55%;
+    --sidebar-muted: 150 15% 25%;
+
+    --table-header: 150 20% 12%;
+    --table-header-foreground: 140 20% 95%;
+    --table-row-hover: 150 15% 14%;
+    --table-row-selected: 142 20% 18%;
+    --table-border: 150 15% 20%;
   }
 }
 
@@ -100,6 +138,72 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  /* Editable Cell Styles */
+  .editable-cell {
+    @apply px-3 py-2 cursor-pointer transition-all duration-150;
+    @apply hover:bg-table-row-hover focus-within:ring-2 focus-within:ring-primary focus-within:ring-inset;
+  }
+
+  .editable-cell-input {
+    @apply w-full bg-transparent border-none outline-none;
+    @apply text-sm font-normal;
+  }
+
+  /* Table Excel-like styles */
+  .data-table {
+    @apply w-full border-collapse;
+  }
+
+  .data-table th {
+    @apply bg-table-header text-table-header-foreground;
+    @apply px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider;
+    @apply border-r border-table-border last:border-r-0;
+    @apply sticky top-0 z-10;
+  }
+
+  .data-table td {
+    @apply border-b border-r border-table-border last:border-r-0;
+    @apply text-sm;
+  }
+
+  .data-table tr:hover td {
+    @apply bg-table-row-hover;
+  }
+
+  .data-table tr.selected td {
+    @apply bg-table-row-selected;
+  }
+
+  /* Navigation item styles */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg;
+    @apply text-sidebar-foreground/80 hover:text-sidebar-foreground;
+    @apply hover:bg-sidebar-accent transition-all duration-200;
+    @apply text-sm font-medium;
+  }
+
+  .nav-item.active {
+    @apply bg-sidebar-accent text-sidebar-foreground;
+    @apply border-l-3 border-sidebar-primary;
+  }
+
+  /* Metric card styles */
+  .metric-card {
+    @apply bg-card rounded-xl p-5 shadow-sm border border-border;
+    @apply hover:shadow-md transition-shadow duration-200;
+  }
+
+  /* Quick action button */
+  .quick-action {
+    @apply flex items-center gap-2 px-4 py-2.5 rounded-lg;
+    @apply bg-secondary text-secondary-foreground;
+    @apply hover:bg-primary hover:text-primary-foreground;
+    @apply transition-all duration-200 text-sm font-medium;
   }
 }
