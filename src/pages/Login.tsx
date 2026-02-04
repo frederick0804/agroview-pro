@@ -1,0 +1,175 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Leaf, Eye, EyeOff } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Card, CardContent } from "@/components/ui/card";
+
+export default function Login() {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    // TODO: Implementar autenticación real con Lovable Cloud
+    navigate("/");
+  };
+
+  return (
+    <div className="min-h-screen flex">
+      {/* Left Panel - Login Form */}
+      <div className="flex-1 flex items-center justify-center p-8 bg-background">
+        <div className="w-full max-w-md space-y-8">
+          {/* Logo */}
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center">
+              <Leaf className="w-7 h-7 text-primary-foreground" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">BlueData</h1>
+              <p className="text-sm text-muted-foreground">Sistema de Gestión Agrícola</p>
+            </div>
+          </div>
+
+          {/* Welcome Text */}
+          <div className="space-y-2">
+            <h2 className="text-3xl font-bold text-foreground">Bienvenido</h2>
+            <p className="text-muted-foreground">
+              Ingresa tus credenciales para acceder al sistema
+            </p>
+          </div>
+
+          {/* Login Form */}
+          <Card className="border-0 shadow-lg">
+            <CardContent className="p-6">
+              <form onSubmit={handleLogin} className="space-y-5">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Correo electrónico</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="usuario@empresa.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="h-11"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="password">Contraseña</Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="h-11 pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="w-5 h-5" />
+                      ) : (
+                        <Eye className="w-5 h-5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="remember"
+                      checked={rememberMe}
+                      onCheckedChange={(checked) => setRememberMe(checked as boolean)}
+                    />
+                    <Label
+                      htmlFor="remember"
+                      className="text-sm font-normal cursor-pointer"
+                    >
+                      Recordarme
+                    </Label>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-sm text-primary hover:underline"
+                  >
+                    ¿Olvidaste tu contraseña?
+                  </button>
+                </div>
+
+                <Button type="submit" className="w-full h-11 text-base">
+                  Iniciar Sesión
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          {/* Footer */}
+          <p className="text-center text-sm text-muted-foreground">
+            ¿Necesitas ayuda?{" "}
+            <button className="text-primary hover:underline">
+              Contacta al administrador
+            </button>
+          </p>
+        </div>
+      </div>
+
+      {/* Right Panel - Decorative */}
+      <div className="hidden lg:flex flex-1 bg-primary relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary to-sidebar-background" />
+        
+        {/* Decorative Elements */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-20 left-20 w-64 h-64 rounded-full border-2 border-primary-foreground" />
+          <div className="absolute bottom-32 right-16 w-48 h-48 rounded-full border-2 border-primary-foreground" />
+          <div className="absolute top-1/2 left-1/3 w-32 h-32 rounded-full border-2 border-primary-foreground" />
+        </div>
+
+        {/* Content */}
+        <div className="relative z-10 flex flex-col justify-center p-12 text-primary-foreground">
+          <div className="max-w-md space-y-6">
+            <div className="w-16 h-16 rounded-2xl bg-accent flex items-center justify-center">
+              <Leaf className="w-9 h-9 text-accent-foreground" />
+            </div>
+            <h2 className="text-4xl font-bold leading-tight">
+              Gestiona tu producción agrícola de manera inteligente
+            </h2>
+            <p className="text-lg text-primary-foreground/80">
+              Control total de laboratorio, vivero, cultivo, producción y recursos humanos en una sola plataforma.
+            </p>
+            
+            {/* Features List */}
+            <ul className="space-y-3 text-primary-foreground/90">
+              <li className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-accent" />
+                Tablas editables tipo Excel
+              </li>
+              <li className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-accent" />
+                Reportes en tiempo real
+              </li>
+              <li className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-accent" />
+                Gestión de recursos humanos
+              </li>
+              <li className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-accent" />
+                Control de producción y ventas
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
