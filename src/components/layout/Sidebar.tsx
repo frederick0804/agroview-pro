@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -13,27 +12,35 @@ import {
   ChevronRight,
   LogOut,
   User,
+  Scissors,
+  Package,
+  UserCog,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useRole, type UserRole } from "@/contexts/RoleContext";
 
 interface NavItem {
   label: string;
   icon: React.ElementType;
   path: string;
+  roles: UserRole[];
 }
 
 const navItems: NavItem[] = [
-  { label: "Dashboard", icon: LayoutDashboard, path: "/" },
-  { label: "Laboratorio", icon: FlaskConical, path: "/laboratorio" },
-  { label: "Vivero", icon: Sprout, path: "/vivero" },
-  { label: "Cultivo", icon: Leaf, path: "/cultivo" },
-  { label: "Producción", icon: Factory, path: "/produccion" },
-  { label: "Recursos Humanos", icon: Users, path: "/recursos-humanos" },
-  { label: "Comercial", icon: ShoppingCart, path: "/comercial" },
+  { label: "Dashboard", icon: LayoutDashboard, path: "/", roles: ["administrador", "supervisor", "operador"] },
+  { label: "Laboratorio", icon: FlaskConical, path: "/laboratorio", roles: ["administrador"] },
+  { label: "Vivero", icon: Sprout, path: "/vivero", roles: ["administrador"] },
+  { label: "Cultivo", icon: Leaf, path: "/cultivo", roles: ["administrador"] },
+  { label: "Cosecha", icon: Scissors, path: "/cosecha", roles: ["administrador", "supervisor", "operador"] },
+  { label: "Post-cosecha", icon: Package, path: "/post-cosecha", roles: ["administrador", "supervisor", "operador"] },
+  { label: "Producción", icon: Factory, path: "/produccion", roles: ["administrador"] },
+  { label: "Recursos Humanos", icon: Users, path: "/recursos-humanos", roles: ["administrador"] },
+  { label: "Comercial", icon: ShoppingCart, path: "/comercial", roles: ["administrador"] },
+  { label: "Gestión de Usuarios", icon: UserCog, path: "/gestion-usuarios", roles: ["administrador"] },
 ];
 
 const bottomNavItems: NavItem[] = [
-  { label: "Configuración", icon: Settings, path: "/configuracion" },
+  { label: "Configuración", icon: Settings, path: "/configuracion", roles: ["administrador"] },
 ];
 
 interface SidebarProps {
@@ -43,13 +50,15 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const location = useLocation();
+  const { role, roleName } = useRole();
 
   const isActive = (path: string) => {
-    if (path === "/") {
-      return location.pathname === "/";
-    }
+    if (path === "/") return location.pathname === "/";
     return location.pathname.startsWith(path);
   };
+
+  const filteredNavItems = navItems.filter((item) => item.roles.includes(role));
+  const filteredBottomItems = bottomNavItems.filter((item) => item.roles.includes(role));
 
   return (
     <aside
@@ -93,7 +102,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {navItems.map((item) => (
+        {filteredNavItems.map((item) => (
           <NavLink
             key={item.path}
             to={item.path}
@@ -111,7 +120,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
 
       {/* Bottom Navigation */}
       <div className="px-3 py-4 border-t border-sidebar-border space-y-1">
-        {bottomNavItems.map((item) => (
+        {filteredBottomItems.map((item) => (
           <NavLink
             key={item.path}
             to={item.path}
@@ -139,10 +148,10 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-sidebar-foreground truncate">
-                Usuario
+                Usuario Demo
               </p>
               <p className="text-xs text-sidebar-foreground/60 truncate">
-                Administrador
+                {roleName}
               </p>
             </div>
           )}
