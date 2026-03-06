@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   FlaskConical,
@@ -50,7 +50,8 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const location = useLocation();
-  const { role, roleName } = useRole();
+  const navigate = useNavigate();
+  const { role, roleName, currentUser, logout } = useRole();
 
   const isActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
@@ -59,6 +60,11 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
 
   const filteredNavItems = navItems.filter((item) => item.roles.includes(role));
   const filteredBottomItems = bottomNavItems.filter((item) => item.roles.includes(role));
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
 
   return (
     <aside
@@ -93,11 +99,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           "z-50"
         )}
       >
-        {collapsed ? (
-          <ChevronRight className="w-4 h-4" />
-        ) : (
-          <ChevronLeft className="w-4 h-4" />
-        )}
+        {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
       </button>
 
       {/* Navigation */}
@@ -106,10 +108,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           <NavLink
             key={item.path}
             to={item.path}
-            className={cn(
-              "nav-item",
-              isActive(item.path) && "active"
-            )}
+            className={cn("nav-item", isActive(item.path) && "active")}
             title={collapsed ? item.label : undefined}
           >
             <item.icon className="w-5 h-5 shrink-0" />
@@ -124,10 +123,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           <NavLink
             key={item.path}
             to={item.path}
-            className={cn(
-              "nav-item",
-              isActive(item.path) && "active"
-            )}
+            className={cn("nav-item", isActive(item.path) && "active")}
             title={collapsed ? item.label : undefined}
           >
             <item.icon className="w-5 h-5 shrink-0" />
@@ -148,7 +144,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-sidebar-foreground truncate">
-                Usuario Demo
+                {currentUser?.nombre || "Usuario Demo"}
               </p>
               <p className="text-xs text-sidebar-foreground/60 truncate">
                 {roleName}
@@ -156,7 +152,11 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
             </div>
           )}
           {!collapsed && (
-            <button className="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors">
+            <button
+              onClick={handleLogout}
+              className="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors"
+              title="Cerrar sesión"
+            >
               <LogOut className="w-4 h-4" />
             </button>
           )}

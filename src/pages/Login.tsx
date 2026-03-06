@@ -1,23 +1,32 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Leaf, Eye, EyeOff } from "lucide-react";
+import { Leaf, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
+import { useRole, hardcodedUsers } from "@/contexts/RoleContext";
 
 export default function Login() {
   const navigate = useNavigate();
+  const { login } = useRole();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [error, setError] = useState("");
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Implementar autenticación real con Lovable Cloud
-    navigate("/");
+    setError("");
+
+    const user = login(email, password);
+    if (user) {
+      navigate("/");
+    } else {
+      setError("Credenciales incorrectas. Verifica tu correo y contraseña.");
+    }
   };
 
   return (
@@ -48,12 +57,19 @@ export default function Login() {
           <Card className="border-0 shadow-lg">
             <CardContent className="p-6">
               <form onSubmit={handleLogin} className="space-y-5">
+                {error && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    {error}
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label htmlFor="email">Correo electrónico</Label>
                   <Input
                     id="email"
                     type="email"
-                    placeholder="usuario@empresa.com"
+                    placeholder="usuario@bluedata.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="h-11"
@@ -76,11 +92,7 @@ export default function Login() {
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                     >
-                      {showPassword ? (
-                        <EyeOff className="w-5 h-5" />
-                      ) : (
-                        <Eye className="w-5 h-5" />
-                      )}
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
                   </div>
                 </div>
@@ -92,17 +104,11 @@ export default function Login() {
                       checked={rememberMe}
                       onCheckedChange={(checked) => setRememberMe(checked as boolean)}
                     />
-                    <Label
-                      htmlFor="remember"
-                      className="text-sm font-normal cursor-pointer"
-                    >
+                    <Label htmlFor="remember" className="text-sm font-normal cursor-pointer">
                       Recordarme
                     </Label>
                   </div>
-                  <button
-                    type="button"
-                    className="text-sm text-primary hover:underline"
-                  >
+                  <button type="button" className="text-sm text-primary hover:underline">
                     ¿Olvidaste tu contraseña?
                   </button>
                 </div>
@@ -114,12 +120,39 @@ export default function Login() {
             </CardContent>
           </Card>
 
+          {/* Demo Credentials */}
+          <Card className="border border-accent/30 bg-accent/5">
+            <CardContent className="p-4">
+              <p className="text-xs font-semibold text-accent-foreground mb-3 uppercase tracking-wider">
+                👤 Usuarios de demostración
+              </p>
+              <div className="space-y-2">
+                {hardcodedUsers.map((user) => (
+                  <button
+                    key={user.id}
+                    onClick={() => {
+                      setEmail(user.email);
+                      setPassword(user.password);
+                    }}
+                    className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-accent/10 transition-colors text-left"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{user.nombre}</p>
+                      <p className="text-xs text-muted-foreground">{user.email}</p>
+                    </div>
+                    <span className="text-xs px-2 py-1 rounded-md bg-primary/10 text-primary font-medium capitalize">
+                      {user.role}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Footer */}
           <p className="text-center text-sm text-muted-foreground">
             ¿Necesitas ayuda?{" "}
-            <button className="text-primary hover:underline">
-              Contacta al administrador
-            </button>
+            <button className="text-primary hover:underline">Contacta al administrador</button>
           </p>
         </div>
       </div>
@@ -127,15 +160,11 @@ export default function Login() {
       {/* Right Panel - Decorative */}
       <div className="hidden lg:flex flex-1 bg-primary relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary to-sidebar-background" />
-        
-        {/* Decorative Elements */}
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-20 left-20 w-64 h-64 rounded-full border-2 border-primary-foreground" />
           <div className="absolute bottom-32 right-16 w-48 h-48 rounded-full border-2 border-primary-foreground" />
           <div className="absolute top-1/2 left-1/3 w-32 h-32 rounded-full border-2 border-primary-foreground" />
         </div>
-
-        {/* Content */}
         <div className="relative z-10 flex flex-col justify-center p-12 text-primary-foreground">
           <div className="max-w-md space-y-6">
             <div className="w-16 h-16 rounded-2xl bg-accent flex items-center justify-center">
@@ -147,8 +176,6 @@ export default function Login() {
             <p className="text-lg text-primary-foreground/80">
               Control total de laboratorio, vivero, cultivo, producción y recursos humanos en una sola plataforma.
             </p>
-            
-            {/* Features List */}
             <ul className="space-y-3 text-primary-foreground/90">
               <li className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-accent" />
