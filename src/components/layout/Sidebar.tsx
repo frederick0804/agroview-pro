@@ -17,30 +17,33 @@ import {
   UserCog,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useRole, type UserRole } from "@/contexts/RoleContext";
+import { useRole, ROLE_LEVELS, type UserRole } from "@/contexts/RoleContext";
 
 interface NavItem {
   label: string;
   icon: React.ElementType;
   path: string;
-  roles: UserRole[];
+  // Nivel mínimo jerárquico requerido para ver este módulo (§3 del informe)
+  minLevel: number;
+  // Roles excluidos aunque tengan el nivel suficiente (§6.3 del informe)
+  excludedRoles?: UserRole[];
 }
 
 const navItems: NavItem[] = [
-  { label: "Dashboard", icon: LayoutDashboard, path: "/", roles: ["administrador", "supervisor", "operador"] },
-  { label: "Laboratorio", icon: FlaskConical, path: "/laboratorio", roles: ["administrador"] },
-  { label: "Vivero", icon: Sprout, path: "/vivero", roles: ["administrador"] },
-  { label: "Cultivo", icon: Leaf, path: "/cultivo", roles: ["administrador"] },
-  { label: "Cosecha", icon: Scissors, path: "/cosecha", roles: ["administrador", "supervisor", "operador"] },
-  { label: "Post-cosecha", icon: Package, path: "/post-cosecha", roles: ["administrador", "supervisor", "operador"] },
-  { label: "Producción", icon: Factory, path: "/produccion", roles: ["administrador"] },
-  { label: "Recursos Humanos", icon: Users, path: "/recursos-humanos", roles: ["administrador"] },
-  { label: "Comercial", icon: ShoppingCart, path: "/comercial", roles: ["administrador"] },
-  { label: "Gestión de Usuarios", icon: UserCog, path: "/gestion-usuarios", roles: ["administrador"] },
+  { label: "Dashboard",          icon: LayoutDashboard, path: "/",                  minLevel: 1 },
+  { label: "Laboratorio",        icon: FlaskConical,    path: "/laboratorio",       minLevel: 3 },
+  { label: "Vivero",             icon: Sprout,          path: "/vivero",            minLevel: 2 },
+  { label: "Cultivo",            icon: Leaf,            path: "/cultivo",           minLevel: 2 },
+  { label: "Cosecha",            icon: Scissors,        path: "/cosecha",           minLevel: 2 },
+  { label: "Post-cosecha",       icon: Package,         path: "/post-cosecha",      minLevel: 2 },
+  { label: "Producción",         icon: Factory,         path: "/produccion",        minLevel: 3 },
+  { label: "Recursos Humanos",   icon: Users,           path: "/recursos-humanos",  minLevel: 3 },
+  { label: "Comercial",          icon: ShoppingCart,    path: "/comercial",         minLevel: 3 },
+  { label: "Gestión de Usuarios",icon: UserCog,         path: "/gestion-usuarios",  minLevel: 5 },
 ];
 
 const bottomNavItems: NavItem[] = [
-  { label: "Configuración", icon: Settings, path: "/configuracion", roles: ["administrador"] },
+  { label: "Configuración", icon: Settings, path: "/configuracion", minLevel: 5 },
 ];
 
 interface SidebarProps {
@@ -51,15 +54,22 @@ interface SidebarProps {
 export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { role, roleName, currentUser, logout } = useRole();
+  const { role, roleName, hierarchyLevel, currentUser, logout } = useRole();
 
   const isActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
     return location.pathname.startsWith(path);
   };
 
-  const filteredNavItems = navItems.filter((item) => item.roles.includes(role));
-  const filteredBottomItems = bottomNavItems.filter((item) => item.roles.includes(role));
+  // Filtra módulos según nivel jerárquico y roles excluidos (§3 y §6.3 del informe)
+  const canSeeItem = (item: NavItem): boolean => {
+    if (hierarchyLevel < item.minLevel) return false;
+    if (item.excludedRoles?.includes(role)) return false;
+    return true;
+  };
+
+  const filteredNavItems = navItems.filter(canSeeItem);
+  const filteredBottomItems = bottomNavItems.filter(canSeeItem);
 
   const handleLogout = () => {
     logout();

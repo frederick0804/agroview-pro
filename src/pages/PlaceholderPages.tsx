@@ -428,32 +428,148 @@ export const Produccion = () => {
   );
 };
 
+// Datos demo: ficha de personal — gestionada vía CONFIG_DATOS (§4 informe V3)
+const fichaPersonal = [
+  { id:"1", rut:"12.345.678-9", nombre:"Pedro Soto",    cargo:"Cosechador",  contrato:"Plazo fijo",  ingreso:"2024-03-01", estado:"Activo" },
+  { id:"2", rut:"11.222.333-4", nombre:"Carmen Díaz",   cargo:"Cosechadora", contrato:"Indefinido",  ingreso:"2023-07-15", estado:"Activo" },
+  { id:"3", rut:"9.876.543-2",  nombre:"Luis Morales",  cargo:"Supervisor",  contrato:"Indefinido",  ingreso:"2022-01-10", estado:"Activo" },
+  { id:"4", rut:"14.567.890-1", nombre:"Ana Fuentes",   cargo:"Cosechadora", contrato:"Plazo fijo",  ingreso:"2024-09-01", estado:"Inactivo" },
+  { id:"5", rut:"16.234.567-8", nombre:"Mario Reyes",   cargo:"Jefe Campo",  contrato:"Indefinido",  ingreso:"2021-05-20", estado:"Activo" },
+];
+
+// Registros de asistencia — almacenados en CONFIG_DATOS como JSONB (§4 informe V3)
+const registrosAsistencia = [
+  { id:"1", empleado:"Pedro Soto",   tipo:"Entrada",  hora:"07:42", ubicacion:"Bloque A-1", fecha:"2025-03-06" },
+  { id:"2", empleado:"Carmen Díaz",  tipo:"Entrada",  hora:"07:45", ubicacion:"Bloque A-2", fecha:"2025-03-06" },
+  { id:"3", empleado:"Luis Morales", tipo:"Entrada",  hora:"07:30", ubicacion:"Bloque B-1", fecha:"2025-03-06" },
+  { id:"4", empleado:"Pedro Soto",   tipo:"Salida",   hora:"17:05", ubicacion:"Bloque A-1", fecha:"2025-03-06" },
+  { id:"5", empleado:"Carmen Díaz",  tipo:"Salida",   hora:"17:10", ubicacion:"Bloque A-2", fecha:"2025-03-06" },
+];
+
 export const RecursosHumanos = () => {
-  const { roleName } = useRole();
+  const { roleName, hasPermission } = useRole();
+  const canCreate = hasPermission("recursos-humanos", "crear");
+  const canExport = hasPermission("recursos-humanos", "exportar");
+
   return (
     <MainLayout>
-      <PageHeader title="Recursos Humanos" description={`Módulo de RRHH — Rol: ${roleName}`} />
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-card rounded-xl border border-border p-5">
-          <p className="text-sm text-muted-foreground">Total Empleados</p>
-          <p className="text-2xl font-bold text-foreground mt-1">86</p>
-        </div>
-        <div className="bg-card rounded-xl border border-border p-5">
-          <p className="text-sm text-muted-foreground">En Campo</p>
-          <p className="text-2xl font-bold text-foreground mt-1">62</p>
-        </div>
-        <div className="bg-card rounded-xl border border-border p-5">
-          <p className="text-sm text-muted-foreground">Supervisores</p>
-          <p className="text-2xl font-bold text-foreground mt-1">8</p>
-        </div>
-        <div className="bg-card rounded-xl border border-border p-5">
-          <p className="text-sm text-muted-foreground">Administrativos</p>
-          <p className="text-2xl font-bold text-foreground mt-1">16</p>
-        </div>
+      <PageHeader
+        title="Recursos Humanos"
+        description="Personal gestionado con datos dinámicos — CONFIG_DATOS (sistema V3)"
+      />
+
+      {/* Aviso sistema dinámico */}
+      <div className="flex items-start gap-3 mb-5 p-3 rounded-lg bg-purple-50 border border-purple-200 text-sm text-purple-800">
+        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+        <span>
+          <strong>Datos Dinámicos (V3):</strong> La tabla rígida PERSONAL fue reemplazada por
+          <strong> CONFIG_DATOS</strong>. Los campos de ficha y asistencia son configurables
+          por cliente sin modificar la base de datos.
+        </span>
       </div>
-      <div className="bg-card rounded-xl border border-border p-8 text-center text-muted-foreground">
-        Directorio de empleados, nómina y asistencia — Próximamente
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        {[
+          { label: "Total Empleados",  value: "86" },
+          { label: "En Campo",         value: "62" },
+          { label: "Supervisores",     value: "8"  },
+          { label: "Administrativos",  value: "16" },
+        ].map(m => (
+          <div key={m.label} className="bg-card rounded-xl border border-border p-5">
+            <p className="text-sm text-muted-foreground">{m.label}</p>
+            <p className="text-2xl font-bold text-foreground mt-1">{m.value}</p>
+          </div>
+        ))}
       </div>
+
+      <Tabs defaultValue="ficha" className="space-y-4">
+        <TabsList className="bg-muted p-1 rounded-lg">
+          <TabsTrigger value="ficha">Ficha Personal (CONFIG_DATOS)</TabsTrigger>
+          <TabsTrigger value="asistencia">Asistencia (CONFIG_DATOS)</TabsTrigger>
+        </TabsList>
+
+        {/* Ficha de personal — datos dinámicos */}
+        <TabsContent value="ficha">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm text-muted-foreground">
+              Campos: <span className="font-medium text-foreground">rut · nombre_completo · cargo · contrato · fecha_ingreso</span>
+              <span className="ml-2 text-xs">(configurables en CONFIG_PARAMETROS)</span>
+            </p>
+            {canCreate && (
+              <Badge variant="outline" className="text-xs">+ Nuevo trabajador</Badge>
+            )}
+          </div>
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/50">
+                  {["RUT","Nombre","Cargo","Contrato","Ingreso","Estado"].map(h => (
+                    <th key={h} className="text-left px-4 py-3 font-medium text-muted-foreground">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {fichaPersonal.map(p => (
+                  <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-3 text-muted-foreground text-xs font-mono">{p.rut}</td>
+                    <td className="px-4 py-3 font-medium text-foreground">{p.nombre}</td>
+                    <td className="px-4 py-3 text-foreground">{p.cargo}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.contrato === "Indefinido" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                        {p.contrato}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">{p.ingreso}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center gap-1 text-xs font-medium ${p.estado === "Activo" ? "text-success" : "text-muted-foreground"}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${p.estado === "Activo" ? "bg-success" : "bg-muted-foreground"}`} />
+                        {p.estado}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </TabsContent>
+
+        {/* Control de asistencia — datos JSONB */}
+        <TabsContent value="asistencia">
+          <div className="mb-3">
+            <p className="text-sm text-muted-foreground">
+              Timbrado QR/biométrico almacenado en <strong>CONFIG_DATOS</strong> como JSONB.
+              Campos: <span className="font-medium text-foreground">empleado_id · tipo_marca · hora · ubicacion_gps</span>
+            </p>
+          </div>
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/50">
+                  {["Empleado","Tipo","Hora","Ubicación","Fecha"].map(h => (
+                    <th key={h} className="text-left px-4 py-3 font-medium text-muted-foreground">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {registrosAsistencia.map(r => (
+                  <tr key={r.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-3 font-medium text-foreground">{r.empleado}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${r.tipo === "Entrada" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
+                        {r.tipo}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">{r.hora}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{r.ubicacion}</td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">{r.fecha}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </TabsContent>
+      </Tabs>
     </MainLayout>
   );
 };

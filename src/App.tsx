@@ -2,8 +2,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { RoleProvider } from "@/contexts/RoleContext";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { RoleProvider, useRole } from "@/contexts/RoleContext";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Configuracion from "./pages/Configuracion";
@@ -22,33 +22,40 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+// Guard que redirige a /login si el usuario no está autenticado
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useRole();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
 const App = () => {
   return (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <RoleProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/" element={<Index />} />
-            <Route path="/laboratorio" element={<Laboratorio />} />
-            <Route path="/vivero" element={<Vivero />} />
-            <Route path="/cultivo" element={<Cultivo />} />
-            <Route path="/cosecha" element={<Cosecha />} />
-            <Route path="/post-cosecha" element={<PostCosecha />} />
-            <Route path="/produccion" element={<Produccion />} />
-            <Route path="/recursos-humanos" element={<RecursosHumanos />} />
-            <Route path="/comercial" element={<Comercial />} />
-            <Route path="/configuracion" element={<Configuracion />} />
-            <Route path="/gestion-usuarios" element={<GestionUsuarios />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </RoleProvider>
-    </TooltipProvider>
-  </QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <RoleProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+              <Route path="/laboratorio" element={<ProtectedRoute><Laboratorio /></ProtectedRoute>} />
+              <Route path="/vivero" element={<ProtectedRoute><Vivero /></ProtectedRoute>} />
+              <Route path="/cultivo" element={<ProtectedRoute><Cultivo /></ProtectedRoute>} />
+              <Route path="/cosecha" element={<ProtectedRoute><Cosecha /></ProtectedRoute>} />
+              <Route path="/post-cosecha" element={<ProtectedRoute><PostCosecha /></ProtectedRoute>} />
+              <Route path="/produccion" element={<ProtectedRoute><Produccion /></ProtectedRoute>} />
+              <Route path="/recursos-humanos" element={<ProtectedRoute><RecursosHumanos /></ProtectedRoute>} />
+              <Route path="/comercial" element={<ProtectedRoute><Comercial /></ProtectedRoute>} />
+              <Route path="/configuracion" element={<ProtectedRoute><Configuracion /></ProtectedRoute>} />
+              <Route path="/gestion-usuarios" element={<ProtectedRoute><GestionUsuarios /></ProtectedRoute>} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </RoleProvider>
+      </TooltipProvider>
+    </QueryClientProvider>
   );
 };
 
