@@ -144,6 +144,7 @@ const rolePermissions: Record<UserRole, Record<string, ActionPermission[]>> = {
   // Nivel 1: solo consulta — no puede modificar nada
   lector: {
     dashboard: ["ver"],
+    laboratorio: ["ver"],   // acceso lectura al laboratorio (ver registros)
     cosecha: ["ver"],
     "post-cosecha": ["ver"],
   },

@@ -1,4 +1,5 @@
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   FlaskConical,
@@ -17,39 +18,45 @@ import {
   UserCog,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useRole, ROLE_LEVELS, type UserRole } from "@/contexts/RoleContext";
+import { useRole, type UserRole } from "@/contexts/RoleContext";
+
+// ─── Tipos ───────────────────────────────────────────────────────────────────
 
 interface NavItem {
   label: string;
   icon: React.ElementType;
   path: string;
-  // Nivel mínimo jerárquico requerido para ver este módulo (§3 del informe)
   minLevel: number;
-  // Roles excluidos aunque tengan el nivel suficiente (§6.3 del informe)
   excludedRoles?: UserRole[];
 }
 
+// ─── Items de navegación ──────────────────────────────────────────────────────
+
 const navItems: NavItem[] = [
-  { label: "Dashboard",          icon: LayoutDashboard, path: "/",                  minLevel: 1 },
-  { label: "Laboratorio",        icon: FlaskConical,    path: "/laboratorio",       minLevel: 3 },
-  { label: "Vivero",             icon: Sprout,          path: "/vivero",            minLevel: 2 },
-  { label: "Cultivo",            icon: Leaf,            path: "/cultivo",           minLevel: 2 },
-  { label: "Cosecha",            icon: Scissors,        path: "/cosecha",           minLevel: 2 },
-  { label: "Post-cosecha",       icon: Package,         path: "/post-cosecha",      minLevel: 2 },
-  { label: "Producción",         icon: Factory,         path: "/produccion",        minLevel: 3 },
-  { label: "Recursos Humanos",   icon: Users,           path: "/recursos-humanos",  minLevel: 3 },
-  { label: "Comercial",          icon: ShoppingCart,    path: "/comercial",         minLevel: 3 },
-  { label: "Gestión de Usuarios",icon: UserCog,         path: "/gestion-usuarios",  minLevel: 5 },
+  { label: "Dashboard",           icon: LayoutDashboard, path: "/",                 minLevel: 1 },
+  { label: "Laboratorio",         icon: FlaskConical,    path: "/laboratorio",      minLevel: 1 },
+  { label: "Vivero",              icon: Sprout,          path: "/vivero",           minLevel: 2 },
+  { label: "Cultivo",             icon: Leaf,            path: "/cultivo",          minLevel: 2 },
+  { label: "Cosecha",             icon: Scissors,        path: "/cosecha",          minLevel: 2 },
+  { label: "Post-cosecha",        icon: Package,         path: "/post-cosecha",     minLevel: 2 },
+  { label: "Producción",          icon: Factory,         path: "/produccion",       minLevel: 3 },
+  { label: "Recursos Humanos",    icon: Users,           path: "/recursos-humanos", minLevel: 3 },
+  { label: "Comercial",           icon: ShoppingCart,    path: "/comercial",        minLevel: 3 },
+  { label: "Gestión de Usuarios", icon: UserCog,         path: "/gestion-usuarios", minLevel: 5 },
 ];
 
 const bottomNavItems: NavItem[] = [
   { label: "Configuración", icon: Settings, path: "/configuracion", minLevel: 5 },
 ];
 
+// ─── Props ────────────────────────────────────────────────────────────────────
+
 interface SidebarProps {
   collapsed?: boolean;
   onToggle?: () => void;
 }
+
+// ─── Componente ───────────────────────────────────────────────────────────────
 
 export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const location = useLocation();
@@ -61,27 +68,23 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
     return location.pathname.startsWith(path);
   };
 
-  // Filtra módulos según nivel jerárquico y roles excluidos (§3 y §6.3 del informe)
   const canSeeItem = (item: NavItem): boolean => {
     if (hierarchyLevel < item.minLevel) return false;
     if (item.excludedRoles?.includes(role)) return false;
     return true;
   };
 
-  const filteredNavItems = navItems.filter(canSeeItem);
+  const filteredNavItems    = navItems.filter(canSeeItem);
   const filteredBottomItems = bottomNavItems.filter(canSeeItem);
 
-  const handleLogout = () => {
-    logout();
-    navigate("/login");
-  };
+  const handleLogout = () => { logout(); navigate("/login"); };
 
   return (
     <aside
       className={cn(
         "fixed left-0 top-0 h-screen bg-sidebar flex flex-col z-40",
         "transition-all duration-300 ease-in-out",
-        collapsed ? "w-16" : "w-64"
+        collapsed ? "w-16" : "w-64",
       )}
     >
       {/* Logo */}
@@ -91,9 +94,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
             <Leaf className="w-5 h-5 text-sidebar-primary-foreground" />
           </div>
           {!collapsed && (
-            <span className="text-lg font-bold text-sidebar-foreground">
-              BlueData
-            </span>
+            <span className="text-lg font-bold text-sidebar-foreground">BlueData</span>
           )}
         </div>
       </div>
@@ -105,15 +106,14 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           "absolute -right-3 top-20 w-6 h-6 rounded-full",
           "bg-primary text-primary-foreground",
           "flex items-center justify-center",
-          "shadow-md hover:bg-primary/90 transition-colors",
-          "z-50"
+          "shadow-md hover:bg-primary/90 transition-colors z-50",
         )}
       >
         {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
       </button>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         {filteredNavItems.map((item) => (
           <NavLink
             key={item.path}
@@ -122,7 +122,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
             title={collapsed ? item.label : undefined}
           >
             <item.icon className="w-5 h-5 shrink-0" />
-            {!collapsed && <span>{item.label}</span>}
+            {!collapsed && <span className="truncate">{item.label}</span>}
           </NavLink>
         ))}
       </nav>
@@ -145,10 +145,10 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         <div
           className={cn(
             "flex items-center gap-3 px-3 py-2.5 rounded-lg mt-4",
-            "bg-sidebar-accent/50"
+            "bg-sidebar-accent/50",
           )}
         >
-          <div className="w-8 h-8 rounded-full bg-sidebar-muted flex items-center justify-center">
+          <div className="w-8 h-8 rounded-full bg-sidebar-muted flex items-center justify-center shrink-0">
             <User className="w-4 h-4 text-sidebar-foreground" />
           </div>
           {!collapsed && (
@@ -156,9 +156,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
               <p className="text-sm font-medium text-sidebar-foreground truncate">
                 {currentUser?.nombre || "Usuario Demo"}
               </p>
-              <p className="text-xs text-sidebar-foreground/60 truncate">
-                {roleName}
-              </p>
+              <p className="text-xs text-sidebar-foreground/60 truncate">{roleName}</p>
             </div>
           )}
           {!collapsed && (
