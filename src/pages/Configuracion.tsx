@@ -176,7 +176,7 @@ function TabDefiniciones() {
 
         {/* Card — Nueva Definición */}
         <button
-          onClick={addDef}
+          onClick={() => addDef()}
           className="border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all min-h-[120px]"
         >
           <Plus className="w-6 h-6" />
@@ -191,7 +191,7 @@ function TabDefiniciones() {
         columns={colsDefinicion}
         onUpdate={updDef}
         onDelete={delDef}
-        onAdd={addDef}
+        onAdd={() => addDef()}
       />
     </div>
   );
@@ -392,48 +392,70 @@ function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
         "Campo" para buscar en la biblioteca o crear uno nuevo.
       </div>
 
-      {/* Chips de filtro por definición */}
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => setFilterDefId("all")}
-          className={cn(
-            "text-xs px-3 py-1.5 rounded-full font-medium border transition-colors",
-            filterDefId === "all"
-              ? "bg-foreground text-background border-transparent"
-              : "bg-background text-muted-foreground border-border hover:border-foreground/50",
-          )}
-        >
-          Todos <span className="opacity-60">({parametros.length})</span>
-        </button>
-        {definiciones.map(d => {
-          const count = parametros.filter(p => p.definicion_id === d.id).length;
-          return (
+      {/* Dos columnas: sidebar de filtro + tabla */}
+      <div className="flex gap-4 items-start">
+
+        {/* Sidebar de definiciones — escala a cualquier cantidad sin romper el layout */}
+        <div className="w-52 shrink-0 bg-card border border-border rounded-xl overflow-hidden">
+          <div className="px-3 py-2 border-b border-border">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+              Formulario
+            </span>
+          </div>
+          <div className="flex flex-col gap-0.5 p-1.5 max-h-[520px] overflow-y-auto">
+            {/* "Todos" */}
             <button
-              key={d.id}
-              onClick={() => setFilterDefId(d.id)}
+              onClick={() => setFilterDefId("all")}
               className={cn(
-                "text-xs px-3 py-1.5 rounded-full font-medium border transition-colors",
-                filterDefId === d.id
-                  ? `${tipoBadgeColor[d.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700"} border-transparent`
-                  : "bg-background text-muted-foreground border-border hover:border-foreground/50",
+                "text-xs px-3 py-2 rounded-lg font-medium text-left w-full transition-colors flex items-center justify-between gap-2",
+                filterDefId === "all"
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
               )}
             >
-              {d.nombre || `(def ${d.id})`}
-              <span className="opacity-60 ml-1">({count})</span>
+              <span>Todos</span>
+              <span className="opacity-60 text-[11px] tabular-nums">{parametros.length}</span>
             </button>
-          );
-        })}
-      </div>
 
-      <EditableTable
-        title={filterDefId === "all" ? "Todos los Campos" : `Campos — ${getDefNombre(filterDefId)}`}
-        data={filteredParametros}
-        columns={colsCampos}
-        onUpdate={updFiltered}
-        onDelete={delFiltered}
-        onAdd={addFiltered}
-        searchable={false}
-      />
+            <div className="h-px bg-border mx-1 my-0.5" />
+
+            {/* Una fila por definición */}
+            {definiciones.map(d => {
+              const count    = parametros.filter(p => p.definicion_id === d.id).length;
+              const isActive = filterDefId === d.id;
+              return (
+                <button
+                  key={d.id}
+                  onClick={() => setFilterDefId(d.id)}
+                  className={cn(
+                    "text-xs px-3 py-2 rounded-lg font-medium text-left w-full transition-colors flex items-center justify-between gap-2",
+                    isActive
+                      ? `${tipoBadgeColor[d.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700"}`
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                  )}
+                >
+                  <span className="truncate leading-tight">{d.nombre || `(def ${d.id})`}</span>
+                  <span className="opacity-60 text-[11px] tabular-nums shrink-0">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Tabla de campos */}
+        <div className="flex-1 min-w-0">
+          <EditableTable
+            title={filterDefId === "all" ? "Todos los Campos" : `Campos — ${getDefNombre(filterDefId)}`}
+            data={filteredParametros}
+            columns={colsCampos}
+            onUpdate={updFiltered}
+            onDelete={delFiltered}
+            onAdd={addFiltered}
+            searchable={false}
+          />
+        </div>
+
+      </div>
     </div>
   );
 }
