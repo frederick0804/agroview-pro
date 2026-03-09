@@ -16,6 +16,7 @@ export interface Column<T> {
   type?: "text" | "number" | "select" | "date" | "checkbox" | "autocomplete";
   options?: { value: string; label: string }[];
   editable?: boolean;
+  required?: boolean;
   render?: (value: any, row: T, rowIndex: number) => React.ReactNode;
 }
 
@@ -36,6 +37,7 @@ interface EditableCellProps {
   options?: Column<any>["options"];
   onSave: (value: any) => void;
   editable?: boolean;
+  required?: boolean;
 }
 
 // ─── AutocompleteCell ──────────────────────────────────────────────────────────
@@ -47,15 +49,18 @@ function AutocompleteCell({
   suggestions = [],
   onSave,
   editable = true,
+  required = false,
 }: {
   value: string;
   suggestions: { value: string; label: string }[];
   onSave: (v: string) => void;
   editable?: boolean;
+  required?: boolean;
 }) {
   const [isEditing,   setIsEditing]   = useState(false);
   const [query,       setQuery]       = useState(value ?? "");
   const [highlighted, setHighlighted] = useState(-1);
+  const [hasError,    setHasError]    = useState(false);
   const [dropPos,     setDropPos]     = useState({ top: 0, left: 0, width: 0 });
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -86,13 +91,36 @@ function AutocompleteCell({
   const showCreate  = query.trim().length > 0 && !exactMatch;
   const totalItems  = filtered.length + (showCreate ? 1 : 0);
 
+  // commit: valida si es requerido; si está vacío bloquea y muestra error
   const commit = useCallback((val: string) => {
     const trimmed = val.trim();
+    if (required && !trimmed) {
+      setHasError(true);
+      return;
+    }
+    setHasError(false);
     onSave(trimmed);
     setQuery(trimmed);
     setIsEditing(false);
     setHighlighted(-1);
-  }, [onSave]);
+  }, [onSave, required]);
+
+  // commitBlur: al perder foco → si vacío y requerido, cancela sin mostrar error
+  const commitBlur = useCallback((val: string) => {
+    const trimmed = val.trim();
+    if (required && !trimmed) {
+      setQuery(value ?? "");
+      setIsEditing(false);
+      setHighlighted(-1);
+      setHasError(false);
+      return;
+    }
+    setHasError(false);
+    onSave(trimmed);
+    setQuery(trimmed);
+    setIsEditing(false);
+    setHighlighted(-1);
+  }, [onSave, required, value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
@@ -114,6 +142,7 @@ function AutocompleteCell({
       setQuery(value ?? "");
       setIsEditing(false);
       setHighlighted(-1);
+      setHasError(false);
     }
   };
 
@@ -121,71 +150,92 @@ function AutocompleteCell({
     return <div className="px-3 py-2.5 text-sm">{value || "–"}</div>;
   }
 
-  if (isEditing) {
-    const dropdown =
-      (filtered.length > 0 || showCreate)
-        ? createPortal(
-            <div
-              style={{
-                position: "fixed",
-                top:    dropPos.top,
-                left:   dropPos.left,
-                width:  dropPos.width,
-                zIndex: 9999,
-              }}
-              className="bg-popover border border-border rounded-lg shadow-xl overflow-hidden"
-            >
-              {filtered.map((s, i) => (
-                <button
-                  key={s.value}
-                  // preventDefault evita que el input pierda foco (no dispara onBlur)
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => commit(s.value)}
-                  className={cn(
-                    "w-full text-left px-3 py-2 text-sm transition-colors",
-                    highlighted === i
-                      ? "bg-muted text-foreground"
-                      : "hover:bg-muted/60 text-foreground",
-                  )}
-                >
-                  {s.label}
-                </button>
-              ))}
-
-              {showCreate && (
-                <button
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => commit(query.trim())}
-                  className={cn(
-                    "w-full text-left px-3 py-2 text-sm border-t border-border",
-                    "text-primary hover:bg-primary/10 transition-colors",
-                    "flex items-center gap-2",
-                    highlighted === filtered.length && "bg-primary/10",
-                  )}
-                >
-                  <Plus className="w-3.5 h-3.5 shrink-0" />
-                  <span>
-                    Crear parámetro:{" "}
-                    <strong className="font-semibold">"{query.trim()}"</strong>
-                  </span>
-                </button>
-              )}
-            </div>,
-            document.body,
-          )
-        : null;
-
+  // Vista de lectura: indicador rojo si es requerido y está vacío
+  if (!isEditing) {
+    const isEmpty = !value?.trim();
     return (
-      <div className="flex items-center gap-1 px-2 py-1">
+      <div
+        onClick={() => setIsEditing(true)}
+        className="editable-cell"
+        role="button"
+        tabIndex={0}
+        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") setIsEditing(true); }}
+      >
+        {isEmpty && required
+          ? <span className="text-xs text-destructive/80 italic flex items-center gap-1">⚠ Requerido</span>
+          : (value || "–")}
+      </div>
+    );
+  }
+
+  const dropdown =
+    (filtered.length > 0 || showCreate)
+      ? createPortal(
+          <div
+            style={{
+              position: "fixed",
+              top:    dropPos.top,
+              left:   dropPos.left,
+              width:  dropPos.width,
+              zIndex: 9999,
+            }}
+            className="bg-popover border border-border rounded-lg shadow-xl overflow-hidden"
+          >
+            {filtered.map((s, i) => (
+              <button
+                key={s.value}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => commit(s.value)}
+                className={cn(
+                  "w-full text-left px-3 py-2 text-sm transition-colors",
+                  highlighted === i
+                    ? "bg-muted text-foreground"
+                    : "hover:bg-muted/60 text-foreground",
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+
+            {showCreate && (
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => commit(query.trim())}
+                className={cn(
+                  "w-full text-left px-3 py-2 text-sm border-t border-border",
+                  "text-primary hover:bg-primary/10 transition-colors",
+                  "flex items-center gap-2",
+                  highlighted === filtered.length && "bg-primary/10",
+                )}
+              >
+                <Plus className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  Crear parámetro:{" "}
+                  <strong className="font-semibold">"{query.trim()}"</strong>
+                </span>
+              </button>
+            )}
+          </div>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <div className="flex flex-col gap-0.5 px-2 py-1">
+      <div className="flex items-center gap-1">
         <input
           ref={inputRef}
           value={query}
-          onChange={e => { setQuery(e.target.value); setHighlighted(-1); }}
+          onChange={e => { setQuery(e.target.value); setHighlighted(-1); setHasError(false); }}
           onKeyDown={handleKeyDown}
-          // Al perder foco (click fuera del dropdown), guardar lo que haya en el input
-          onBlur={() => commit(query)}
+          onBlur={() => commitBlur(query)}
           placeholder="Escribir o buscar…"
-          className="w-full bg-background border border-primary rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          className={cn(
+            "w-full bg-background rounded px-2 py-1 text-sm focus:outline-none focus:ring-2",
+            hasError
+              ? "border border-destructive ring-destructive/20 focus:ring-destructive/30"
+              : "border border-primary focus:ring-primary",
+          )}
         />
         {dropdown}
         <button
@@ -197,24 +247,17 @@ function AutocompleteCell({
         </button>
         <button
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => { setQuery(value ?? ""); setIsEditing(false); }}
+          onClick={() => { setQuery(value ?? ""); setIsEditing(false); setHasError(false); }}
           className="p-1 text-destructive hover:bg-destructive/10 rounded"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
-    );
-  }
-
-  return (
-    <div
-      onClick={() => setIsEditing(true)}
-      className="editable-cell"
-      role="button"
-      tabIndex={0}
-      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") setIsEditing(true); }}
-    >
-      {value || "–"}
+      {hasError && (
+        <span className="text-[10px] text-destructive leading-none px-1">
+          Este campo es obligatorio
+        </span>
+      )}
     </div>
   );
 }
@@ -227,9 +270,11 @@ function EditableCell({
   options,
   onSave,
   editable = true,
+  required = false,
 }: EditableCellProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
+  const [hasError,  setHasError]  = useState(false);
   const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
 
   useEffect(() => { setEditValue(value); }, [value]);
@@ -243,19 +288,39 @@ function EditableCell({
     }
   }, [isEditing]);
 
+  // Valida requerido; si falla, muestra error y no cierra la celda
   const handleSave = useCallback(() => {
+    if (required && !editValue?.toString().trim()) {
+      setHasError(true);
+      return;
+    }
+    setHasError(false);
     onSave(editValue);
     setIsEditing(false);
-  }, [editValue, onSave]);
+  }, [editValue, onSave, required]);
+
+  // En blur: si requerido y vacío → cancela sin error visible; si tiene valor → guarda
+  const handleBlurSave = useCallback(() => {
+    if (required && !editValue?.toString().trim()) {
+      setEditValue(value); // revertir
+      setIsEditing(false);
+      setHasError(false);
+      return;
+    }
+    setHasError(false);
+    onSave(editValue);
+    setIsEditing(false);
+  }, [editValue, onSave, required, value]);
 
   const handleCancel = useCallback(() => {
     setEditValue(value);
     setIsEditing(false);
+    setHasError(false);
   }, [value]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Enter")  handleSave();
+      if (e.key === "Enter")       handleSave();
       else if (e.key === "Escape") handleCancel();
     },
     [handleSave, handleCancel],
@@ -274,45 +339,64 @@ function EditableCell({
   }
 
   if (isEditing) {
+    const inputClass = cn(
+      "w-full bg-background rounded px-2 py-1 text-sm focus:outline-none focus:ring-2",
+      hasError
+        ? "border border-destructive ring-destructive/20 focus:ring-destructive/30"
+        : "border border-primary focus:ring-primary",
+    );
+
     return (
-      <div className="flex items-center gap-1 px-2 py-1">
-        {type === "select" && options ? (
-          <select
-            ref={inputRef as React.RefObject<HTMLSelectElement>}
-            value={editValue}
-            onChange={e => setEditValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onBlur={handleSave}
-            className="w-full bg-background border border-primary rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-          >
-            {options.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-        ) : type === "checkbox" ? (
-          <input
-            type="checkbox"
-            checked={!!editValue}
-            onChange={e => { setEditValue(e.target.checked); onSave(e.target.checked); setIsEditing(false); }}
-            className="w-4 h-4"
-          />
-        ) : (
-          <input
-            ref={inputRef as React.RefObject<HTMLInputElement>}
-            type={type === "number" ? "number" : type === "date" ? "date" : "text"}
-            value={editValue ?? ""}
-            onChange={e => setEditValue(type === "number" ? Number(e.target.value) : e.target.value)}
-            onKeyDown={handleKeyDown}
-            onBlur={handleSave}
-            className="w-full bg-background border border-primary rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-          />
+      <div className="flex flex-col gap-0.5 px-2 py-1">
+        <div className="flex items-center gap-1">
+          {type === "select" && options ? (
+            <select
+              ref={inputRef as React.RefObject<HTMLSelectElement>}
+              value={editValue}
+              onChange={e => { setEditValue(e.target.value); setHasError(false); }}
+              onKeyDown={handleKeyDown}
+              onBlur={handleBlurSave}
+              className={inputClass}
+            >
+              {options.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          ) : type === "checkbox" ? (
+            <input
+              type="checkbox"
+              checked={!!editValue}
+              onChange={e => { setEditValue(e.target.checked); onSave(e.target.checked); setIsEditing(false); }}
+              className="w-4 h-4"
+            />
+          ) : (
+            <input
+              ref={inputRef as React.RefObject<HTMLInputElement>}
+              type={type === "number" ? "number" : type === "date" ? "date" : "text"}
+              value={editValue ?? ""}
+              onChange={e => {
+                setEditValue(type === "number" ? Number(e.target.value) : e.target.value);
+                setHasError(false);
+              }}
+              onKeyDown={handleKeyDown}
+              onBlur={handleBlurSave}
+              className={inputClass}
+            />
+          )}
+          <button onClick={handleSave}   className="p-1 text-success     hover:bg-success/10     rounded shrink-0"><Check className="w-4 h-4" /></button>
+          <button onClick={handleCancel} className="p-1 text-destructive hover:bg-destructive/10 rounded shrink-0"><X     className="w-4 h-4" /></button>
+        </div>
+        {hasError && (
+          <span className="text-[10px] text-destructive leading-none px-1">
+            Este campo es obligatorio
+          </span>
         )}
-        <button onClick={handleSave}   className="p-1 text-success     hover:bg-success/10     rounded"><Check  className="w-4 h-4" /></button>
-        <button onClick={handleCancel} className="p-1 text-destructive hover:bg-destructive/10 rounded"><X      className="w-4 h-4" /></button>
       </div>
     );
   }
 
+  // Vista de lectura: indicador rojo si es requerido y está vacío
+  const isEmpty = type !== "checkbox" && !value?.toString().trim();
   return (
     <div
       onClick={() => setIsEditing(true)}
@@ -330,9 +414,13 @@ function EditableCell({
           onClick={e => { e.stopPropagation(); onSave(!value); }}
         />
       ) : type === "select" && options ? (
-        options.find(o => o.value === value)?.label ?? value ?? "–"
+        isEmpty && required
+          ? <span className="text-xs text-destructive/80 italic flex items-center gap-1">⚠ Requerido</span>
+          : (options.find(o => o.value === value)?.label ?? value ?? "–")
       ) : (
-        value ?? "–"
+        isEmpty && required
+          ? <span className="text-xs text-destructive/80 italic flex items-center gap-1">⚠ Requerido</span>
+          : (value ?? "–")
       )}
     </div>
   );
@@ -496,6 +584,7 @@ export function EditableTable<T extends { id: string | number }>({
                             value={String(row[col.key] ?? "")}
                             suggestions={col.options ?? []}
                             editable={col.editable !== false}
+                            required={col.required}
                             onSave={value => onUpdate(idx, col.key, value)}
                           />
                         ) : (
@@ -504,6 +593,7 @@ export function EditableTable<T extends { id: string | number }>({
                             type={col.type}
                             options={col.options}
                             editable={col.editable !== false}
+                            required={col.required}
                             onSave={value => onUpdate(idx, col.key, value)}
                           />
                         )}

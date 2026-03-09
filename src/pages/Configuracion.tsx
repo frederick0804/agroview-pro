@@ -92,7 +92,7 @@ function TabDefiniciones() {
     { key: "cultivo_id",  header: "Cultivo",       width: "130px", type: "select",  options: cultivoOptions },
     { key: "modulo",      header: "Módulo",         width: "150px", type: "select",  options: MODULO_OPTIONS },
     { key: "tipo",        header: "Tipo",            width: "150px", type: "select",  options: TIPO_OPTIONS },
-    { key: "nombre",      header: "Nombre",           width: "200px" },
+    { key: "nombre",      header: "Nombre",           width: "200px", required: true },
     { key: "descripcion", header: "Descripción",      width: "240px" },
     { key: "version",     header: "Versión",           width: "70px" },
     { key: "nivel_minimo",header: "Nivel mín.",        width: "85px",  type: "number" },
@@ -219,7 +219,7 @@ function TabBiblioteca() {
   };
 
   const colsLib: Column<Parametro>[] = [
-    { key: "nombre",              header: "Nombre (snake_case)", width: "180px" },
+    { key: "nombre",              header: "Nombre (snake_case)", width: "180px", required: true },
     { key: "codigo",              header: "Código",               width: "90px" },
     { key: "tipo_dato",           header: "Tipo",                  width: "120px", type: "select", options: TIPO_DATO_OPTIONS },
     { key: "unidad_medida",       header: "Unidad",               width: "80px" },
@@ -374,11 +374,12 @@ function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
       options: definiciones.map(d => ({ value: d.id, label: d.nombre || `(sin nombre — ${d.id})` })),
     },
     {
-      key:     "nombre",
-      header:  "Campo",
-      width:   "200px",
-      type:    "autocomplete",
-      options: sugerencias,
+      key:      "nombre",
+      header:   "Campo",
+      width:    "200px",
+      type:     "autocomplete",
+      options:  sugerencias,
+      required: true,
     },
     {
       key:     "tipo_dato",
@@ -665,14 +666,14 @@ function TabCultivos() {
   // ── Columnas ──────────────────────────────────────────────────────────────
 
   const colsCultivos: Column<Cultivo>[] = [
-    { key: "nombre",      header: "Cultivo",      width: "160px" },
+    { key: "nombre",      header: "Cultivo",      width: "160px", required: true },
     { key: "codigo",      header: "Código",        width: "80px"  },
     { key: "descripcion", header: "Descripción",   width: "280px" },
     { key: "activo",      header: "Activo",         width: "75px", type: "checkbox" },
   ];
 
   const colsVariedades: Column<Variedad>[] = [
-    { key: "nombre",      header: "Variedad",      width: "160px" },
+    { key: "nombre",      header: "Variedad",      width: "160px", required: true },
     { key: "codigo",      header: "Código",         width: "80px"  },
     { key: "descripcion", header: "Descripción",    width: "280px" },
     { key: "activo",      header: "Activa",          width: "75px", type: "checkbox" },
@@ -681,7 +682,7 @@ function TabCultivos() {
   const colsFormularios: Column<ModDef>[] = [
     { key: "modulo",       header: "Módulo",       width: "150px", type: "select", options: MODULO_OPTIONS },
     { key: "tipo",         header: "Tipo",          width: "150px", type: "select", options: TIPO_OPTIONS  },
-    { key: "nombre",       header: "Nombre",         width: "200px" },
+    { key: "nombre",       header: "Nombre",         width: "200px", required: true },
     { key: "version",      header: "Versión",         width: "70px"  },
     { key: "nivel_minimo", header: "Nivel mín.",      width: "85px", type: "number" },
     { key: "estado",       header: "Estado",           width: "110px", type: "select", options: ESTADO_OPTIONS },
