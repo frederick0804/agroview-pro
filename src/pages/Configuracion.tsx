@@ -77,7 +77,6 @@ function EstadoIcon({ estado }: { estado: EstadoDef }) {
 
 function TabDefiniciones() {
   const { definiciones, parametros, datos, addDef, updDef, delDef, cultivos } = useConfig();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const cultivoOptions = [
     { value: "",  label: "— Global —" },
@@ -96,103 +95,84 @@ function TabDefiniciones() {
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Cards resumen */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {definiciones.filter(d => d.nombre).map(d => {
-          const campoCount = parametros.filter(p => p.definicion_id === d.id).length;
-          const datoCount  = datos.filter(dt => dt.definicion_id === d.id).length;
-          const isExpanded = expandedId === d.id;
-          const campitos   = parametros.filter(p => p.definicion_id === d.id).sort((a,b) => a.orden - b.orden);
+    <div className="flex gap-4 items-start">
 
-          return (
-            <div
-              key={d.id}
-              className={cn(
-                "bg-card border rounded-xl overflow-hidden transition-all",
-                isExpanded ? "border-primary/40 shadow-md" : "border-border hover:border-border/80 hover:shadow-sm",
-              )}
-            >
-              {/* Cabecera de la card */}
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", tipoBadgeColor[d.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700")}>
-                      {tipoLabels[d.tipo as TipoConfig] ?? d.tipo}
-                    </span>
-                    <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full flex items-center gap-1", estadoBadge[d.estado ?? "borrador"])}>
-                      <EstadoIcon estado={d.estado ?? "borrador"} />
-                      {d.estado ?? "borrador"}
-                    </span>
-                  </div>
-                  <span className="text-xs text-muted-foreground shrink-0">v{d.version}</span>
+      {/* Sidebar — lista compacta de definiciones, escala sin límite */}
+      <div className="w-60 shrink-0 bg-card border border-border rounded-xl overflow-hidden">
+        <div className="px-3 py-2.5 border-b border-border flex items-center justify-between">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+            Formularios ({definiciones.length})
+          </span>
+          <button
+            onClick={() => addDef()}
+            title="Nueva definición"
+            className="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-0.5 p-1.5 max-h-[560px] overflow-y-auto">
+          {definiciones.filter(d => d.nombre).map(d => {
+            const campoCount = parametros.filter(p => p.definicion_id === d.id).length;
+            const datoCount  = datos.filter(dt => dt.definicion_id === d.id).length;
+            return (
+              <div
+                key={d.id}
+                className="px-3 py-2.5 rounded-lg hover:bg-muted/40 transition-colors"
+              >
+                {/* Badges: tipo + estado */}
+                <div className="flex items-center gap-1 mb-1.5 flex-wrap">
+                  <span className={cn(
+                    "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none",
+                    tipoBadgeColor[d.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700",
+                  )}>
+                    {tipoLabels[d.tipo as TipoConfig] ?? d.tipo}
+                  </span>
+                  <span className={cn(
+                    "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5",
+                    estadoBadge[d.estado ?? "borrador"],
+                  )}>
+                    <EstadoIcon estado={d.estado ?? "borrador"} />
+                    {d.estado ?? "borrador"}
+                  </span>
                 </div>
-                <p className="font-semibold text-foreground text-sm mb-1 line-clamp-1">{d.nombre}</p>
-                <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{d.descripcion || "Sin descripción"}</p>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <List className="w-3 h-3" /> {campoCount} campos
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Database className="w-3 h-3" /> {datoCount} registros
-                    </span>
-                  </div>
-                  <span className="text-xs text-muted-foreground">
+                {/* Nombre */}
+                <p className="text-xs font-semibold text-foreground truncate leading-snug">{d.nombre}</p>
+                {/* Módulo + conteos */}
+                <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
+                  <span className="truncate">
                     {MODULO_OPTIONS.find(m => m.value === d.modulo)?.label ?? d.modulo}
+                  </span>
+                  <span className="shrink-0 flex items-center gap-1">
+                    <List className="w-2.5 h-2.5" />{campoCount}
+                  </span>
+                  <span className="shrink-0 flex items-center gap-1">
+                    <Database className="w-2.5 h-2.5" />{datoCount}
                   </span>
                 </div>
               </div>
+            );
+          })}
 
-              {/* Toggle campos */}
-              {campoCount > 0 && (
-                <>
-                  <button
-                    onClick={() => setExpandedId(isExpanded ? null : d.id)}
-                    className="w-full flex items-center justify-between px-4 py-2 text-xs text-muted-foreground border-t border-border hover:bg-muted/40 transition-colors"
-                  >
-                    <span>Ver campos asignados</span>
-                    {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                  </button>
-                  {isExpanded && (
-                    <div className="px-4 pb-4 bg-muted/20 border-t border-border">
-                      <div className="flex flex-wrap gap-1.5 pt-3">
-                        {campitos.map(c => (
-                          <span key={c.id} className="text-xs bg-background border border-border rounded-md px-2 py-1 flex items-center gap-1">
-                            <span className="font-medium">{c.nombre.replace(/_/g, " ")}</span>
-                            <span className="text-muted-foreground/60">· {c.tipo_dato}</span>
-                            {c.obligatorio && <span className="text-destructive text-[10px]">*</span>}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          );
-        })}
-
-        {/* Card — Nueva Definición */}
-        <button
-          onClick={() => addDef()}
-          className="border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all min-h-[120px]"
-        >
-          <Plus className="w-6 h-6" />
-          <span className="text-sm font-medium">Nueva Definición</span>
-        </button>
+          {definiciones.filter(d => d.nombre).length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-6">Sin definiciones aún.</p>
+          )}
+        </div>
       </div>
 
-      {/* Tabla editable */}
-      <EditableTable
-        title="Registro de Definiciones"
-        data={definiciones}
-        columns={colsDefinicion}
-        onUpdate={updDef}
-        onDelete={delDef}
-        onAdd={() => addDef()}
-      />
+      {/* Tabla editable — ocupa el espacio restante */}
+      <div className="flex-1 min-w-0">
+        <EditableTable
+          title="Registro de Definiciones"
+          data={definiciones}
+          columns={colsDefinicion}
+          onUpdate={updDef}
+          onDelete={delDef}
+          onAdd={() => addDef()}
+        />
+      </div>
+
     </div>
   );
 }
