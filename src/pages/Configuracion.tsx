@@ -628,12 +628,12 @@ function TabCultivos() {
   const {
     cultivos, addCultivo, updCultivo, delCultivo,
     variedades, addVariedad, updVariedad, delVariedad,
-    definiciones, addDef, updDef, delDef,
+    definiciones,
   } = useConfig();
+  const navigate = useNavigate();
 
   const firstActive = cultivos.find(c => c.activo)?.id ?? cultivos[0]?.id ?? "";
   const [selectedId, setSelectedId] = useState<string>(firstActive);
-  const [subTab, setSubTab]         = useState("variedades");
 
   // ── Modal: nuevo cultivo ───────────────────────────────────────────────────
   const [showAddCultivo,  setShowAddCultivo]  = useState(false);
@@ -679,15 +679,6 @@ function TabCultivos() {
     { key: "activo",      header: "Activa",          width: "75px", type: "checkbox" },
   ];
 
-  const colsFormularios: Column<ModDef>[] = [
-    { key: "modulo",       header: "Módulo",       width: "150px", type: "select", options: MODULO_OPTIONS },
-    { key: "tipo",         header: "Tipo",          width: "150px", type: "select", options: TIPO_OPTIONS  },
-    { key: "nombre",       header: "Nombre",         width: "200px", required: true },
-    { key: "version",      header: "Versión",         width: "70px"  },
-    { key: "nivel_minimo", header: "Nivel mín.",      width: "85px", type: "number" },
-    { key: "estado",       header: "Estado",           width: "110px", type: "select", options: ESTADO_OPTIONS },
-  ];
-
   // ── CRUD wrappers ─────────────────────────────────────────────────────────
 
   const updC = (idx: number, k: keyof Cultivo, v: unknown) =>
@@ -701,17 +692,6 @@ function TabCultivos() {
   const updV = (idx: number, k: keyof Variedad, v: unknown) =>
     updVariedad(cultivoVars[idx].id, k, v);
   const delV = (idx: number) => delVariedad(cultivoVars[idx].id);
-
-  const updF = (idx: number, k: keyof ModDef, v: unknown) => {
-    const item = cultivoDefs[idx];
-    const origIdx = definiciones.findIndex(d => d.id === item.id);
-    if (origIdx !== -1) updDef(origIdx, k, v);
-  };
-  const delF = (idx: number) => {
-    const item = cultivoDefs[idx];
-    const origIdx = definiciones.findIndex(d => d.id === item.id);
-    if (origIdx !== -1) delDef(origIdx);
-  };
 
   return (
     <div className="space-y-6">
@@ -775,63 +755,38 @@ function TabCultivos() {
             </span>
           </div>
 
-          {/* Sub-tabs: Variedades | Formularios */}
-          <div className="p-4">
-            <Tabs value={subTab} onValueChange={setSubTab} className="space-y-4">
-              <TabsList className="bg-muted p-1 rounded-lg h-auto">
-                <TabsTrigger value="variedades" className="text-xs sm:text-sm gap-1.5">
-                  Variedades
-                  <span className="text-[10px] opacity-60">({cultivoVars.length})</span>
-                </TabsTrigger>
-                <TabsTrigger value="formularios" className="text-xs sm:text-sm gap-1.5">
-                  Formularios
-                  <span className="text-[10px] opacity-60">({cultivoDefs.length})</span>
-                </TabsTrigger>
-              </TabsList>
+          {/* Variedades + enlace a Formularios */}
+          <div className="p-4 space-y-4">
+            <EditableTable
+              title={`Variedades de ${cultivo.nombre}`}
+              data={cultivoVars}
+              columns={colsVariedades}
+              onUpdate={updV}
+              onDelete={delV}
+              onAdd={() => addVariedad(selectedId)}
+              searchable={false}
+            />
 
-              {/* Variedades */}
-              <TabsContent value="variedades">
-                <EditableTable
-                  title={`Variedades de ${cultivo.nombre}`}
-                  data={cultivoVars}
-                  columns={colsVariedades}
-                  onUpdate={updV}
-                  onDelete={delV}
-                  onAdd={() => addVariedad(selectedId)}
-                  searchable={false}
-                />
-              </TabsContent>
-
-              {/* Formularios */}
-              <TabsContent value="formularios">
-                {cultivoDefs.length === 0 ? (
-                  <div className="flex flex-col items-center gap-3 py-12 text-center">
-                    <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center">
-                      <Layers className="w-6 h-6 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-sm text-foreground">Sin formularios para {cultivo.nombre}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Crea un formulario para definir los campos que se registran en los módulos.
-                      </p>
-                    </div>
-                    <Button size="sm" onClick={() => addDef(selectedId)}>
-                      <Plus className="w-4 h-4 mr-1.5" /> Crear formulario
-                    </Button>
-                  </div>
-                ) : (
-                  <EditableTable
-                    title={`Formularios de ${cultivo.nombre}`}
-                    data={cultivoDefs}
-                    columns={colsFormularios}
-                    onUpdate={updF}
-                    onDelete={delF}
-                    onAdd={() => addDef(selectedId)}
-                    searchable={false}
-                  />
-                )}
-              </TabsContent>
-            </Tabs>
+            {/* Acceso rápido a formularios de este cultivo */}
+            <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Layers className="w-4 h-4 shrink-0" />
+                <span>
+                  {cultivoDefs.length > 0
+                    ? `${cultivoDefs.length} formulario${cultivoDefs.length !== 1 ? "s" : ""} asignado${cultivoDefs.length !== 1 ? "s" : ""} a este cultivo`
+                    : "Sin formularios asignados a este cultivo"}
+                </span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate("/configuracion?tab=formularios")}
+                className="gap-1.5 text-xs"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                Gestionar formularios →
+              </Button>
+            </div>
           </div>
         </div>
       ) : (
@@ -990,13 +945,13 @@ const Configuracion = () => {
         </div>
       </div>
 
-      <Tabs defaultValue={initialTab} className="space-y-6">
+      <Tabs key={initialTab} defaultValue={initialTab} className="space-y-6">
         <TabsList className="bg-muted p-1 rounded-lg flex-wrap gap-1 h-auto">
           <TabsTrigger value="cultivos"     className="flex items-center gap-2 text-xs sm:text-sm">
             <Leaf      className="w-4 h-4" /> Cultivos
           </TabsTrigger>
-          <TabsTrigger value="definiciones" className="flex items-center gap-2 text-xs sm:text-sm">
-            <Layers    className="w-4 h-4" /> Definiciones
+          <TabsTrigger value="formularios" className="flex items-center gap-2 text-xs sm:text-sm">
+            <Layers    className="w-4 h-4" /> Formularios
           </TabsTrigger>
           <TabsTrigger value="biblioteca"  className="flex items-center gap-2 text-xs sm:text-sm">
             <BookOpen  className="w-4 h-4" /> Biblioteca
@@ -1016,7 +971,7 @@ const Configuracion = () => {
         </TabsList>
 
         <TabsContent value="cultivos">   <TabCultivos    /></TabsContent>
-        <TabsContent value="definiciones"><TabDefiniciones /></TabsContent>
+        <TabsContent value="formularios"><TabDefiniciones /></TabsContent>
         <TabsContent value="biblioteca">  <TabBiblioteca  /></TabsContent>
         <TabsContent value="campos">      <TabCampos initialDefId={initialDefId} /></TabsContent>
         <TabsContent value="datos">       <TabDatos       /></TabsContent>
