@@ -105,8 +105,8 @@ const pedidoColumns: Column<Pedido>[] = [
       { value: "Nacional", label: "Nacional" },
     ],
   },
-  { key: "fecha", header: "Fecha", width: "120px", type: "date" },
-  { key: "cliente", header: "Cliente", width: "180px" },
+  { key: "fecha", header: "Fecha", width: "120px", type: "date", required: true },
+  { key: "cliente", header: "Cliente", width: "180px", required: true },
   {
     key: "tipoCliente",
     header: "Tipo Cliente",
@@ -136,7 +136,7 @@ const pedidoColumns: Column<Pedido>[] = [
 ];
 
 const clienteColumns: Column<Cliente>[] = [
-  { key: "nombre", header: "Nombre", width: "180px" },
+  { key: "nombre", header: "Nombre", width: "180px", required: true },
   {
     key: "tipo",
     header: "Tipo",

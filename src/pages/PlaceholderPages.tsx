@@ -57,13 +57,14 @@ function DynamicDefTable({ defId, moduloKey }: { defId: string; moduloKey: strin
 
   // Construir columnas desde los parámetros de la definición
   const columns: Column<DynRow>[] = [
-    { key: "fecha", header: "Fecha", width: "110px", type: "date", editable: canEdit || canCreate },
+    { key: "fecha", header: "Fecha", width: "110px", type: "date", editable: canEdit || canCreate, required: true },
     ...params.map(p => {
       const col: Column<DynRow> = {
         key:      p.nombre,
         header:   p.nombre.replace(/_/g, " "),
         width:    "140px",
         editable: canEdit || canCreate,
+        required: p.obligatorio,
       };
       const colType = tipoDatoToColType(p.tipo_dato);
       if (colType) col.type = colType;
