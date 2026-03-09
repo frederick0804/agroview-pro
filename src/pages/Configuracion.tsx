@@ -17,7 +17,7 @@ import {
 import {
   Layers, List, Table2, Palette, Settings2, BookOpen,
   Upload, ChevronDown, ChevronUp, X, Plus, Save,
-  Trash2, Info, CheckCircle2, Clock, Archive, Database, Leaf, Search,
+  Trash2, Info, CheckCircle2, Clock, Archive, Database, Leaf, Search, Copy,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import {
@@ -69,6 +69,16 @@ const ESTADO_OPTIONS = [
   { value: "archivado", label: "Archivado" },
 ];
 
+// ─── Version helpers ──────────────────────────────────────────────────────────
+
+/** Incrementa la parte minor (X.Y → X.Y+1) o major (X.Y → X+1.0) de una versión. */
+const bumpV = (v: string, kind: "minor" | "major"): string => {
+  const parts = (v ?? "1.0").split(".").map(n => parseInt(n) || 0);
+  const maj = parts[0] ?? 1;
+  const min = parts[1] ?? 0;
+  return kind === "minor" ? `${maj}.${min + 1}` : `${maj + 1}.0`;
+};
+
 // ─── EstadoIcon ───────────────────────────────────────────────────────────────
 
 function EstadoIcon({ estado }: { estado: EstadoDef }) {
@@ -80,7 +90,7 @@ function EstadoIcon({ estado }: { estado: EstadoDef }) {
 // ─── Panel de Definiciones ────────────────────────────────────────────────────
 
 function TabDefiniciones() {
-  const { definiciones, parametros, datos, addDef, updDef, delDef, cultivos } = useConfig();
+  const { definiciones, parametros, datos, addDef, updDef, delDef, dupDef, cultivos } = useConfig();
   const [searchDef, setSearchDef] = useState("");
 
   const cultivoOptions = [
@@ -94,7 +104,16 @@ function TabDefiniciones() {
     { key: "tipo",        header: "Tipo",            width: "150px", type: "select",  options: TIPO_OPTIONS },
     { key: "nombre",      header: "Nombre",           width: "200px", required: true },
     { key: "descripcion", header: "Descripción",      width: "240px" },
-    { key: "version",     header: "Versión",           width: "70px" },
+    {
+      key: "version", header: "Versión", width: "90px", editable: false,
+      render: (value) => (
+        <div className="px-3 py-2.5">
+          <span className="text-xs font-mono font-semibold bg-muted/60 text-foreground px-2 py-0.5 rounded">
+            v{String(value ?? "1.0")}
+          </span>
+        </div>
+      ),
+    },
     { key: "nivel_minimo",header: "Nivel mín.",        width: "85px",  type: "number" },
     { key: "estado",      header: "Estado",             width: "110px", type: "select", options: ESTADO_OPTIONS },
   ];
@@ -174,6 +193,36 @@ function TabDefiniciones() {
                     <Database className="w-2.5 h-2.5" />{datoCount}
                   </span>
                 </div>
+                {/* Control de versiones */}
+                <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border/40">
+                  <span className="text-[10px] font-mono font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
+                    v{d.version || "1.0"}
+                  </span>
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        const idx = definiciones.findIndex(def => def.id === d.id);
+                        if (idx !== -1) updDef(idx, "version", bumpV(d.version || "1.0", "minor"));
+                      }}
+                      title="Incrementar versión menor (ej. 1.0 → 1.1)"
+                      className="text-[10px] font-mono text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded transition-colors"
+                    >
+                      +0.1
+                    </button>
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        dupDef(d.id);
+                      }}
+                      title="Nueva versión mayor — duplica el formulario con la versión incrementada en +1.0"
+                      className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-primary hover:bg-primary/5 px-1.5 py-0.5 rounded transition-colors"
+                    >
+                      <Copy className="w-2.5 h-2.5" />
+                      Nueva v
+                    </button>
+                  </div>
+                </div>
               </div>
             );
           })}
@@ -189,7 +238,7 @@ function TabDefiniciones() {
       {/* Tabla editable — ocupa el espacio restante */}
       <div className="flex-1 min-w-0">
         <EditableTable
-          title="Registro de Definiciones"
+          title="Formularios"
           data={definiciones}
           columns={colsDefinicion}
           onUpdate={updDef}
