@@ -353,10 +353,13 @@ export function EditableTable<T extends { id: string | number }>({
   const [pageSize, setPageSize] = useState(25);
 
   // ── Highlight de fila nueva ───────────────────────────────────────────────
-  const [newRowId,   setNewRowId]   = useState<string | number | null>(null);
-  const [fadingRowId,setFadingRowId]= useState<string | number | null>(null);
+  const [newRowId,      setNewRowId]      = useState<string | number | null>(null);
+  const [fadingRowId,   setFadingRowId]   = useState<string | number | null>(null);
   const newRowRef  = useRef<HTMLTableRowElement>(null);
   const prevLenRef = useRef(data.length);
+
+  // ── Confirmación de eliminación ───────────────────────────────────────────
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | number | null>(null);
 
   useEffect(() => {
     if (data.length > prevLenRef.current) {
@@ -403,9 +406,11 @@ export function EditableTable<T extends { id: string | number }>({
   const pagedData = filteredData.slice(pageStart, pageStart + pageSize);
 
   // Reset to page 1 when search changes
-  useEffect(() => { setPage(1); }, [searchTerm]);
+  useEffect(() => { setPage(1); setConfirmDeleteId(null); }, [searchTerm]);
   // Reset to page 1 if data shrinks below current page
   useEffect(() => { if (page > pageCount) setPage(pageCount); }, [filteredData.length]);
+  // Cancel pending delete confirmation when navigating pages
+  useEffect(() => { setConfirmDeleteId(null); }, [page]);
 
   // Resolve the index into `data` by id (handles both search-filter and pagination offsets)
   const dataIdx = (row: T) => data.findIndex(d => d.id === row.id);
@@ -447,7 +452,7 @@ export function EditableTable<T extends { id: string | number }>({
                   {col.header}
                 </th>
               ))}
-              {onDelete && <th style={{ width: "60px" }}>Acciones</th>}
+              {onDelete && <th style={{ width: "110px" }}>Acciones</th>}
             </tr>
           </thead>
           <tbody>
@@ -502,12 +507,42 @@ export function EditableTable<T extends { id: string | number }>({
                     ))}
                     {onDelete && (
                       <td>
-                        <button
-                          onClick={() => onDelete(idx)}
-                          className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {confirmDeleteId === row.id ? (
+                          /* ── Confirmación inline ── */
+                          <div className="flex items-center gap-1 px-1">
+                            <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                              ¿Eliminar?
+                            </span>
+                            <button
+                              onClick={() => { onDelete(idx); setConfirmDeleteId(null); }}
+                              title="Confirmar eliminación"
+                              className="p-1 text-destructive hover:bg-destructive/10 rounded transition-colors"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(null)}
+                              title="Cancelar"
+                              className="p-1 text-muted-foreground hover:bg-muted rounded transition-colors"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          /* ── Botón de eliminar (rojo si es fila nueva) ── */
+                          <button
+                            onClick={() => setConfirmDeleteId(row.id)}
+                            title="Eliminar fila"
+                            className={cn(
+                              "p-2 rounded transition-colors",
+                              isNew
+                                ? "text-destructive hover:bg-destructive/10"
+                                : "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
+                            )}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </td>
                     )}
                   </tr>
