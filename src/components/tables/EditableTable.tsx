@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
-import { Check, X, Trash2, Plus, Search, Filter } from "lucide-react";
+import { Check, X, Trash2, Plus, Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -336,6 +336,8 @@ function EditableCell({
 
 // ─── EditableTable ─────────────────────────────────────────────────────────────
 
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
 export function EditableTable<T extends { id: string | number }>({
   data,
   columns,
@@ -347,6 +349,8 @@ export function EditableTable<T extends { id: string | number }>({
   className,
 }: EditableTableProps<T>) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [page,     setPage]     = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const filteredData = searchable
     ? data.filter(row =>
@@ -357,12 +361,25 @@ export function EditableTable<T extends { id: string | number }>({
       )
     : data;
 
+  const pageCount = Math.max(1, Math.ceil(filteredData.length / pageSize));
+  const safePage  = Math.min(page, pageCount);
+  const pageStart = (safePage - 1) * pageSize;
+  const pagedData = filteredData.slice(pageStart, pageStart + pageSize);
+
+  // Reset to page 1 when search changes
+  useEffect(() => { setPage(1); }, [searchTerm]);
+  // Reset to page 1 if data shrinks below current page
+  useEffect(() => { if (page > pageCount) setPage(pageCount); }, [filteredData.length]);
+
+  // Resolve the index into `data` by id (handles both search-filter and pagination offsets)
+  const dataIdx = (row: T) => data.findIndex(d => d.id === row.id);
+
   return (
     <div className={cn("bg-card rounded-xl border border-border overflow-hidden", className)}>
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border">
+      <div className="flex items-center justify-between p-4 border-b border-border flex-wrap gap-2">
         {title && <h3 className="font-semibold text-foreground">{title}</h3>}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {searchable && (
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -371,14 +388,10 @@ export function EditableTable<T extends { id: string | number }>({
                 placeholder="Buscar..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                className="pl-9 w-64"
+                className="pl-9 w-56"
               />
             </div>
           )}
-          <Button variant="outline" size="sm">
-            <Filter className="w-4 h-4 mr-2" />
-            Filtrar
-          </Button>
           {onAdd && (
             <Button onClick={onAdd} size="sm">
               <Plus className="w-4 h-4 mr-2" />
@@ -402,63 +415,121 @@ export function EditableTable<T extends { id: string | number }>({
             </tr>
           </thead>
           <tbody>
-            {filteredData.length === 0 ? (
+            {pagedData.length === 0 ? (
               <tr>
                 <td
                   colSpan={columns.length + (onDelete ? 1 : 0)}
                   className="text-center py-8 text-muted-foreground"
                 >
-                  No hay datos disponibles
+                  {searchTerm ? "Sin resultados para la búsqueda" : "No hay datos disponibles"}
                 </td>
               </tr>
             ) : (
-              filteredData.map((row, rowIndex) => (
-                <tr key={row.id}>
-                  {columns.map(col => (
-                    <td key={String(col.key)}>
-                      {col.render ? (
-                        col.render(row[col.key], row, rowIndex)
-                      ) : col.type === "autocomplete" ? (
-                        <AutocompleteCell
-                          value={String(row[col.key] ?? "")}
-                          suggestions={col.options ?? []}
-                          editable={col.editable !== false}
-                          onSave={value => onUpdate(rowIndex, col.key, value)}
-                        />
-                      ) : (
-                        <EditableCell
-                          value={row[col.key]}
-                          type={col.type}
-                          options={col.options}
-                          editable={col.editable !== false}
-                          onSave={value => onUpdate(rowIndex, col.key, value)}
-                        />
-                      )}
-                    </td>
-                  ))}
-                  {onDelete && (
-                    <td>
-                      <button
-                        onClick={() => onDelete(rowIndex)}
-                        className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))
+              pagedData.map(row => {
+                const idx = dataIdx(row);
+                return (
+                  <tr key={row.id}>
+                    {columns.map(col => (
+                      <td key={String(col.key)}>
+                        {col.render ? (
+                          col.render(row[col.key], row, idx)
+                        ) : col.type === "autocomplete" ? (
+                          <AutocompleteCell
+                            value={String(row[col.key] ?? "")}
+                            suggestions={col.options ?? []}
+                            editable={col.editable !== false}
+                            onSave={value => onUpdate(idx, col.key, value)}
+                          />
+                        ) : (
+                          <EditableCell
+                            value={row[col.key]}
+                            type={col.type}
+                            options={col.options}
+                            editable={col.editable !== false}
+                            onSave={value => onUpdate(idx, col.key, value)}
+                          />
+                        )}
+                      </td>
+                    ))}
+                    {onDelete && (
+                      <td>
+                        <button
+                          onClick={() => onDelete(idx)}
+                          className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between px-4 py-3 border-t border-border text-sm text-muted-foreground">
+      {/* Footer — paginación */}
+      <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground flex-wrap gap-2">
         <span>
-          {filteredData.length} de {data.length} registros
+          {filteredData.length === 0
+            ? "Sin registros"
+            : `${pageStart + 1}–${Math.min(pageStart + pageSize, filteredData.length)} de ${filteredData.length}`}
+          {data.length !== filteredData.length && ` (filtrado de ${data.length})`}
         </span>
-        <span>Página 1 de 1</span>
+
+        <div className="flex items-center gap-3">
+          {/* Selector de filas por página */}
+          <div className="flex items-center gap-1.5">
+            <span>Filas:</span>
+            <select
+              value={pageSize}
+              onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+              className="h-6 text-xs border border-border rounded px-1 bg-background focus:outline-none"
+            >
+              {PAGE_SIZE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          {/* Controles de página */}
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => setPage(1)}
+              disabled={safePage <= 1}
+              className="p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Primera página"
+            >
+              <ChevronsLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={safePage <= 1}
+              className="p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Página anterior"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <span className="px-2 min-w-[60px] text-center">
+              {safePage} / {pageCount}
+            </span>
+            <button
+              onClick={() => setPage(p => Math.min(pageCount, p + 1))}
+              disabled={safePage >= pageCount}
+              className="p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Página siguiente"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setPage(pageCount)}
+              disabled={safePage >= pageCount}
+              className="p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Última página"
+            >
+              <ChevronsRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

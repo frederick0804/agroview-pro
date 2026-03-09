@@ -5,7 +5,19 @@
 //   ModParam             → Campos_configurados (campos de una definición)
 //   ModDato              → Datos_registro (registros con JSONB)
 
-export type TipoConfig = "estructura_campo" | "calibres" | "datos_personal" | "asistencia" | "lab_analisis" | "personalizado";
+export type TipoConfig =
+  | "estructura_campo"
+  | "calibres"
+  | "datos_personal"
+  | "asistencia"
+  | "lab_analisis"
+  | "produccion"
+  | "cosecha_registro"
+  | "fitosanitario"
+  | "riego"
+  | "trazabilidad"
+  | "inventario"
+  | "personalizado";
 export type TipoDato   = "Texto" | "Número" | "Fecha" | "Sí/No" | "Lista";
 export type EstadoDef  = "activo" | "borrador" | "archivado";
 
@@ -35,6 +47,7 @@ export interface ModDef {
   nivel_minimo: number;
   modulo:       string;
   estado:       EstadoDef;
+  cultivo_id?:  string;  // null = aplica a todos los cultivos (global)
 }
 
 // ─── ModParam — Campos_configurados ───────────────────────────────────────────
@@ -120,7 +133,7 @@ export const DEFINICIONES: ModDef[] = [
     id: "2", tipo: "calibres",
     nombre: "Calibres Arándano Azul",
     descripcion: "Rangos de calibre en mm para selección de fruta",
-    version: "1.0", nivel_minimo: 2, modulo: "cosecha", estado: "activo",
+    version: "1.0", nivel_minimo: 2, modulo: "cosecha", estado: "activo", cultivo_id: "c-02",
   },
   {
     id: "3", tipo: "datos_personal",
@@ -139,6 +152,12 @@ export const DEFINICIONES: ModDef[] = [
     nombre: "Análisis de Laboratorio",
     descripcion: "Parámetros de análisis físico-químico y biológico",
     version: "1.0", nivel_minimo: 1, modulo: "laboratorio", estado: "activo",
+  },
+  {
+    id: "6", tipo: "calibres",
+    nombre: "Calibres Fresa",
+    descripcion: "Rangos de calibre en mm y gramos para selección de fresas",
+    version: "1.0", nivel_minimo: 2, modulo: "cosecha", estado: "activo", cultivo_id: "c-01",
   },
 ];
 
@@ -173,6 +192,11 @@ export const PARAMETROS: ModParam[] = [
   { id: "21", definicion_id: "5", parametro_id: "p-23", nombre: "resultado",         tipo_dato: "Texto",  obligatorio: true,  orden: 4 },
   { id: "22", definicion_id: "5", parametro_id: "p-24", nombre: "unidad",            tipo_dato: "Texto",  obligatorio: false, orden: 5 },
   { id: "23", definicion_id: "5", parametro_id: "p-25", nombre: "estado",            tipo_dato: "Lista",  obligatorio: true,  orden: 6 },
+  // def 6: calibres fresa
+  { id: "24", definicion_id: "6", parametro_id: "p-01", nombre: "nombre",            tipo_dato: "Texto",  obligatorio: true,  orden: 1 },
+  { id: "25", definicion_id: "6", parametro_id: "p-07", nombre: "mm_minimo",         tipo_dato: "Número", obligatorio: true,  orden: 2 },
+  { id: "26", definicion_id: "6", parametro_id: "p-08", nombre: "mm_maximo",         tipo_dato: "Número", obligatorio: true,  orden: 3 },
+  { id: "27", definicion_id: "6", parametro_id: "p-09", nombre: "peso_g_minimo",     tipo_dato: "Número", obligatorio: false, orden: 4 },
 ];
 
 // ─── Datos demo ───────────────────────────────────────────────────────────────
@@ -190,6 +214,54 @@ export const DATOS_DEMO: ModDato[] = [
   { id: "d10", definicion_id: "5", referencia: "LAB-0113",               fecha: "2025-01-28", valores: '{"muestra":"LAB-0113","tipo_prueba":"pH Suelo","cultivo":"Bloque A","resultado":"6.2","unidad":"pH","estado":"Completado"}' },
   { id: "d11", definicion_id: "5", referencia: "LAB-0114",               fecha: "2025-01-29", valores: '{"muestra":"LAB-0114","tipo_prueba":"Conductividad","cultivo":"Bloque B","resultado":"1.8","unidad":"dS/m","estado":"Completado"}' },
   { id: "d12", definicion_id: "5", referencia: "LAB-0115",               fecha: "2025-01-30", valores: '{"muestra":"LAB-0115","tipo_prueba":"Firmeza","cultivo":"Fresa San Andreas","resultado":"3.2","unidad":"N","estado":"En proceso"}' },
+  // def 6: calibres fresa
+  { id: "d13", definicion_id: "6", referencia: "Premium",               fecha: "2025-01-10", valores: '{"nombre":"Premium","mm_minimo":28,"mm_maximo":32,"peso_g_minimo":18}' },
+  { id: "d14", definicion_id: "6", referencia: "Selecta",               fecha: "2025-01-10", valores: '{"nombre":"Selecta","mm_minimo":24,"mm_maximo":28,"peso_g_minimo":14}' },
+  { id: "d15", definicion_id: "6", referencia: "Estándar",              fecha: "2025-01-10", valores: '{"nombre":"Estándar","mm_minimo":20,"mm_maximo":24,"peso_g_minimo":10}' },
+];
+
+// ─── Cultivo ──────────────────────────────────────────────────────────────────
+// Equivale a la tabla `Cultivos` del ERD.
+
+export interface Cultivo {
+  id:          string;
+  nombre:      string;    // ej: "Fresas"
+  codigo:      string;    // ej: "FRE"
+  descripcion: string;
+  activo:      boolean;
+}
+
+// ─── Variedad — CAT_VARIEDADES ────────────────────────────────────────────────
+// Variedades por cultivo.
+
+export interface Variedad {
+  id:          string;
+  cultivo_id:  string;
+  nombre:      string;    // ej: "Festival"
+  codigo:      string;    // ej: "FES"
+  descripcion: string;
+  activo:      boolean;
+}
+
+// ─── Datos iniciales — Cultivos y Variedades ──────────────────────────────────
+
+export const CULTIVOS: Cultivo[] = [
+  { id: "c-01", nombre: "Fresas",     codigo: "FRE", descripcion: "Fragaria × ananassa",   activo: true  },
+  { id: "c-02", nombre: "Arándanos",  codigo: "ARA", descripcion: "Vaccinium spp.",         activo: true  },
+  { id: "c-03", nombre: "Frambuesas", codigo: "FRA", descripcion: "Rubus idaeus",           activo: false },
+];
+
+export const VARIEDADES: Variedad[] = [
+  // Fresas
+  { id: "v-01", cultivo_id: "c-01", nombre: "Festival",     codigo: "FES", descripcion: "Alta producción, fruto firme",     activo: true  },
+  { id: "v-02", cultivo_id: "c-01", nombre: "San Andreas",  codigo: "SAN", descripcion: "Día neutro, cosecha continua",     activo: true  },
+  { id: "v-03", cultivo_id: "c-01", nombre: "Camarosa",     codigo: "CAM", descripcion: "Fruto grande, buen sabor",         activo: false },
+  // Arándanos
+  { id: "v-04", cultivo_id: "c-02", nombre: "Biloxi",       codigo: "BIL", descripcion: "Baja estratificación, precoz",     activo: true  },
+  { id: "v-05", cultivo_id: "c-02", nombre: "O'Neal",       codigo: "ONE", descripcion: "Alta productividad, buen calibre", activo: true  },
+  { id: "v-06", cultivo_id: "c-02", nombre: "Emerald",      codigo: "EME", descripcion: "Fruto grande y firme",             activo: true  },
+  // Frambuesas
+  { id: "v-07", cultivo_id: "c-03", nombre: "Autumn Bliss", codigo: "AUT", descripcion: "Remontante de otoño",              activo: false },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -216,6 +288,12 @@ export const tipoBadgeColor: Record<TipoConfig, string> = {
   datos_personal:   "bg-violet-100 text-violet-700",
   asistencia:       "bg-orange-100 text-orange-700",
   lab_analisis:     "bg-cyan-100 text-cyan-700",
+  produccion:       "bg-lime-100 text-lime-700",
+  cosecha_registro: "bg-yellow-100 text-yellow-700",
+  fitosanitario:    "bg-red-100 text-red-700",
+  riego:            "bg-sky-100 text-sky-700",
+  trazabilidad:     "bg-indigo-100 text-indigo-700",
+  inventario:       "bg-amber-100 text-amber-700",
   personalizado:    "bg-gray-100 text-gray-700",
 };
 
@@ -225,6 +303,12 @@ export const tipoLabels: Record<TipoConfig, string> = {
   datos_personal:   "Datos Personal",
   asistencia:       "Asistencia",
   lab_analisis:     "Lab. Análisis",
+  produccion:       "Producción",
+  cosecha_registro: "Cosecha",
+  fitosanitario:    "Fitosanitario",
+  riego:            "Riego",
+  trazabilidad:     "Trazabilidad",
+  inventario:       "Inventario",
   personalizado:    "Personalizado",
 };
 

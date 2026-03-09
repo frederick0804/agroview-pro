@@ -7,8 +7,9 @@
 
 import { createContext, useContext, useState, type ReactNode } from "react";
 import {
-  DEFINICIONES, PARAMETROS, DATOS_DEMO, PARAMETROS_LIBRARY,
+  DEFINICIONES, PARAMETROS, DATOS_DEMO, PARAMETROS_LIBRARY, CULTIVOS, VARIEDADES,
   type ModDef, type ModParam, type ModDato, type Parametro, type TipoDato, type EstadoDef,
+  type Cultivo, type Variedad,
 } from "@/config/moduleDefinitions";
 
 // ─── Tipos del contexto ───────────────────────────────────────────────────────
@@ -22,7 +23,7 @@ interface ConfigContextType {
 
   // ── Definiciones (Definicion_registro) ──
   definiciones: ModDef[];
-  addDef:  () => void;
+  addDef:  (cultivoId?: string) => void;
   updDef:  (rowIndex: number, key: keyof ModDef, value: unknown) => void;
   delDef:  (rowIndex: number) => void;
 
@@ -37,6 +38,18 @@ interface ConfigContextType {
   addDato: (defId: string) => ModDato;
   updDato: (id: string, updated: ModDato) => void;
   delDato: (id: string) => void;
+
+  // ── Cultivos ──
+  cultivos:    Cultivo[];
+  addCultivo:  (partial?: Partial<Cultivo>) => void;
+  updCultivo:  (id: string, key: keyof Cultivo, value: unknown) => void;
+  delCultivo:  (id: string) => void;
+
+  // ── Variedades (CAT_VARIEDADES) ──
+  variedades:  Variedad[];
+  addVariedad: (cultivoId: string) => void;
+  updVariedad: (id: string, key: keyof Variedad, value: unknown) => void;
+  delVariedad: (id: string) => void;
 }
 
 // ─── Contexto ─────────────────────────────────────────────────────────────────
@@ -50,6 +63,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const [definiciones,  setDefiniciones]  = useState<ModDef[]>(DEFINICIONES);
   const [parametros,    setParametros]    = useState<ModParam[]>(PARAMETROS);
   const [datos,         setDatos]         = useState<ModDato[]>(DATOS_DEMO);
+  const [cultivos,      setCultivos]      = useState<Cultivo[]>(CULTIVOS);
+  const [variedades,    setVariedades]    = useState<Variedad[]>(VARIEDADES);
 
   // ── Biblioteca global ──────────────────────────────────────────────────────
 
@@ -78,7 +93,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   // ── Definiciones ──────────────────────────────────────────────────────────
 
-  const addDef = () =>
+  const addDef = (cultivoId?: string) =>
     setDefiniciones(prev => [...prev, {
       id:           String(Date.now()),
       tipo:         "personalizado" as const,
@@ -88,6 +103,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       nivel_minimo: 2,
       modulo:       "cultivo",
       estado:       "borrador" as EstadoDef,
+      cultivo_id:   cultivoId,
     }]);
 
   const updDef = (i: number, k: keyof ModDef, v: unknown) =>
@@ -166,12 +182,51 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const delDato = (id: string) =>
     setDatos(prev => prev.filter(d => d.id !== id));
 
+  // ── Cultivos ────────────────────────────────────────────────────────────────
+
+  const addCultivo = (partial?: Partial<Cultivo>) =>
+    setCultivos(prev => [...prev, {
+      id:          `c-${Date.now()}`,
+      nombre:      partial?.nombre      ?? "",
+      codigo:      partial?.codigo      ?? "",
+      descripcion: partial?.descripcion ?? "",
+      activo:      true,
+    }]);
+
+  const updCultivo = (id: string, k: keyof Cultivo, v: unknown) =>
+    setCultivos(prev => prev.map(c => c.id === id ? { ...c, [k]: v } : c));
+
+  const delCultivo = (id: string) => {
+    setCultivos(prev => prev.filter(c => c.id !== id));
+    setVariedades(prev => prev.filter(v => v.cultivo_id !== id));
+  };
+
+  // ── Variedades ──────────────────────────────────────────────────────────────
+
+  const addVariedad = (cultivoId: string) =>
+    setVariedades(prev => [...prev, {
+      id:          `v-${Date.now()}`,
+      cultivo_id:  cultivoId,
+      nombre:      "",
+      codigo:      "",
+      descripcion: "",
+      activo:      true,
+    }]);
+
+  const updVariedad = (id: string, k: keyof Variedad, v: unknown) =>
+    setVariedades(prev => prev.map(v2 => v2.id === id ? { ...v2, [k]: v } : v2));
+
+  const delVariedad = (id: string) =>
+    setVariedades(prev => prev.filter(v => v.id !== id));
+
   return (
     <ConfigContext.Provider value={{
       parametrosLib, addParamLib, updParamLib, delParamLib,
       definiciones,  addDef,      updDef,      delDef,
       parametros,    addPar,      updParByIdx, delParByIdx,
       datos,         addDato,     updDato,     delDato,
+      cultivos,      addCultivo,  updCultivo,  delCultivo,
+      variedades,    addVariedad, updVariedad, delVariedad,
     }}>
       {children}
     </ConfigContext.Provider>

@@ -5,9 +5,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useRole } from "@/contexts/RoleContext";
 import { useConfig } from "@/contexts/ConfigContext";
-import { Settings, Download, Upload } from "lucide-react";
+import { Settings, Download, Upload, SlidersHorizontal, Leaf } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { cn } from "@/lib/utils";
 import { parseValores, type TipoDato, type ModDato } from "@/config/moduleDefinitions";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -31,6 +32,7 @@ const tipoDatoToColType = (t: TipoDato): Column<DynRow>["type"] => {
 function DynamicDefTable({ defId, moduloKey }: { defId: string; moduloKey: string }) {
   const { hasPermission } = useRole();
   const { definiciones, parametros, datos, addDato, updDato, delDato } = useConfig();
+  const navigate = useNavigate();
 
   const def    = definiciones.find(d => d.id === defId);
   const params = parametros
@@ -97,14 +99,28 @@ function DynamicDefTable({ defId, moduloKey }: { defId: string; moduloKey: strin
     : undefined;
 
   return (
-    <EditableTable
-      title={def.nombre}
-      data={rows}
-      columns={columns}
-      onUpdate={handleUpdate}
-      onDelete={handleDelete}
-      onAdd={handleAdd}
-    />
+    <div className="space-y-3">
+      {/* Botón editar campos de esta definición */}
+      <div className="flex justify-end">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => navigate(`/configuracion?tab=campos&def=${defId}`)}
+          className="text-xs gap-1.5"
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          Editar campos del formulario
+        </Button>
+      </div>
+      <EditableTable
+        title={def.nombre}
+        data={rows}
+        columns={columns}
+        onUpdate={handleUpdate}
+        onDelete={handleDelete}
+        onAdd={handleAdd}
+      />
+    </div>
   );
 }
 
@@ -114,20 +130,45 @@ function DynamicDefTable({ defId, moduloKey }: { defId: string; moduloKey: strin
 
 function DynamicModulePage({ title, moduloKey }: { title: string; moduloKey: string }) {
   const { roleName, hierarchyLevel, hasPermission } = useRole();
-  const { definiciones } = useConfig();
+  const { definiciones, cultivos } = useConfig();
   const navigate = useNavigate();
   const canExport = hasPermission(moduloKey, "exportar");
 
-  // Definiciones accesibles para este módulo y nivel de usuario
+  // Todas las definiciones accesibles para este módulo
   const defs = definiciones.filter(
     d => d.modulo === moduloKey && hierarchyLevel >= d.nivel_minimo,
   );
 
-  const [activeTab, setActiveTab] = useState<string>(() => defs[0]?.id ?? "");
+  // IDs únicos de cultivos que tienen al menos 1 def en este módulo
+  const cultivoIdsWithDefs = [...new Set(
+    defs.filter(d => d.cultivo_id).map(d => d.cultivo_id as string),
+  )];
+  const hasGlobalDefs = defs.some(d => !d.cultivo_id);
 
-  // Actualizar tab activo si la primera def cambia (ej. al crear la primera)
-  const firstDefId = defs[0]?.id ?? "";
-  const currentTab = defs.some(d => d.id === activeTab) ? activeTab : firstDefId;
+  // Mostrar selector de cultivo si hay defs de varios cultivos o mezcla cultivo+global
+  const showCultivoPicker =
+    cultivoIdsWithDefs.length > 1 ||
+    (cultivoIdsWithDefs.length >= 1 && hasGlobalDefs);
+
+  const [filterCultivoId, setFilterCultivoId] = useState<string>(
+    () => cultivoIdsWithDefs[0] ?? "",
+  );
+
+  // Defs visibles según el cultivo seleccionado
+  const filteredDefs = showCultivoPicker
+    ? defs.filter(d => (d.cultivo_id ?? "") === filterCultivoId)
+    : defs;
+
+  const [activeTab, setActiveTab] = useState<string>(() => filteredDefs[0]?.id ?? "");
+
+  // Reset tab al cambiar el cultivo seleccionado
+  useEffect(() => {
+    setActiveTab(filteredDefs[0]?.id ?? "");
+  }, [filterCultivoId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const currentTab = filteredDefs.some(d => d.id === activeTab)
+    ? activeTab
+    : (filteredDefs[0]?.id ?? "");
 
   return (
     <MainLayout>
@@ -163,23 +204,70 @@ function DynamicModulePage({ title, moduloKey }: { title: string; moduloKey: str
             </Button>
           )}
         </div>
-      ) : defs.length === 1 ? (
-        /* Una sola definición — sin tabs, tabla directa */
-        <DynamicDefTable defId={defs[0].id} moduloKey={moduloKey} />
       ) : (
-        /* Varias definiciones — una tab por cada una */
-        <Tabs value={currentTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="bg-muted p-1 rounded-lg flex-wrap gap-1 h-auto">
-            {defs.map(d => (
-              <TabsTrigger key={d.id} value={d.id}>{d.nombre}</TabsTrigger>
-            ))}
-          </TabsList>
-          {defs.map(d => (
-            <TabsContent key={d.id} value={d.id}>
-              <DynamicDefTable defId={d.id} moduloKey={moduloKey} />
-            </TabsContent>
-          ))}
-        </Tabs>
+        <div className="space-y-4">
+          {/* Selector de cultivo — solo cuando hay defs de múltiples cultivos */}
+          {showCultivoPicker && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {hasGlobalDefs && (
+                <button
+                  onClick={() => setFilterCultivoId("")}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all",
+                    filterCultivoId === ""
+                      ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+                      : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:shadow-sm",
+                  )}
+                >
+                  Global
+                </button>
+              )}
+              {cultivoIdsWithDefs.map(cid => {
+                const cultivo = cultivos.find(c => c.id === cid);
+                return (
+                  <button
+                    key={cid}
+                    onClick={() => setFilterCultivoId(cid)}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all",
+                      filterCultivoId === cid
+                        ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+                        : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:shadow-sm",
+                    )}
+                  >
+                    <Leaf className="w-3.5 h-3.5 shrink-0" />
+                    {cultivo?.nombre ?? cid}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Contenido: ninguno / tabla única / tabs por def */}
+          {filteredDefs.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center">
+                <Settings className="w-6 h-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm text-muted-foreground">Sin formularios para este cultivo.</p>
+            </div>
+          ) : filteredDefs.length === 1 ? (
+            <DynamicDefTable defId={filteredDefs[0].id} moduloKey={moduloKey} />
+          ) : (
+            <Tabs value={currentTab} onValueChange={setActiveTab} className="space-y-6">
+              <TabsList className="bg-muted p-1 rounded-lg flex-wrap gap-1 h-auto">
+                {filteredDefs.map(d => (
+                  <TabsTrigger key={d.id} value={d.id}>{d.nombre}</TabsTrigger>
+                ))}
+              </TabsList>
+              {filteredDefs.map(d => (
+                <TabsContent key={d.id} value={d.id}>
+                  <DynamicDefTable defId={d.id} moduloKey={moduloKey} />
+                </TabsContent>
+              ))}
+            </Tabs>
+          )}
+        </div>
       )}
     </MainLayout>
   );
