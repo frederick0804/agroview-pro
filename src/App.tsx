@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { RoleProvider, useRole } from "@/contexts/RoleContext";
+import { ConfigProvider } from "@/contexts/ConfigContext";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Configuracion from "./pages/Configuracion";
@@ -34,6 +35,7 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <RoleProvider>
+          <ConfigProvider>
           <Toaster />
           <Sonner />
           <BrowserRouter>
@@ -53,6 +55,7 @@ const App = () => {
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
+          </ConfigProvider>
         </RoleProvider>
       </TooltipProvider>
     </QueryClientProvider>
