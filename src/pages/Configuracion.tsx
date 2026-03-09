@@ -13,7 +13,7 @@ import { Badge }   from "@/components/ui/badge";
 import {
   Layers, List, Table2, Palette, Settings2, BookOpen,
   Upload, ChevronDown, ChevronUp, X, Plus, Save,
-  Trash2, Info, CheckCircle2, Clock, Archive, Database, Leaf,
+  Trash2, Info, CheckCircle2, Clock, Archive, Database, Leaf, Search,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import {
@@ -77,6 +77,7 @@ function EstadoIcon({ estado }: { estado: EstadoDef }) {
 
 function TabDefiniciones() {
   const { definiciones, parametros, datos, addDef, updDef, delDef, cultivos } = useConfig();
+  const [searchDef, setSearchDef] = useState("");
 
   const cultivoOptions = [
     { value: "",  label: "— Global —" },
@@ -112,8 +113,26 @@ function TabDefiniciones() {
           </button>
         </div>
 
-        <div className="flex flex-col gap-0.5 p-1.5 max-h-[560px] overflow-y-auto">
-          {definiciones.filter(d => d.nombre).map(d => {
+        {/* Buscador */}
+        <div className="px-2 py-1.5 border-b border-border">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+            <input
+              value={searchDef}
+              onChange={e => setSearchDef(e.target.value)}
+              placeholder="Buscar formulario…"
+              className="w-full pl-6 pr-2 py-1 text-xs rounded-md bg-muted/40 border border-transparent focus:border-primary/40 focus:outline-none focus:bg-background transition-colors"
+            />
+            {searchDef && (
+              <button onClick={() => setSearchDef("")} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-0.5 p-1.5 max-h-[520px] overflow-y-auto">
+          {definiciones.filter(d => d.nombre && d.nombre.toLowerCase().includes(searchDef.toLowerCase())).map(d => {
             const campoCount = parametros.filter(p => p.definicion_id === d.id).length;
             const datoCount  = datos.filter(dt => dt.definicion_id === d.id).length;
             return (
@@ -155,8 +174,10 @@ function TabDefiniciones() {
             );
           })}
 
-          {definiciones.filter(d => d.nombre).length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-6">Sin definiciones aún.</p>
+          {definiciones.filter(d => d.nombre && d.nombre.toLowerCase().includes(searchDef.toLowerCase())).length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-6">
+              {searchDef ? "Sin resultados." : "Sin definiciones aún."}
+            </p>
           )}
         </div>
       </div>
@@ -311,6 +332,7 @@ function TabBiblioteca() {
 function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
   const { definiciones, parametros, parametrosLib, addPar, updParByIdx, delParByIdx } = useConfig();
   const [filterDefId, setFilterDefId] = useState<string>(initialDefId);
+  const [searchCampo, setSearchCampo]  = useState("");
 
   // Sugerencias para autocomplete: nombres de la biblioteca global
   const sugerencias = parametrosLib
@@ -382,43 +404,71 @@ function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
               Formulario
             </span>
           </div>
-          <div className="flex flex-col gap-0.5 p-1.5 max-h-[520px] overflow-y-auto">
-            {/* "Todos" */}
-            <button
-              onClick={() => setFilterDefId("all")}
-              className={cn(
-                "text-xs px-3 py-2 rounded-lg font-medium text-left w-full transition-colors flex items-center justify-between gap-2",
-                filterDefId === "all"
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+
+          {/* Buscador */}
+          <div className="px-2 py-1.5 border-b border-border">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+              <input
+                value={searchCampo}
+                onChange={e => setSearchCampo(e.target.value)}
+                placeholder="Buscar formulario…"
+                className="w-full pl-6 pr-2 py-1 text-xs rounded-md bg-muted/40 border border-transparent focus:border-primary/40 focus:outline-none focus:bg-background transition-colors"
+              />
+              {searchCampo && (
+                <button onClick={() => setSearchCampo("")} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  <X className="w-3 h-3" />
+                </button>
               )}
-            >
-              <span>Todos</span>
-              <span className="opacity-60 text-[11px] tabular-nums">{parametros.length}</span>
-            </button>
+            </div>
+          </div>
 
-            <div className="h-px bg-border mx-1 my-0.5" />
-
-            {/* Una fila por definición */}
-            {definiciones.map(d => {
-              const count    = parametros.filter(p => p.definicion_id === d.id).length;
-              const isActive = filterDefId === d.id;
-              return (
+          <div className="flex flex-col gap-0.5 p-1.5 max-h-[480px] overflow-y-auto">
+            {/* "Todos" — solo visible cuando no hay búsqueda activa */}
+            {!searchCampo && (
+              <>
                 <button
-                  key={d.id}
-                  onClick={() => setFilterDefId(d.id)}
+                  onClick={() => setFilterDefId("all")}
                   className={cn(
                     "text-xs px-3 py-2 rounded-lg font-medium text-left w-full transition-colors flex items-center justify-between gap-2",
-                    isActive
-                      ? `${tipoBadgeColor[d.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700"}`
+                    filterDefId === "all"
+                      ? "bg-foreground text-background"
                       : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                   )}
                 >
-                  <span className="truncate leading-tight">{d.nombre || `(def ${d.id})`}</span>
-                  <span className="opacity-60 text-[11px] tabular-nums shrink-0">{count}</span>
+                  <span>Todos</span>
+                  <span className="opacity-60 text-[11px] tabular-nums">{parametros.length}</span>
                 </button>
-              );
-            })}
+                <div className="h-px bg-border mx-1 my-0.5" />
+              </>
+            )}
+
+            {/* Una fila por definición, filtrada por búsqueda */}
+            {definiciones
+              .filter(d => d.nombre?.toLowerCase().includes(searchCampo.toLowerCase()))
+              .map(d => {
+                const count    = parametros.filter(p => p.definicion_id === d.id).length;
+                const isActive = filterDefId === d.id;
+                return (
+                  <button
+                    key={d.id}
+                    onClick={() => { setFilterDefId(d.id); setSearchCampo(""); }}
+                    className={cn(
+                      "text-xs px-3 py-2 rounded-lg font-medium text-left w-full transition-colors flex items-center justify-between gap-2",
+                      isActive
+                        ? `${tipoBadgeColor[d.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700"}`
+                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    )}
+                  >
+                    <span className="truncate leading-tight">{d.nombre || `(def ${d.id})`}</span>
+                    <span className="opacity-60 text-[11px] tabular-nums shrink-0">{count}</span>
+                  </button>
+                );
+              })}
+
+            {definiciones.filter(d => d.nombre?.toLowerCase().includes(searchCampo.toLowerCase())).length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-4">Sin resultados.</p>
+            )}
           </div>
         </div>
 
