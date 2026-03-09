@@ -352,6 +352,42 @@ export function EditableTable<T extends { id: string | number }>({
   const [page,     setPage]     = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
+  // ── Highlight de fila nueva ───────────────────────────────────────────────
+  const [newRowId,   setNewRowId]   = useState<string | number | null>(null);
+  const [fadingRowId,setFadingRowId]= useState<string | number | null>(null);
+  const newRowRef  = useRef<HTMLTableRowElement>(null);
+  const prevLenRef = useRef(data.length);
+
+  useEffect(() => {
+    if (data.length > prevLenRef.current) {
+      const newest = data[data.length - 1];
+      if (newest) {
+        // 1. Saltar a la última página
+        const totalPages = Math.max(1, Math.ceil(data.length / pageSize));
+        setPage(totalPages);
+
+        // 2. Marcar la fila como nueva (color de entrada)
+        setNewRowId(newest.id);
+        setFadingRowId(null);
+
+        // 3. Iniciar el fade-out a los 1.4 s, limpiar a los 2.2 s
+        const t1 = window.setTimeout(() => setFadingRowId(newest.id), 1400);
+        const t2 = window.setTimeout(() => { setNewRowId(null); setFadingRowId(null); }, 2200);
+        return () => { clearTimeout(t1); clearTimeout(t2); };
+      }
+    }
+    prevLenRef.current = data.length;
+  }, [data.length, pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Scroll hasta la fila nueva cuando el ref esté disponible
+  useEffect(() => {
+    if (newRowId && newRowRef.current) {
+      newRowRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [newRowId]);
+
+  // ── Filtrado y paginación ─────────────────────────────────────────────────
+
   const filteredData = searchable
     ? data.filter(row =>
         columns.some(col => {
@@ -426,9 +462,22 @@ export function EditableTable<T extends { id: string | number }>({
               </tr>
             ) : (
               pagedData.map(row => {
-                const idx = dataIdx(row);
+                const idx     = dataIdx(row);
+                const isNew   = row.id === newRowId;
+                const isFading= row.id === fadingRowId;
                 return (
-                  <tr key={row.id}>
+                  <tr
+                    key={row.id}
+                    ref={isNew ? newRowRef : undefined}
+                    className={cn(
+                      "transition-colors duration-700",
+                      isNew && !isFading
+                        ? "bg-emerald-50 border-l-[3px] border-l-emerald-500"
+                        : isFading
+                          ? "bg-transparent border-l-[3px] border-l-transparent"
+                          : "",
+                    )}
+                  >
                     {columns.map(col => (
                       <td key={String(col.key)}>
                         {col.render ? (
