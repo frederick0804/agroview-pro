@@ -1,9 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
-import { Check, X, Trash2, Plus, Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { Check, X, Trash2, Plus, Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertTriangle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 
 export interface Column<T> {
   key: keyof T;
@@ -452,7 +456,7 @@ export function EditableTable<T extends { id: string | number }>({
                   {col.header}
                 </th>
               ))}
-              {onDelete && <th style={{ width: "110px" }}>Acciones</th>}
+              {onDelete && <th style={{ width: "60px" }}>Acciones</th>}
             </tr>
           </thead>
           <tbody>
@@ -507,42 +511,18 @@ export function EditableTable<T extends { id: string | number }>({
                     ))}
                     {onDelete && (
                       <td>
-                        {confirmDeleteId === row.id ? (
-                          /* ── Confirmación inline ── */
-                          <div className="flex items-center gap-1 px-1">
-                            <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                              ¿Eliminar?
-                            </span>
-                            <button
-                              onClick={() => { onDelete(idx); setConfirmDeleteId(null); }}
-                              title="Confirmar eliminación"
-                              className="p-1 text-destructive hover:bg-destructive/10 rounded transition-colors"
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => setConfirmDeleteId(null)}
-                              title="Cancelar"
-                              className="p-1 text-muted-foreground hover:bg-muted rounded transition-colors"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ) : (
-                          /* ── Botón de eliminar (rojo si es fila nueva) ── */
-                          <button
-                            onClick={() => setConfirmDeleteId(row.id)}
-                            title="Eliminar fila"
-                            className={cn(
-                              "p-2 rounded transition-colors",
-                              isNew
-                                ? "text-destructive hover:bg-destructive/10"
-                                : "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
-                            )}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => setConfirmDeleteId(row.id)}
+                          title="Eliminar fila"
+                          className={cn(
+                            "p-2 rounded transition-colors",
+                            isNew
+                              ? "text-destructive hover:bg-destructive/10"
+                              : "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
+                          )}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </td>
                     )}
                   </tr>
@@ -615,6 +595,50 @@ export function EditableTable<T extends { id: string | number }>({
           </div>
         </div>
       </div>
+
+      {/* ── Modal de confirmación de eliminación ── */}
+      {onDelete && (
+        <Dialog
+          open={confirmDeleteId !== null}
+          onOpenChange={open => { if (!open) setConfirmDeleteId(null); }}
+        >
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <div className="flex items-center gap-3 mb-1">
+                <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-destructive" />
+                </div>
+                <DialogTitle>Eliminar registro</DialogTitle>
+              </div>
+              <DialogDescription>
+                ¿Estás seguro de que deseas eliminar este registro?
+                Esta acción no se puede deshacer.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                variant="outline"
+                onClick={() => setConfirmDeleteId(null)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (confirmDeleteId !== null) {
+                    const idx = data.findIndex(d => d.id === confirmDeleteId);
+                    if (idx !== -1) onDelete(idx);
+                  }
+                  setConfirmDeleteId(null);
+                }}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Sí, eliminar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { MainLayout }  from "@/components/layout/MainLayout";
@@ -10,6 +10,10 @@ import { Label }   from "@/components/ui/label";
 import { Button }  from "@/components/ui/button";
 import { Switch }  from "@/components/ui/switch";
 import { Badge }   from "@/components/ui/badge";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Layers, List, Table2, Palette, Settings2, BookOpen,
   Upload, ChevronDown, ChevronUp, X, Plus, Save,
@@ -630,6 +634,30 @@ function TabCultivos() {
   const [selectedId, setSelectedId] = useState<string>(firstActive);
   const [subTab, setSubTab]         = useState("variedades");
 
+  // ── Modal: nuevo cultivo ───────────────────────────────────────────────────
+  const [showAddCultivo,  setShowAddCultivo]  = useState(false);
+  const [newCultivoForm,  setNewCultivoForm]  = useState({ nombre: "", codigo: "", descripcion: "" });
+  const prevCultivoLen = useRef(cultivos.length);
+
+  // Auto-seleccionar el cultivo recién creado
+  useEffect(() => {
+    if (cultivos.length > prevCultivoLen.current) {
+      setSelectedId(cultivos[cultivos.length - 1].id);
+    }
+    prevCultivoLen.current = cultivos.length;
+  }, [cultivos.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleCreateCultivo = () => {
+    if (!newCultivoForm.nombre.trim()) return;
+    addCultivo({
+      nombre:      newCultivoForm.nombre.trim(),
+      codigo:      newCultivoForm.codigo.trim().toUpperCase(),
+      descripcion: newCultivoForm.descripcion.trim(),
+    });
+    setNewCultivoForm({ nombre: "", codigo: "", descripcion: "" });
+    setShowAddCultivo(false);
+  };
+
   const cultivo     = cultivos.find(c => c.id === selectedId);
   const cultivoVars = variedades.filter(v => v.cultivo_id === selectedId);
   const cultivoDefs = definiciones.filter(d => d.cultivo_id === selectedId);
@@ -714,7 +742,7 @@ function TabCultivos() {
           );
         })}
         <button
-          onClick={() => addCultivo()}
+          onClick={() => setShowAddCultivo(true)}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all"
         >
           <Plus className="w-3.5 h-3.5" /> Nuevo cultivo
@@ -814,7 +842,7 @@ function TabCultivos() {
             <p className="font-semibold text-foreground">Sin cultivos registrados</p>
             <p className="text-sm text-muted-foreground mt-1">Crea el primer cultivo para comenzar.</p>
           </div>
-          <Button onClick={() => addCultivo()}>
+          <Button onClick={() => setShowAddCultivo(true)}>
             <Plus className="w-4 h-4 mr-2" /> Nuevo Cultivo
           </Button>
         </div>
@@ -827,9 +855,80 @@ function TabCultivos() {
         columns={colsCultivos}
         onUpdate={updC}
         onDelete={delC}
-        onAdd={() => addCultivo()}
+        onAdd={() => setShowAddCultivo(true)}
         searchable={false}
       />
+
+      {/* ── Modal: crear nuevo cultivo ── */}
+      <Dialog open={showAddCultivo} onOpenChange={open => {
+        if (!open) { setNewCultivoForm({ nombre: "", codigo: "", descripcion: "" }); }
+        setShowAddCultivo(open);
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Leaf className="w-5 h-5 text-primary" />
+              Nuevo Cultivo
+            </DialogTitle>
+            <DialogDescription>
+              Completa los datos para registrar el nuevo cultivo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">
+                Nombre <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                value={newCultivoForm.nombre}
+                onChange={e => setNewCultivoForm(p => ({ ...p, nombre: e.target.value }))}
+                placeholder="ej. Fresas, Tomates, Lechugas…"
+                autoFocus
+                onKeyDown={e => { if (e.key === "Enter") handleCreateCultivo(); }}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Código</Label>
+              <Input
+                value={newCultivoForm.codigo}
+                onChange={e => setNewCultivoForm(p => ({ ...p, codigo: e.target.value.toUpperCase() }))}
+                placeholder="ej. FRE, TOM, LEC"
+                maxLength={6}
+                onKeyDown={e => { if (e.key === "Enter") handleCreateCultivo(); }}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Descripción</Label>
+              <Input
+                value={newCultivoForm.descripcion}
+                onChange={e => setNewCultivoForm(p => ({ ...p, descripcion: e.target.value }))}
+                placeholder="Variedad, especie, notas…"
+                onKeyDown={e => { if (e.key === "Enter") handleCreateCultivo(); }}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowAddCultivo(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleCreateCultivo}
+              disabled={!newCultivoForm.nombre.trim()}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Crear Cultivo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }
