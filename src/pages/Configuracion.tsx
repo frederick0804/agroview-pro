@@ -1267,6 +1267,10 @@ interface BrandConfig {
 }
 
 const Configuracion = () => {
+  const [searchParams] = useSearchParams();
+  const initialTab   = searchParams.get("tab")   ?? "cultivos";
+  const initialDefId = searchParams.get("def")   ?? "all";
+
   const [brandConfig, setBrandConfig] = useState<BrandConfig>({
     nombreEmpresa: "BlueData",
     colorPrimario: "#1a5c3a",
