@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { MainLayout }  from "@/components/layout/MainLayout";
@@ -11,9 +11,13 @@ import { Button }  from "@/components/ui/button";
 import { Switch }  from "@/components/ui/switch";
 import { Badge }   from "@/components/ui/badge";
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
+import {
   Layers, List, Table2, Palette, Settings2, BookOpen,
   Upload, ChevronDown, ChevronUp, X, Plus, Save,
-  Trash2, Info, CheckCircle2, Clock, Archive, Database, Leaf,
+  Trash2, Info, CheckCircle2, Clock, Archive, Database, Leaf, Search, Copy, History,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import {
@@ -65,6 +69,16 @@ const ESTADO_OPTIONS = [
   { value: "archivado", label: "Archivado" },
 ];
 
+// ─── Version helpers ──────────────────────────────────────────────────────────
+
+/** Incrementa la parte minor (X.Y → X.Y+1) o major (X.Y → X+1.0) de una versión. */
+const bumpV = (v: string, kind: "minor" | "major"): string => {
+  const parts = (v ?? "1.0").split(".").map(n => parseInt(n) || 0);
+  const maj = parts[0] ?? 1;
+  const min = parts[1] ?? 0;
+  return kind === "minor" ? `${maj}.${min + 1}` : `${maj + 1}.0`;
+};
+
 // ─── EstadoIcon ───────────────────────────────────────────────────────────────
 
 function EstadoIcon({ estado }: { estado: EstadoDef }) {
@@ -76,124 +90,483 @@ function EstadoIcon({ estado }: { estado: EstadoDef }) {
 // ─── Panel de Definiciones ────────────────────────────────────────────────────
 
 function TabDefiniciones() {
-  const { definiciones, parametros, datos, addDef, updDef, delDef, cultivos } = useConfig();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { definiciones, parametros, datos, addDef, updDef, delDef, dupDef, cultivos } = useConfig();
+  const navigate = useNavigate();
+  const [searchDef,             setSearchDef]             = useState("");
+  const [expandedFamilies,      setExpandedFamilies]      = useState<Set<string>>(new Set());
+  const [expandedVersionCampos, setExpandedVersionCampos] = useState<Set<string>>(new Set());
+  const [activeFamilyId,        setActiveFamilyId]        = useState<string | null>(null);
+  const [confirmDup,            setConfirmDup]            = useState<{
+    rootId: string; sourceId: string; sourceName: string;
+    sourceVersion: string; newVersion: string; paramCount: number;
+  } | null>(null);
 
   const cultivoOptions = [
     { value: "",  label: "— Global —" },
     ...cultivos.map(c => ({ value: c.id, label: c.nombre })),
   ];
 
+  // ── Agrupación por familia de versiones ───────────────────────────────────
+  const families = useMemo(() => {
+    const map = new Map<string, ModDef[]>();
+    definiciones.forEach(d => {
+      const rootId = d.origen_id ?? d.id;
+      if (!map.has(rootId)) map.set(rootId, []);
+      map.get(rootId)!.push(d);
+    });
+    return Array.from(map.entries()).map(([rootId, versions]) => {
+      const sorted = [...versions].sort((a, b) => {
+        const [aMaj = 0, aMin = 0] = (a.version ?? "1.0").split(".").map(Number);
+        const [bMaj = 0, bMin = 0] = (b.version ?? "1.0").split(".").map(Number);
+        return bMaj !== aMaj ? bMaj - aMaj : bMin - aMin;
+      });
+      const latest = sorted[0];
+      const rep = sorted.find(v => v.estado === "activo") ?? sorted.find(v => v.estado === "borrador") ?? latest;
+      return { rootId, versions: sorted, latest, rep };
+    });
+  }, [definiciones]);
+
+  const filteredFamilies = useMemo(() =>
+    families.filter(f =>
+      (f.rep?.nombre ?? "").toLowerCase().includes(searchDef.toLowerCase()) ||
+      f.versions.some(v => v.nombre.toLowerCase().includes(searchDef.toLowerCase()))
+    ),
+    [families, searchDef]
+  );
+
+  const toggleFamily        = (rootId: string) =>
+    setExpandedFamilies(prev => { const n = new Set(prev); n.has(rootId) ? n.delete(rootId) : n.add(rootId); return n; });
+
+  const toggleVersionCampos = (vId: string) =>
+    setExpandedVersionCampos(prev => { const n = new Set(prev); n.has(vId) ? n.delete(vId) : n.add(vId); return n; });
+
+  const selectFamily = (rootId: string) => {
+    setActiveFamilyId(prev => {
+      if (prev === rootId) return null;
+      // Auto-expand history when selecting a multi-version family
+      const fam = families.find(f => f.rootId === rootId);
+      if (fam && fam.versions.length > 1)
+        setExpandedFamilies(p => new Set([...p, rootId]));
+      return rootId;
+    });
+  };
+
+  // Table data: filtered by active family or all
+  const tableData = activeFamilyId
+    ? definiciones.filter(d => (d.origen_id ?? d.id) === activeFamilyId)
+    : definiciones;
+
+  // Map filtered row index → absolute definiciones index
+  const handleTableUpdate = (rowIdx: number, key: keyof ModDef, val: unknown) => {
+    const absIdx = definiciones.findIndex(d => d.id === tableData[rowIdx]?.id);
+    if (absIdx !== -1) updDef(absIdx, key, val);
+  };
+  const handleTableDelete = (rowIdx: number) => {
+    const absIdx = definiciones.findIndex(d => d.id === tableData[rowIdx]?.id);
+    if (absIdx !== -1) delDef(absIdx);
+  };
+
+  const activeFamily = activeFamilyId ? families.find(f => f.rootId === activeFamilyId) : null;
+
   const colsDefinicion: Column<ModDef>[] = [
-    { key: "cultivo_id",  header: "Cultivo",       width: "130px", type: "select",  options: cultivoOptions },
-    { key: "modulo",      header: "Módulo",         width: "150px", type: "select",  options: MODULO_OPTIONS },
-    { key: "tipo",        header: "Tipo",            width: "150px", type: "select",  options: TIPO_OPTIONS },
-    { key: "nombre",      header: "Nombre",           width: "200px" },
-    { key: "descripcion", header: "Descripción",      width: "240px" },
-    { key: "version",     header: "Versión",           width: "70px" },
-    { key: "nivel_minimo",header: "Nivel mín.",        width: "85px",  type: "number" },
-    { key: "estado",      header: "Estado",             width: "110px", type: "select", options: ESTADO_OPTIONS },
+    { key: "cultivo_id",   header: "Cultivo",      width: "130px", type: "select",  options: cultivoOptions },
+    { key: "modulo",       header: "Módulo",        width: "150px", type: "select",  options: MODULO_OPTIONS },
+    { key: "tipo",         header: "Tipo",           width: "150px", type: "select",  options: TIPO_OPTIONS },
+    { key: "nombre",       header: "Nombre",          width: "200px", required: true },
+    { key: "descripcion",  header: "Descripción",     width: "240px" },
+    {
+      key: "version", header: "Versión", width: "90px", editable: false,
+      render: (value) => (
+        <div className="px-3 py-2.5">
+          <span className="text-xs font-mono font-semibold bg-muted/60 text-foreground px-2 py-0.5 rounded">
+            v{String(value ?? "1.0")}
+          </span>
+        </div>
+      ),
+    },
+    { key: "nivel_minimo", header: "Nivel mín.", width: "85px",  type: "number" },
+    { key: "estado",       header: "Estado",      width: "110px", type: "select", options: ESTADO_OPTIONS },
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Cards resumen */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {definiciones.filter(d => d.nombre).map(d => {
-          const campoCount = parametros.filter(p => p.definicion_id === d.id).length;
-          const datoCount  = datos.filter(dt => dt.definicion_id === d.id).length;
-          const isExpanded = expandedId === d.id;
-          const campitos   = parametros.filter(p => p.definicion_id === d.id).sort((a,b) => a.orden - b.orden);
+    <>
+    <div className="flex gap-4 items-start">
 
-          return (
-            <div
-              key={d.id}
-              className={cn(
-                "bg-card border rounded-xl overflow-hidden transition-all",
-                isExpanded ? "border-primary/40 shadow-md" : "border-border hover:border-border/80 hover:shadow-sm",
-              )}
-            >
-              {/* Cabecera de la card */}
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", tipoBadgeColor[d.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700")}>
-                      {tipoLabels[d.tipo as TipoConfig] ?? d.tipo}
+      {/* ── Sidebar: familias de versiones ─────────────────────────────────── */}
+      <div className="w-64 shrink-0 bg-card border border-border rounded-xl overflow-hidden">
+
+        {/* Cabecera */}
+        <div className="px-3 py-2.5 border-b border-border flex items-center justify-between">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+            Formularios ({families.length})
+          </span>
+          <button
+            onClick={() => addDef()}
+            title="Nueva definición"
+            className="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Buscador */}
+        <div className="px-2 py-1.5 border-b border-border">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+            <input
+              value={searchDef}
+              onChange={e => setSearchDef(e.target.value)}
+              placeholder="Buscar formulario…"
+              className="w-full pl-6 pr-2 py-1 text-xs rounded-md bg-muted/40 border border-transparent focus:border-primary/40 focus:outline-none focus:bg-background transition-colors"
+            />
+            {searchDef && (
+              <button onClick={() => setSearchDef("")} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Lista de familias */}
+        <div className="flex flex-col max-h-[640px] overflow-y-auto divide-y divide-border/40">
+          {filteredFamilies.map(({ rootId, versions, latest, rep }) => {
+            const isExpanded   = expandedFamilies.has(rootId);
+            const isActive     = activeFamilyId === rootId;
+            const hasHistory   = versions.length > 1;
+            const latestCampos = parametros.filter(p => p.definicion_id === latest.id).length;
+            const latestDatos  = datos.filter(dt => dt.definicion_id === latest.id).length;
+
+            return (
+              <div key={rootId} className={cn("relative transition-colors", isActive && "bg-primary/5")}>
+                {/* Indicador de selección */}
+                {isActive && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary z-10" />}
+
+                {/* Tarjeta de familia — click para seleccionar */}
+                <div
+                  className="px-3 py-2.5 cursor-pointer hover:bg-muted/20 transition-colors"
+                  onClick={() => selectFamily(rootId)}
+                >
+                  {/* Badges */}
+                  <div className="flex items-center gap-1 mb-1.5 flex-wrap">
+                    <span className={cn(
+                      "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none",
+                      tipoBadgeColor[rep.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700",
+                    )}>
+                      {tipoLabels[rep.tipo as TipoConfig] ?? rep.tipo}
                     </span>
-                    <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full flex items-center gap-1", estadoBadge[d.estado ?? "borrador"])}>
-                      <EstadoIcon estado={d.estado ?? "borrador"} />
-                      {d.estado ?? "borrador"}
+                    <span className={cn(
+                      "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5",
+                      estadoBadge[rep.estado ?? "borrador"],
+                    )}>
+                      <EstadoIcon estado={rep.estado ?? "borrador"} />
+                      {rep.estado ?? "borrador"}
                     </span>
+                    {hasHistory && (
+                      <button
+                        onClick={e => { e.stopPropagation(); toggleFamily(rootId); }}
+                        title={isExpanded ? "Ocultar historial" : "Ver historial de versiones"}
+                        className={cn(
+                          "inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none transition-colors",
+                          isExpanded
+                            ? "bg-primary/15 text-primary"
+                            : "bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary"
+                        )}
+                      >
+                        <History className="w-2.5 h-2.5" />
+                        {versions.length}v
+                      </button>
+                    )}
                   </div>
-                  <span className="text-xs text-muted-foreground shrink-0">v{d.version}</span>
-                </div>
-                <p className="font-semibold text-foreground text-sm mb-1 line-clamp-1">{d.nombre}</p>
-                <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{d.descripcion || "Sin descripción"}</p>
 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <List className="w-3 h-3" /> {campoCount} campos
+                  {/* Nombre */}
+                  <p className="text-xs font-semibold text-foreground truncate leading-snug">{rep.nombre}</p>
+
+                  {/* Meta */}
+                  <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
+                    <span className="truncate">
+                      {MODULO_OPTIONS.find(m => m.value === latest.modulo)?.label ?? latest.modulo}
                     </span>
-                    <span className="flex items-center gap-1">
-                      <Database className="w-3 h-3" /> {datoCount} registros
-                    </span>
+                    <span className="shrink-0 flex items-center gap-1"><List className="w-2.5 h-2.5" />{latestCampos}</span>
+                    <span className="shrink-0 flex items-center gap-1"><Database className="w-2.5 h-2.5" />{latestDatos}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {MODULO_OPTIONS.find(m => m.value === d.modulo)?.label ?? d.modulo}
-                  </span>
-                </div>
-              </div>
 
-              {/* Toggle campos */}
-              {campoCount > 0 && (
-                <>
-                  <button
-                    onClick={() => setExpandedId(isExpanded ? null : d.id)}
-                    className="w-full flex items-center justify-between px-4 py-2 text-xs text-muted-foreground border-t border-border hover:bg-muted/40 transition-colors"
-                  >
-                    <span>Ver campos asignados</span>
-                    {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                  </button>
-                  {isExpanded && (
-                    <div className="px-4 pb-4 bg-muted/20 border-t border-border">
-                      <div className="flex flex-wrap gap-1.5 pt-3">
-                        {campitos.map(c => (
-                          <span key={c.id} className="text-xs bg-background border border-border rounded-md px-2 py-1 flex items-center gap-1">
-                            <span className="font-medium">{c.nombre.replace(/_/g, " ")}</span>
-                            <span className="text-muted-foreground/60">· {c.tipo_dato}</span>
-                            {c.obligatorio && <span className="text-destructive text-[10px]">*</span>}
-                          </span>
-                        ))}
-                      </div>
+                  {/* Control de versiones */}
+                  <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border/40">
+                    <span className="text-[10px] font-mono font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
+                      v{latest.version || "1.0"}
+                    </span>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          const idx = definiciones.findIndex(def => def.id === latest.id);
+                          if (idx !== -1) updDef(idx, "version", bumpV(latest.version || "1.0", "minor"));
+                        }}
+                        title="Incrementar versión menor (ej. 1.0 → 1.1)"
+                        className="text-[10px] font-mono text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded transition-colors"
+                      >
+                        +0.1
+                      </button>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          setConfirmDup({
+                            rootId,
+                            sourceId:      latest.id,
+                            sourceName:    latest.nombre,
+                            sourceVersion: latest.version || "1.0",
+                            newVersion:    bumpV(latest.version || "1.0", "major"),
+                            paramCount:    parametros.filter(p => p.definicion_id === latest.id).length,
+                          });
+                        }}
+                        title="Nueva versión mayor — copia el formulario incrementando la versión en +1.0"
+                        className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-primary hover:bg-primary/5 px-1.5 py-0.5 rounded transition-colors"
+                      >
+                        <Copy className="w-2.5 h-2.5" />
+                        Nueva v
+                      </button>
                     </div>
-                  )}
-                </>
-              )}
-            </div>
-          );
-        })}
+                  </div>
+                </div>
 
-        {/* Card — Nueva Definición */}
-        <button
-          onClick={addDef}
-          className="border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all min-h-[120px]"
-        >
-          <Plus className="w-6 h-6" />
-          <span className="text-sm font-medium">Nueva Definición</span>
-        </button>
+                {/* ── Historial expandible ──────────────────────────────── */}
+                {isExpanded && hasHistory && (
+                  <div className="bg-muted/20 border-t border-border/40 px-3 pt-2 pb-3">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2.5 flex items-center gap-1">
+                      <History className="w-3 h-3" />
+                      Historial de versiones
+                    </p>
+
+                    <div className="relative ml-1">
+                      {versions.map((v, timelineIdx) => {
+                        const vCampos       = parametros.filter(p => p.definicion_id === v.id);
+                        const isLatest      = timelineIdx === 0;
+                        const isLast        = timelineIdx === versions.length - 1;
+                        const camposOpen    = expandedVersionCampos.has(v.id);
+
+                        return (
+                          <div key={v.id} className="flex items-start gap-2.5 pb-3 last:pb-0 relative">
+                            {!isLast && (
+                              <div className="absolute left-[5px] top-3.5 w-px bottom-0 bg-border" />
+                            )}
+
+                            {/* Dot */}
+                            <div className={cn(
+                              "w-[11px] h-[11px] rounded-full border-2 shrink-0 mt-0.5 z-10",
+                              v.estado === "activo"   ? "bg-green-500 border-green-600" :
+                              v.estado === "borrador" ? "bg-yellow-400 border-yellow-500" :
+                                                        "bg-muted-foreground/30 border-muted-foreground/50",
+                            )} />
+
+                            <div className="flex-1 min-w-0">
+                              {/* Versión + estado */}
+                              <div className="flex items-center justify-between gap-1">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[11px] font-mono font-bold text-foreground">v{v.version}</span>
+                                  {isLatest && <span className="text-[9px] text-primary font-medium">(última)</span>}
+                                </div>
+                                <span className={cn(
+                                  "text-[9px] px-1.5 py-0.5 rounded-full font-medium shrink-0",
+                                  estadoBadge[v.estado ?? "borrador"],
+                                )}>
+                                  {v.estado}
+                                </span>
+                              </div>
+
+                              {/* Nombre */}
+                              <p className="text-[10px] text-muted-foreground truncate mt-0.5">{v.nombre}</p>
+
+                              {/* Acciones + campos toggle */}
+                              <div className="flex items-center gap-0.5 mt-1 flex-wrap">
+                                {/* Toggle campos */}
+                                <button
+                                  onClick={e => { e.stopPropagation(); toggleVersionCampos(v.id); }}
+                                  title={camposOpen ? "Ocultar campos" : "Ver campos de esta versión"}
+                                  className={cn(
+                                    "text-[9px] flex items-center gap-0.5 px-1.5 py-0.5 rounded transition-colors",
+                                    camposOpen
+                                      ? "text-primary bg-primary/10"
+                                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                                  )}
+                                >
+                                  <List className="w-2.5 h-2.5" />
+                                  {vCampos.length}c
+                                </button>
+
+                                {/* Cambiar estado */}
+                                <button
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    const next: EstadoDef =
+                                      v.estado === "activo"   ? "archivado" :
+                                      v.estado === "borrador" ? "activo"    : "borrador";
+                                    const di = definiciones.findIndex(def => def.id === v.id);
+                                    if (di !== -1) updDef(di, "estado", next);
+                                  }}
+                                  className="text-[9px] text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded transition-colors"
+                                >
+                                  {v.estado === "activo"   ? "→ archivar" :
+                                   v.estado === "borrador" ? "→ activar"  : "→ borrador"}
+                                </button>
+
+                                {isLatest && (
+                                  <button
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      const di = definiciones.findIndex(def => def.id === v.id);
+                                      if (di !== -1) updDef(di, "version", bumpV(v.version || "1.0", "minor"));
+                                    }}
+                                    className="text-[9px] font-mono text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded transition-colors"
+                                  >
+                                    +0.1
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Lista de campos expandible */}
+                              {camposOpen && (
+                                <div className="mt-1.5 border-l-2 border-border/60 pl-2 space-y-0.5">
+                                  {vCampos.length === 0 ? (
+                                    <p className="text-[9px] text-muted-foreground italic">Sin campos configurados</p>
+                                  ) : (
+                                    vCampos.sort((a, b) => a.orden - b.orden).map(p => (
+                                      <div key={p.id} className="flex items-center gap-1 text-[9px]">
+                                        <span className="w-1 h-1 rounded-full bg-muted-foreground/50 shrink-0" />
+                                        <span className="font-medium text-foreground truncate flex-1">{p.nombre}</span>
+                                        <span className="text-muted-foreground/60 shrink-0">{p.tipo_dato}</span>
+                                        {p.obligatorio && <span className="text-destructive font-bold shrink-0 ml-0.5">*</span>}
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {filteredFamilies.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-6">
+              {searchDef ? "Sin resultados." : "Sin definiciones aún."}
+            </p>
+          )}
+        </div>
       </div>
 
-      {/* Tabla editable */}
-      <EditableTable
-        title="Registro de Definiciones"
-        data={definiciones}
-        columns={colsDefinicion}
-        onUpdate={updDef}
-        onDelete={delDef}
-        onAdd={addDef}
-      />
+      {/* ── Panel derecho: banner de filtro + tabla ──────────────────────── */}
+      <div className="flex-1 min-w-0 flex flex-col gap-2">
+
+        {/* Banner de versión activa */}
+        {activeFamily && (
+          <div className="flex items-center justify-between bg-primary/5 border border-primary/20 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-2 text-xs text-primary font-medium">
+              <History className="w-3.5 h-3.5 shrink-0" />
+              <span>Versiones de:</span>
+              <span className="font-semibold truncate">{activeFamily.rep?.nombre}</span>
+              <span className="font-mono bg-primary/10 px-1.5 py-0.5 rounded text-[10px] shrink-0">
+                {activeFamily.versions.length}v
+              </span>
+            </div>
+            <button
+              onClick={() => setActiveFamilyId(null)}
+              className="flex items-center gap-1 text-[10px] text-primary/70 hover:text-primary transition-colors shrink-0 ml-2"
+            >
+              <X className="w-3 h-3" /> Ver todos
+            </button>
+          </div>
+        )}
+
+        <EditableTable
+          title={activeFamily
+            ? `${activeFamily.rep?.nombre ?? "Formulario"} — todas las versiones`
+            : "Formularios"}
+          data={tableData}
+          columns={colsDefinicion}
+          onUpdate={handleTableUpdate}
+          onDelete={handleTableDelete}
+          onAdd={() => addDef()}
+          rowActions={row => (
+            <button
+              onClick={e => { e.stopPropagation(); navigate(`?tab=campos&def=${row.id}`); }}
+              className="flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80 hover:bg-primary/10 px-2 py-1 rounded-md transition-colors whitespace-nowrap"
+              title="Ver campos de este formulario"
+            >
+              <List className="w-3 h-3 shrink-0" />
+              Ver campos
+            </button>
+          )}
+        />
+      </div>
+
     </div>
+
+    {/* ── Modal de confirmación: nueva versión ─────────────────────────────── */}
+    {confirmDup && (
+      <Dialog open onOpenChange={() => setConfirmDup(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="w-5 h-5 text-primary" />
+              ¿Crear nueva versión?
+            </DialogTitle>
+            <DialogDescription>
+              Se creará <strong>v{confirmDup.newVersion}</strong> a partir de &ldquo;{confirmDup.sourceName}&rdquo; (v{confirmDup.sourceVersion}).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="bg-muted/40 border border-border rounded-lg px-3 py-3 space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Versión anterior</span>
+              <span className="font-mono text-muted-foreground line-through">v{confirmDup.sourceVersion}</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Nueva versión</span>
+              <span className="font-mono font-bold text-primary">v{confirmDup.newVersion}</span>
+            </div>
+            <div className="border-t border-border/60 pt-2 flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Campos copiados</span>
+              <span className="font-semibold text-foreground">
+                {confirmDup.paramCount} campo{confirmDup.paramCount !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Estado inicial</span>
+              <span className="font-medium text-yellow-600 bg-yellow-50 border border-yellow-200 px-1.5 py-0.5 rounded-full text-[10px]">
+                borrador
+              </span>
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Podrás editar los campos de la nueva versión de forma independiente sin afectar la versión anterior.
+          </p>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setConfirmDup(null)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                dupDef(confirmDup.sourceId);
+                setExpandedFamilies(prev => new Set([...prev, confirmDup.rootId]));
+                setActiveFamilyId(confirmDup.rootId);
+                setConfirmDup(null);
+              }}
+            >
+              <Copy className="w-4 h-4 mr-2" />
+              Crear v{confirmDup.newVersion}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )}
+    </>
   );
 }
 
@@ -214,7 +587,7 @@ function TabBiblioteca() {
   };
 
   const colsLib: Column<Parametro>[] = [
-    { key: "nombre",              header: "Nombre (snake_case)", width: "180px" },
+    { key: "nombre",              header: "Nombre (snake_case)", width: "180px", required: true },
     { key: "codigo",              header: "Código",               width: "90px" },
     { key: "tipo_dato",           header: "Tipo",                  width: "120px", type: "select", options: TIPO_DATO_OPTIONS },
     { key: "unidad_medida",       header: "Unidad",               width: "80px" },
@@ -331,6 +704,7 @@ function TabBiblioteca() {
 function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
   const { definiciones, parametros, parametrosLib, addPar, updParByIdx, delParByIdx } = useConfig();
   const [filterDefId, setFilterDefId] = useState<string>(initialDefId);
+  const [searchCampo, setSearchCampo]  = useState("");
 
   // Sugerencias para autocomplete: nombres de la biblioteca global
   const sugerencias = parametrosLib
@@ -368,11 +742,12 @@ function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
       options: definiciones.map(d => ({ value: d.id, label: d.nombre || `(sin nombre — ${d.id})` })),
     },
     {
-      key:     "nombre",
-      header:  "Campo",
-      width:   "200px",
-      type:    "autocomplete",
-      options: sugerencias,
+      key:      "nombre",
+      header:   "Campo",
+      width:    "200px",
+      type:     "autocomplete",
+      options:  sugerencias,
+      required: true,
     },
     {
       key:     "tipo_dato",
@@ -392,48 +767,98 @@ function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
         "Campo" para buscar en la biblioteca o crear uno nuevo.
       </div>
 
-      {/* Chips de filtro por definición */}
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => setFilterDefId("all")}
-          className={cn(
-            "text-xs px-3 py-1.5 rounded-full font-medium border transition-colors",
-            filterDefId === "all"
-              ? "bg-foreground text-background border-transparent"
-              : "bg-background text-muted-foreground border-border hover:border-foreground/50",
-          )}
-        >
-          Todos <span className="opacity-60">({parametros.length})</span>
-        </button>
-        {definiciones.map(d => {
-          const count = parametros.filter(p => p.definicion_id === d.id).length;
-          return (
-            <button
-              key={d.id}
-              onClick={() => setFilterDefId(d.id)}
-              className={cn(
-                "text-xs px-3 py-1.5 rounded-full font-medium border transition-colors",
-                filterDefId === d.id
-                  ? `${tipoBadgeColor[d.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700"} border-transparent`
-                  : "bg-background text-muted-foreground border-border hover:border-foreground/50",
-              )}
-            >
-              {d.nombre || `(def ${d.id})`}
-              <span className="opacity-60 ml-1">({count})</span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Dos columnas: sidebar de filtro + tabla */}
+      <div className="flex gap-4 items-start">
 
-      <EditableTable
-        title={filterDefId === "all" ? "Todos los Campos" : `Campos — ${getDefNombre(filterDefId)}`}
-        data={filteredParametros}
-        columns={colsCampos}
-        onUpdate={updFiltered}
-        onDelete={delFiltered}
-        onAdd={addFiltered}
-        searchable={false}
-      />
+        {/* Sidebar de definiciones — escala a cualquier cantidad sin romper el layout */}
+        <div className="w-52 shrink-0 bg-card border border-border rounded-xl overflow-hidden">
+          <div className="px-3 py-2 border-b border-border">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+              Formulario
+            </span>
+          </div>
+
+          {/* Buscador */}
+          <div className="px-2 py-1.5 border-b border-border">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+              <input
+                value={searchCampo}
+                onChange={e => setSearchCampo(e.target.value)}
+                placeholder="Buscar formulario…"
+                className="w-full pl-6 pr-2 py-1 text-xs rounded-md bg-muted/40 border border-transparent focus:border-primary/40 focus:outline-none focus:bg-background transition-colors"
+              />
+              {searchCampo && (
+                <button onClick={() => setSearchCampo("")} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-0.5 p-1.5 max-h-[480px] overflow-y-auto">
+            {/* "Todos" — solo visible cuando no hay búsqueda activa */}
+            {!searchCampo && (
+              <>
+                <button
+                  onClick={() => setFilterDefId("all")}
+                  className={cn(
+                    "text-xs px-3 py-2 rounded-lg font-medium text-left w-full transition-colors flex items-center justify-between gap-2",
+                    filterDefId === "all"
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                  )}
+                >
+                  <span>Todos</span>
+                  <span className="opacity-60 text-[11px] tabular-nums">{parametros.length}</span>
+                </button>
+                <div className="h-px bg-border mx-1 my-0.5" />
+              </>
+            )}
+
+            {/* Una fila por definición, filtrada por búsqueda */}
+            {definiciones
+              .filter(d => d.nombre?.toLowerCase().includes(searchCampo.toLowerCase()))
+              .map(d => {
+                const count    = parametros.filter(p => p.definicion_id === d.id).length;
+                const isActive = filterDefId === d.id;
+                return (
+                  <button
+                    key={d.id}
+                    onClick={() => { setFilterDefId(d.id); setSearchCampo(""); }}
+                    className={cn(
+                      "text-xs px-3 py-2 rounded-lg font-medium text-left w-full transition-colors flex items-center justify-between gap-2",
+                      isActive
+                        ? `${tipoBadgeColor[d.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700"}`
+                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    )}
+                  >
+                    <span className="truncate leading-tight">{d.nombre || `(def ${d.id})`}</span>
+                    <span className="opacity-60 text-[11px] tabular-nums shrink-0">{count}</span>
+                  </button>
+                );
+              })}
+
+            {definiciones.filter(d => d.nombre?.toLowerCase().includes(searchCampo.toLowerCase())).length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-4">Sin resultados.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Tabla de campos */}
+        <div className="flex-1 min-w-0">
+          <EditableTable
+            title={filterDefId === "all" ? "Todos los Campos" : `Campos — ${getDefNombre(filterDefId)}`}
+            data={filteredParametros}
+            columns={colsCampos}
+            onUpdate={updFiltered}
+            onDelete={delFiltered}
+            onAdd={addFiltered}
+            searchable={false}
+          />
+        </div>
+
+      </div>
     </div>
   );
 }
@@ -571,12 +996,36 @@ function TabCultivos() {
   const {
     cultivos, addCultivo, updCultivo, delCultivo,
     variedades, addVariedad, updVariedad, delVariedad,
-    definiciones, addDef, updDef, delDef,
+    definiciones,
   } = useConfig();
+  const navigate = useNavigate();
 
   const firstActive = cultivos.find(c => c.activo)?.id ?? cultivos[0]?.id ?? "";
   const [selectedId, setSelectedId] = useState<string>(firstActive);
-  const [subTab, setSubTab]         = useState("variedades");
+
+  // ── Modal: nuevo cultivo ───────────────────────────────────────────────────
+  const [showAddCultivo,  setShowAddCultivo]  = useState(false);
+  const [newCultivoForm,  setNewCultivoForm]  = useState({ nombre: "", codigo: "", descripcion: "" });
+  const prevCultivoLen = useRef(cultivos.length);
+
+  // Auto-seleccionar el cultivo recién creado
+  useEffect(() => {
+    if (cultivos.length > prevCultivoLen.current) {
+      setSelectedId(cultivos[cultivos.length - 1].id);
+    }
+    prevCultivoLen.current = cultivos.length;
+  }, [cultivos.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleCreateCultivo = () => {
+    if (!newCultivoForm.nombre.trim()) return;
+    addCultivo({
+      nombre:      newCultivoForm.nombre.trim(),
+      codigo:      newCultivoForm.codigo.trim().toUpperCase(),
+      descripcion: newCultivoForm.descripcion.trim(),
+    });
+    setNewCultivoForm({ nombre: "", codigo: "", descripcion: "" });
+    setShowAddCultivo(false);
+  };
 
   const cultivo     = cultivos.find(c => c.id === selectedId);
   const cultivoVars = variedades.filter(v => v.cultivo_id === selectedId);
@@ -585,26 +1034,17 @@ function TabCultivos() {
   // ── Columnas ──────────────────────────────────────────────────────────────
 
   const colsCultivos: Column<Cultivo>[] = [
-    { key: "nombre",      header: "Cultivo",      width: "160px" },
+    { key: "nombre",      header: "Cultivo",      width: "160px", required: true },
     { key: "codigo",      header: "Código",        width: "80px"  },
     { key: "descripcion", header: "Descripción",   width: "280px" },
     { key: "activo",      header: "Activo",         width: "75px", type: "checkbox" },
   ];
 
   const colsVariedades: Column<Variedad>[] = [
-    { key: "nombre",      header: "Variedad",      width: "160px" },
+    { key: "nombre",      header: "Variedad",      width: "160px", required: true },
     { key: "codigo",      header: "Código",         width: "80px"  },
     { key: "descripcion", header: "Descripción",    width: "280px" },
     { key: "activo",      header: "Activa",          width: "75px", type: "checkbox" },
-  ];
-
-  const colsFormularios: Column<ModDef>[] = [
-    { key: "modulo",       header: "Módulo",       width: "150px", type: "select", options: MODULO_OPTIONS },
-    { key: "tipo",         header: "Tipo",          width: "150px", type: "select", options: TIPO_OPTIONS  },
-    { key: "nombre",       header: "Nombre",         width: "200px" },
-    { key: "version",      header: "Versión",         width: "70px"  },
-    { key: "nivel_minimo", header: "Nivel mín.",      width: "85px", type: "number" },
-    { key: "estado",       header: "Estado",           width: "110px", type: "select", options: ESTADO_OPTIONS },
   ];
 
   // ── CRUD wrappers ─────────────────────────────────────────────────────────
@@ -620,17 +1060,6 @@ function TabCultivos() {
   const updV = (idx: number, k: keyof Variedad, v: unknown) =>
     updVariedad(cultivoVars[idx].id, k, v);
   const delV = (idx: number) => delVariedad(cultivoVars[idx].id);
-
-  const updF = (idx: number, k: keyof ModDef, v: unknown) => {
-    const item = cultivoDefs[idx];
-    const origIdx = definiciones.findIndex(d => d.id === item.id);
-    if (origIdx !== -1) updDef(origIdx, k, v);
-  };
-  const delF = (idx: number) => {
-    const item = cultivoDefs[idx];
-    const origIdx = definiciones.findIndex(d => d.id === item.id);
-    if (origIdx !== -1) delDef(origIdx);
-  };
 
   return (
     <div className="space-y-6">
@@ -662,7 +1091,7 @@ function TabCultivos() {
           );
         })}
         <button
-          onClick={() => addCultivo()}
+          onClick={() => setShowAddCultivo(true)}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all"
         >
           <Plus className="w-3.5 h-3.5" /> Nuevo cultivo
@@ -694,63 +1123,38 @@ function TabCultivos() {
             </span>
           </div>
 
-          {/* Sub-tabs: Variedades | Formularios */}
-          <div className="p-4">
-            <Tabs value={subTab} onValueChange={setSubTab} className="space-y-4">
-              <TabsList className="bg-muted p-1 rounded-lg h-auto">
-                <TabsTrigger value="variedades" className="text-xs sm:text-sm gap-1.5">
-                  Variedades
-                  <span className="text-[10px] opacity-60">({cultivoVars.length})</span>
-                </TabsTrigger>
-                <TabsTrigger value="formularios" className="text-xs sm:text-sm gap-1.5">
-                  Formularios
-                  <span className="text-[10px] opacity-60">({cultivoDefs.length})</span>
-                </TabsTrigger>
-              </TabsList>
+          {/* Variedades + enlace a Formularios */}
+          <div className="p-4 space-y-4">
+            <EditableTable
+              title={`Variedades de ${cultivo.nombre}`}
+              data={cultivoVars}
+              columns={colsVariedades}
+              onUpdate={updV}
+              onDelete={delV}
+              onAdd={() => addVariedad(selectedId)}
+              searchable={false}
+            />
 
-              {/* Variedades */}
-              <TabsContent value="variedades">
-                <EditableTable
-                  title={`Variedades de ${cultivo.nombre}`}
-                  data={cultivoVars}
-                  columns={colsVariedades}
-                  onUpdate={updV}
-                  onDelete={delV}
-                  onAdd={() => addVariedad(selectedId)}
-                  searchable={false}
-                />
-              </TabsContent>
-
-              {/* Formularios */}
-              <TabsContent value="formularios">
-                {cultivoDefs.length === 0 ? (
-                  <div className="flex flex-col items-center gap-3 py-12 text-center">
-                    <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center">
-                      <Layers className="w-6 h-6 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-sm text-foreground">Sin formularios para {cultivo.nombre}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Crea un formulario para definir los campos que se registran en los módulos.
-                      </p>
-                    </div>
-                    <Button size="sm" onClick={() => addDef(selectedId)}>
-                      <Plus className="w-4 h-4 mr-1.5" /> Crear formulario
-                    </Button>
-                  </div>
-                ) : (
-                  <EditableTable
-                    title={`Formularios de ${cultivo.nombre}`}
-                    data={cultivoDefs}
-                    columns={colsFormularios}
-                    onUpdate={updF}
-                    onDelete={delF}
-                    onAdd={() => addDef(selectedId)}
-                    searchable={false}
-                  />
-                )}
-              </TabsContent>
-            </Tabs>
+            {/* Acceso rápido a formularios de este cultivo */}
+            <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Layers className="w-4 h-4 shrink-0" />
+                <span>
+                  {cultivoDefs.length > 0
+                    ? `${cultivoDefs.length} formulario${cultivoDefs.length !== 1 ? "s" : ""} asignado${cultivoDefs.length !== 1 ? "s" : ""} a este cultivo`
+                    : "Sin formularios asignados a este cultivo"}
+                </span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate("/configuracion?tab=formularios")}
+                className="gap-1.5 text-xs"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                Gestionar formularios →
+              </Button>
+            </div>
           </div>
         </div>
       ) : (
@@ -762,7 +1166,7 @@ function TabCultivos() {
             <p className="font-semibold text-foreground">Sin cultivos registrados</p>
             <p className="text-sm text-muted-foreground mt-1">Crea el primer cultivo para comenzar.</p>
           </div>
-          <Button onClick={() => addCultivo()}>
+          <Button onClick={() => setShowAddCultivo(true)}>
             <Plus className="w-4 h-4 mr-2" /> Nuevo Cultivo
           </Button>
         </div>
@@ -775,9 +1179,80 @@ function TabCultivos() {
         columns={colsCultivos}
         onUpdate={updC}
         onDelete={delC}
-        onAdd={() => addCultivo()}
+        onAdd={() => setShowAddCultivo(true)}
         searchable={false}
       />
+
+      {/* ── Modal: crear nuevo cultivo ── */}
+      <Dialog open={showAddCultivo} onOpenChange={open => {
+        if (!open) { setNewCultivoForm({ nombre: "", codigo: "", descripcion: "" }); }
+        setShowAddCultivo(open);
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Leaf className="w-5 h-5 text-primary" />
+              Nuevo Cultivo
+            </DialogTitle>
+            <DialogDescription>
+              Completa los datos para registrar el nuevo cultivo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">
+                Nombre <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                value={newCultivoForm.nombre}
+                onChange={e => setNewCultivoForm(p => ({ ...p, nombre: e.target.value }))}
+                placeholder="ej. Fresas, Tomates, Lechugas…"
+                autoFocus
+                onKeyDown={e => { if (e.key === "Enter") handleCreateCultivo(); }}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Código</Label>
+              <Input
+                value={newCultivoForm.codigo}
+                onChange={e => setNewCultivoForm(p => ({ ...p, codigo: e.target.value.toUpperCase() }))}
+                placeholder="ej. FRE, TOM, LEC"
+                maxLength={6}
+                onKeyDown={e => { if (e.key === "Enter") handleCreateCultivo(); }}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Descripción</Label>
+              <Input
+                value={newCultivoForm.descripcion}
+                onChange={e => setNewCultivoForm(p => ({ ...p, descripcion: e.target.value }))}
+                placeholder="Variedad, especie, notas…"
+                onKeyDown={e => { if (e.key === "Enter") handleCreateCultivo(); }}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowAddCultivo(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleCreateCultivo}
+              disabled={!newCultivoForm.nombre.trim()}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Crear Cultivo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }
@@ -1065,13 +1540,13 @@ const Configuracion = () => {
         </div>
       </div>
 
-      <Tabs defaultValue={initialTab} className="space-y-6">
+      <Tabs key={initialTab} defaultValue={initialTab} className="space-y-6">
         <TabsList className="bg-muted p-1 rounded-lg flex-wrap gap-1 h-auto">
           <TabsTrigger value="cultivos"     className="flex items-center gap-2 text-xs sm:text-sm">
             <Leaf      className="w-4 h-4" /> Cultivos
           </TabsTrigger>
-          <TabsTrigger value="definiciones" className="flex items-center gap-2 text-xs sm:text-sm">
-            <Layers    className="w-4 h-4" /> Definiciones
+          <TabsTrigger value="formularios" className="flex items-center gap-2 text-xs sm:text-sm">
+            <Layers    className="w-4 h-4" /> Formularios
           </TabsTrigger>
           <TabsTrigger value="biblioteca"  className="flex items-center gap-2 text-xs sm:text-sm">
             <BookOpen  className="w-4 h-4" /> Biblioteca
@@ -1091,7 +1566,7 @@ const Configuracion = () => {
         </TabsList>
 
         <TabsContent value="cultivos">   <TabCultivos    /></TabsContent>
-        <TabsContent value="definiciones"><TabDefiniciones /></TabsContent>
+        <TabsContent value="formularios"><TabDefiniciones /></TabsContent>
         <TabsContent value="biblioteca">  <TabBiblioteca  /></TabsContent>
         <TabsContent value="campos">      <TabCampos initialDefId={initialDefId} /></TabsContent>
         <TabsContent value="datos">       <TabDatos       /></TabsContent>

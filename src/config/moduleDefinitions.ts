@@ -48,6 +48,7 @@ export interface ModDef {
   modulo:       string;
   estado:       EstadoDef;
   cultivo_id?:  string;  // null = aplica a todos los cultivos (global)
+  origen_id?:   string;  // undefined = raíz; asignado = versión derivada → apunta al id raíz
 }
 
 // ─── ModParam — Campos_configurados ───────────────────────────────────────────
