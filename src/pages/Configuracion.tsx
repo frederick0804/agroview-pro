@@ -91,8 +91,14 @@ function EstadoIcon({ estado }: { estado: EstadoDef }) {
 
 function TabDefiniciones() {
   const { definiciones, parametros, datos, addDef, updDef, delDef, dupDef, cultivos } = useConfig();
-  const [searchDef, setSearchDef]           = useState("");
-  const [expandedFamilies, setExpandedFamilies] = useState<Set<string>>(new Set());
+  const [searchDef,             setSearchDef]             = useState("");
+  const [expandedFamilies,      setExpandedFamilies]      = useState<Set<string>>(new Set());
+  const [expandedVersionCampos, setExpandedVersionCampos] = useState<Set<string>>(new Set());
+  const [activeFamilyId,        setActiveFamilyId]        = useState<string | null>(null);
+  const [confirmDup,            setConfirmDup]            = useState<{
+    rootId: string; sourceId: string; sourceName: string;
+    sourceVersion: string; newVersion: string; paramCount: number;
+  } | null>(null);
 
   const cultivoOptions = [
     { value: "",  label: "— Global —" },
@@ -100,8 +106,6 @@ function TabDefiniciones() {
   ];
 
   // ── Agrupación por familia de versiones ───────────────────────────────────
-  // Una familia = el formulario raíz (origen_id === undefined) y todos sus
-  // derivados (origen_id === raíz.id). La clave del mapa es siempre el id raíz.
   const families = useMemo(() => {
     const map = new Map<string, ModDef[]>();
     definiciones.forEach(d => {
@@ -110,20 +114,17 @@ function TabDefiniciones() {
       map.get(rootId)!.push(d);
     });
     return Array.from(map.entries()).map(([rootId, versions]) => {
-      // Ordenar descendente por versión (mayor.minor)
       const sorted = [...versions].sort((a, b) => {
         const [aMaj = 0, aMin = 0] = (a.version ?? "1.0").split(".").map(Number);
         const [bMaj = 0, bMin = 0] = (b.version ?? "1.0").split(".").map(Number);
         return bMaj !== aMaj ? bMaj - aMaj : bMin - aMin;
       });
       const latest = sorted[0];
-      // Nombre representativo: activo > borrador > latest
       const rep = sorted.find(v => v.estado === "activo") ?? sorted.find(v => v.estado === "borrador") ?? latest;
       return { rootId, versions: sorted, latest, rep };
     });
   }, [definiciones]);
 
-  // Familias filtradas por búsqueda
   const filteredFamilies = useMemo(() =>
     families.filter(f =>
       (f.rep?.nombre ?? "").toLowerCase().includes(searchDef.toLowerCase()) ||
@@ -132,19 +133,46 @@ function TabDefiniciones() {
     [families, searchDef]
   );
 
-  const toggleFamily = (rootId: string) =>
-    setExpandedFamilies(prev => {
-      const next = new Set(prev);
-      next.has(rootId) ? next.delete(rootId) : next.add(rootId);
-      return next;
+  const toggleFamily        = (rootId: string) =>
+    setExpandedFamilies(prev => { const n = new Set(prev); n.has(rootId) ? n.delete(rootId) : n.add(rootId); return n; });
+
+  const toggleVersionCampos = (vId: string) =>
+    setExpandedVersionCampos(prev => { const n = new Set(prev); n.has(vId) ? n.delete(vId) : n.add(vId); return n; });
+
+  const selectFamily = (rootId: string) => {
+    setActiveFamilyId(prev => {
+      if (prev === rootId) return null;
+      // Auto-expand history when selecting a multi-version family
+      const fam = families.find(f => f.rootId === rootId);
+      if (fam && fam.versions.length > 1)
+        setExpandedFamilies(p => new Set([...p, rootId]));
+      return rootId;
     });
+  };
+
+  // Table data: filtered by active family or all
+  const tableData = activeFamilyId
+    ? definiciones.filter(d => (d.origen_id ?? d.id) === activeFamilyId)
+    : definiciones;
+
+  // Map filtered row index → absolute definiciones index
+  const handleTableUpdate = (rowIdx: number, key: keyof ModDef, val: unknown) => {
+    const absIdx = definiciones.findIndex(d => d.id === tableData[rowIdx]?.id);
+    if (absIdx !== -1) updDef(absIdx, key, val);
+  };
+  const handleTableDelete = (rowIdx: number) => {
+    const absIdx = definiciones.findIndex(d => d.id === tableData[rowIdx]?.id);
+    if (absIdx !== -1) delDef(absIdx);
+  };
+
+  const activeFamily = activeFamilyId ? families.find(f => f.rootId === activeFamilyId) : null;
 
   const colsDefinicion: Column<ModDef>[] = [
-    { key: "cultivo_id",  header: "Cultivo",     width: "130px", type: "select",  options: cultivoOptions },
-    { key: "modulo",      header: "Módulo",       width: "150px", type: "select",  options: MODULO_OPTIONS },
-    { key: "tipo",        header: "Tipo",          width: "150px", type: "select",  options: TIPO_OPTIONS },
-    { key: "nombre",      header: "Nombre",         width: "200px", required: true },
-    { key: "descripcion", header: "Descripción",    width: "240px" },
+    { key: "cultivo_id",   header: "Cultivo",      width: "130px", type: "select",  options: cultivoOptions },
+    { key: "modulo",       header: "Módulo",        width: "150px", type: "select",  options: MODULO_OPTIONS },
+    { key: "tipo",         header: "Tipo",           width: "150px", type: "select",  options: TIPO_OPTIONS },
+    { key: "nombre",       header: "Nombre",          width: "200px", required: true },
+    { key: "descripcion",  header: "Descripción",     width: "240px" },
     {
       key: "version", header: "Versión", width: "90px", editable: false,
       render: (value) => (
@@ -160,6 +188,7 @@ function TabDefiniciones() {
   ];
 
   return (
+    <>
     <div className="flex gap-4 items-start">
 
       {/* ── Sidebar: familias de versiones ─────────────────────────────────── */}
@@ -200,17 +229,23 @@ function TabDefiniciones() {
         {/* Lista de familias */}
         <div className="flex flex-col max-h-[640px] overflow-y-auto divide-y divide-border/40">
           {filteredFamilies.map(({ rootId, versions, latest, rep }) => {
-            const isExpanded  = expandedFamilies.has(rootId);
-            const hasHistory  = versions.length > 1;
+            const isExpanded   = expandedFamilies.has(rootId);
+            const isActive     = activeFamilyId === rootId;
+            const hasHistory   = versions.length > 1;
             const latestCampos = parametros.filter(p => p.definicion_id === latest.id).length;
             const latestDatos  = datos.filter(dt => dt.definicion_id === latest.id).length;
 
             return (
-              <div key={rootId}>
-                {/* Cuerpo de la tarjeta de familia */}
-                <div className="px-3 py-2.5 hover:bg-muted/30 transition-colors">
+              <div key={rootId} className={cn("relative transition-colors", isActive && "bg-primary/5")}>
+                {/* Indicador de selección */}
+                {isActive && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary z-10" />}
 
-                  {/* Fila de badges */}
+                {/* Tarjeta de familia — click para seleccionar */}
+                <div
+                  className="px-3 py-2.5 cursor-pointer hover:bg-muted/20 transition-colors"
+                  onClick={() => selectFamily(rootId)}
+                >
+                  {/* Badges */}
                   <div className="flex items-center gap-1 mb-1.5 flex-wrap">
                     <span className={cn(
                       "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none",
@@ -225,10 +260,9 @@ function TabDefiniciones() {
                       <EstadoIcon estado={rep.estado ?? "borrador"} />
                       {rep.estado ?? "borrador"}
                     </span>
-                    {/* Badge de historial: solo cuando hay más de 1 versión */}
                     {hasHistory && (
                       <button
-                        onClick={() => toggleFamily(rootId)}
+                        onClick={e => { e.stopPropagation(); toggleFamily(rootId); }}
                         title={isExpanded ? "Ocultar historial" : "Ver historial de versiones"}
                         className={cn(
                           "inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none transition-colors",
@@ -246,20 +280,16 @@ function TabDefiniciones() {
                   {/* Nombre */}
                   <p className="text-xs font-semibold text-foreground truncate leading-snug">{rep.nombre}</p>
 
-                  {/* Meta: módulo + campos + datos de la versión más reciente */}
+                  {/* Meta */}
                   <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
                     <span className="truncate">
                       {MODULO_OPTIONS.find(m => m.value === latest.modulo)?.label ?? latest.modulo}
                     </span>
-                    <span className="shrink-0 flex items-center gap-1">
-                      <List className="w-2.5 h-2.5" />{latestCampos}
-                    </span>
-                    <span className="shrink-0 flex items-center gap-1">
-                      <Database className="w-2.5 h-2.5" />{latestDatos}
-                    </span>
+                    <span className="shrink-0 flex items-center gap-1"><List className="w-2.5 h-2.5" />{latestCampos}</span>
+                    <span className="shrink-0 flex items-center gap-1"><Database className="w-2.5 h-2.5" />{latestDatos}</span>
                   </div>
 
-                  {/* Control de versiones — actúa sobre la versión más reciente */}
+                  {/* Control de versiones */}
                   <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border/40">
                     <span className="text-[10px] font-mono font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
                       v{latest.version || "1.0"}
@@ -279,11 +309,16 @@ function TabDefiniciones() {
                       <button
                         onClick={e => {
                           e.stopPropagation();
-                          dupDef(latest.id);
-                          // Expandir automáticamente para revelar la nueva versión
-                          setExpandedFamilies(prev => new Set([...prev, rootId]));
+                          setConfirmDup({
+                            rootId,
+                            sourceId:      latest.id,
+                            sourceName:    latest.nombre,
+                            sourceVersion: latest.version || "1.0",
+                            newVersion:    bumpV(latest.version || "1.0", "major"),
+                            paramCount:    parametros.filter(p => p.definicion_id === latest.id).length,
+                          });
                         }}
-                        title="Nueva versión mayor — duplica el formulario con la versión incrementada en +1.0"
+                        title="Nueva versión mayor — copia el formulario incrementando la versión en +1.0"
                         className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-primary hover:bg-primary/5 px-1.5 py-0.5 rounded transition-colors"
                       >
                         <Copy className="w-2.5 h-2.5" />
@@ -301,39 +336,33 @@ function TabDefiniciones() {
                       Historial de versiones
                     </p>
 
-                    {/* Timeline */}
                     <div className="relative ml-1">
                       {versions.map((v, timelineIdx) => {
-                        const vCampos  = parametros.filter(p => p.definicion_id === v.id).length;
-                        const isLatest = timelineIdx === 0;
-                        const isLast   = timelineIdx === versions.length - 1;
+                        const vCampos       = parametros.filter(p => p.definicion_id === v.id);
+                        const isLatest      = timelineIdx === 0;
+                        const isLast        = timelineIdx === versions.length - 1;
+                        const camposOpen    = expandedVersionCampos.has(v.id);
 
                         return (
                           <div key={v.id} className="flex items-start gap-2.5 pb-3 last:pb-0 relative">
-                            {/* Línea vertical que conecta los ítems */}
                             {!isLast && (
                               <div className="absolute left-[5px] top-3.5 w-px bottom-0 bg-border" />
                             )}
 
-                            {/* Dot de estado */}
+                            {/* Dot */}
                             <div className={cn(
                               "w-[11px] h-[11px] rounded-full border-2 shrink-0 mt-0.5 z-10",
-                              v.estado === "activo"    ? "bg-green-500 border-green-600" :
-                              v.estado === "borrador"  ? "bg-yellow-400 border-yellow-500" :
-                                                         "bg-muted-foreground/30 border-muted-foreground/50",
+                              v.estado === "activo"   ? "bg-green-500 border-green-600" :
+                              v.estado === "borrador" ? "bg-yellow-400 border-yellow-500" :
+                                                        "bg-muted-foreground/30 border-muted-foreground/50",
                             )} />
 
-                            {/* Contenido */}
                             <div className="flex-1 min-w-0">
                               {/* Versión + estado */}
                               <div className="flex items-center justify-between gap-1">
                                 <div className="flex items-center gap-1">
-                                  <span className="text-[11px] font-mono font-bold text-foreground">
-                                    v{v.version}
-                                  </span>
-                                  {isLatest && (
-                                    <span className="text-[9px] text-primary font-medium">(última)</span>
-                                  )}
+                                  <span className="text-[11px] font-mono font-bold text-foreground">v{v.version}</span>
+                                  {isLatest && <span className="text-[9px] text-primary font-medium">(última)</span>}
                                 </div>
                                 <span className={cn(
                                   "text-[9px] px-1.5 py-0.5 rounded-full font-medium shrink-0",
@@ -346,45 +375,70 @@ function TabDefiniciones() {
                               {/* Nombre */}
                               <p className="text-[10px] text-muted-foreground truncate mt-0.5">{v.nombre}</p>
 
-                              {/* Campos */}
-                              <p className="text-[10px] text-muted-foreground/60">
-                                {vCampos} campo{vCampos !== 1 ? "s" : ""}
-                              </p>
-
-                              {/* Acciones por versión */}
+                              {/* Acciones + campos toggle */}
                               <div className="flex items-center gap-0.5 mt-1 flex-wrap">
+                                {/* Toggle campos */}
+                                <button
+                                  onClick={e => { e.stopPropagation(); toggleVersionCampos(v.id); }}
+                                  title={camposOpen ? "Ocultar campos" : "Ver campos de esta versión"}
+                                  className={cn(
+                                    "text-[9px] flex items-center gap-0.5 px-1.5 py-0.5 rounded transition-colors",
+                                    camposOpen
+                                      ? "text-primary bg-primary/10"
+                                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                                  )}
+                                >
+                                  <List className="w-2.5 h-2.5" />
+                                  {vCampos.length}c
+                                </button>
+
                                 {/* Cambiar estado */}
                                 <button
                                   onClick={e => {
                                     e.stopPropagation();
-                                    const nextEstado: EstadoDef =
+                                    const next: EstadoDef =
                                       v.estado === "activo"   ? "archivado" :
                                       v.estado === "borrador" ? "activo"    : "borrador";
-                                    const defIdx = definiciones.findIndex(def => def.id === v.id);
-                                    if (defIdx !== -1) updDef(defIdx, "estado", nextEstado);
+                                    const di = definiciones.findIndex(def => def.id === v.id);
+                                    if (di !== -1) updDef(di, "estado", next);
                                   }}
-                                  title="Cambiar estado de esta versión"
                                   className="text-[9px] text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded transition-colors"
                                 >
                                   {v.estado === "activo"   ? "→ archivar" :
                                    v.estado === "borrador" ? "→ activar"  : "→ borrador"}
                                 </button>
 
-                                {/* Bump minor solo en la última */}
                                 {isLatest && (
                                   <button
                                     onClick={e => {
                                       e.stopPropagation();
-                                      const defIdx = definiciones.findIndex(def => def.id === v.id);
-                                      if (defIdx !== -1) updDef(defIdx, "version", bumpV(v.version || "1.0", "minor"));
+                                      const di = definiciones.findIndex(def => def.id === v.id);
+                                      if (di !== -1) updDef(di, "version", bumpV(v.version || "1.0", "minor"));
                                     }}
-                                    title="Incrementar versión menor"
                                     className="text-[9px] font-mono text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded transition-colors"
                                   >
                                     +0.1
                                   </button>
                                 )}
                               </div>
+
+                              {/* Lista de campos expandible */}
+                              {camposOpen && (
+                                <div className="mt-1.5 border-l-2 border-border/60 pl-2 space-y-0.5">
+                                  {vCampos.length === 0 ? (
+                                    <p className="text-[9px] text-muted-foreground italic">Sin campos configurados</p>
+                                  ) : (
+                                    vCampos.sort((a, b) => a.orden - b.orden).map(p => (
+                                      <div key={p.id} className="flex items-center gap-1 text-[9px]">
+                                        <span className="w-1 h-1 rounded-full bg-muted-foreground/50 shrink-0" />
+                                        <span className="font-medium text-foreground truncate flex-1">{p.nombre}</span>
+                                        <span className="text-muted-foreground/60 shrink-0">{p.tipo_dato}</span>
+                                        {p.obligatorio && <span className="text-destructive font-bold shrink-0 ml-0.5">*</span>}
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         );
@@ -404,19 +458,104 @@ function TabDefiniciones() {
         </div>
       </div>
 
-      {/* ── Tabla editable ──────────────────────────────────────────────────── */}
-      <div className="flex-1 min-w-0">
+      {/* ── Panel derecho: banner de filtro + tabla ──────────────────────── */}
+      <div className="flex-1 min-w-0 flex flex-col gap-2">
+
+        {/* Banner de versión activa */}
+        {activeFamily && (
+          <div className="flex items-center justify-between bg-primary/5 border border-primary/20 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-2 text-xs text-primary font-medium">
+              <History className="w-3.5 h-3.5 shrink-0" />
+              <span>Versiones de:</span>
+              <span className="font-semibold truncate">{activeFamily.rep?.nombre}</span>
+              <span className="font-mono bg-primary/10 px-1.5 py-0.5 rounded text-[10px] shrink-0">
+                {activeFamily.versions.length}v
+              </span>
+            </div>
+            <button
+              onClick={() => setActiveFamilyId(null)}
+              className="flex items-center gap-1 text-[10px] text-primary/70 hover:text-primary transition-colors shrink-0 ml-2"
+            >
+              <X className="w-3 h-3" /> Ver todos
+            </button>
+          </div>
+        )}
+
         <EditableTable
-          title="Formularios"
-          data={definiciones}
+          title={activeFamily
+            ? `${activeFamily.rep?.nombre ?? "Formulario"} — todas las versiones`
+            : "Formularios"}
+          data={tableData}
           columns={colsDefinicion}
-          onUpdate={updDef}
-          onDelete={delDef}
+          onUpdate={handleTableUpdate}
+          onDelete={handleTableDelete}
           onAdd={() => addDef()}
         />
       </div>
 
     </div>
+
+    {/* ── Modal de confirmación: nueva versión ─────────────────────────────── */}
+    {confirmDup && (
+      <Dialog open onOpenChange={() => setConfirmDup(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="w-5 h-5 text-primary" />
+              ¿Crear nueva versión?
+            </DialogTitle>
+            <DialogDescription>
+              Se creará <strong>v{confirmDup.newVersion}</strong> a partir de &ldquo;{confirmDup.sourceName}&rdquo; (v{confirmDup.sourceVersion}).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="bg-muted/40 border border-border rounded-lg px-3 py-3 space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Versión anterior</span>
+              <span className="font-mono text-muted-foreground line-through">v{confirmDup.sourceVersion}</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Nueva versión</span>
+              <span className="font-mono font-bold text-primary">v{confirmDup.newVersion}</span>
+            </div>
+            <div className="border-t border-border/60 pt-2 flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Campos copiados</span>
+              <span className="font-semibold text-foreground">
+                {confirmDup.paramCount} campo{confirmDup.paramCount !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Estado inicial</span>
+              <span className="font-medium text-yellow-600 bg-yellow-50 border border-yellow-200 px-1.5 py-0.5 rounded-full text-[10px]">
+                borrador
+              </span>
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Podrás editar los campos de la nueva versión de forma independiente sin afectar la versión anterior.
+          </p>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setConfirmDup(null)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                dupDef(confirmDup.sourceId);
+                setExpandedFamilies(prev => new Set([...prev, confirmDup.rootId]));
+                setActiveFamilyId(confirmDup.rootId);
+                setConfirmDup(null);
+              }}
+            >
+              <Copy className="w-4 h-4 mr-2" />
+              Crear v{confirmDup.newVersion}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )}
+    </>
   );
 }
 
