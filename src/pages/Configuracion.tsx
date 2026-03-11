@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { MainLayout }  from "@/components/layout/MainLayout";
@@ -17,7 +17,7 @@ import {
 import {
   Layers, List, Table2, Palette, Settings2, BookOpen,
   Upload, ChevronDown, ChevronUp, X, Plus, Save,
-  Trash2, Info, CheckCircle2, Clock, Archive, Database, Leaf, Search, Copy,
+  Trash2, Info, CheckCircle2, Clock, Archive, Database, Leaf, Search, Copy, History,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import {
@@ -91,19 +91,60 @@ function EstadoIcon({ estado }: { estado: EstadoDef }) {
 
 function TabDefiniciones() {
   const { definiciones, parametros, datos, addDef, updDef, delDef, dupDef, cultivos } = useConfig();
-  const [searchDef, setSearchDef] = useState("");
+  const [searchDef, setSearchDef]           = useState("");
+  const [expandedFamilies, setExpandedFamilies] = useState<Set<string>>(new Set());
 
   const cultivoOptions = [
     { value: "",  label: "— Global —" },
     ...cultivos.map(c => ({ value: c.id, label: c.nombre })),
   ];
 
+  // ── Agrupación por familia de versiones ───────────────────────────────────
+  // Una familia = el formulario raíz (origen_id === undefined) y todos sus
+  // derivados (origen_id === raíz.id). La clave del mapa es siempre el id raíz.
+  const families = useMemo(() => {
+    const map = new Map<string, ModDef[]>();
+    definiciones.forEach(d => {
+      const rootId = d.origen_id ?? d.id;
+      if (!map.has(rootId)) map.set(rootId, []);
+      map.get(rootId)!.push(d);
+    });
+    return Array.from(map.entries()).map(([rootId, versions]) => {
+      // Ordenar descendente por versión (mayor.minor)
+      const sorted = [...versions].sort((a, b) => {
+        const [aMaj = 0, aMin = 0] = (a.version ?? "1.0").split(".").map(Number);
+        const [bMaj = 0, bMin = 0] = (b.version ?? "1.0").split(".").map(Number);
+        return bMaj !== aMaj ? bMaj - aMaj : bMin - aMin;
+      });
+      const latest = sorted[0];
+      // Nombre representativo: activo > borrador > latest
+      const rep = sorted.find(v => v.estado === "activo") ?? sorted.find(v => v.estado === "borrador") ?? latest;
+      return { rootId, versions: sorted, latest, rep };
+    });
+  }, [definiciones]);
+
+  // Familias filtradas por búsqueda
+  const filteredFamilies = useMemo(() =>
+    families.filter(f =>
+      (f.rep?.nombre ?? "").toLowerCase().includes(searchDef.toLowerCase()) ||
+      f.versions.some(v => v.nombre.toLowerCase().includes(searchDef.toLowerCase()))
+    ),
+    [families, searchDef]
+  );
+
+  const toggleFamily = (rootId: string) =>
+    setExpandedFamilies(prev => {
+      const next = new Set(prev);
+      next.has(rootId) ? next.delete(rootId) : next.add(rootId);
+      return next;
+    });
+
   const colsDefinicion: Column<ModDef>[] = [
-    { key: "cultivo_id",  header: "Cultivo",       width: "130px", type: "select",  options: cultivoOptions },
-    { key: "modulo",      header: "Módulo",         width: "150px", type: "select",  options: MODULO_OPTIONS },
-    { key: "tipo",        header: "Tipo",            width: "150px", type: "select",  options: TIPO_OPTIONS },
-    { key: "nombre",      header: "Nombre",           width: "200px", required: true },
-    { key: "descripcion", header: "Descripción",      width: "240px" },
+    { key: "cultivo_id",  header: "Cultivo",     width: "130px", type: "select",  options: cultivoOptions },
+    { key: "modulo",      header: "Módulo",       width: "150px", type: "select",  options: MODULO_OPTIONS },
+    { key: "tipo",        header: "Tipo",          width: "150px", type: "select",  options: TIPO_OPTIONS },
+    { key: "nombre",      header: "Nombre",         width: "200px", required: true },
+    { key: "descripcion", header: "Descripción",    width: "240px" },
     {
       key: "version", header: "Versión", width: "90px", editable: false,
       render: (value) => (
@@ -114,18 +155,20 @@ function TabDefiniciones() {
         </div>
       ),
     },
-    { key: "nivel_minimo",header: "Nivel mín.",        width: "85px",  type: "number" },
-    { key: "estado",      header: "Estado",             width: "110px", type: "select", options: ESTADO_OPTIONS },
+    { key: "nivel_minimo", header: "Nivel mín.", width: "85px",  type: "number" },
+    { key: "estado",       header: "Estado",      width: "110px", type: "select", options: ESTADO_OPTIONS },
   ];
 
   return (
     <div className="flex gap-4 items-start">
 
-      {/* Sidebar — lista compacta de definiciones, escala sin límite */}
-      <div className="w-60 shrink-0 bg-card border border-border rounded-xl overflow-hidden">
+      {/* ── Sidebar: familias de versiones ─────────────────────────────────── */}
+      <div className="w-64 shrink-0 bg-card border border-border rounded-xl overflow-hidden">
+
+        {/* Cabecera */}
         <div className="px-3 py-2.5 border-b border-border flex items-center justify-between">
           <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-            Formularios ({definiciones.length})
+            Formularios ({families.length})
           </span>
           <button
             onClick={() => addDef()}
@@ -154,80 +197,206 @@ function TabDefiniciones() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-0.5 p-1.5 max-h-[520px] overflow-y-auto">
-          {definiciones.filter(d => d.nombre && d.nombre.toLowerCase().includes(searchDef.toLowerCase())).map(d => {
-            const campoCount = parametros.filter(p => p.definicion_id === d.id).length;
-            const datoCount  = datos.filter(dt => dt.definicion_id === d.id).length;
+        {/* Lista de familias */}
+        <div className="flex flex-col max-h-[640px] overflow-y-auto divide-y divide-border/40">
+          {filteredFamilies.map(({ rootId, versions, latest, rep }) => {
+            const isExpanded  = expandedFamilies.has(rootId);
+            const hasHistory  = versions.length > 1;
+            const latestCampos = parametros.filter(p => p.definicion_id === latest.id).length;
+            const latestDatos  = datos.filter(dt => dt.definicion_id === latest.id).length;
+
             return (
-              <div
-                key={d.id}
-                className="px-3 py-2.5 rounded-lg hover:bg-muted/40 transition-colors"
-              >
-                {/* Badges: tipo + estado */}
-                <div className="flex items-center gap-1 mb-1.5 flex-wrap">
-                  <span className={cn(
-                    "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none",
-                    tipoBadgeColor[d.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700",
-                  )}>
-                    {tipoLabels[d.tipo as TipoConfig] ?? d.tipo}
-                  </span>
-                  <span className={cn(
-                    "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5",
-                    estadoBadge[d.estado ?? "borrador"],
-                  )}>
-                    <EstadoIcon estado={d.estado ?? "borrador"} />
-                    {d.estado ?? "borrador"}
-                  </span>
-                </div>
-                {/* Nombre */}
-                <p className="text-xs font-semibold text-foreground truncate leading-snug">{d.nombre}</p>
-                {/* Módulo + conteos */}
-                <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
-                  <span className="truncate">
-                    {MODULO_OPTIONS.find(m => m.value === d.modulo)?.label ?? d.modulo}
-                  </span>
-                  <span className="shrink-0 flex items-center gap-1">
-                    <List className="w-2.5 h-2.5" />{campoCount}
-                  </span>
-                  <span className="shrink-0 flex items-center gap-1">
-                    <Database className="w-2.5 h-2.5" />{datoCount}
-                  </span>
-                </div>
-                {/* Control de versiones */}
-                <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border/40">
-                  <span className="text-[10px] font-mono font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
-                    v{d.version || "1.0"}
-                  </span>
-                  <div className="flex items-center gap-0.5">
-                    <button
-                      onClick={e => {
-                        e.stopPropagation();
-                        const idx = definiciones.findIndex(def => def.id === d.id);
-                        if (idx !== -1) updDef(idx, "version", bumpV(d.version || "1.0", "minor"));
-                      }}
-                      title="Incrementar versión menor (ej. 1.0 → 1.1)"
-                      className="text-[10px] font-mono text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded transition-colors"
-                    >
-                      +0.1
-                    </button>
-                    <button
-                      onClick={e => {
-                        e.stopPropagation();
-                        dupDef(d.id);
-                      }}
-                      title="Nueva versión mayor — duplica el formulario con la versión incrementada en +1.0"
-                      className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-primary hover:bg-primary/5 px-1.5 py-0.5 rounded transition-colors"
-                    >
-                      <Copy className="w-2.5 h-2.5" />
-                      Nueva v
-                    </button>
+              <div key={rootId}>
+                {/* Cuerpo de la tarjeta de familia */}
+                <div className="px-3 py-2.5 hover:bg-muted/30 transition-colors">
+
+                  {/* Fila de badges */}
+                  <div className="flex items-center gap-1 mb-1.5 flex-wrap">
+                    <span className={cn(
+                      "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none",
+                      tipoBadgeColor[rep.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700",
+                    )}>
+                      {tipoLabels[rep.tipo as TipoConfig] ?? rep.tipo}
+                    </span>
+                    <span className={cn(
+                      "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5",
+                      estadoBadge[rep.estado ?? "borrador"],
+                    )}>
+                      <EstadoIcon estado={rep.estado ?? "borrador"} />
+                      {rep.estado ?? "borrador"}
+                    </span>
+                    {/* Badge de historial: solo cuando hay más de 1 versión */}
+                    {hasHistory && (
+                      <button
+                        onClick={() => toggleFamily(rootId)}
+                        title={isExpanded ? "Ocultar historial" : "Ver historial de versiones"}
+                        className={cn(
+                          "inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none transition-colors",
+                          isExpanded
+                            ? "bg-primary/15 text-primary"
+                            : "bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary"
+                        )}
+                      >
+                        <History className="w-2.5 h-2.5" />
+                        {versions.length}v
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Nombre */}
+                  <p className="text-xs font-semibold text-foreground truncate leading-snug">{rep.nombre}</p>
+
+                  {/* Meta: módulo + campos + datos de la versión más reciente */}
+                  <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
+                    <span className="truncate">
+                      {MODULO_OPTIONS.find(m => m.value === latest.modulo)?.label ?? latest.modulo}
+                    </span>
+                    <span className="shrink-0 flex items-center gap-1">
+                      <List className="w-2.5 h-2.5" />{latestCampos}
+                    </span>
+                    <span className="shrink-0 flex items-center gap-1">
+                      <Database className="w-2.5 h-2.5" />{latestDatos}
+                    </span>
+                  </div>
+
+                  {/* Control de versiones — actúa sobre la versión más reciente */}
+                  <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border/40">
+                    <span className="text-[10px] font-mono font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
+                      v{latest.version || "1.0"}
+                    </span>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          const idx = definiciones.findIndex(def => def.id === latest.id);
+                          if (idx !== -1) updDef(idx, "version", bumpV(latest.version || "1.0", "minor"));
+                        }}
+                        title="Incrementar versión menor (ej. 1.0 → 1.1)"
+                        className="text-[10px] font-mono text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded transition-colors"
+                      >
+                        +0.1
+                      </button>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          dupDef(latest.id);
+                          // Expandir automáticamente para revelar la nueva versión
+                          setExpandedFamilies(prev => new Set([...prev, rootId]));
+                        }}
+                        title="Nueva versión mayor — duplica el formulario con la versión incrementada en +1.0"
+                        className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-primary hover:bg-primary/5 px-1.5 py-0.5 rounded transition-colors"
+                      >
+                        <Copy className="w-2.5 h-2.5" />
+                        Nueva v
+                      </button>
+                    </div>
                   </div>
                 </div>
+
+                {/* ── Historial expandible ──────────────────────────────── */}
+                {isExpanded && hasHistory && (
+                  <div className="bg-muted/20 border-t border-border/40 px-3 pt-2 pb-3">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2.5 flex items-center gap-1">
+                      <History className="w-3 h-3" />
+                      Historial de versiones
+                    </p>
+
+                    {/* Timeline */}
+                    <div className="relative ml-1">
+                      {versions.map((v, timelineIdx) => {
+                        const vCampos  = parametros.filter(p => p.definicion_id === v.id).length;
+                        const isLatest = timelineIdx === 0;
+                        const isLast   = timelineIdx === versions.length - 1;
+
+                        return (
+                          <div key={v.id} className="flex items-start gap-2.5 pb-3 last:pb-0 relative">
+                            {/* Línea vertical que conecta los ítems */}
+                            {!isLast && (
+                              <div className="absolute left-[5px] top-3.5 w-px bottom-0 bg-border" />
+                            )}
+
+                            {/* Dot de estado */}
+                            <div className={cn(
+                              "w-[11px] h-[11px] rounded-full border-2 shrink-0 mt-0.5 z-10",
+                              v.estado === "activo"    ? "bg-green-500 border-green-600" :
+                              v.estado === "borrador"  ? "bg-yellow-400 border-yellow-500" :
+                                                         "bg-muted-foreground/30 border-muted-foreground/50",
+                            )} />
+
+                            {/* Contenido */}
+                            <div className="flex-1 min-w-0">
+                              {/* Versión + estado */}
+                              <div className="flex items-center justify-between gap-1">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[11px] font-mono font-bold text-foreground">
+                                    v{v.version}
+                                  </span>
+                                  {isLatest && (
+                                    <span className="text-[9px] text-primary font-medium">(última)</span>
+                                  )}
+                                </div>
+                                <span className={cn(
+                                  "text-[9px] px-1.5 py-0.5 rounded-full font-medium shrink-0",
+                                  estadoBadge[v.estado ?? "borrador"],
+                                )}>
+                                  {v.estado}
+                                </span>
+                              </div>
+
+                              {/* Nombre */}
+                              <p className="text-[10px] text-muted-foreground truncate mt-0.5">{v.nombre}</p>
+
+                              {/* Campos */}
+                              <p className="text-[10px] text-muted-foreground/60">
+                                {vCampos} campo{vCampos !== 1 ? "s" : ""}
+                              </p>
+
+                              {/* Acciones por versión */}
+                              <div className="flex items-center gap-0.5 mt-1 flex-wrap">
+                                {/* Cambiar estado */}
+                                <button
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    const nextEstado: EstadoDef =
+                                      v.estado === "activo"   ? "archivado" :
+                                      v.estado === "borrador" ? "activo"    : "borrador";
+                                    const defIdx = definiciones.findIndex(def => def.id === v.id);
+                                    if (defIdx !== -1) updDef(defIdx, "estado", nextEstado);
+                                  }}
+                                  title="Cambiar estado de esta versión"
+                                  className="text-[9px] text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded transition-colors"
+                                >
+                                  {v.estado === "activo"   ? "→ archivar" :
+                                   v.estado === "borrador" ? "→ activar"  : "→ borrador"}
+                                </button>
+
+                                {/* Bump minor solo en la última */}
+                                {isLatest && (
+                                  <button
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      const defIdx = definiciones.findIndex(def => def.id === v.id);
+                                      if (defIdx !== -1) updDef(defIdx, "version", bumpV(v.version || "1.0", "minor"));
+                                    }}
+                                    title="Incrementar versión menor"
+                                    className="text-[9px] font-mono text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded transition-colors"
+                                  >
+                                    +0.1
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
 
-          {definiciones.filter(d => d.nombre && d.nombre.toLowerCase().includes(searchDef.toLowerCase())).length === 0 && (
+          {filteredFamilies.length === 0 && (
             <p className="text-xs text-muted-foreground text-center py-6">
               {searchDef ? "Sin resultados." : "Sin definiciones aún."}
             </p>
@@ -235,7 +404,7 @@ function TabDefiniciones() {
         </div>
       </div>
 
-      {/* Tabla editable — ocupa el espacio restante */}
+      {/* ── Tabla editable ──────────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0">
         <EditableTable
           title="Formularios"
