@@ -186,21 +186,6 @@ function TabDefiniciones() {
     },
     { key: "nivel_minimo", header: "Nivel mín.", width: "85px",  type: "number" },
     { key: "estado",       header: "Estado",      width: "110px", type: "select", options: ESTADO_OPTIONS },
-    {
-      key: "id", header: "Acciones", width: "110px", editable: false,
-      render: (_value, row) => (
-        <div className="px-2 py-1.5">
-          <button
-            onClick={e => { e.stopPropagation(); navigate(`?tab=campos&def=${row.id}`); }}
-            className="flex items-center gap-1.5 text-[11px] font-medium text-primary hover:text-primary/80 bg-primary/8 hover:bg-primary/15 px-2.5 py-1 rounded-md transition-colors whitespace-nowrap"
-            title="Ver campos de este formulario"
-          >
-            <List className="w-3 h-3 shrink-0" />
-            Ver campos
-          </button>
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -506,6 +491,16 @@ function TabDefiniciones() {
           onUpdate={handleTableUpdate}
           onDelete={handleTableDelete}
           onAdd={() => addDef()}
+          rowActions={row => (
+            <button
+              onClick={e => { e.stopPropagation(); navigate(`?tab=campos&def=${row.id}`); }}
+              className="flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80 hover:bg-primary/10 px-2 py-1 rounded-md transition-colors whitespace-nowrap"
+              title="Ver campos de este formulario"
+            >
+              <List className="w-3 h-3 shrink-0" />
+              Ver campos
+            </button>
+          )}
         />
       </div>
 

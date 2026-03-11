@@ -29,6 +29,7 @@ interface EditableTableProps<T extends { id: string | number }> {
   title?: string;
   searchable?: boolean;
   className?: string;
+  rowActions?: (row: T, rowIndex: number) => React.ReactNode;
 }
 
 interface EditableCellProps {
@@ -439,6 +440,7 @@ export function EditableTable<T extends { id: string | number }>({
   title,
   searchable = true,
   className,
+  rowActions,
 }: EditableTableProps<T>) {
   const [searchTerm, setSearchTerm] = useState("");
   const [page,     setPage]     = useState(1);
@@ -544,14 +546,14 @@ export function EditableTable<T extends { id: string | number }>({
                   {col.header}
                 </th>
               ))}
-              {onDelete && <th style={{ width: "60px" }}>Acciones</th>}
+              {(onDelete || rowActions) && <th style={{ width: rowActions ? "130px" : "60px" }}>Acciones</th>}
             </tr>
           </thead>
           <tbody>
             {pagedData.length === 0 ? (
               <tr>
                 <td
-                  colSpan={columns.length + (onDelete ? 1 : 0)}
+                  colSpan={columns.length + (onDelete || rowActions ? 1 : 0)}
                   className="text-center py-8 text-muted-foreground"
                 >
                   {searchTerm ? "Sin resultados para la búsqueda" : "No hay datos disponibles"}
@@ -599,20 +601,25 @@ export function EditableTable<T extends { id: string | number }>({
                         )}
                       </td>
                     ))}
-                    {onDelete && (
+                    {(onDelete || rowActions) && (
                       <td>
-                        <button
-                          onClick={() => setConfirmDeleteId(row.id)}
-                          title="Eliminar fila"
-                          className={cn(
-                            "p-2 rounded transition-colors",
-                            isNew
-                              ? "text-destructive hover:bg-destructive/10"
-                              : "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
+                        <div className="flex items-center gap-1 px-1">
+                          {rowActions && rowActions(row, idx)}
+                          {onDelete && (
+                            <button
+                              onClick={() => setConfirmDeleteId(row.id)}
+                              title="Eliminar fila"
+                              className={cn(
+                                "p-2 rounded transition-colors shrink-0",
+                                isNew
+                                  ? "text-destructive hover:bg-destructive/10"
+                                  : "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
+                              )}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           )}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        </div>
                       </td>
                     )}
                   </tr>
