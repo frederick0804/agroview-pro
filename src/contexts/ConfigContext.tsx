@@ -26,7 +26,7 @@ interface ConfigContextType {
   addDef:  (cultivoId?: string) => void;
   updDef:  (rowIndex: number, key: keyof ModDef, value: unknown) => void;
   delDef:  (rowIndex: number) => void;
-  dupDef:  (id: string) => void;
+  dupDef:  (id: string, nombre?: string) => void;
 
   // ── Campos (Campos_configurados) ──
   parametros:   ModParam[];
@@ -126,7 +126,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // Duplica una definición con versión mayor incrementada y copia sus parámetros.
   // La copia arranca en estado "borrador" para revisión antes de activarla.
   // origen_id apunta siempre al id raíz de la familia de versiones.
-  const dupDef = (id: string): void => {
+  const dupDef = (id: string, nombre?: string): void => {
     const newId = String(Date.now());
     setDefiniciones(prev => {
       const src = prev.find(d => d.id === id);
@@ -134,7 +134,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       const [maj = 1] = (src.version ?? "1.0").split(".").map(n => parseInt(n) || 0);
       const newVer = `${maj + 1}.0`;
       const origenId = src.origen_id ?? src.id; // siempre apunta a la raíz
-      return [...prev, { ...src, id: newId, version: newVer, estado: "borrador" as EstadoDef, origen_id: origenId }];
+      return [...prev, { ...src, id: newId, version: newVer, estado: "borrador" as EstadoDef, origen_id: origenId, ...(nombre ? { nombre } : {}) }];
     });
     setParametros(prev => {
       const origParams = prev.filter(p => p.definicion_id === id);
