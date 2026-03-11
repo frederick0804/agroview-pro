@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { MainLayout }  from "@/components/layout/MainLayout";
@@ -13,15 +13,23 @@ import { Badge }   from "@/components/ui/badge";
 import {
   Layers, List, Table2, Palette, Settings2, BookOpen,
   Upload, ChevronDown, ChevronUp, X, Plus, Save,
-  Trash2, Info, CheckCircle2, Clock, Archive, Database, Leaf,
+  Trash2, Info, CheckCircle2, Clock, Archive, Database, Leaf, History, User,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
+import { useRole } from "@/contexts/RoleContext";
 import {
   tipoBadgeColor, tipoLabels, estadoBadge,
   type ModDef, type ModParam, type Parametro,
   type TipoConfig, type TipoDato, type EstadoDef,
   type Cultivo, type Variedad,
 } from "@/config/moduleDefinitions";
+import { VersionDiffDialog } from "@/components/dashboard/VersionDiffDialog";
+import { CampoConfigDrawer } from "@/components/dashboard/CampoConfigDrawer";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import { formatDistanceToNow } from "date-fns";
+import { es } from "date-fns/locale";
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -75,9 +83,13 @@ function EstadoIcon({ estado }: { estado: EstadoDef }) {
 
 // ─── Panel de Definiciones ────────────────────────────────────────────────────
 
-function TabDefiniciones() {
-  const { definiciones, parametros, datos, addDef, updDef, delDef, cultivos } = useConfig();
+function TabDefiniciones({ onPendingChange, onNavigateToCampos }: { onPendingChange?: (v: boolean) => void; onNavigateToCampos?: (defId: string) => void }) {
+  const { definiciones, parametros, datos, addDef, updDef, delDef, cultivos, getDefSnapshots, createSnapshot } = useConfig();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [historyDefId, setHistoryDefId] = useState<string | null>(null);
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [editingNameVal, setEditingNameVal] = useState("");
+  const [snapModal, setSnapModal] = useState<{ open: boolean; defId: string; nombre: string }>({ open: false, defId: "", nombre: "" });
 
   const cultivoOptions = [
     { value: "",  label: "— Global —" },
@@ -85,63 +97,137 @@ function TabDefiniciones() {
   ];
 
   const colsDefinicion: Column<ModDef>[] = [
-    { key: "cultivo_id",  header: "Cultivo",       width: "130px", type: "select",  options: cultivoOptions },
-    { key: "modulo",      header: "Módulo",         width: "150px", type: "select",  options: MODULO_OPTIONS },
-    { key: "tipo",        header: "Tipo",            width: "150px", type: "select",  options: TIPO_OPTIONS },
-    { key: "nombre",      header: "Nombre",           width: "200px" },
+    { key: "cultivo_id",  header: "Cultivo",       width: "130px", type: "select",  options: cultivoOptions, filterable: true },
+    { key: "modulo",      header: "Módulo",         width: "150px", type: "select",  options: MODULO_OPTIONS, required: true, filterable: true },
+    { key: "tipo",        header: "Tipo",            width: "150px", type: "select",  options: TIPO_OPTIONS, required: true, filterable: true },
+    { key: "nombre",      header: "Nombre",           width: "200px", required: true },
     { key: "descripcion", header: "Descripción",      width: "240px" },
-    { key: "version",     header: "Versión",           width: "70px" },
+    { key: "version",     header: "Versión",           width: "70px", editable: false },
     { key: "nivel_minimo",header: "Nivel mín.",        width: "85px",  type: "number" },
-    { key: "estado",      header: "Estado",             width: "110px", type: "select", options: ESTADO_OPTIONS },
+    { key: "estado",      header: "Estado",             width: "110px", type: "select", options: ESTADO_OPTIONS, filterable: true },
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Cards resumen */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="space-y-5">
+      <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border flex items-start gap-2">
+        <Info className="w-4 h-4 mt-0.5 shrink-0" />
+        <div>
+          <strong>Definiciones (Formularios)</strong> — crea y administra las definiciones que estructuran cada módulo.
+          Cada definición agrupa un conjunto de campos y genera una tabla dinámica de captura de datos.
+          Usa el historial de versiones para comparar cambios entre versiones.
+        </div>
+      </div>
+      <div className="flex gap-5">
+      {/* Panel izquierdo — Cards de definiciones */}
+      <div className="w-80 shrink-0 space-y-3 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
         {definiciones.filter(d => d.nombre).map(d => {
           const campoCount = parametros.filter(p => p.definicion_id === d.id).length;
           const datoCount  = datos.filter(dt => dt.definicion_id === d.id).length;
           const isExpanded = expandedId === d.id;
           const campitos   = parametros.filter(p => p.definicion_id === d.id).sort((a,b) => a.orden - b.orden);
+          const snapCount  = getDefSnapshots(d.id).length;
 
           return (
             <div
               key={d.id}
+              onClick={() => onNavigateToCampos?.(d.id)}
               className={cn(
-                "bg-card border rounded-xl overflow-hidden transition-all",
-                isExpanded ? "border-primary/40 shadow-md" : "border-border hover:border-border/80 hover:shadow-sm",
+                "bg-card border rounded-xl overflow-hidden transition-all cursor-pointer",
+                "border-border hover:border-primary/40 hover:shadow-sm",
               )}
             >
-              {/* Cabecera de la card */}
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", tipoBadgeColor[d.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700")}>
+              <div className="p-3">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded-full", tipoBadgeColor[d.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700")}>
                       {tipoLabels[d.tipo as TipoConfig] ?? d.tipo}
                     </span>
-                    <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full flex items-center gap-1", estadoBadge[d.estado ?? "borrador"])}>
+                    <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded-full flex items-center gap-0.5", estadoBadge[d.estado ?? "borrador"])}>
                       <EstadoIcon estado={d.estado ?? "borrador"} />
                       {d.estado ?? "borrador"}
                     </span>
                   </div>
-                  <span className="text-xs text-muted-foreground shrink-0">v{d.version}</span>
+                  <span className="text-[10px] text-muted-foreground shrink-0">v{d.version}</span>
                 </div>
-                <p className="font-semibold text-foreground text-sm mb-1 line-clamp-1">{d.nombre}</p>
-                <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{d.descripcion || "Sin descripción"}</p>
 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <List className="w-3 h-3" /> {campoCount} campos
+                {/* Nombre editable */}
+                {editingNameId === d.id ? (
+                  <div className="flex items-center gap-1 mb-0.5" onClick={e => e.stopPropagation()}>
+                    <Input
+                      autoFocus
+                      value={editingNameVal}
+                      onChange={e => setEditingNameVal(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") {
+                          const idx = definiciones.findIndex(x => x.id === d.id);
+                          if (idx !== -1 && editingNameVal.trim()) updDef(idx, "nombre", editingNameVal.trim());
+                          setEditingNameId(null);
+                        }
+                        if (e.key === "Escape") setEditingNameId(null);
+                      }}
+                      onBlur={() => {
+                        const idx = definiciones.findIndex(x => x.id === d.id);
+                        if (idx !== -1 && editingNameVal.trim()) updDef(idx, "nombre", editingNameVal.trim());
+                        setEditingNameId(null);
+                      }}
+                      className="h-6 text-xs px-1.5"
+                    />
+                  </div>
+                ) : (
+                  <p
+                    className="font-semibold text-foreground text-xs mb-0.5 line-clamp-1 hover:text-primary cursor-text"
+                    onClick={e => { e.stopPropagation(); setEditingNameId(d.id); setEditingNameVal(d.nombre); }}
+                    title="Clic para editar nombre"
+                  >
+                    {d.nombre || <span className="italic text-muted-foreground">Sin nombre</span>}
+                  </p>
+                )}
+
+                <p className="text-[10px] text-muted-foreground line-clamp-2 mb-2">{d.descripcion || "Sin descripción"}</p>
+
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <span className="flex items-center gap-0.5">
+                      <List className="w-3 h-3" /> {campoCount}
                     </span>
-                    <span className="flex items-center gap-1">
-                      <Database className="w-3 h-3" /> {datoCount} registros
+                    <span className="flex items-center gap-0.5">
+                      <Database className="w-3 h-3" /> {datoCount}
                     </span>
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {MODULO_OPTIONS.find(m => m.value === d.modulo)?.label ?? d.modulo}
-                  </span>
+                  <span>{MODULO_OPTIONS.find(m => m.value === d.modulo)?.label ?? d.modulo}</span>
+                </div>
+
+                {/* Auditoría + historial + snapshot */}
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50">
+                  {d.updated_at ? (
+                    <span className="text-[10px] text-muted-foreground/70 flex items-center gap-0.5 truncate mr-1">
+                      <User className="w-2.5 h-2.5 shrink-0" />
+                      {d.updated_by ?? "—"} · {formatDistanceToNow(new Date(d.updated_at), { addSuffix: true, locale: es })}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground/50 italic">Sin auditoría</span>
+                  )}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={e => { e.stopPropagation(); setSnapModal({ open: true, defId: d.id, nombre: d.nombre }); }}
+                      className="flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md transition-colors text-emerald-600 hover:bg-emerald-500/10"
+                      title="Crear nueva versión"
+                    >
+                      <Save className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={e => { e.stopPropagation(); setHistoryDefId(d.id); }}
+                      className={cn(
+                        "flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md transition-colors",
+                        snapCount > 0
+                          ? "text-primary hover:bg-primary/10"
+                          : "text-muted-foreground hover:bg-muted/50",
+                      )}
+                    >
+                      <History className="w-3 h-3" />
+                      {snapCount > 0 ? `${snapCount}` : "—"}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -149,20 +235,20 @@ function TabDefiniciones() {
               {campoCount > 0 && (
                 <>
                   <button
-                    onClick={() => setExpandedId(isExpanded ? null : d.id)}
-                    className="w-full flex items-center justify-between px-4 py-2 text-xs text-muted-foreground border-t border-border hover:bg-muted/40 transition-colors"
+                    onClick={e => { e.stopPropagation(); setExpandedId(isExpanded ? null : d.id); }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] text-muted-foreground border-t border-border hover:bg-muted/40 transition-colors"
                   >
-                    <span>Ver campos asignados</span>
-                    {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    <span>Ver campos</span>
+                    {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                   </button>
                   {isExpanded && (
-                    <div className="px-4 pb-4 bg-muted/20 border-t border-border">
-                      <div className="flex flex-wrap gap-1.5 pt-3">
+                    <div className="px-3 pb-3 bg-muted/20 border-t border-border">
+                      <div className="flex flex-wrap gap-1 pt-2">
                         {campitos.map(c => (
-                          <span key={c.id} className="text-xs bg-background border border-border rounded-md px-2 py-1 flex items-center gap-1">
+                          <span key={c.id} className="text-[10px] bg-background border border-border rounded px-1.5 py-0.5 flex items-center gap-0.5">
                             <span className="font-medium">{c.nombre.replace(/_/g, " ")}</span>
                             <span className="text-muted-foreground/60">· {c.tipo_dato}</span>
-                            {c.obligatorio && <span className="text-destructive text-[10px]">*</span>}
+                            {c.obligatorio && <span className="text-destructive text-[9px]">*</span>}
                           </span>
                         ))}
                       </div>
@@ -176,150 +262,160 @@ function TabDefiniciones() {
 
         {/* Card — Nueva Definición */}
         <button
-          onClick={addDef}
-          className="border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all min-h-[120px]"
+          onClick={() => addDef()}
+          className="w-full border-2 border-dashed border-border rounded-xl p-3 flex flex-col items-center justify-center gap-1.5 text-muted-foreground hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all"
         >
-          <Plus className="w-6 h-6" />
-          <span className="text-sm font-medium">Nueva Definición</span>
+          <Plus className="w-5 h-5" />
+          <span className="text-xs font-medium">Nueva Definición</span>
         </button>
       </div>
 
-      {/* Tabla editable */}
-      <EditableTable
-        title="Registro de Definiciones"
-        data={definiciones}
-        columns={colsDefinicion}
-        onUpdate={updDef}
-        onDelete={delDef}
-        onAdd={addDef}
-      />
+      {/* Panel derecho — Tabla editable */}
+      <div className="flex-1 min-w-0">
+        <EditableTable
+          title="Registro de Definiciones"
+          data={definiciones}
+          columns={colsDefinicion}
+          onUpdate={updDef}
+          onDelete={delDef}
+          onAdd={() => addDef()}
+          onPendingChange={onPendingChange}
+          rowActions={(row) => (
+            <>
+              <button
+                onClick={() => onNavigateToCampos?.(row.id)}
+                className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                title="Ver campos"
+              >
+                <List className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setSnapModal({ open: true, defId: row.id, nombre: row.nombre })}
+                className="p-1.5 rounded text-muted-foreground hover:text-emerald-600 hover:bg-emerald-500/10 transition-colors"
+                title="Crear nueva versión"
+              >
+                <Save className="w-4 h-4" />
+              </button>
+            </>
+          )}
+        />
+      </div>
+
+      {/* Dialog de historial de versiones */}
+      {historyDefId && (
+        <VersionDiffDialog
+          defId={historyDefId}
+          open={!!historyDefId}
+          onClose={() => setHistoryDefId(null)}
+        />
+      )}
+
+      {/* Modal para crear nueva versión (snapshot) */}
+      <Dialog open={snapModal.open} onOpenChange={open => { if (!open) setSnapModal(p => ({ ...p, open: false })); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Save className="w-5 h-5 text-emerald-600" />
+              Crear nueva versión
+            </DialogTitle>
+          </DialogHeader>
+          {(() => {
+            const def = definiciones.find(d => d.id === snapModal.defId);
+            const currentVersion = def?.version ?? "1.0";
+            const parts = currentVersion.split(".");
+            const nextVersion = parts.length >= 2
+              ? `${parts[0]}.${parseInt(parts[1] || "0", 10) + 1}`
+              : `${currentVersion}.1`;
+            const campos = parametros.filter(p => p.definicion_id === snapModal.defId);
+            return (
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label htmlFor="snap-nombre">Nombre de la definición</Label>
+                  <Input
+                    id="snap-nombre"
+                    value={snapModal.nombre}
+                    onChange={e => setSnapModal(p => ({ ...p, nombre: e.target.value }))}
+                  />
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="text-muted-foreground">Versión actual:</span>
+                  <Badge variant="secondary">{currentVersion}</Badge>
+                  <span className="text-muted-foreground">→</span>
+                  <Badge className="bg-emerald-500/15 text-emerald-700 border-emerald-200">{nextVersion}</Badge>
+                </div>
+                {campos.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label className="text-muted-foreground">Campos incluidos ({campos.length})</Label>
+                    <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+                      {campos.sort((a, b) => a.orden - b.orden).map(c => (
+                        <span key={c.id} className="text-[10px] bg-muted border border-border rounded px-1.5 py-0.5">
+                          {c.nombre.replace(/_/g, " ")}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button variant="outline" size="sm" onClick={() => setSnapModal(p => ({ ...p, open: false }))}>Cancelar</Button>
+                  <Button
+                    size="sm"
+                    disabled={!snapModal.nombre.trim()}
+                    onClick={() => {
+                      const idx = definiciones.findIndex(d => d.id === snapModal.defId);
+                      if (idx !== -1) {
+                        updDef(idx, "nombre", snapModal.nombre.trim());
+                        updDef(idx, "version", nextVersion);
+                      }
+                      createSnapshot(snapModal.defId, `Versión ${nextVersion}`);
+                      setSnapModal(p => ({ ...p, open: false }));
+                    }}
+                  >
+                    <Save className="w-4 h-4 mr-1.5" />
+                    Crear versión {nextVersion}
+                  </Button>
+                </DialogFooter>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+      </div>
     </div>
   );
 }
 
 // ─── Panel Biblioteca de Parámetros ───────────────────────────────────────────
 
-function TabBiblioteca() {
+function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => void }) {
   const { parametrosLib, addParamLib, updParamLib, delParamLib } = useConfig();
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newParam, setNewParam] = useState<Partial<Parametro>>({
-    nombre: "", codigo: "", tipo_dato: "Texto", unidad_medida: "", descripcion: "", obligatorio_default: false,
-  });
-
-  const handleCreate = () => {
-    if (!newParam.nombre?.trim()) return;
-    addParamLib(newParam);
-    setNewParam({ nombre: "", codigo: "", tipo_dato: "Texto", unidad_medida: "", descripcion: "", obligatorio_default: false });
-    setShowCreateForm(false);
-  };
 
   const colsLib: Column<Parametro>[] = [
-    { key: "nombre",              header: "Nombre (snake_case)", width: "180px" },
+    { key: "nombre",              header: "Nombre (snake_case)", width: "180px", required: true },
     { key: "codigo",              header: "Código",               width: "90px" },
-    { key: "tipo_dato",           header: "Tipo",                  width: "120px", type: "select", options: TIPO_DATO_OPTIONS },
+    { key: "tipo_dato",           header: "Tipo",                  width: "120px", type: "select", options: TIPO_DATO_OPTIONS, required: true, filterable: true },
     { key: "unidad_medida",       header: "Unidad",               width: "80px" },
     { key: "descripcion",         header: "Descripción",           width: "260px" },
-    { key: "obligatorio_default", header: "Oblig. default",        width: "100px", type: "checkbox" },
+    { key: "obligatorio_default", header: "Oblig. default",        width: "100px", type: "checkbox", filterable: true },
   ];
 
   return (
     <div className="space-y-5">
-      <div className="flex items-start justify-between gap-4">
-        <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border flex-1">
+      <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border flex items-start gap-2">
+        <Info className="w-4 h-4 mt-0.5 shrink-0" />
+        <div>
           <strong>Biblioteca Global</strong> — catálogo de campos reutilizables en cualquier módulo.
           Al agregar un campo a una definición, se sugiere desde aquí.
         </div>
-        <Button onClick={() => setShowCreateForm(v => !v)} className="shrink-0">
-          <Plus className="w-4 h-4 mr-2" />
-          Crear Parámetro
-        </Button>
       </div>
 
-      {/* Formulario de creación rápida */}
-      {showCreateForm && (
-        <div className="bg-primary/5 border border-primary/20 rounded-xl p-5 space-y-4">
-          <h4 className="font-semibold text-sm text-foreground flex items-center gap-2">
-            <Plus className="w-4 h-4 text-primary" />
-            Nuevo Parámetro en la Biblioteca
-          </h4>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Nombre <span className="text-destructive">*</span></Label>
-              <Input
-                value={newParam.nombre ?? ""}
-                onChange={e => setNewParam(p => ({ ...p, nombre: e.target.value.replace(/ /g, "_").toLowerCase() }))}
-                placeholder="ej. temperatura_suelo"
-                className="h-8 text-sm"
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Código</Label>
-              <Input
-                value={newParam.codigo ?? ""}
-                onChange={e => setNewParam(p => ({ ...p, codigo: e.target.value.toUpperCase() }))}
-                placeholder="ej. TEMP_SUE"
-                className="h-8 text-sm"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Tipo de dato</Label>
-              <select
-                value={newParam.tipo_dato ?? "Texto"}
-                onChange={e => setNewParam(p => ({ ...p, tipo_dato: e.target.value as TipoDato }))}
-                className="w-full h-8 text-sm border border-border rounded-md px-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary"
-              >
-                {TIPO_DATO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Unidad</Label>
-              <Input
-                value={newParam.unidad_medida ?? ""}
-                onChange={e => setNewParam(p => ({ ...p, unidad_medida: e.target.value }))}
-                placeholder="ej. °C, mm, gr"
-                className="h-8 text-sm"
-              />
-            </div>
-            <div className="space-y-1.5 col-span-2 lg:col-span-3">
-              <Label className="text-xs">Descripción</Label>
-              <Input
-                value={newParam.descripcion ?? ""}
-                onChange={e => setNewParam(p => ({ ...p, descripcion: e.target.value }))}
-                placeholder="Describe para qué se usa este parámetro"
-                className="h-8 text-sm"
-              />
-            </div>
-            <div className="space-y-1.5 flex flex-col justify-end">
-              <Label className="text-xs">Obligatorio por defecto</Label>
-              <div className="flex items-center gap-2 h-8">
-                <Switch
-                  checked={newParam.obligatorio_default ?? false}
-                  onCheckedChange={v => setNewParam(p => ({ ...p, obligatorio_default: v }))}
-                />
-                <span className="text-xs text-muted-foreground">{newParam.obligatorio_default ? "Sí" : "No"}</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 pt-1">
-            <Button onClick={handleCreate} disabled={!newParam.nombre?.trim()}>
-              <Save className="w-4 h-4 mr-2" /> Guardar en Biblioteca
-            </Button>
-            <Button variant="outline" onClick={() => setShowCreateForm(false)}>
-              <X className="w-4 h-4 mr-1" /> Cancelar
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Tabla de la biblioteca */}
       <EditableTable
         title={`Biblioteca de Parámetros (${parametrosLib.length})`}
         data={parametrosLib}
         columns={colsLib}
         onUpdate={(idx, key, val) => updParamLib(parametrosLib[idx].id, key, val)}
         onDelete={idx => delParamLib(parametrosLib[idx].id)}
-        onAdd={() => setShowCreateForm(true)}
+        onAdd={() => addParamLib()}
+        onPendingChange={onPendingChange}
         searchable
       />
     </div>
@@ -328,9 +424,37 @@ function TabBiblioteca() {
 
 // ─── Panel Campos (Campos_configurados) ───────────────────────────────────────
 
-function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
-  const { definiciones, parametros, parametrosLib, addPar, updParByIdx, delParByIdx } = useConfig();
+function TabCampos({ initialDefId = "all", onPendingChange }: { initialDefId?: string; onPendingChange?: (v: boolean) => void }) {
+  const { definiciones, parametros, parametrosLib, addPar, updParByIdx, updParFull, delParByIdx, addParamLib } = useConfig();
   const [filterDefId, setFilterDefId] = useState<string>(initialDefId);
+  const [configCampoId, setConfigCampoId] = useState<string | null>(null);
+
+  // Sync filter when navigating from Definiciones
+  useEffect(() => { setFilterDefId(initialDefId); }, [initialDefId]);
+
+  // Modal para crear nuevo parámetro desde el autocomplete
+  const [newParamModal, setNewParamModal] = useState<{ open: boolean; nombre: string }>({ open: false, nombre: "" });
+  const [newParamForm, setNewParamForm] = useState<{
+    codigo: string; tipo_dato: TipoDato; unidad_medida: string; descripcion: string; obligatorio_default: boolean;
+  }>({ codigo: "", tipo_dato: "Texto", unidad_medida: "", descripcion: "", obligatorio_default: false });
+
+  const openNewParamModal = (query: string) => {
+    setNewParamModal({ open: true, nombre: query.replace(/ /g, "_").toLowerCase() });
+    setNewParamForm({ codigo: "", tipo_dato: "Texto", unidad_medida: "", descripcion: "", obligatorio_default: false });
+  };
+
+  const handleCreateParam = () => {
+    if (!newParamModal.nombre.trim()) return;
+    addParamLib({
+      nombre:              newParamModal.nombre,
+      codigo:              newParamForm.codigo,
+      tipo_dato:           newParamForm.tipo_dato,
+      unidad_medida:       newParamForm.unidad_medida,
+      descripcion:         newParamForm.descripcion,
+      obligatorio_default: newParamForm.obligatorio_default,
+    });
+    setNewParamModal({ open: false, nombre: "" });
+  };
 
   // Sugerencias para autocomplete: nombres de la biblioteca global
   const sugerencias = parametrosLib
@@ -365,6 +489,8 @@ function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
       header:  "Definición",
       width:   "200px",
       type:    "select",
+      required: true,
+      filterable: true,
       options: definiciones.map(d => ({ value: d.id, label: d.nombre || `(sin nombre — ${d.id})` })),
     },
     {
@@ -372,24 +498,30 @@ function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
       header:  "Campo",
       width:   "200px",
       type:    "autocomplete",
+      required: true,
       options: sugerencias,
+      onCreateOption: openNewParamModal,
     },
     {
       key:     "tipo_dato",
       header:  "Tipo",
       width:   "130px",
       type:    "select",
+      filterable: true,
       options: TIPO_DATO_OPTIONS,
     },
     { key: "orden",      header: "Orden", width: "70px",  type: "number" },
-    { key: "obligatorio",header: "Oblig.",width: "75px",  type: "checkbox" },
+    { key: "obligatorio",header: "Oblig.",width: "75px",  type: "checkbox", filterable: true },
   ];
 
   return (
     <div className="space-y-5">
-      <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border">
-        Asigna <strong>campos de la Biblioteca</strong> a cada definición. Escribe en el campo
-        "Campo" para buscar en la biblioteca o crear uno nuevo.
+      <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border flex items-start gap-2">
+        <Info className="w-4 h-4 mt-0.5 shrink-0" />
+        <div>
+          Asigna <strong>campos de la Biblioteca</strong> a cada definición. Escribe en el campo
+          "Campo" para buscar en la biblioteca o crear uno nuevo.
+        </div>
       </div>
 
       {/* Chips de filtro por definición */}
@@ -432,8 +564,106 @@ function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
         onUpdate={updFiltered}
         onDelete={delFiltered}
         onAdd={addFiltered}
-        searchable={false}
+        onPendingChange={onPendingChange}
+        rowActions={(row) => (
+          <button
+            onClick={() => setConfigCampoId(row.id)}
+            className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+            title="Configuración avanzada"
+          >
+            <Settings2 className="w-4 h-4" />
+          </button>
+        )}
       />
+
+      {/* Drawer de configuración avanzada del campo */}
+      <CampoConfigDrawer
+        open={!!configCampoId}
+        campo={configCampoId ? parametros.find(p => p.id === configCampoId) ?? null : null}
+        hermanos={configCampoId ? parametros.filter(p => p.definicion_id === (parametros.find(x => x.id === configCampoId)?.definicion_id ?? "")) : []}
+        onSave={(id, updates) => updParFull(id, updates)}
+        onClose={() => setConfigCampoId(null)}
+      />
+
+      {/* Modal para crear nuevo parámetro en la biblioteca */}
+      <Dialog open={newParamModal.open} onOpenChange={open => { if (!open) setNewParamModal({ open: false, nombre: "" }); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-4 h-4 text-primary" />
+              Nuevo Parámetro en Biblioteca
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Nombre (snake_case) <span className="text-destructive">*</span></Label>
+              <Input
+                value={newParamModal.nombre}
+                onChange={e => setNewParamModal(prev => ({ ...prev, nombre: e.target.value.replace(/ /g, "_").toLowerCase() }))}
+                placeholder="ej. temperatura_suelo"
+                className="h-8 text-sm"
+                autoFocus
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Código</Label>
+                <Input
+                  value={newParamForm.codigo}
+                  onChange={e => setNewParamForm(p => ({ ...p, codigo: e.target.value.toUpperCase() }))}
+                  placeholder="ej. TEMP_SUE"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Tipo de dato</Label>
+                <select
+                  value={newParamForm.tipo_dato}
+                  onChange={e => setNewParamForm(p => ({ ...p, tipo_dato: e.target.value as TipoDato }))}
+                  className="w-full h-8 text-sm border border-border rounded-md px-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  {TIPO_DATO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Unidad de medida</Label>
+              <Input
+                value={newParamForm.unidad_medida}
+                onChange={e => setNewParamForm(p => ({ ...p, unidad_medida: e.target.value }))}
+                placeholder="ej. °C, mm, gr"
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Descripción</Label>
+              <Input
+                value={newParamForm.descripcion}
+                onChange={e => setNewParamForm(p => ({ ...p, descripcion: e.target.value }))}
+                placeholder="Describe para qué se usa este parámetro"
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={newParamForm.obligatorio_default}
+                onCheckedChange={v => setNewParamForm(p => ({ ...p, obligatorio_default: v }))}
+              />
+              <Label className="text-xs">Obligatorio por defecto</Label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewParamModal({ open: false, nombre: "" })}>
+              Cancelar
+            </Button>
+            <Button onClick={handleCreateParam} disabled={!newParamModal.nombre.trim()}>
+              <Save className="w-4 h-4 mr-1.5" /> Crear Parámetro
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -459,8 +689,8 @@ function TabDatos() {
   return (
     <div className="space-y-5">
       {/* Banner explicativo */}
-      <div className="bg-amber-50 border border-amber-200/60 rounded-lg px-4 py-3 text-sm text-amber-800 flex items-start gap-2">
-        <Info className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
+      <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border flex items-start gap-2">
+        <Info className="w-4 h-4 mt-0.5 shrink-0" />
         <div>
           <strong>¿Dónde se ingresan los registros?</strong>{" "}
           Los datos operacionales se ingresan en <strong>cada módulo</strong> (Laboratorio,
@@ -573,6 +803,8 @@ function TabCultivos() {
     variedades, addVariedad, updVariedad, delVariedad,
     definiciones, addDef, updDef, delDef,
   } = useConfig();
+  const { role } = useRole();
+  const isSuperAdmin = role === "super_admin";
 
   const firstActive = cultivos.find(c => c.activo)?.id ?? cultivos[0]?.id ?? "";
   const [selectedId, setSelectedId] = useState<string>(firstActive);
@@ -585,26 +817,26 @@ function TabCultivos() {
   // ── Columnas ──────────────────────────────────────────────────────────────
 
   const colsCultivos: Column<Cultivo>[] = [
-    { key: "nombre",      header: "Cultivo",      width: "160px" },
-    { key: "codigo",      header: "Código",        width: "80px"  },
-    { key: "descripcion", header: "Descripción",   width: "280px" },
-    { key: "activo",      header: "Activo",         width: "75px", type: "checkbox" },
+    { key: "nombre",      header: "Cultivo",      width: "160px", editable: isSuperAdmin },
+    { key: "codigo",      header: "Código",        width: "80px",  editable: isSuperAdmin },
+    { key: "descripcion", header: "Descripción",   width: "280px", editable: isSuperAdmin },
+    { key: "activo",      header: "Activo",         width: "75px", type: "checkbox", editable: isSuperAdmin, filterable: true },
   ];
 
   const colsVariedades: Column<Variedad>[] = [
     { key: "nombre",      header: "Variedad",      width: "160px" },
     { key: "codigo",      header: "Código",         width: "80px"  },
     { key: "descripcion", header: "Descripción",    width: "280px" },
-    { key: "activo",      header: "Activa",          width: "75px", type: "checkbox" },
+    { key: "activo",      header: "Activa",          width: "75px", type: "checkbox", filterable: true },
   ];
 
   const colsFormularios: Column<ModDef>[] = [
-    { key: "modulo",       header: "Módulo",       width: "150px", type: "select", options: MODULO_OPTIONS },
-    { key: "tipo",         header: "Tipo",          width: "150px", type: "select", options: TIPO_OPTIONS  },
+    { key: "modulo",       header: "Módulo",       width: "150px", type: "select", options: MODULO_OPTIONS, filterable: true },
+    { key: "tipo",         header: "Tipo",          width: "150px", type: "select", options: TIPO_OPTIONS, filterable: true  },
     { key: "nombre",       header: "Nombre",         width: "200px" },
     { key: "version",      header: "Versión",         width: "70px"  },
     { key: "nivel_minimo", header: "Nivel mín.",      width: "85px", type: "number" },
-    { key: "estado",       header: "Estado",           width: "110px", type: "select", options: ESTADO_OPTIONS },
+    { key: "estado",       header: "Estado",           width: "110px", type: "select", options: ESTADO_OPTIONS, filterable: true },
   ];
 
   // ── CRUD wrappers ─────────────────────────────────────────────────────────
@@ -634,6 +866,13 @@ function TabCultivos() {
 
   return (
     <div className="space-y-6">
+      <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border flex items-start gap-2">
+        <Info className="w-4 h-4 mt-0.5 shrink-0" />
+        <div>
+          <strong>Cultivos y Variedades</strong> — gestiona los cultivos habilitados según el plan del cliente.
+          Cada cultivo puede tener variedades y formularios asociados que definen los campos de captura en cada módulo.
+        </div>
+      </div>
 
       {/* ── Selector de cultivo ── */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -661,12 +900,14 @@ function TabCultivos() {
             </button>
           );
         })}
-        <button
-          onClick={() => addCultivo()}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all"
-        >
-          <Plus className="w-3.5 h-3.5" /> Nuevo cultivo
-        </button>
+        {isSuperAdmin && (
+          <button
+            onClick={() => addCultivo()}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all"
+          >
+            <Plus className="w-3.5 h-3.5" /> Nuevo cultivo
+          </button>
+        )}
       </div>
 
       {/* ── Panel del cultivo seleccionado ── */}
@@ -717,7 +958,6 @@ function TabCultivos() {
                   onUpdate={updV}
                   onDelete={delV}
                   onAdd={() => addVariedad(selectedId)}
-                  searchable={false}
                 />
               </TabsContent>
 
@@ -746,7 +986,6 @@ function TabCultivos() {
                     onUpdate={updF}
                     onDelete={delF}
                     onAdd={() => addDef(selectedId)}
-                    searchable={false}
                   />
                 )}
               </TabsContent>
@@ -760,11 +999,15 @@ function TabCultivos() {
           </div>
           <div>
             <p className="font-semibold text-foreground">Sin cultivos registrados</p>
-            <p className="text-sm text-muted-foreground mt-1">Crea el primer cultivo para comenzar.</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {isSuperAdmin ? "Crea el primer cultivo para comenzar." : "Los cultivos se asignan según el plan del cliente."}
+            </p>
           </div>
-          <Button onClick={() => addCultivo()}>
-            <Plus className="w-4 h-4 mr-2" /> Nuevo Cultivo
-          </Button>
+          {isSuperAdmin && (
+            <Button onClick={() => addCultivo()}>
+              <Plus className="w-4 h-4 mr-2" /> Nuevo Cultivo
+            </Button>
+          )}
         </div>
       )}
 
@@ -774,13 +1017,13 @@ function TabCultivos() {
         data={cultivos}
         columns={colsCultivos}
         onUpdate={updC}
-        onDelete={delC}
-        onAdd={() => addCultivo()}
-        searchable={false}
+        onDelete={isSuperAdmin ? delC : undefined}
+        onAdd={isSuperAdmin ? () => addCultivo() : undefined}
       />
     </div>
   );
 }
+
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
@@ -796,233 +1039,11 @@ const Configuracion = () => {
   const initialTab   = searchParams.get("tab")   ?? "cultivos";
   const initialDefId = searchParams.get("def")   ?? "all";
 
-  const [brandConfig, setBrandConfig] = useState<BrandConfig>({
-    nombreEmpresa:   "BlueData",
-    colorPrimario:   "#2d6a4f",
-    colorSecundario: "#40916c",
-    colorAccent:     "#d4a72d",
-  });
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [camposDefId, setCamposDefId] = useState<string>(initialDefId);
+  const { hasPendingChanges: hasPending, setHasPendingChanges: setHasPending } = useConfig();
+  const { currentClienteName } = useRole();
 
-  return (
-    <div className="space-y-5">
-      {/* Chips filtro */}
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => setFilterDefId("all")}
-          className={cn(
-            "text-xs px-3 py-1.5 rounded-full font-medium border transition-all",
-            filterDefId === "all"
-              ? "bg-primary text-primary-foreground border-primary"
-              : "bg-card text-muted-foreground border-border hover:border-primary/40",
-          )}
-        >
-          Todos <span className="opacity-70">({datos.length})</span>
-        </button>
-        {definiciones.filter(d => d.nombre).map(d => {
-          const count = datos.filter(dt => dt.definicion_id === d.id).length;
-          return (
-            <button
-              key={d.id}
-              onClick={() => setFilterDefId(d.id)}
-              className={cn(
-                "text-xs px-3 py-1.5 rounded-full font-medium border transition-all",
-                filterDefId === d.id
-                  ? `${tipoBadgeColor[d.tipo as TipoConfig] ?? "bg-muted text-muted-foreground"} border-transparent`
-                  : "bg-card text-muted-foreground border-border hover:border-primary/40",
-              )}
-            >
-              {d.nombre || `(def ${d.id})`}
-              <span className="opacity-60 ml-1">({count})</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Panel de datos */}
-      <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <h3 className="font-semibold text-foreground text-sm">
-            {filterDefId === "all" ? "Todos los Registros" : `Registros — ${getDefNombre(filterDefId)}`}
-          </h3>
-          <Button onClick={addNewDato} size="sm" disabled={definiciones.length === 0}>
-            <Plus className="w-4 h-4 mr-1.5" /> Agregar registro
-          </Button>
-        </div>
-
-        <div className="divide-y divide-border">
-          {filteredDatos.length === 0 ? (
-            <EmptyState
-              icon={<FileText className="w-7 h-7 text-muted-foreground" />}
-              title="Sin registros"
-              description="No hay registros para esta definición. Agrega el primero."
-              action={
-                <Button size="sm" onClick={addNewDato}>
-                  <Plus className="w-4 h-4 mr-1" /> Agregar registro
-                </Button>
-              }
-            />
-          ) : (
-            filteredDatos.map(dato => {
-              const isExpanded = expandedDatoIds.has(dato.id);
-              const isEditing = editingDatoId === dato.id;
-              const defObj = definiciones.find(d => d.id === dato.definicion_id);
-              const activeDefId = isEditing && editingDato ? editingDato.definicion_id : dato.definicion_id;
-              const defParams = getDefParams(activeDefId);
-              const parsedVals = parseValores(isEditing && editingDato ? editingDato.valores : dato.valores);
-
-              return (
-                <div key={dato.id}>
-                  <div className={cn(
-                    "flex items-center gap-3 px-4 py-3 transition-colors",
-                    isEditing ? "bg-primary/5" : "hover:bg-muted/30",
-                  )}>
-                    {defObj && (
-                      <span className={cn(
-                        "text-[11px] px-2 py-0.5 rounded-full font-medium shrink-0",
-                        tipoBadgeColor[defObj.tipo as TipoConfig] ?? "bg-muted text-muted-foreground",
-                      )}>
-                        {tipoLabels[defObj.tipo as TipoConfig] ?? defObj.tipo}
-                      </span>
-                    )}
-
-                    {isEditing && editingDato ? (
-                      <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
-                        <select
-                          value={editingDato.definicion_id}
-                          onChange={e => changeEditingDef(e.target.value)}
-                          className="h-8 text-xs border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                        >
-                          {definiciones.map(d => (
-                            <option key={d.id} value={d.id}>{d.nombre || `(def ${d.id})`}</option>
-                          ))}
-                        </select>
-                        <Input
-                          value={editingDato.referencia}
-                          onChange={e => setEditingDato({ ...editingDato, referencia: e.target.value })}
-                          placeholder="Referencia"
-                          className="h-8 text-sm w-44"
-                        />
-                        <input
-                          type="date"
-                          value={editingDato.fecha}
-                          onChange={e => setEditingDato({ ...editingDato, fecha: e.target.value })}
-                          className="h-8 text-xs border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <span className="text-sm font-medium text-foreground truncate">
-                          {dato.referencia || <span className="text-muted-foreground italic">Sin referencia</span>}
-                        </span>
-                        <span className="text-xs text-muted-foreground shrink-0">{dato.fecha}</span>
-                        <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
-                          {defParams.length} campo{defParams.length !== 1 ? "s" : ""}
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-1 ml-auto shrink-0">
-                      {isEditing ? (
-                        <>
-                          <Button size="sm" onClick={saveEdit} className="h-7 text-xs px-3">
-                            <Save className="w-3.5 h-3.5 mr-1" /> Guardar
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={cancelEdit} className="h-7 text-xs px-2">
-                            <X className="w-3.5 h-3.5" />
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => toggleExpand(dato.id)}
-                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted/50 transition-colors"
-                          >
-                            {isExpanded
-                              ? <><ChevronUp className="w-3.5 h-3.5" /> Ocultar</>
-                              : <><ChevronDown className="w-3.5 h-3.5" /> Ver</>}
-                          </button>
-                          <button
-                            onClick={() => startEdit(dato)}
-                            className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-colors"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDelDato(dato.id)}
-                            className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {(isExpanded || isEditing) && (
-                    <div className={cn(
-                      "px-4 pb-5 pt-3",
-                      isEditing ? "bg-primary/5 border-t border-primary/10" : "bg-muted/20 border-t border-border",
-                    )}>
-                      {defParams.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">
-                          Sin campos definidos. Agrégalos en la pestaña <strong>Campos</strong>.
-                        </p>
-                      ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                          {defParams.map(param => {
-                            const fieldVal = isEditing && editingDato
-                              ? (parseValores(editingDato.valores)[param.nombre] ?? "")
-                              : (parsedVals[param.nombre] ?? "—");
-                            return (
-                              <div key={param.id} className="space-y-1">
-                                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                                  <span className="capitalize">{param.nombre.replace(/_/g, " ")}</span>
-                                  {param.obligatorio && <span className="text-destructive" title="Obligatorio">*</span>}
-                                  <span className="ml-auto"><TipoDatoChip tipo={param.tipo_dato} /></span>
-                                </p>
-                                {isEditing ? (
-                                  <input
-                                    type={tipoDatoInputType[param.tipo_dato]}
-                                    value={parseValores(editingDato!.valores)[param.nombre] ?? ""}
-                                    onChange={e => updateEditingField(param.nombre, e.target.value)}
-                                    placeholder={param.nombre.replace(/_/g, " ")}
-                                    className="w-full h-8 text-sm border border-input rounded-md px-2.5 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                                  />
-                                ) : (
-                                  <div className="text-sm text-foreground bg-background border border-border rounded-md px-2.5 py-1.5 min-h-[34px] truncate">
-                                    {String(fieldVal)}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-        <div className="px-4 py-2.5 border-t border-border text-xs text-muted-foreground">
-          {filteredDatos.length} de {datos.length} registros
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Componente principal ─────────────────────────────────────────────────────
-
-interface BrandConfig {
-  nombreEmpresa: string;
-  colorPrimario: string;
-  colorSecundario: string;
-  colorAccent: string;
-}
-
-const Configuracion = () => {
   const [brandConfig, setBrandConfig] = useState<BrandConfig>({
     nombreEmpresa: "BlueData",
     colorPrimario: "#1a5c3a",
@@ -1034,7 +1055,7 @@ const Configuracion = () => {
     <MainLayout>
       <PageHeader
         title="Configuración"
-        description="Sistema dinámico V3 — define formularios, campos y módulos"
+        description={`Sistema dinámico V3 — ${currentClienteName}`}
       />
 
       {/* Stepper de flujo */}
@@ -1065,39 +1086,60 @@ const Configuracion = () => {
         </div>
       </div>
 
-      <Tabs defaultValue={initialTab} className="space-y-6">
+      <Tabs
+        value={activeTab}
+        onValueChange={tab => {
+          if (hasPending) return; // block tab switch while rows are incomplete
+          setActiveTab(tab);
+        }}
+        className="space-y-6"
+      >
         <TabsList className="bg-muted p-1 rounded-lg flex-wrap gap-1 h-auto">
-          <TabsTrigger value="cultivos"     className="flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="cultivos"     disabled={hasPending && activeTab !== "cultivos"}     className="flex items-center gap-2 text-xs sm:text-sm">
             <Leaf      className="w-4 h-4" /> Cultivos
           </TabsTrigger>
-          <TabsTrigger value="definiciones" className="flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="definiciones" disabled={hasPending && activeTab !== "definiciones"} className="flex items-center gap-2 text-xs sm:text-sm">
             <Layers    className="w-4 h-4" /> Definiciones
           </TabsTrigger>
-          <TabsTrigger value="biblioteca"  className="flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="biblioteca"  disabled={hasPending && activeTab !== "biblioteca"}  className="flex items-center gap-2 text-xs sm:text-sm">
             <BookOpen  className="w-4 h-4" /> Biblioteca
           </TabsTrigger>
-          <TabsTrigger value="campos"      className="flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="campos"      disabled={hasPending && activeTab !== "campos"}      className="flex items-center gap-2 text-xs sm:text-sm">
             <List      className="w-4 h-4" /> Campos
           </TabsTrigger>
-          <TabsTrigger value="datos"       className="flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="datos"       disabled={hasPending && activeTab !== "datos"}       className="flex items-center gap-2 text-xs sm:text-sm">
             <Table2    className="w-4 h-4" /> Datos
           </TabsTrigger>
-          <TabsTrigger value="marca"       className="flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="marca"       disabled={hasPending && activeTab !== "marca"}       className="flex items-center gap-2 text-xs sm:text-sm">
             <Palette   className="w-4 h-4" /> Marca
           </TabsTrigger>
-          <TabsTrigger value="avanzado"    className="flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="avanzado"    disabled={hasPending && activeTab !== "avanzado"}    className="flex items-center gap-2 text-xs sm:text-sm">
             <Settings2 className="w-4 h-4" /> Avanzado
           </TabsTrigger>
         </TabsList>
 
+        {hasPending && (
+          <div className="bg-amber-50 border border-amber-200/60 rounded-lg px-4 py-2.5 text-sm text-amber-800 flex items-center gap-2">
+            <Info className="w-4 h-4 shrink-0 text-amber-500" />
+            Completa los campos requeridos (<span className="text-destructive font-bold">*</span>) antes de cambiar de pestaña o agregar otra fila.
+          </div>
+        )}
+
         <TabsContent value="cultivos">   <TabCultivos    /></TabsContent>
-        <TabsContent value="definiciones"><TabDefiniciones /></TabsContent>
-        <TabsContent value="biblioteca">  <TabBiblioteca  /></TabsContent>
-        <TabsContent value="campos">      <TabCampos initialDefId={initialDefId} /></TabsContent>
+        <TabsContent value="definiciones"><TabDefiniciones onPendingChange={setHasPending} onNavigateToCampos={(defId) => { setCamposDefId(defId); setActiveTab("campos"); }} /></TabsContent>
+        <TabsContent value="biblioteca">  <TabBiblioteca  onPendingChange={setHasPending} /></TabsContent>
+        <TabsContent value="campos">      <TabCampos initialDefId={camposDefId} onPendingChange={setHasPending} /></TabsContent>
         <TabsContent value="datos">       <TabDatos       /></TabsContent>
 
         {/* ═══ Marca ══════════════════════════════════════════════════════════ */}
         <TabsContent value="marca" className="space-y-6">
+          <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border flex items-start gap-2">
+            <Info className="w-4 h-4 mt-0.5 shrink-0" />
+            <div>
+              <strong>Personalización de Marca</strong> — configura el logo, nombre y colores de tu empresa.
+              Estos ajustes se aplican en toda la interfaz para reflejar la identidad visual del cliente.
+            </div>
+          </div>
           <div className="bg-card rounded-xl border border-border p-6">
             <h3 className="font-semibold text-foreground mb-6">Personalización de Marca</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -1152,6 +1194,13 @@ const Configuracion = () => {
 
         {/* ═══ Avanzado ═══════════════════════════════════════════════════════ */}
         <TabsContent value="avanzado" className="space-y-6">
+          <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border flex items-start gap-2">
+            <Info className="w-4 h-4 mt-0.5 shrink-0" />
+            <div>
+              <strong>Configuración Avanzada</strong> — ajustes del sistema como modo oscuro, notificaciones,
+              auto-guardado y opciones multi-tenant. Cambios aquí afectan el comportamiento global de la plataforma.
+            </div>
+          </div>
           <div className="bg-card rounded-xl border border-border p-6">
             <h3 className="font-semibold text-foreground mb-6">Configuración Avanzada</h3>
             <div className="space-y-6">
