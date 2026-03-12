@@ -99,6 +99,7 @@ function TabDefiniciones() {
   const [confirmDup,            setConfirmDup]            = useState<{
     rootId: string; sourceId: string; sourceName: string;
     sourceVersion: string; newVersion: string; paramCount: number;
+    newName: string;
   } | null>(null);
 
   const cultivoOptions = [
@@ -317,6 +318,7 @@ function TabDefiniciones() {
                             sourceVersion: latest.version || "1.0",
                             newVersion:    bumpV(latest.version || "1.0", "major"),
                             paramCount:    parametros.filter(p => p.definicion_id === latest.id).length,
+                            newName:       latest.nombre,
                           });
                         }}
                         title="Nueva versión mayor — copia el formulario incrementando la versión en +1.0"
@@ -520,6 +522,20 @@ function TabDefiniciones() {
             </DialogDescription>
           </DialogHeader>
 
+          {/* Nombre de la nueva versión */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground">
+              Nombre del formulario
+            </label>
+            <Input
+              value={confirmDup.newName}
+              onChange={e => setConfirmDup(prev => prev ? { ...prev, newName: e.target.value } : prev)}
+              placeholder="Nombre del nuevo formulario…"
+              className="h-8 text-sm"
+              autoFocus
+            />
+          </div>
+
           <div className="bg-muted/40 border border-border rounded-lg px-3 py-3 space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Versión anterior</span>
@@ -553,7 +569,7 @@ function TabDefiniciones() {
             </Button>
             <Button
               onClick={() => {
-                dupDef(confirmDup.sourceId);
+                dupDef(confirmDup.sourceId, confirmDup.newName.trim() || undefined);
                 setExpandedFamilies(prev => new Set([...prev, confirmDup.rootId]));
                 setActiveFamilyId(confirmDup.rootId);
                 setConfirmDup(null);
@@ -1272,10 +1288,10 @@ const Configuracion = () => {
   const initialDefId = searchParams.get("def")   ?? "all";
 
   const [brandConfig, setBrandConfig] = useState<BrandConfig>({
-    nombreEmpresa: "BlueData",
-    colorPrimario: "#1a5c3a",
+    nombreEmpresa:   "BlueData",
+    colorPrimario:   "#2d6a4f",
     colorSecundario: "#40916c",
-    colorAccent: "#d4a72d",
+    colorAccent:     "#d4a72d",
   });
 
   return (
