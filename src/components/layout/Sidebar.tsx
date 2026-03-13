@@ -15,7 +15,6 @@ import {
   User,
   Scissors,
   Package,
-  UserCog,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
@@ -43,7 +42,6 @@ const navItems: NavItem[] = [
   { label: "Producción",          icon: Factory,         path: "/produccion",       modulo: "produccion" },
   { label: "Recursos Humanos",    icon: Users,           path: "/recursos-humanos", modulo: "recursos-humanos" },
   { label: "Comercial",           icon: ShoppingCart,    path: "/comercial",        modulo: "comercial" },
-  { label: "Gestión de Usuarios", icon: UserCog,         path: "/gestion-usuarios", modulo: "gestion-usuarios" },
 ];
 
 const bottomNavItems: NavItem[] = [

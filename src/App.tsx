@@ -9,7 +9,6 @@ import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Configuracion from "./pages/Configuracion";
 import Comercial from "./pages/Comercial";
-import GestionUsuarios from "./pages/GestionUsuarios";
 import {
   Laboratorio,
   Vivero,
@@ -51,7 +50,7 @@ const App = () => {
               <Route path="/recursos-humanos" element={<ProtectedRoute><RecursosHumanos /></ProtectedRoute>} />
               <Route path="/comercial" element={<ProtectedRoute><Comercial /></ProtectedRoute>} />
               <Route path="/configuracion" element={<ProtectedRoute><Configuracion /></ProtectedRoute>} />
-              <Route path="/gestion-usuarios" element={<ProtectedRoute><GestionUsuarios /></ProtectedRoute>} />
+              <Route path="/gestion-usuarios" element={<Navigate to="/configuracion?tab=usuarios" replace />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
