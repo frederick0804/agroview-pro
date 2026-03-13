@@ -15,6 +15,9 @@ import {
   DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from "@/components/ui/sheet";
+import {
   Layers, List, Table2, Palette, Settings2, BookOpen,
   Upload, ChevronDown, ChevronUp, X, Plus, Save,
   Trash2, Info, CheckCircle2, Clock, Archive, Database, Leaf, Search, Copy, History,
@@ -1294,39 +1297,72 @@ const Configuracion = () => {
     colorAccent:     "#d4a72d",
   });
 
+  const [stepperOpen, setStepperOpen] = useState<boolean>(
+    () => localStorage.getItem("config-stepper-open") !== "false"
+  );
+  const [showSistema, setShowSistema] = useState(false);
+
+  const toggleStepper = () => {
+    const next = !stepperOpen;
+    setStepperOpen(next);
+    localStorage.setItem("config-stepper-open", String(next));
+  };
+
   return (
     <MainLayout>
       <PageHeader
         title="Configuración"
-        description="Sistema dinámico V3 — define formularios, campos y módulos"
+        description="Cultivos, formularios y campos del sistema"
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-2"
+            onClick={() => setShowSistema(true)}
+          >
+            <Settings2 className="w-4 h-4" />
+            Ajustes del sistema
+          </Button>
+        }
       />
 
-      {/* Stepper de flujo */}
-      <div className="mb-6 p-4 rounded-xl bg-card border border-border">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
-          Flujo de configuración
-        </p>
-        <div className="flex items-start">
-          {[
-            { num: 1, label: "Cultivos",     desc: "Define cultivos y variedades"  },
-            { num: 2, label: "Formularios",  desc: "Crea formularios por cultivo"  },
-            { num: 3, label: "Campos",       desc: "Asigna campos al formulario"   },
-            { num: 4, label: "Módulos",      desc: "Registra datos operacionales"  },
-          ].map((step, i, arr) => (
-            <div key={step.num} className="flex items-start flex-1">
-              <div className="flex flex-col items-center gap-2 flex-1">
-                <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold shrink-0 shadow-sm">
-                  {step.num}
+      {/* Stepper de flujo — colapsable */}
+      <div className="mb-6 rounded-xl bg-card border border-border overflow-hidden">
+        <button
+          onClick={toggleStepper}
+          className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/40 transition-colors"
+        >
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Flujo de configuración
+          </span>
+          {stepperOpen
+            ? <ChevronUp className="w-4 h-4 text-muted-foreground" />
+            : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </button>
+
+        {stepperOpen && (
+          <div className="px-4 pb-4">
+            <div className="flex items-start">
+              {[
+                { num: 1, label: "Cultivos",    desc: "Define cultivos y variedades" },
+                { num: 2, label: "Formularios", desc: "Crea formularios por cultivo" },
+                { num: 3, label: "Campos",      desc: "Asigna campos al formulario"  },
+                { num: 4, label: "Módulos",     desc: "Registra datos operacionales" },
+              ].map((step, i, arr) => (
+                <div key={step.num} className="flex items-start flex-1">
+                  <div className="flex flex-col items-center gap-2 flex-1">
+                    <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold shrink-0 shadow-sm">
+                      {step.num}
+                    </div>
+                    <p className="text-xs font-semibold text-foreground text-center">{step.label}</p>
+                    <p className="text-[10px] text-muted-foreground text-center leading-tight max-w-[90px]">{step.desc}</p>
+                  </div>
+                  {i < arr.length - 1 && <div className="h-px w-full bg-border mt-4 mx-1" />}
                 </div>
-                <p className="text-xs font-semibold text-foreground text-center">{step.label}</p>
-                <p className="text-[10px] text-muted-foreground text-center leading-tight max-w-[90px]">{step.desc}</p>
-              </div>
-              {i < arr.length - 1 && (
-                <div className="h-px w-full bg-border mt-4 mx-1" />
-              )}
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
 
       <Tabs key={initialTab} defaultValue={initialTab} className="space-y-6">
@@ -1346,12 +1382,6 @@ const Configuracion = () => {
           <TabsTrigger value="datos"       className="flex items-center gap-2 text-xs sm:text-sm">
             <Table2    className="w-4 h-4" /> Datos
           </TabsTrigger>
-          <TabsTrigger value="marca"       className="flex items-center gap-2 text-xs sm:text-sm">
-            <Palette   className="w-4 h-4" /> Marca
-          </TabsTrigger>
-          <TabsTrigger value="avanzado"    className="flex items-center gap-2 text-xs sm:text-sm">
-            <Settings2 className="w-4 h-4" /> Avanzado
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="cultivos">   <TabCultivos    /></TabsContent>
@@ -1360,20 +1390,37 @@ const Configuracion = () => {
         <TabsContent value="campos">      <TabCampos initialDefId={initialDefId} /></TabsContent>
         <TabsContent value="datos">       <TabDatos       /></TabsContent>
 
-        {/* ═══ Marca ══════════════════════════════════════════════════════════ */}
-        <TabsContent value="marca" className="space-y-6">
-          <div className="bg-card rounded-xl border border-border p-6">
-            <h3 className="font-semibold text-foreground mb-6">Personalización de Marca</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      </Tabs>
+
+      {/* ═══ Sheet: Ajustes del sistema ══════════════════════════════════════ */}
+      <Sheet open={showSistema} onOpenChange={setShowSistema}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+          <SheetHeader className="mb-6">
+            <SheetTitle className="flex items-center gap-2">
+              <Settings2 className="w-5 h-5" />
+              Ajustes del sistema
+            </SheetTitle>
+            <SheetDescription>
+              Personalización de marca y configuración avanzada de la plataforma.
+            </SheetDescription>
+          </SheetHeader>
+
+          {/* Marca */}
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+                <Palette className="w-4 h-4 text-muted-foreground" />
+                Marca
+              </h3>
               <div className="space-y-4">
-                <Label>Logo de la Empresa</Label>
-                <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
-                  <Upload className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-                  <p className="text-sm text-muted-foreground mb-2">Arrastra tu logo o haz click para seleccionar</p>
-                  <Button variant="outline" size="sm">Seleccionar archivo</Button>
+                <div>
+                  <Label>Logo de la Empresa</Label>
+                  <div className="border-2 border-dashed border-border rounded-lg p-6 text-center mt-2">
+                    <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-xs text-muted-foreground mb-2">Arrastra tu logo o haz click</p>
+                    <Button variant="outline" size="sm">Seleccionar archivo</Button>
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-4">
                 <div>
                   <Label htmlFor="nombreEmpresa">Nombre de la Empresa</Label>
                   <Input
@@ -1383,60 +1430,65 @@ const Configuracion = () => {
                     className="mt-2"
                   />
                 </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground mb-3">Colores</p>
+                  <div className="space-y-3">
+                    {(["colorPrimario", "colorSecundario", "colorAccent"] as const).map((key, i) => (
+                      <div key={key} className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={brandConfig[key]}
+                          onChange={e => setBrandConfig(p => ({ ...p, [key]: e.target.value }))}
+                          className="w-9 h-9 rounded-md cursor-pointer border border-border shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-muted-foreground mb-1">
+                            {["Color Primario", "Color Secundario", "Color de Acento"][i]}
+                          </p>
+                          <Input
+                            value={brandConfig[key]}
+                            onChange={e => setBrandConfig(p => ({ ...p, [key]: e.target.value }))}
+                            className="h-8 text-sm"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex justify-end pt-2">
+                  <Button size="sm">Guardar cambios</Button>
+                </div>
               </div>
             </div>
-            <div className="mt-8">
-              <h4 className="font-medium text-foreground mb-4">Colores del Sistema</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                {(["colorPrimario", "colorSecundario", "colorAccent"] as const).map((key, i) => (
-                  <div key={key} className="space-y-2">
-                    <Label>{["Color Primario", "Color Secundario", "Color de Acento"][i]}</Label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="color"
-                        value={brandConfig[key]}
-                        onChange={e => setBrandConfig(p => ({ ...p, [key]: e.target.value }))}
-                        className="w-12 h-12 rounded-lg cursor-pointer border border-border"
-                      />
-                      <Input
-                        value={brandConfig[key]}
-                        onChange={e => setBrandConfig(p => ({ ...p, [key]: e.target.value }))}
-                        className="flex-1"
-                      />
+
+            <div className="border-t border-border" />
+
+            {/* Avanzado */}
+            <div>
+              <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+                <Settings2 className="w-4 h-4 text-muted-foreground" />
+                Avanzado
+              </h3>
+              <div className="space-y-4">
+                {[
+                  { label: "Modo Oscuro",              desc: "Activar tema oscuro para la interfaz",       checked: false },
+                  { label: "Notificaciones por Email", desc: "Recibir alertas importantes por correo",     checked: true  },
+                  { label: "Auto-guardado",             desc: "Guardar cambios automáticamente en tablas",  checked: true  },
+                  { label: "Multi-tenant activo",       desc: "Habilitar aislamiento de datos por empresa", checked: true  },
+                ].map(item => (
+                  <div key={item.label} className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">{item.label}</p>
+                      <p className="text-xs text-muted-foreground">{item.desc}</p>
                     </div>
+                    <Switch defaultChecked={item.checked} />
                   </div>
                 ))}
               </div>
             </div>
-            <div className="mt-8 flex justify-end">
-              <Button>Guardar Cambios</Button>
-            </div>
           </div>
-        </TabsContent>
-
-        {/* ═══ Avanzado ═══════════════════════════════════════════════════════ */}
-        <TabsContent value="avanzado" className="space-y-6">
-          <div className="bg-card rounded-xl border border-border p-6">
-            <h3 className="font-semibold text-foreground mb-6">Configuración Avanzada</h3>
-            <div className="space-y-6">
-              {[
-                { label: "Modo Oscuro",              desc: "Activar tema oscuro para la interfaz",       checked: false },
-                { label: "Notificaciones por Email", desc: "Recibir alertas importantes por correo",     checked: true  },
-                { label: "Auto-guardado",             desc: "Guardar cambios automáticamente en tablas",  checked: true  },
-                { label: "Multi-tenant activo",       desc: "Habilitar aislamiento de datos por empresa", checked: true  },
-              ].map(item => (
-                <div key={item.label} className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-foreground">{item.label}</p>
-                    <p className="text-sm text-muted-foreground">{item.desc}</p>
-                  </div>
-                  <Switch defaultChecked={item.checked} />
-                </div>
-              ))}
-            </div>
-          </div>
-        </TabsContent>
-      </Tabs>
+        </SheetContent>
+      </Sheet>
     </MainLayout>
   );
 };
