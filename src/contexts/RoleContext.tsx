@@ -35,6 +35,45 @@ export interface HardcodedUser {
   password: string;
   role: UserRole;
   modulo?: string;
+  clienteId?: number;
+  productorId?: number;
+}
+
+// ─── Clientes y Productores demo ──────────────────────────────────────────────
+
+export interface DemoCliente {
+  id: number;
+  nombre: string;
+  ruc: string;
+  pais: string;
+}
+
+export interface DemoProductor {
+  id: number;
+  clienteId: number;
+  nombre: string;
+}
+
+export const CLIENTES_DEMO: DemoCliente[] = [
+  { id: 1, nombre: "AgroPro Chile",    ruc: "76.123.456-7", pais: "Chile" },
+  { id: 2, nombre: "Frutas del Valle", ruc: "80.654.321-K", pais: "Chile" },
+];
+
+export const PRODUCTORES_DEMO: DemoProductor[] = [
+  { id: 1, clienteId: 1, nombre: "Fundo Los Andes" },
+  { id: 2, clienteId: 1, nombre: "Hacienda El Sol" },
+  { id: 3, clienteId: 2, nombre: "Campo Florido" },
+];
+
+// Permiso personalizado por usuario (§6 del informe)
+export interface UserPermissionOverride {
+  id: string;
+  userId: number;
+  modulo: string;
+  accion: ActionPermission;
+  habilitado: boolean;
+  justificacion: string;
+  createdAt: string;
 }
 
 // 6 usuarios demo — uno por rol
@@ -45,6 +84,7 @@ export const hardcodedUsers: HardcodedUser[] = [
     email: "superadmin@bluedata.com",
     password: "super123",
     role: "super_admin",
+    // sin clienteId → ve toda la plataforma
   },
   {
     id: 2,
@@ -52,6 +92,7 @@ export const hardcodedUsers: HardcodedUser[] = [
     email: "admin@bluedata.com",
     password: "admin123",
     role: "cliente_admin",
+    clienteId: 1, // AgroPro Chile
   },
   {
     id: 3,
@@ -60,6 +101,8 @@ export const hardcodedUsers: HardcodedUser[] = [
     password: "prod123",
     role: "productor",
     modulo: "cultivo",
+    clienteId: 1,
+    productorId: 1, // Fundo Los Andes
   },
   {
     id: 4,
@@ -67,6 +110,7 @@ export const hardcodedUsers: HardcodedUser[] = [
     email: "jefe@bluedata.com",
     password: "jefe123",
     role: "jefe_area",
+    clienteId: 1,
   },
   {
     id: 5,
@@ -74,6 +118,7 @@ export const hardcodedUsers: HardcodedUser[] = [
     email: "supervisor@bluedata.com",
     password: "sup123",
     role: "supervisor",
+    clienteId: 1,
   },
   {
     id: 6,
@@ -81,6 +126,7 @@ export const hardcodedUsers: HardcodedUser[] = [
     email: "lector@bluedata.com",
     password: "lector123",
     role: "lector",
+    clienteId: 2, // Frutas del Valle
   },
 ];
 
@@ -144,11 +190,48 @@ const rolePermissions: Record<UserRole, Record<string, ActionPermission[]>> = {
   // Nivel 1: solo consulta — no puede modificar nada
   lector: {
     dashboard: ["ver"],
-    laboratorio: ["ver"],   // acceso lectura al laboratorio (ver registros)
+    laboratorio: ["ver"],
     cosecha: ["ver"],
     "post-cosecha": ["ver"],
   },
 };
+
+// Permisos personalizados demo (§6 del informe)
+const OVERRIDES_DEMO: UserPermissionOverride[] = [
+  {
+    id: "ov-1",
+    userId: 5,       // Juan Pérez (Supervisor)
+    modulo: "cultivo",
+    accion: "exportar",
+    habilitado: true,
+    justificacion: "Permiso temporal para auditoría Q1 2025",
+    createdAt: "2025-01-15",
+  },
+];
+
+// Módulos disponibles para la UI
+export const ALL_MODULES = [
+  { value: "dashboard",        label: "Dashboard" },
+  { value: "laboratorio",      label: "Laboratorio" },
+  { value: "vivero",           label: "Vivero" },
+  { value: "cultivo",          label: "Cultivo" },
+  { value: "cosecha",          label: "Cosecha" },
+  { value: "post-cosecha",     label: "Post-cosecha" },
+  { value: "produccion",       label: "Producción" },
+  { value: "recursos-humanos", label: "Recursos Humanos" },
+  { value: "comercial",        label: "Comercial" },
+  { value: "gestion-usuarios", label: "Gestión de Usuarios" },
+  { value: "configuracion",    label: "Configuración" },
+];
+
+export const ALL_ACTIONS: { value: ActionPermission; label: string }[] = [
+  { value: "ver",         label: "Ver" },
+  { value: "crear",       label: "Crear" },
+  { value: "editar",      label: "Editar" },
+  { value: "eliminar",    label: "Eliminar" },
+  { value: "exportar",    label: "Exportar" },
+  { value: "configurar",  label: "Configurar" },
+];
 
 interface RoleContextType {
   role: UserRole;
@@ -161,8 +244,16 @@ interface RoleContextType {
   logout: () => void;
   hasPermission: (modulo: string, accion: ActionPermission) => boolean;
   getModulePermissions: (modulo: string) => ActionPermission[];
-  // Verifica acceso a secciones usando nivel_acceso_minimo y roles_excluidos (informe §3 y §6)
   canAccessSection: (nivelMinimo: number, rolesExcluidos?: UserRole[]) => boolean;
+  // Permisos personalizados por usuario (§6)
+  permissionOverrides: UserPermissionOverride[];
+  addOverride: (override: Omit<UserPermissionOverride, "id" | "createdAt">) => void;
+  removeOverride: (id: string) => void;
+  getUserOverrides: (userId: number) => UserPermissionOverride[];
+  getRoleBasePermissions: (role: UserRole, modulo: string) => ActionPermission[];
+  // Multi-tenant
+  currentClienteId: number | undefined;
+  currentClienteName: string;
 }
 
 const roleNames: Record<UserRole, string> = {
@@ -180,6 +271,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<UserRole>("cliente_admin");
   const [currentUser, setCurrentUser] = useState<HardcodedUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [permissionOverrides, setPermissionOverrides] = useState<UserPermissionOverride[]>(OVERRIDES_DEMO);
 
   const login = (email: string, password: string): HardcodedUser | null => {
     const user = hardcodedUsers.find(
@@ -209,7 +301,16 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // §6.2 Prioridad: permiso personalizado > permiso del rol > denegado
   const hasPermission = (modulo: string, accion: ActionPermission): boolean => {
+    // Paso 1: ¿Existe un permiso personalizado para este usuario?
+    if (currentUser) {
+      const override = permissionOverrides.find(
+        o => o.userId === currentUser.id && o.modulo === modulo && o.accion === accion
+      );
+      if (override) return override.habilitado;
+    }
+    // Paso 2: Permiso base del rol
     const perms = rolePermissions[role]?.[modulo];
     return perms?.includes(accion) ?? false;
   };
@@ -218,7 +319,10 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     return rolePermissions[role]?.[modulo] ?? [];
   };
 
-  // Implementa la lógica del §3 (nivel_acceso_minimo) y §6.3 (roles_excluidos)
+  const getRoleBasePermissions = (targetRole: UserRole, modulo: string): ActionPermission[] => {
+    return rolePermissions[targetRole]?.[modulo] ?? [];
+  };
+
   const canAccessSection = (
     nivelMinimo: number,
     rolesExcluidos: UserRole[] = []
@@ -228,6 +332,41 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     if (rolesExcluidos.includes(role)) return false;
     return true;
   };
+
+  // CRUD de permisos personalizados
+  const addOverride = (override: Omit<UserPermissionOverride, "id" | "createdAt">) => {
+    // Si ya existe uno igual, reemplazar
+    setPermissionOverrides(prev => {
+      const existing = prev.findIndex(
+        o => o.userId === override.userId && o.modulo === override.modulo && o.accion === override.accion
+      );
+      const newOv: UserPermissionOverride = {
+        ...override,
+        id: `ov-${Date.now()}`,
+        createdAt: new Date().toISOString().split("T")[0],
+      };
+      if (existing >= 0) {
+        const copy = [...prev];
+        copy[existing] = newOv;
+        return copy;
+      }
+      return [...prev, newOv];
+    });
+  };
+
+  const removeOverride = (id: string) => {
+    setPermissionOverrides(prev => prev.filter(o => o.id !== id));
+  };
+
+  const getUserOverrides = (userId: number): UserPermissionOverride[] => {
+    return permissionOverrides.filter(o => o.userId === userId);
+  };
+
+  // Multi-tenant
+  const currentClienteId = currentUser?.clienteId;
+  const currentClienteName = currentClienteId
+    ? CLIENTES_DEMO.find(c => c.id === currentClienteId)?.nombre ?? ""
+    : "Todas las empresas";
 
   return (
     <RoleContext.Provider
@@ -243,6 +382,13 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         hasPermission,
         getModulePermissions,
         canAccessSection,
+        permissionOverrides,
+        addOverride,
+        removeOverride,
+        getUserOverrides,
+        getRoleBasePermissions,
+        currentClienteId,
+        currentClienteName,
       }}
     >
       {children}

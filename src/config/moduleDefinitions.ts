@@ -49,6 +49,47 @@ export interface ModDef {
   estado:       EstadoDef;
   cultivo_id?:  string;  // null = aplica a todos los cultivos (global)
   origen_id?:   string;  // undefined = raíz; asignado = versión derivada → apunta al id raíz
+  cliente_id?:  number;  // null = global (super admin)
+  updated_at?:  string;  // ISO timestamp de última modificación
+  updated_by?:  string;  // nombre del usuario que realizó el cambio
+}
+
+// ─── DefSnapshot — Historial de versiones ─────────────────────────────────────
+// Cada snapshot captura el estado completo de una definición y sus campos
+// en un momento dado, permitiendo diff visual entre versiones.
+
+export interface DefSnapshot {
+  id:            string;
+  definicion_id: string;
+  version:       string;
+  timestamp:     string;   // ISO
+  usuario:       string;
+  cambio:        string;   // descripción breve del cambio
+  definicion:    Omit<ModDef, 'updated_at' | 'updated_by'>;
+  campos:        ModParam[];
+}
+
+// ─── Tipos auxiliares para configuración avanzada de campos ───────────────────
+
+export interface CampoValidaciones {
+  min?: number;
+  max?: number;
+  min_length?: number;
+  max_length?: number;
+  pattern?: string;
+  pattern_message?: string;
+}
+
+export interface CampoDependencia {
+  campo_id: string;
+  operador: "=" | "!=" | ">" | "<" | "contiene";
+  valor: string;
+  accion: "mostrar" | "ocultar" | "requerir";
+}
+
+export interface CampoOpcion {
+  value: string;
+  label: string;
 }
 
 // ─── ModParam — Campos_configurados ───────────────────────────────────────────
@@ -56,13 +97,22 @@ export interface ModDef {
 // `nombre` coincide con Parametro.nombre para búsquedas en los módulos.
 
 export interface ModParam {
-  id:           string;
-  definicion_id: string;
-  parametro_id: string;   // referencia a Parametro.id
-  nombre:       string;   // copia desnormalizada para facilitar columnas
-  tipo_dato:    TipoDato;
-  obligatorio:  boolean;
-  orden:        number;
+  id:                        string;
+  definicion_id:             string;
+  parametro_id:              string;
+  nombre:                    string;
+  tipo_dato:                 TipoDato;
+  obligatorio:               boolean;
+  orden:                     number;
+  visible?:                  boolean;
+  editable_campo?:           boolean;
+  etiqueta_personalizada?:   string;
+  valor_default?:            string;
+  opciones?:                 CampoOpcion[] | null;
+  validaciones_adicionales?: CampoValidaciones | null;
+  dependencias?:             CampoDependencia | null;
+  /** Fórmula que referencia otros campos. Ej: "produccion / area" */
+  formula?:                  string | null;
 }
 
 // ─── ModDato — Datos_registro ─────────────────────────────────────────────────
@@ -129,36 +179,65 @@ export const DEFINICIONES: ModDef[] = [
     nombre: "Estructura de Campo v2.0",
     descripcion: "Jerarquía Bloque → Macrotúnel → Nave",
     version: "2.0", nivel_minimo: 2, modulo: "cultivo", estado: "activo",
+    cliente_id: 1,
+    updated_at: "2025-01-10T09:30:00Z", updated_by: "Admin",
   },
   {
     id: "2", tipo: "calibres",
     nombre: "Calibres Arándano Azul",
     descripcion: "Rangos de calibre en mm para selección de fruta",
     version: "1.0", nivel_minimo: 2, modulo: "cosecha", estado: "activo", cultivo_id: "c-02",
+    cliente_id: 1,
+    updated_at: "2025-01-10T10:15:00Z", updated_by: "Admin",
   },
   {
     id: "3", tipo: "datos_personal",
     nombre: "Ficha de Personal v3.0",
     descripcion: "Datos dinámicos de trabajadores de campo",
     version: "3.0", nivel_minimo: 3, modulo: "recursos-humanos", estado: "activo",
+    cliente_id: 1,
+    updated_at: "2025-02-01T14:00:00Z", updated_by: "María López",
   },
   {
     id: "4", tipo: "asistencia",
     nombre: "Control de Asistencia",
     descripcion: "Registro de timbrado y jornada laboral (QR/bio)",
     version: "1.5", nivel_minimo: 3, modulo: "recursos-humanos", estado: "activo",
+    cliente_id: 1,
+    updated_at: "2025-03-06T08:00:00Z", updated_by: "Admin",
   },
   {
     id: "5", tipo: "lab_analisis",
     nombre: "Análisis de Laboratorio",
     descripcion: "Parámetros de análisis físico-químico y biológico",
     version: "1.0", nivel_minimo: 1, modulo: "laboratorio", estado: "activo",
+    cliente_id: 1,
+    updated_at: "2025-01-28T11:30:00Z", updated_by: "Carlos Ruiz",
   },
   {
     id: "6", tipo: "calibres",
     nombre: "Calibres Fresa",
     descripcion: "Rangos de calibre en mm y gramos para selección de fresas",
     version: "1.0", nivel_minimo: 2, modulo: "cosecha", estado: "activo", cultivo_id: "c-01",
+    cliente_id: 1,
+    updated_at: "2025-01-10T10:30:00Z", updated_by: "Admin",
+  },
+  // Definiciones de Frutas del Valle (cliente 2)
+  {
+    id: "7", tipo: "estructura_campo",
+    nombre: "Estructura Fundo Valle",
+    descripcion: "Organización de parcelas y sectores",
+    version: "1.0", nivel_minimo: 2, modulo: "cultivo", estado: "activo",
+    cliente_id: 2,
+    updated_at: "2025-02-15T08:00:00Z", updated_by: "Laura Torres",
+  },
+  {
+    id: "8", tipo: "cosecha_registro",
+    nombre: "Registro de Cosecha Valle",
+    descripcion: "Control de cosecha diario por parcela",
+    version: "1.0", nivel_minimo: 2, modulo: "cosecha", estado: "borrador",
+    cliente_id: 2,
+    updated_at: "2025-02-20T09:00:00Z", updated_by: "Laura Torres",
   },
 ];
 
@@ -171,19 +250,19 @@ export const PARAMETROS: ModParam[] = [
   { id: "3",  definicion_id: "1", parametro_id: "p-03", nombre: "capacidad_plantas", tipo_dato: "Número", obligatorio: false, orden: 3 },
   // def 2: calibres
   { id: "4",  definicion_id: "2", parametro_id: "p-01", nombre: "nombre",            tipo_dato: "Texto",  obligatorio: true,  orden: 1 },
-  { id: "5",  definicion_id: "2", parametro_id: "p-07", nombre: "mm_minimo",         tipo_dato: "Número", obligatorio: true,  orden: 2 },
-  { id: "6",  definicion_id: "2", parametro_id: "p-08", nombre: "mm_maximo",         tipo_dato: "Número", obligatorio: true,  orden: 3 },
+  { id: "5",  definicion_id: "2", parametro_id: "p-07", nombre: "mm_minimo",         tipo_dato: "Número", obligatorio: true,  orden: 2, validaciones_adicionales: { min: 0, max: 50 } },
+  { id: "6",  definicion_id: "2", parametro_id: "p-08", nombre: "mm_maximo",         tipo_dato: "Número", obligatorio: true,  orden: 3, validaciones_adicionales: { min: 0, max: 50 } },
   { id: "7",  definicion_id: "2", parametro_id: "p-09", nombre: "peso_g_minimo",     tipo_dato: "Número", obligatorio: false, orden: 4 },
   // def 3: datos_personal
   { id: "8",  definicion_id: "3", parametro_id: "p-10", nombre: "rut",               tipo_dato: "Texto",  obligatorio: true,  orden: 1 },
   { id: "9",  definicion_id: "3", parametro_id: "p-11", nombre: "nombre_completo",   tipo_dato: "Texto",  obligatorio: true,  orden: 2 },
-  { id: "10", definicion_id: "3", parametro_id: "p-12", nombre: "cargo",             tipo_dato: "Lista",  obligatorio: true,  orden: 3 },
-  { id: "11", definicion_id: "3", parametro_id: "p-13", nombre: "telefono",          tipo_dato: "Texto",  obligatorio: false, orden: 4 },
+  { id: "10", definicion_id: "3", parametro_id: "p-12", nombre: "cargo",             tipo_dato: "Lista",  obligatorio: true,  orden: 3, opciones: [{ value: "cosechador", label: "Cosechador" }, { value: "supervisor", label: "Supervisor" }, { value: "tecnico", label: "Técnico" }, { value: "administrativo", label: "Administrativo" }] },
+  { id: "11", definicion_id: "3", parametro_id: "p-13", nombre: "telefono",          tipo_dato: "Texto",  obligatorio: false, orden: 4, validaciones_adicionales: { pattern: "^\\+?[0-9]{8,15}$", pattern_message: "Formato: +56912345678" } },
   { id: "12", definicion_id: "3", parametro_id: "p-14", nombre: "fecha_ingreso",     tipo_dato: "Fecha",  obligatorio: true,  orden: 5 },
-  { id: "13", definicion_id: "3", parametro_id: "p-15", nombre: "tipo_contrato",     tipo_dato: "Lista",  obligatorio: true,  orden: 6 },
+  { id: "13", definicion_id: "3", parametro_id: "p-15", nombre: "tipo_contrato",     tipo_dato: "Lista",  obligatorio: true,  orden: 6, opciones: [{ value: "indefinido", label: "Indefinido" }, { value: "plazo_fijo", label: "Plazo fijo" }, { value: "temporal", label: "Temporal" }] },
   // def 4: asistencia
   { id: "14", definicion_id: "4", parametro_id: "p-16", nombre: "empleado_id",       tipo_dato: "Texto",  obligatorio: true,  orden: 1 },
-  { id: "15", definicion_id: "4", parametro_id: "p-17", nombre: "tipo_marca",        tipo_dato: "Lista",  obligatorio: true,  orden: 2 },
+  { id: "15", definicion_id: "4", parametro_id: "p-17", nombre: "tipo_marca",        tipo_dato: "Lista",  obligatorio: true,  orden: 2, opciones: [{ value: "entrada", label: "Entrada" }, { value: "salida", label: "Salida" }, { value: "colacion", label: "Colación" }] },
   { id: "16", definicion_id: "4", parametro_id: "p-18", nombre: "hora",              tipo_dato: "Texto",  obligatorio: true,  orden: 3 },
   { id: "17", definicion_id: "4", parametro_id: "p-19", nombre: "ubicacion_gps",     tipo_dato: "Texto",  obligatorio: false, orden: 4 },
   // def 5: lab_analisis
@@ -198,6 +277,14 @@ export const PARAMETROS: ModParam[] = [
   { id: "25", definicion_id: "6", parametro_id: "p-07", nombre: "mm_minimo",         tipo_dato: "Número", obligatorio: true,  orden: 2 },
   { id: "26", definicion_id: "6", parametro_id: "p-08", nombre: "mm_maximo",         tipo_dato: "Número", obligatorio: true,  orden: 3 },
   { id: "27", definicion_id: "6", parametro_id: "p-09", nombre: "peso_g_minimo",     tipo_dato: "Número", obligatorio: false, orden: 4 },
+  // campo calculado demo
+  { id: "28", definicion_id: "2", parametro_id: "p-calc-1", nombre: "rango_mm",     tipo_dato: "Número", obligatorio: false, orden: 5, formula: "mm_maximo - mm_minimo", editable_campo: false },
+  // def 7: estructura fundo valle (cliente 2)
+  { id: "29", definicion_id: "7", parametro_id: "p-01", nombre: "nombre",            tipo_dato: "Texto",  obligatorio: true,  orden: 1 },
+  { id: "30", definicion_id: "7", parametro_id: "p-04", nombre: "bloque",            tipo_dato: "Texto",  obligatorio: false, orden: 2 },
+  // def 8: registro cosecha valle (cliente 2)
+  { id: "31", definicion_id: "8", parametro_id: "p-01", nombre: "nombre",            tipo_dato: "Texto",  obligatorio: true,  orden: 1 },
+  { id: "32", definicion_id: "8", parametro_id: "p-30", nombre: "observaciones",     tipo_dato: "Texto",  obligatorio: false, orden: 2 },
 ];
 
 // ─── Datos demo ───────────────────────────────────────────────────────────────
@@ -219,6 +306,9 @@ export const DATOS_DEMO: ModDato[] = [
   { id: "d13", definicion_id: "6", referencia: "Premium",               fecha: "2025-01-10", valores: '{"nombre":"Premium","mm_minimo":28,"mm_maximo":32,"peso_g_minimo":18}' },
   { id: "d14", definicion_id: "6", referencia: "Selecta",               fecha: "2025-01-10", valores: '{"nombre":"Selecta","mm_minimo":24,"mm_maximo":28,"peso_g_minimo":14}' },
   { id: "d15", definicion_id: "6", referencia: "Estándar",              fecha: "2025-01-10", valores: '{"nombre":"Estándar","mm_minimo":20,"mm_maximo":24,"peso_g_minimo":10}' },
+  // def 7: estructura fundo valle (cliente 2)
+  { id: "d16", definicion_id: "7", referencia: "Parcela Norte",           fecha: "2025-02-15", valores: '{"nombre":"Parcela Norte","bloque":"Sector A"}' },
+  { id: "d17", definicion_id: "7", referencia: "Parcela Sur",             fecha: "2025-02-15", valores: '{"nombre":"Parcela Sur","bloque":"Sector B"}' },
 ];
 
 // ─── Cultivo ──────────────────────────────────────────────────────────────────
@@ -318,3 +408,67 @@ export const estadoBadge: Record<EstadoDef, string> = {
   borrador:  "bg-yellow-100 text-yellow-700",
   archivado: "bg-gray-100 text-gray-500",
 };
+
+// ─── Snapshots demo — Historial de versiones ──────────────────────────────────
+
+export const SNAPSHOTS_DEMO: DefSnapshot[] = [
+  {
+    id: "snap-1", definicion_id: "1", version: "1.0",
+    timestamp: "2024-11-15T10:00:00Z", usuario: "Admin",
+    cambio: "Versión inicial con nombre y nivel",
+    definicion: { id: "1", tipo: "estructura_campo", nombre: "Estructura de Campo v1.0", descripcion: "Jerarquía Bloque → Nave", version: "1.0", nivel_minimo: 1, modulo: "cultivo", estado: "activo" },
+    campos: [
+      { id: "s1-1", definicion_id: "1", parametro_id: "p-01", nombre: "nombre", tipo_dato: "Texto", obligatorio: true, orden: 1 },
+      { id: "s1-2", definicion_id: "1", parametro_id: "p-02", nombre: "nivel",  tipo_dato: "Número", obligatorio: true, orden: 2 },
+    ],
+  },
+  {
+    id: "snap-2", definicion_id: "1", version: "2.0",
+    timestamp: "2025-01-10T09:30:00Z", usuario: "Admin",
+    cambio: "Agregado campo capacidad_plantas, nivel mínimo a 2",
+    definicion: { id: "1", tipo: "estructura_campo", nombre: "Estructura de Campo v2.0", descripcion: "Jerarquía Bloque → Macrotúnel → Nave", version: "2.0", nivel_minimo: 2, modulo: "cultivo", estado: "activo" },
+    campos: [
+      { id: "1", definicion_id: "1", parametro_id: "p-01", nombre: "nombre",            tipo_dato: "Texto",  obligatorio: true,  orden: 1 },
+      { id: "2", definicion_id: "1", parametro_id: "p-02", nombre: "nivel",             tipo_dato: "Número", obligatorio: true,  orden: 2 },
+      { id: "3", definicion_id: "1", parametro_id: "p-03", nombre: "capacidad_plantas", tipo_dato: "Número", obligatorio: false, orden: 3 },
+    ],
+  },
+  {
+    id: "snap-3", definicion_id: "3", version: "1.0",
+    timestamp: "2024-08-01T08:00:00Z", usuario: "Admin",
+    cambio: "Versión inicial: RUT, nombre y cargo",
+    definicion: { id: "3", tipo: "datos_personal", nombre: "Ficha de Personal v1.0", descripcion: "Datos básicos de trabajadores", version: "1.0", nivel_minimo: 2, modulo: "recursos-humanos", estado: "activo" },
+    campos: [
+      { id: "s3-1", definicion_id: "3", parametro_id: "p-10", nombre: "rut",             tipo_dato: "Texto", obligatorio: true, orden: 1 },
+      { id: "s3-2", definicion_id: "3", parametro_id: "p-11", nombre: "nombre_completo", tipo_dato: "Texto", obligatorio: true, orden: 2 },
+      { id: "s3-3", definicion_id: "3", parametro_id: "p-12", nombre: "cargo",           tipo_dato: "Lista", obligatorio: true, orden: 3 },
+    ],
+  },
+  {
+    id: "snap-4", definicion_id: "3", version: "2.0",
+    timestamp: "2024-12-10T15:00:00Z", usuario: "María López",
+    cambio: "Agregado teléfono y fecha de ingreso",
+    definicion: { id: "3", tipo: "datos_personal", nombre: "Ficha de Personal v2.0", descripcion: "Datos de trabajadores con contacto e ingreso", version: "2.0", nivel_minimo: 3, modulo: "recursos-humanos", estado: "activo" },
+    campos: [
+      { id: "s4-1", definicion_id: "3", parametro_id: "p-10", nombre: "rut",             tipo_dato: "Texto", obligatorio: true,  orden: 1 },
+      { id: "s4-2", definicion_id: "3", parametro_id: "p-11", nombre: "nombre_completo", tipo_dato: "Texto", obligatorio: true,  orden: 2 },
+      { id: "s4-3", definicion_id: "3", parametro_id: "p-12", nombre: "cargo",           tipo_dato: "Lista", obligatorio: true,  orden: 3 },
+      { id: "s4-4", definicion_id: "3", parametro_id: "p-13", nombre: "telefono",        tipo_dato: "Texto", obligatorio: false, orden: 4 },
+      { id: "s4-5", definicion_id: "3", parametro_id: "p-14", nombre: "fecha_ingreso",   tipo_dato: "Fecha", obligatorio: true,  orden: 5 },
+    ],
+  },
+  {
+    id: "snap-5", definicion_id: "3", version: "3.0",
+    timestamp: "2025-02-01T14:00:00Z", usuario: "María López",
+    cambio: "Agregado tipo de contrato",
+    definicion: { id: "3", tipo: "datos_personal", nombre: "Ficha de Personal v3.0", descripcion: "Datos dinámicos de trabajadores de campo", version: "3.0", nivel_minimo: 3, modulo: "recursos-humanos", estado: "activo" },
+    campos: [
+      { id: "8",  definicion_id: "3", parametro_id: "p-10", nombre: "rut",             tipo_dato: "Texto", obligatorio: true,  orden: 1 },
+      { id: "9",  definicion_id: "3", parametro_id: "p-11", nombre: "nombre_completo", tipo_dato: "Texto", obligatorio: true,  orden: 2 },
+      { id: "10", definicion_id: "3", parametro_id: "p-12", nombre: "cargo",           tipo_dato: "Lista", obligatorio: true,  orden: 3 },
+      { id: "11", definicion_id: "3", parametro_id: "p-13", nombre: "telefono",        tipo_dato: "Texto", obligatorio: false, orden: 4 },
+      { id: "12", definicion_id: "3", parametro_id: "p-14", nombre: "fecha_ingreso",   tipo_dato: "Fecha", obligatorio: true,  orden: 5 },
+      { id: "13", definicion_id: "3", parametro_id: "p-15", nombre: "tipo_contrato",   tipo_dato: "Lista", obligatorio: true,  orden: 6 },
+    ],
+  },
+];

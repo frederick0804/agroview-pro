@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useRole, ROLE_LEVELS, type UserRole } from "@/contexts/RoleContext";
-import { ShieldCheck, Shield, Sprout, Briefcase, Eye, BookOpen, ChevronDown, ChevronUp } from "lucide-react";
+import { useRole, ROLE_LEVELS, CLIENTES_DEMO, hardcodedUsers, type UserRole } from "@/contexts/RoleContext";
+import { ShieldCheck, Shield, Sprout, Briefcase, Eye, BookOpen, ChevronDown, ChevronUp, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const roles: { value: UserRole; label: string; icon: React.ElementType; level: number }[] = [
@@ -13,7 +13,7 @@ const roles: { value: UserRole; label: string; icon: React.ElementType; level: n
 ];
 
 export function RoleSelector() {
-  const { role, setRole, roleName } = useRole();
+  const { role, setRole, roleName, currentClienteName } = useRole();
   const [isOpen, setIsOpen] = useState(false);
 
   const currentRoleDef = roles.find(r => r.value === role);
@@ -46,11 +46,16 @@ export function RoleSelector() {
             Demo — Rol activo
           </p>
           <div className="grid grid-cols-3 gap-1.5">
-            {roles.map((r) => (
+            {roles.map((r) => {
+              const user = hardcodedUsers.find(u => u.role === r.value);
+              const clienteName = user?.clienteId
+                ? CLIENTES_DEMO.find(c => c.id === user.clienteId)?.nombre ?? ""
+                : "Plataforma";
+              return (
               <button
                 key={r.value}
                 onClick={() => { setRole(r.value); setIsOpen(false); }}
-                title={`Nivel ${r.level} — ${r.label}`}
+                title={`Nivel ${r.level} — ${r.label} — ${clienteName}`}
                 className={cn(
                   "flex flex-col items-center gap-1 px-2 py-2 rounded-lg text-xs font-medium transition-all",
                   role === r.value
@@ -67,7 +72,13 @@ export function RoleSelector() {
                   Nv. {r.level}
                 </span>
               </button>
-            ))}
+              );
+            })}
+          </div>
+          {/* Indicador de empresa */}
+          <div className="mt-2 pt-2 border-t border-border flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <Building2 className="w-3 h-3" />
+            <span>{currentClienteName}</span>
           </div>
         </div>
       )}

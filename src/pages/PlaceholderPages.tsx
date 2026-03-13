@@ -9,7 +9,7 @@ import { Settings, Download, Upload, SlidersHorizontal, Leaf } from "lucide-reac
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { parseValores, type TipoDato, type ModDato } from "@/config/moduleDefinitions";
+import { parseValores, type TipoDato, type ModDato, type ModParam } from "@/config/moduleDefinitions";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -25,13 +25,33 @@ const tipoDatoToColType = (t: TipoDato): Column<DynRow>["type"] => {
   return undefined;
 };
 
+/** Safely evaluate a formula string using field values from the row. */
+const evaluateFormula = (formula: string, rowVals: Record<string, string>, fieldNames: string[]): number | null => {
+  try {
+    let expr = formula;
+    // Sort by longest name first to avoid partial replacements
+    const sorted = [...fieldNames].sort((a, b) => b.length - a.length);
+    for (const name of sorted) {
+      const val = parseFloat(rowVals[name] ?? "");
+      if (isNaN(val)) return null;
+      expr = expr.replaceAll(name, String(val));
+    }
+    // Only allow safe chars: digits, operators, parens, dots, whitespace
+    if (!/^[\d+\-*/().\s]+$/.test(expr)) return null;
+    const result = Function(`"use strict"; return (${expr})`)();
+    return typeof result === "number" && isFinite(result) ? Math.round(result * 100) / 100 : null;
+  } catch {
+    return null;
+  }
+};
+
 // ─── Tabla dinámica de una definición ────────────────────────────────────────
 // Lee definición, parámetros y datos directamente del ConfigContext.
 // Cualquier cambio en Configuración se refleja aquí en tiempo real.
 
 function DynamicDefTable({ defId, moduloKey }: { defId: string; moduloKey: string }) {
   const { hasPermission } = useRole();
-  const { definiciones, parametros, datos, addDato, updDato, delDato } = useConfig();
+  const { definiciones, parametros, datos, addDato, updDato, delDato, setHasPendingChanges } = useConfig();
   const navigate = useNavigate();
 
   const def    = definiciones.find(d => d.id === defId);
@@ -55,27 +75,55 @@ function DynamicDefTable({ defId, moduloKey }: { defId: string; moduloKey: strin
     ...parseValores(d.valores),
   }));
 
+  // Campos con fórmula
+  const formulaParams = params.filter(p => p.formula);
+  const fieldNames = params.map(p => p.nombre);
+
   // Construir columnas desde los parámetros de la definición
   const columns: Column<DynRow>[] = [
     { key: "fecha", header: "Fecha", width: "110px", type: "date", editable: canEdit || canCreate, required: true },
-    ...params.map(p => {
-      const col: Column<DynRow> = {
-        key:      p.nombre,
-        header:   p.nombre.replace(/_/g, " "),
-        width:    "140px",
-        editable: canEdit || canCreate,
-        required: p.obligatorio,
-      };
-      const colType = tipoDatoToColType(p.tipo_dato);
-      if (colType) col.type = colType;
-      if (p.tipo_dato === "Sí/No") {
-        col.options = [{ value: "Sí", label: "Sí" }, { value: "No", label: "No" }];
-      }
-      return col;
-    }),
+    ...params
+      .filter(p => p.visible !== false)
+      .map(p => {
+        const hasFormula = !!p.formula;
+        const col: Column<DynRow> = {
+          key:      p.nombre,
+          header:   p.etiqueta_personalizada || p.nombre.replace(/_/g, " "),
+          width:    "140px",
+          editable: hasFormula ? false : (canEdit || canCreate) && p.editable_campo !== false,
+          required: hasFormula ? false : p.obligatorio,
+        };
+        const colType = tipoDatoToColType(p.tipo_dato);
+        if (colType) col.type = colType;
+        if (p.tipo_dato === "Sí/No") {
+          col.options = [{ value: "Sí", label: "Sí" }, { value: "No", label: "No" }];
+          col.filterable = true;
+        }
+        if (p.tipo_dato === "Lista" && p.opciones && p.opciones.length > 0) {
+          col.type = "select";
+          col.options = p.opciones;
+          col.filterable = true;
+        }
+        if (hasFormula) {
+          col.header = `${col.header} ƒ`;
+          col.render = (_value, row) => {
+            const rowVals: Record<string, string> = {};
+            for (const fp of params) {
+              rowVals[fp.nombre] = String(row[fp.nombre] ?? "");
+            }
+            const result = evaluateFormula(p.formula!, rowVals, fieldNames);
+            return (
+              <span className="text-xs font-mono text-muted-foreground">
+                {result !== null ? result : "—"}
+              </span>
+            );
+          };
+        }
+        return col;
+      }),
   ];
 
-  // Actualizar un campo — escribe de vuelta al contexto
+  // Actualizar un campo — escribe de vuelta al contexto + recalcular fórmulas
   const handleUpdate = (rowIndex: number, key: keyof DynRow, value: unknown) => {
     const dato = defDatos[rowIndex];
     if (!dato) return;
@@ -84,6 +132,13 @@ function DynamicDefTable({ defId, moduloKey }: { defId: string; moduloKey: strin
     } else {
       const vals = parseValores(dato.valores);
       vals[key as string] = String(value);
+      // Recalcular campos con fórmula
+      for (const fp of formulaParams) {
+        if (fp.formula) {
+          const result = evaluateFormula(fp.formula, vals, fieldNames);
+          if (result !== null) vals[fp.nombre] = String(result);
+        }
+      }
       updDato(dato.id, { ...dato, valores: JSON.stringify(vals) });
     }
   };
@@ -120,6 +175,7 @@ function DynamicDefTable({ defId, moduloKey }: { defId: string; moduloKey: strin
         onUpdate={handleUpdate}
         onDelete={handleDelete}
         onAdd={handleAdd}
+        onPendingChange={setHasPendingChanges}
       />
     </div>
   );
