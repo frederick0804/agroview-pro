@@ -1062,12 +1062,15 @@ const mockUsersTab = hardcodedUsers.map(u => ({
 
 function TabUsuarios() {
   const {
-    permissionOverrides, addOverride, removeOverride,
+    addOverride, removeOverride,
     getUserOverrides, getRoleBasePermissions,
   } = useRole();
 
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [addModal, setAddModal] = useState(false);
+  const [addModal,       setAddModal]       = useState(false);
+  const [search,         setSearch]         = useState("");
+  const [filterRol,      setFilterRol]      = useState("todos");
+  const [filterEmpresa,  setFilterEmpresa]  = useState("todas");
   const [newOverride, setNewOverride] = useState({
     modulo: "cultivo",
     accion: "exportar" as ActionPermission,
@@ -1075,8 +1078,22 @@ function TabUsuarios() {
     justificacion: "",
   });
 
-  const selectedUser   = selectedUserId ? mockUsersTab.find(u => u.id === selectedUserId) : null;
-  const userOverrides  = selectedUserId ? getUserOverrides(selectedUserId) : [];
+  const selectedUser  = selectedUserId ? mockUsersTab.find(u => u.id === selectedUserId) : null;
+  const userOverrides = selectedUserId ? getUserOverrides(selectedUserId) : [];
+
+  // ── Opciones de filtro ─────────────────────────────────────────────────────
+  const rolesDisponibles  = Array.from(new Set(mockUsersTab.map(u => u.rol)));
+  const empresasDisponibles = Array.from(new Set(mockUsersTab.map(u => u.empresa)));
+
+  // ── Filtrado ───────────────────────────────────────────────────────────────
+  const usuariosFiltrados = useMemo(() => {
+    const q = search.toLowerCase();
+    return mockUsersTab.filter(u =>
+      (filterRol     === "todos"  || u.rol     === filterRol) &&
+      (filterEmpresa === "todas"  || u.empresa === filterEmpresa) &&
+      (!q || u.nombre.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
+    );
+  }, [search, filterRol, filterEmpresa]);
 
   const handleAddOverride = () => {
     if (!selectedUserId || !newOverride.justificacion.trim()) return;
@@ -1091,86 +1108,176 @@ function TabUsuarios() {
     setNewOverride({ modulo: "cultivo", accion: "exportar", habilitado: true, justificacion: "" });
   };
 
+  // ── Avatar con iniciales ───────────────────────────────────────────────────
+  const avatarColors = [
+    "bg-violet-100 text-violet-700", "bg-blue-100 text-blue-700",
+    "bg-amber-100 text-amber-700",   "bg-green-100 text-green-700",
+    "bg-cyan-100 text-cyan-700",     "bg-rose-100 text-rose-700",
+  ];
+  const initials = (nombre: string) =>
+    nombre.split(" ").slice(0, 2).map(n => n[0]).join("").toUpperCase();
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <InfoBanner storageKey="usuarios">
         <strong>Gestión de Usuarios</strong> — administra usuarios y configura permisos especiales
         (excepciones al rol) por módulo y acción.
       </InfoBanner>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* ── Tabla de usuarios ── */}
+      {/* ── Barra de búsqueda y filtros ───────────────────────────────────── */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-0 max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar usuario o email…"
+            className="w-full pl-9 pr-8 py-2 text-sm rounded-lg bg-muted/40 border border-border focus:border-primary/50 focus:outline-none focus:bg-background transition-colors"
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        <select
+          value={filterRol}
+          onChange={e => setFilterRol(e.target.value)}
+          className="h-9 rounded-lg border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+        >
+          <option value="todos">Todos los roles</option>
+          {rolesDisponibles.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+
+        <select
+          value={filterEmpresa}
+          onChange={e => setFilterEmpresa(e.target.value)}
+          className="h-9 rounded-lg border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+        >
+          <option value="todas">Todas las empresas</option>
+          {empresasDisponibles.map(e => <option key={e} value={e}>{e}</option>)}
+        </select>
+
+        {(search || filterRol !== "todos" || filterEmpresa !== "todas") && (
+          <button
+            onClick={() => { setSearch(""); setFilterRol("todos"); setFilterEmpresa("todas"); }}
+            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+          >
+            <X className="w-3 h-3" /> Limpiar
+          </button>
+        )}
+
+        <span className="ml-auto text-xs text-muted-foreground">
+          {usuariosFiltrados.length} de {mockUsersTab.length} usuarios
+        </span>
+      </div>
+
+      {/* ── Cuerpo: tabla + panel ──────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+        {/* ── Tabla compacta ─────────────────────────────────────────────── */}
         <div className="lg:col-span-2">
           <div className="bg-card rounded-xl border border-border overflow-hidden">
-            <div className="overflow-x-auto">
+            {usuariosFiltrados.length === 0 ? (
+              <div className="py-12 text-center">
+                <Info className="w-8 h-8 mx-auto text-muted-foreground/40 mb-2" />
+                <p className="text-sm text-muted-foreground">Sin usuarios que coincidan con los filtros.</p>
+              </div>
+            ) : (
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border bg-muted/50">
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Usuario</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Empresa</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Rol</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Nivel</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Estado</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Último acceso</th>
-                    <th className="px-4 py-3 font-medium text-muted-foreground text-center">Especiales</th>
+                  <tr className="border-b border-border bg-muted/40">
+                    <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Usuario</th>
+                    <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Rol</th>
+                    <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Acceso</th>
+                    <th className="text-center px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Esp.</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {mockUsersTab.map((user) => {
-                    const config = rolConfig[user.rol];
-                    const RolIcon = config?.icon ?? Shield;
+                  {usuariosFiltrados.map((user, i) => {
+                    const config       = rolConfig[user.rol];
+                    const RolIcon      = config?.icon ?? Shield;
                     const overrideCount = getUserOverrides(user.id).length;
-                    const isSelected = selectedUserId === user.id;
+                    const isSelected   = selectedUserId === user.id;
+                    const avatarColor  = avatarColors[i % avatarColors.length];
+
                     return (
                       <tr
                         key={user.id}
-                        onClick={() => setSelectedUserId(user.id)}
+                        onClick={() => setSelectedUserId(prev => prev === user.id ? null : user.id)}
                         className={cn(
-                          "border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer",
-                          isSelected && "bg-primary/5 border-l-2 border-l-primary",
+                          "border-b border-border/60 last:border-0 hover:bg-muted/30 transition-colors cursor-pointer",
+                          isSelected && "bg-primary/5",
                         )}
                       >
+                        {/* Usuario: avatar + nombre + email + empresa */}
                         <td className="px-4 py-3">
-                          <div>
-                            <p className="font-medium text-foreground">{user.nombre}</p>
-                            <p className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Mail className="w-3 h-3" /> {user.email}
-                            </p>
+                          <div className="flex items-center gap-3 min-w-0">
+                            {isSelected && (
+                              <div className="w-0.5 h-8 bg-primary rounded-full shrink-0 -ml-2 mr-1.5" />
+                            )}
+                            <div className={cn(
+                              "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                              avatarColor,
+                            )}>
+                              {initials(user.nombre)}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-medium text-foreground text-sm truncate">{user.nombre}</p>
+                              <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
+                              <p className="text-[10px] text-muted-foreground/70 truncate">{user.empresa}</p>
+                            </div>
                           </div>
                         </td>
+
+                        {/* Rol + nivel */}
                         <td className="px-4 py-3">
-                          <span className="text-xs text-muted-foreground">{user.empresa}</span>
+                          <div className="flex flex-col gap-1">
+                            <span className={cn(
+                              "inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full w-fit",
+                              config?.color,
+                            )}>
+                              <RolIcon className="w-2.5 h-2.5" />
+                              {user.rol}
+                            </span>
+                            <div className="flex items-center gap-1 px-1">
+                              {Array.from({ length: 6 }).map((_, idx) => (
+                                <div
+                                  key={idx}
+                                  className={cn(
+                                    "h-1 flex-1 rounded-full",
+                                    idx < user.nivel ? "bg-primary" : "bg-muted",
+                                  )}
+                                />
+                              ))}
+                            </div>
+                          </div>
                         </td>
+
+                        {/* Estado + último acceso */}
                         <td className="px-4 py-3">
-                          <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${config?.color}`}>
-                            <RolIcon className="w-3 h-3" />
-                            {user.rol}
-                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success">
+                              <span className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />
+                              {user.estado}
+                            </span>
+                            <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                              <Calendar className="w-3 h-3 shrink-0" />
+                              {user.ultimoAcceso}
+                            </span>
+                          </div>
                         </td>
-                        <td className="px-4 py-3">
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-muted text-xs font-bold text-foreground">
-                            {user.nivel}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success">
-                            <span className="w-1.5 h-1.5 rounded-full bg-success" />
-                            {user.estado}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground text-xs">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="w-3 h-3" /> {user.ultimoAcceso}
-                          </span>
-                        </td>
+
+                        {/* Permisos especiales */}
                         <td className="px-4 py-3 text-center">
                           {overrideCount > 0 ? (
-                            <Badge variant="secondary" className="text-xs">
-                              <ShieldAlert className="w-3 h-3 mr-1" />
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                              <ShieldAlert className="w-3 h-3" />
                               {overrideCount}
-                            </Badge>
+                            </span>
                           ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
+                            <span className="text-xs text-muted-foreground/50">—</span>
                           )}
                         </td>
                       </tr>
@@ -1178,11 +1285,11 @@ function TabUsuarios() {
                   })}
                 </tbody>
               </table>
-            </div>
+            )}
           </div>
         </div>
 
-        {/* ── Panel de permisos especiales ── */}
+        {/* ── Panel de permisos especiales ───────────────────────────────── */}
         <div className="lg:col-span-1">
           <div className="bg-card rounded-xl border border-border overflow-hidden sticky top-4">
             <div className="px-4 py-3 border-b border-border flex items-center justify-between">
@@ -1199,32 +1306,40 @@ function TabUsuarios() {
 
             {!selectedUser ? (
               <div className="px-4 py-10 text-center">
-                <Info className="w-8 h-8 mx-auto text-muted-foreground/50 mb-2" />
+                <ShieldCheck className="w-8 h-8 mx-auto text-muted-foreground/30 mb-2" />
                 <p className="text-sm text-muted-foreground">
-                  Selecciona un usuario de la tabla para ver y gestionar sus permisos especiales.
+                  Selecciona un usuario para ver y gestionar sus permisos especiales.
                 </p>
               </div>
             ) : (
               <div className="p-4 space-y-4">
-                <div className="bg-muted/30 rounded-lg p-3 border border-border">
-                  <p className="font-medium text-sm text-foreground">{selectedUser.nombre}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedUser.rol} · Nivel {selectedUser.nivel}
-                  </p>
+                {/* Mini perfil del usuario seleccionado */}
+                <div className="flex items-center gap-3 bg-muted/30 rounded-lg p-3 border border-border">
+                  <div className={cn(
+                    "w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0",
+                    avatarColors[mockUsersTab.findIndex(u => u.id === selectedUser.id) % avatarColors.length],
+                  )}>
+                    {initials(selectedUser.nombre)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm text-foreground truncate">{selectedUser.nombre}</p>
+                    <p className="text-xs text-muted-foreground">{selectedUser.rol} · Nivel {selectedUser.nivel}</p>
+                  </div>
                 </div>
 
+                {/* Permisos base */}
                 <div>
                   <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                     Permisos base del rol
                   </h4>
-                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
                     {ALL_MODULES.map(m => {
                       const perms = getRoleBasePermissions(selectedUser.roleKey, m.value);
                       if (perms.length === 0) return null;
                       return (
-                        <div key={m.value} className="flex items-center justify-between text-xs">
-                          <span className="text-foreground">{m.label}</span>
-                          <div className="flex gap-1">
+                        <div key={m.value} className="flex items-center justify-between text-xs gap-2">
+                          <span className="text-foreground truncate">{m.label}</span>
+                          <div className="flex gap-0.5 shrink-0">
                             {perms.map(p => (
                               <span key={p} className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[10px]">
                                 {p.charAt(0).toUpperCase() + p.slice(1)}
@@ -1237,12 +1352,13 @@ function TabUsuarios() {
                   </div>
                 </div>
 
+                {/* Excepciones personalizadas */}
                 <div>
                   <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                     Excepciones personalizadas
                   </h4>
                   {userOverrides.length === 0 ? (
-                    <p className="text-xs text-muted-foreground italic py-2">
+                    <p className="text-xs text-muted-foreground italic py-1">
                       Sin permisos especiales configurados.
                     </p>
                   ) : (
@@ -1253,14 +1369,15 @@ function TabUsuarios() {
                         return (
                           <div key={ov.id} className="bg-muted/30 rounded-lg p-2.5 border border-border space-y-1">
                             <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                {ov.habilitado ? (
-                                  <Check className="w-3.5 h-3.5 text-success" />
-                                ) : (
-                                  <X className="w-3.5 h-3.5 text-destructive" />
-                                )}
+                              <div className="flex items-center gap-1.5">
+                                <span className={cn(
+                                  "inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0",
+                                  ov.habilitado ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive",
+                                )}>
+                                  {ov.habilitado ? <Check className="w-2.5 h-2.5" /> : <X className="w-2.5 h-2.5" />}
+                                </span>
                                 <span className="text-xs font-medium text-foreground">
-                                  {accionLabel} en {moduloLabel}
+                                  {accionLabel} · {moduloLabel}
                                 </span>
                               </div>
                               <button
@@ -1270,12 +1387,8 @@ function TabUsuarios() {
                                 <Trash2 className="w-3 h-3" />
                               </button>
                             </div>
-                            <p className="text-[10px] text-muted-foreground pl-5">
-                              {ov.justificacion}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground/60 pl-5">
-                              Creado: {ov.createdAt}
-                            </p>
+                            <p className="text-[10px] text-muted-foreground pl-5">{ov.justificacion}</p>
+                            <p className="text-[10px] text-muted-foreground/50 pl-5">Creado: {ov.createdAt}</p>
                           </div>
                         );
                       })}
@@ -1288,7 +1401,7 @@ function TabUsuarios() {
         </div>
       </div>
 
-      {/* ── Modal agregar permiso especial ── */}
+      {/* ── Modal: nuevo permiso especial ─────────────────────────────────── */}
       <Dialog open={addModal} onOpenChange={setAddModal}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -1300,9 +1413,17 @@ function TabUsuarios() {
 
           {selectedUser && (
             <div className="space-y-4 py-2">
-              <div className="bg-muted/30 rounded-lg p-2.5 border border-border text-xs">
-                <span className="font-medium">{selectedUser.nombre}</span>
-                <span className="text-muted-foreground"> · {selectedUser.rol}</span>
+              <div className="bg-muted/30 rounded-lg p-2.5 border border-border text-xs flex items-center gap-2">
+                <div className={cn(
+                  "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                  avatarColors[mockUsersTab.findIndex(u => u.id === selectedUser.id) % avatarColors.length],
+                )}>
+                  {initials(selectedUser.nombre)}
+                </div>
+                <div>
+                  <span className="font-medium">{selectedUser.nombre}</span>
+                  <span className="text-muted-foreground"> · {selectedUser.rol}</span>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -1313,9 +1434,7 @@ function TabUsuarios() {
                     value={newOverride.modulo}
                     onChange={e => setNewOverride(p => ({ ...p, modulo: e.target.value }))}
                   >
-                    {ALL_MODULES.map(m => (
-                      <option key={m.value} value={m.value}>{m.label}</option>
-                    ))}
+                    {ALL_MODULES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -1325,9 +1444,7 @@ function TabUsuarios() {
                     value={newOverride.accion}
                     onChange={e => setNewOverride(p => ({ ...p, accion: e.target.value as ActionPermission }))}
                   >
-                    {ALL_ACTIONS.map(a => (
-                      <option key={a.value} value={a.value}>{a.label}</option>
-                    ))}
+                    {ALL_ACTIONS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
                   </select>
                 </div>
               </div>
@@ -1355,13 +1472,13 @@ function TabUsuarios() {
                   placeholder="Ej: Permiso temporal para auditoría Q1 2025"
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  Se registra para auditoría. Explica por qué se otorga/bloquea este permiso.
+                  Se registra para auditoría interna. Explica el motivo del permiso especial.
                 </p>
               </div>
 
               {(() => {
-                const basePerms = getRoleBasePermissions(selectedUser.roleKey, newOverride.modulo);
-                const hasBase = basePerms.includes(newOverride.accion);
+                const basePerms  = getRoleBasePermissions(selectedUser.roleKey, newOverride.modulo);
+                const hasBase    = basePerms.includes(newOverride.accion);
                 const isRedundant = (hasBase && newOverride.habilitado) || (!hasBase && !newOverride.habilitado);
                 return (
                   <div className={cn(
@@ -1376,7 +1493,7 @@ function TabUsuarios() {
                     }
                     <span>
                       {isRedundant
-                        ? `Este permiso es redundante: el rol ${selectedUser.rol} ya ${hasBase ? "tiene" : "no tiene"} "${newOverride.accion}" en ${ALL_MODULES.find(m => m.value === newOverride.modulo)?.label}.`
+                        ? `Redundante: el rol ${selectedUser.rol} ya ${hasBase ? "tiene" : "no tiene"} "${newOverride.accion}" en ${ALL_MODULES.find(m => m.value === newOverride.modulo)?.label}.`
                         : `Esto ${newOverride.habilitado ? "otorgará" : "bloqueará"} "${newOverride.accion}" en ${ALL_MODULES.find(m => m.value === newOverride.modulo)?.label} — diferente al permiso base del rol.`
                       }
                     </span>
