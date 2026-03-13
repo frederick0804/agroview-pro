@@ -20,15 +20,20 @@ import {
 import {
   Layers, List, Table2, Palette, Settings2, BookOpen,
   Upload, ChevronDown, ChevronUp, X, Plus, Save,
-  Trash2, Info, CheckCircle2, Clock, Archive, Database, Leaf, Search, Copy, History,
+  Trash2, Info, CheckCircle2, Clock, Archive, Database, Leaf, Search, Copy, History, User,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
+import { useRole } from "@/contexts/RoleContext";
 import {
   tipoBadgeColor, tipoLabels, estadoBadge,
   type ModDef, type ModParam, type Parametro,
   type TipoConfig, type TipoDato, type EstadoDef,
   type Cultivo, type Variedad,
 } from "@/config/moduleDefinitions";
+import { VersionDiffDialog } from "@/components/dashboard/VersionDiffDialog";
+import { CampoConfigDrawer } from "@/components/dashboard/CampoConfigDrawer";
+import { formatDistanceToNow } from "date-fns";
+import { es } from "date-fns/locale";
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -92,8 +97,8 @@ function EstadoIcon({ estado }: { estado: EstadoDef }) {
 
 // ─── Panel de Definiciones ────────────────────────────────────────────────────
 
-function TabDefiniciones() {
-  const { definiciones, parametros, datos, addDef, updDef, delDef, dupDef, cultivos } = useConfig();
+function TabDefiniciones({ onPendingChange, onNavigateToCampos }: { onPendingChange?: (v: boolean) => void; onNavigateToCampos?: (defId: string) => void }) {
+  const { definiciones, parametros, datos, addDef, updDef, delDef, dupDef, cultivos, getDefSnapshots, createSnapshot } = useConfig();
   const navigate = useNavigate();
   const [searchDef,             setSearchDef]             = useState("");
   const [expandedFamilies,      setExpandedFamilies]      = useState<Set<string>>(new Set());
@@ -104,6 +109,8 @@ function TabDefiniciones() {
     sourceVersion: string; newVersion: string; paramCount: number;
     newName: string;
   } | null>(null);
+  const [historyDefId, setHistoryDefId] = useState<string | null>(null);
+  const [snapModal, setSnapModal] = useState<{ open: boolean; defId: string; nombre: string }>({ open: false, defId: "", nombre: "" });
 
   const cultivoOptions = [
     { value: "",  label: "— Global —" },
@@ -330,6 +337,24 @@ function TabDefiniciones() {
                         <Copy className="w-2.5 h-2.5" />
                         Nueva v
                       </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); setSnapModal({ open: true, defId: latest.id, nombre: latest.nombre }); }}
+                        className="flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md transition-colors text-emerald-600 hover:bg-emerald-500/10"
+                        title="Crear nueva versión (snapshot)"
+                      >
+                        <Save className="w-2.5 h-2.5" />
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); setHistoryDefId(latest.id); }}
+                        className={cn(
+                          "flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md transition-colors",
+                          getDefSnapshots(latest.id).length > 0
+                            ? "text-primary hover:bg-primary/10"
+                            : "text-muted-foreground hover:bg-muted/50",
+                        )}
+                      >
+                        <History className="w-2.5 h-2.5" />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -496,6 +521,7 @@ function TabDefiniciones() {
           onUpdate={handleTableUpdate}
           onDelete={handleTableDelete}
           onAdd={() => addDef()}
+          onPendingChange={onPendingChange}
           rowActions={row => (
             <button
               onClick={e => { e.stopPropagation(); navigate(`?tab=campos&def=${row.id}`); }}
@@ -585,133 +611,121 @@ function TabDefiniciones() {
         </DialogContent>
       </Dialog>
     )}
+
+    {/* Dialog de historial de versiones */}
+    {historyDefId && (
+      <VersionDiffDialog
+        defId={historyDefId}
+        open={!!historyDefId}
+        onClose={() => setHistoryDefId(null)}
+      />
+    )}
+
+    {/* Modal para crear nueva versión (snapshot) */}
+    <Dialog open={snapModal.open} onOpenChange={open => { if (!open) setSnapModal(p => ({ ...p, open: false })); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Save className="w-5 h-5 text-emerald-600" />
+            Crear nueva versión
+          </DialogTitle>
+        </DialogHeader>
+        {(() => {
+          const def = definiciones.find(d => d.id === snapModal.defId);
+          const currentVersion = def?.version ?? "1.0";
+          const parts = currentVersion.split(".");
+          const nextVersion = parts.length >= 2
+            ? `${parts[0]}.${parseInt(parts[1] || "0", 10) + 1}`
+            : `${currentVersion}.1`;
+          const campos = parametros.filter(p => p.definicion_id === snapModal.defId);
+          return (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="snap-nombre">Nombre de la definición</Label>
+                <Input
+                  id="snap-nombre"
+                  value={snapModal.nombre}
+                  onChange={e => setSnapModal(p => ({ ...p, nombre: e.target.value }))}
+                />
+              </div>
+              <div className="flex items-center gap-3 text-sm">
+                <span className="text-muted-foreground">Versión actual:</span>
+                <Badge variant="secondary">{currentVersion}</Badge>
+                <span className="text-muted-foreground">→</span>
+                <Badge className="bg-emerald-500/15 text-emerald-700 border-emerald-200">{nextVersion}</Badge>
+              </div>
+              {campos.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label className="text-muted-foreground">Campos incluidos ({campos.length})</Label>
+                  <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+                    {campos.sort((a, b) => a.orden - b.orden).map(c => (
+                      <span key={c.id} className="text-[10px] bg-muted border border-border rounded px-1.5 py-0.5">
+                        {c.nombre.replace(/_/g, " ")}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" size="sm" onClick={() => setSnapModal(p => ({ ...p, open: false }))}>Cancelar</Button>
+                <Button
+                  size="sm"
+                  disabled={!snapModal.nombre.trim()}
+                  onClick={() => {
+                    const idx = definiciones.findIndex(d => d.id === snapModal.defId);
+                    if (idx !== -1) {
+                      updDef(idx, "nombre", snapModal.nombre.trim());
+                      updDef(idx, "version", nextVersion);
+                    }
+                    createSnapshot(snapModal.defId, `Versión ${nextVersion}`);
+                    setSnapModal(p => ({ ...p, open: false }));
+                  }}
+                >
+                  <Save className="w-4 h-4 mr-1.5" />
+                  Crear versión {nextVersion}
+                </Button>
+              </DialogFooter>
+            </div>
+          );
+        })()}
+      </DialogContent>
+    </Dialog>
     </>
   );
 }
 
 // ─── Panel Biblioteca de Parámetros ───────────────────────────────────────────
 
-function TabBiblioteca() {
+function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => void }) {
   const { parametrosLib, addParamLib, updParamLib, delParamLib } = useConfig();
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newParam, setNewParam] = useState<Partial<Parametro>>({
-    nombre: "", codigo: "", tipo_dato: "Texto", unidad_medida: "", descripcion: "", obligatorio_default: false,
-  });
-
-  const handleCreate = () => {
-    if (!newParam.nombre?.trim()) return;
-    addParamLib(newParam);
-    setNewParam({ nombre: "", codigo: "", tipo_dato: "Texto", unidad_medida: "", descripcion: "", obligatorio_default: false });
-    setShowCreateForm(false);
-  };
 
   const colsLib: Column<Parametro>[] = [
     { key: "nombre",              header: "Nombre (snake_case)", width: "180px", required: true },
     { key: "codigo",              header: "Código",               width: "90px" },
-    { key: "tipo_dato",           header: "Tipo",                  width: "120px", type: "select", options: TIPO_DATO_OPTIONS },
+    { key: "tipo_dato",           header: "Tipo",                  width: "120px", type: "select", options: TIPO_DATO_OPTIONS, required: true, filterable: true },
     { key: "unidad_medida",       header: "Unidad",               width: "80px" },
     { key: "descripcion",         header: "Descripción",           width: "260px" },
-    { key: "obligatorio_default", header: "Oblig. default",        width: "100px", type: "checkbox" },
+    { key: "obligatorio_default", header: "Oblig. default",        width: "100px", type: "checkbox", filterable: true },
   ];
 
   return (
     <div className="space-y-5">
-      <div className="flex items-start justify-between gap-4">
-        <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border flex-1">
+      <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border flex items-start gap-2">
+        <Info className="w-4 h-4 mt-0.5 shrink-0" />
+        <div>
           <strong>Biblioteca Global</strong> — catálogo de campos reutilizables en cualquier módulo.
           Al agregar un campo a una definición, se sugiere desde aquí.
         </div>
-        <Button onClick={() => setShowCreateForm(v => !v)} className="shrink-0">
-          <Plus className="w-4 h-4 mr-2" />
-          Crear Parámetro
-        </Button>
       </div>
 
-      {/* Formulario de creación rápida */}
-      {showCreateForm && (
-        <div className="bg-primary/5 border border-primary/20 rounded-xl p-5 space-y-4">
-          <h4 className="font-semibold text-sm text-foreground flex items-center gap-2">
-            <Plus className="w-4 h-4 text-primary" />
-            Nuevo Parámetro en la Biblioteca
-          </h4>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Nombre <span className="text-destructive">*</span></Label>
-              <Input
-                value={newParam.nombre ?? ""}
-                onChange={e => setNewParam(p => ({ ...p, nombre: e.target.value.replace(/ /g, "_").toLowerCase() }))}
-                placeholder="ej. temperatura_suelo"
-                className="h-8 text-sm"
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Código</Label>
-              <Input
-                value={newParam.codigo ?? ""}
-                onChange={e => setNewParam(p => ({ ...p, codigo: e.target.value.toUpperCase() }))}
-                placeholder="ej. TEMP_SUE"
-                className="h-8 text-sm"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Tipo de dato</Label>
-              <select
-                value={newParam.tipo_dato ?? "Texto"}
-                onChange={e => setNewParam(p => ({ ...p, tipo_dato: e.target.value as TipoDato }))}
-                className="w-full h-8 text-sm border border-border rounded-md px-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary"
-              >
-                {TIPO_DATO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Unidad</Label>
-              <Input
-                value={newParam.unidad_medida ?? ""}
-                onChange={e => setNewParam(p => ({ ...p, unidad_medida: e.target.value }))}
-                placeholder="ej. °C, mm, gr"
-                className="h-8 text-sm"
-              />
-            </div>
-            <div className="space-y-1.5 col-span-2 lg:col-span-3">
-              <Label className="text-xs">Descripción</Label>
-              <Input
-                value={newParam.descripcion ?? ""}
-                onChange={e => setNewParam(p => ({ ...p, descripcion: e.target.value }))}
-                placeholder="Describe para qué se usa este parámetro"
-                className="h-8 text-sm"
-              />
-            </div>
-            <div className="space-y-1.5 flex flex-col justify-end">
-              <Label className="text-xs">Obligatorio por defecto</Label>
-              <div className="flex items-center gap-2 h-8">
-                <Switch
-                  checked={newParam.obligatorio_default ?? false}
-                  onCheckedChange={v => setNewParam(p => ({ ...p, obligatorio_default: v }))}
-                />
-                <span className="text-xs text-muted-foreground">{newParam.obligatorio_default ? "Sí" : "No"}</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 pt-1">
-            <Button onClick={handleCreate} disabled={!newParam.nombre?.trim()}>
-              <Save className="w-4 h-4 mr-2" /> Guardar en Biblioteca
-            </Button>
-            <Button variant="outline" onClick={() => setShowCreateForm(false)}>
-              <X className="w-4 h-4 mr-1" /> Cancelar
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Tabla de la biblioteca */}
       <EditableTable
         title={`Biblioteca de Parámetros (${parametrosLib.length})`}
         data={parametrosLib}
         columns={colsLib}
         onUpdate={(idx, key, val) => updParamLib(parametrosLib[idx].id, key, val)}
         onDelete={idx => delParamLib(parametrosLib[idx].id)}
-        onAdd={() => setShowCreateForm(true)}
+        onAdd={() => addParamLib()}
+        onPendingChange={onPendingChange}
         searchable
       />
     </div>
@@ -720,10 +734,38 @@ function TabBiblioteca() {
 
 // ─── Panel Campos (Campos_configurados) ───────────────────────────────────────
 
-function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
-  const { definiciones, parametros, parametrosLib, addPar, updParByIdx, delParByIdx } = useConfig();
+function TabCampos({ initialDefId = "all", onPendingChange }: { initialDefId?: string; onPendingChange?: (v: boolean) => void }) {
+  const { definiciones, parametros, parametrosLib, addPar, updParByIdx, updParFull, delParByIdx, addParamLib } = useConfig();
   const [filterDefId, setFilterDefId] = useState<string>(initialDefId);
   const [searchCampo, setSearchCampo]  = useState("");
+  const [configCampoId, setConfigCampoId] = useState<string | null>(null);
+
+  // Sync filter when navigating from Definiciones
+  useEffect(() => { setFilterDefId(initialDefId); }, [initialDefId]);
+
+  // Modal para crear nuevo parámetro desde el autocomplete
+  const [newParamModal, setNewParamModal] = useState<{ open: boolean; nombre: string }>({ open: false, nombre: "" });
+  const [newParamForm, setNewParamForm] = useState<{
+    codigo: string; tipo_dato: TipoDato; unidad_medida: string; descripcion: string; obligatorio_default: boolean;
+  }>({ codigo: "", tipo_dato: "Texto", unidad_medida: "", descripcion: "", obligatorio_default: false });
+
+  const openNewParamModal = (query: string) => {
+    setNewParamModal({ open: true, nombre: query.replace(/ /g, "_").toLowerCase() });
+    setNewParamForm({ codigo: "", tipo_dato: "Texto", unidad_medida: "", descripcion: "", obligatorio_default: false });
+  };
+
+  const handleCreateParam = () => {
+    if (!newParamModal.nombre.trim()) return;
+    addParamLib({
+      nombre:              newParamModal.nombre,
+      codigo:              newParamForm.codigo,
+      tipo_dato:           newParamForm.tipo_dato,
+      unidad_medida:       newParamForm.unidad_medida,
+      descripcion:         newParamForm.descripcion,
+      obligatorio_default: newParamForm.obligatorio_default,
+    });
+    setNewParamModal({ open: false, nombre: "" });
+  };
 
   // Sugerencias para autocomplete: nombres de la biblioteca global
   const sugerencias = parametrosLib
@@ -758,6 +800,8 @@ function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
       header:  "Definición",
       width:   "200px",
       type:    "select",
+      required: true,
+      filterable: true,
       options: definiciones.map(d => ({ value: d.id, label: d.nombre || `(sin nombre — ${d.id})` })),
     },
     {
@@ -767,23 +811,28 @@ function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
       type:     "autocomplete",
       options:  sugerencias,
       required: true,
+      onCreateOption: openNewParamModal,
     },
     {
       key:     "tipo_dato",
       header:  "Tipo",
       width:   "130px",
       type:    "select",
+      filterable: true,
       options: TIPO_DATO_OPTIONS,
     },
     { key: "orden",      header: "Orden", width: "70px",  type: "number" },
-    { key: "obligatorio",header: "Oblig.",width: "75px",  type: "checkbox" },
+    { key: "obligatorio",header: "Oblig.",width: "75px",  type: "checkbox", filterable: true },
   ];
 
   return (
     <div className="space-y-5">
-      <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border">
-        Asigna <strong>campos de la Biblioteca</strong> a cada definición. Escribe en el campo
-        "Campo" para buscar en la biblioteca o crear uno nuevo.
+      <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border flex items-start gap-2">
+        <Info className="w-4 h-4 mt-0.5 shrink-0" />
+        <div>
+          Asigna <strong>campos de la Biblioteca</strong> a cada definición. Escribe en el campo
+          "Campo" para buscar en la biblioteca o crear uno nuevo.
+        </div>
       </div>
 
       {/* Dos columnas: sidebar de filtro + tabla */}
@@ -873,11 +922,110 @@ function TabCampos({ initialDefId = "all" }: { initialDefId?: string }) {
             onUpdate={updFiltered}
             onDelete={delFiltered}
             onAdd={addFiltered}
+            onPendingChange={onPendingChange}
             searchable={false}
+            rowActions={(row) => (
+              <button
+                onClick={() => setConfigCampoId(row.id)}
+                className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                title="Configuración avanzada"
+              >
+                <Settings2 className="w-4 h-4" />
+              </button>
+            )}
           />
         </div>
 
       </div>
+
+      {/* Drawer de configuración avanzada del campo */}
+      <CampoConfigDrawer
+        open={!!configCampoId}
+        campo={configCampoId ? parametros.find(p => p.id === configCampoId) ?? null : null}
+        hermanos={configCampoId ? parametros.filter(p => p.definicion_id === (parametros.find(x => x.id === configCampoId)?.definicion_id ?? "")) : []}
+        onSave={(id, updates) => updParFull(id, updates)}
+        onClose={() => setConfigCampoId(null)}
+      />
+
+      {/* Modal para crear nuevo parámetro en la biblioteca */}
+      <Dialog open={newParamModal.open} onOpenChange={open => { if (!open) setNewParamModal({ open: false, nombre: "" }); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-4 h-4 text-primary" />
+              Nuevo Parámetro en Biblioteca
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Nombre (snake_case) <span className="text-destructive">*</span></Label>
+              <Input
+                value={newParamModal.nombre}
+                onChange={e => setNewParamModal(prev => ({ ...prev, nombre: e.target.value.replace(/ /g, "_").toLowerCase() }))}
+                placeholder="ej. temperatura_suelo"
+                className="h-8 text-sm"
+                autoFocus
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Código</Label>
+                <Input
+                  value={newParamForm.codigo}
+                  onChange={e => setNewParamForm(p => ({ ...p, codigo: e.target.value.toUpperCase() }))}
+                  placeholder="ej. TEMP_SUE"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Tipo de dato</Label>
+                <select
+                  value={newParamForm.tipo_dato}
+                  onChange={e => setNewParamForm(p => ({ ...p, tipo_dato: e.target.value as TipoDato }))}
+                  className="w-full h-8 text-sm border border-border rounded-md px-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  {TIPO_DATO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Unidad de medida</Label>
+              <Input
+                value={newParamForm.unidad_medida}
+                onChange={e => setNewParamForm(p => ({ ...p, unidad_medida: e.target.value }))}
+                placeholder="ej. °C, mm, gr"
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Descripción</Label>
+              <Input
+                value={newParamForm.descripcion}
+                onChange={e => setNewParamForm(p => ({ ...p, descripcion: e.target.value }))}
+                placeholder="Describe para qué se usa este parámetro"
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={newParamForm.obligatorio_default}
+                onCheckedChange={v => setNewParamForm(p => ({ ...p, obligatorio_default: v }))}
+              />
+              <Label className="text-xs">Obligatorio por defecto</Label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewParamModal({ open: false, nombre: "" })}>
+              Cancelar
+            </Button>
+            <Button onClick={handleCreateParam} disabled={!newParamModal.nombre.trim()}>
+              <Save className="w-4 h-4 mr-1.5" /> Crear Parámetro
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -903,8 +1051,8 @@ function TabDatos() {
   return (
     <div className="space-y-5">
       {/* Banner explicativo */}
-      <div className="bg-amber-50 border border-amber-200/60 rounded-lg px-4 py-3 text-sm text-amber-800 flex items-start gap-2">
-        <Info className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
+      <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border flex items-start gap-2">
+        <Info className="w-4 h-4 mt-0.5 shrink-0" />
         <div>
           <strong>¿Dónde se ingresan los registros?</strong>{" "}
           Los datos operacionales se ingresan en <strong>cada módulo</strong> (Laboratorio,
@@ -1015,9 +1163,11 @@ function TabCultivos() {
   const {
     cultivos, addCultivo, updCultivo, delCultivo,
     variedades, addVariedad, updVariedad, delVariedad,
-    definiciones,
+    definiciones, addDef, updDef, delDef,
   } = useConfig();
   const navigate = useNavigate();
+  const { role } = useRole();
+  const isSuperAdmin = role === "super_admin";
 
   const firstActive = cultivos.find(c => c.activo)?.id ?? cultivos[0]?.id ?? "";
   const [selectedId, setSelectedId] = useState<string>(firstActive);
@@ -1053,17 +1203,26 @@ function TabCultivos() {
   // ── Columnas ──────────────────────────────────────────────────────────────
 
   const colsCultivos: Column<Cultivo>[] = [
-    { key: "nombre",      header: "Cultivo",      width: "160px", required: true },
-    { key: "codigo",      header: "Código",        width: "80px"  },
-    { key: "descripcion", header: "Descripción",   width: "280px" },
-    { key: "activo",      header: "Activo",         width: "75px", type: "checkbox" },
+    { key: "nombre",      header: "Cultivo",      width: "160px", required: true, editable: isSuperAdmin },
+    { key: "codigo",      header: "Código",        width: "80px",  editable: isSuperAdmin },
+    { key: "descripcion", header: "Descripción",   width: "280px", editable: isSuperAdmin },
+    { key: "activo",      header: "Activo",         width: "75px", type: "checkbox", editable: isSuperAdmin, filterable: true },
   ];
 
   const colsVariedades: Column<Variedad>[] = [
     { key: "nombre",      header: "Variedad",      width: "160px", required: true },
     { key: "codigo",      header: "Código",         width: "80px"  },
     { key: "descripcion", header: "Descripción",    width: "280px" },
-    { key: "activo",      header: "Activa",          width: "75px", type: "checkbox" },
+    { key: "activo",      header: "Activa",          width: "75px", type: "checkbox", filterable: true },
+  ];
+
+  const colsFormularios: Column<ModDef>[] = [
+    { key: "modulo",       header: "Módulo",       width: "150px", type: "select", options: MODULO_OPTIONS, filterable: true },
+    { key: "tipo",         header: "Tipo",          width: "150px", type: "select", options: TIPO_OPTIONS, filterable: true  },
+    { key: "nombre",       header: "Nombre",         width: "200px" },
+    { key: "version",      header: "Versión",         width: "70px"  },
+    { key: "nivel_minimo", header: "Nivel mín.",      width: "85px", type: "number" },
+    { key: "estado",       header: "Estado",           width: "110px", type: "select", options: ESTADO_OPTIONS, filterable: true },
   ];
 
   // ── CRUD wrappers ─────────────────────────────────────────────────────────
@@ -1080,8 +1239,24 @@ function TabCultivos() {
     updVariedad(cultivoVars[idx].id, k, v);
   const delV = (idx: number) => delVariedad(cultivoVars[idx].id);
 
+  const updF = (idx: number, k: keyof ModDef, v: unknown) => {
+    const absIdx = definiciones.findIndex(d => d.id === cultivoDefs[idx]?.id);
+    if (absIdx !== -1) updDef(absIdx, k, v);
+  };
+  const delF = (idx: number) => {
+    const absIdx = definiciones.findIndex(d => d.id === cultivoDefs[idx]?.id);
+    if (absIdx !== -1) delDef(absIdx);
+  };
+
   return (
     <div className="space-y-6">
+      <div className="bg-muted/40 rounded-lg px-4 py-3 text-sm text-muted-foreground border border-border flex items-start gap-2">
+        <Info className="w-4 h-4 mt-0.5 shrink-0" />
+        <div>
+          <strong>Cultivos y Variedades</strong> — gestiona los cultivos habilitados según el plan del cliente.
+          Cada cultivo puede tener variedades y formularios asociados que definen los campos de captura en cada módulo.
+        </div>
+      </div>
 
       {/* ── Selector de cultivo ── */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -1109,12 +1284,14 @@ function TabCultivos() {
             </button>
           );
         })}
-        <button
-          onClick={() => setShowAddCultivo(true)}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all"
-        >
-          <Plus className="w-3.5 h-3.5" /> Nuevo cultivo
-        </button>
+        {isSuperAdmin ? (
+          <button
+            onClick={() => setShowAddCultivo(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all"
+          >
+            <Plus className="w-3.5 h-3.5" /> Nuevo cultivo
+          </button>
+        ) : null}
       </div>
 
       {/* ── Panel del cultivo seleccionado ── */}
@@ -1142,7 +1319,7 @@ function TabCultivos() {
             </span>
           </div>
 
-          {/* Variedades + enlace a Formularios */}
+          {/* Variedades + Formularios */}
           <div className="p-4 space-y-4">
             <EditableTable
               title={`Variedades de ${cultivo.nombre}`}
@@ -1154,26 +1331,52 @@ function TabCultivos() {
               searchable={false}
             />
 
-            {/* Acceso rápido a formularios de este cultivo */}
-            <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-4 py-3">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Layers className="w-4 h-4 shrink-0" />
-                <span>
-                  {cultivoDefs.length > 0
-                    ? `${cultivoDefs.length} formulario${cultivoDefs.length !== 1 ? "s" : ""} asignado${cultivoDefs.length !== 1 ? "s" : ""} a este cultivo`
-                    : "Sin formularios asignados a este cultivo"}
-                </span>
+            {/* Formularios de este cultivo */}
+            {cultivoDefs.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-12 text-center">
+                <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center">
+                  <Layers className="w-6 h-6 text-muted-foreground" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm text-foreground">Sin formularios para {cultivo.nombre}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Crea un formulario para definir los campos que se registran en los módulos.
+                  </p>
+                </div>
+                <Button size="sm" onClick={() => addDef(selectedId)}>
+                  <Plus className="w-4 h-4 mr-1.5" /> Crear formulario
+                </Button>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate("/configuracion?tab=formularios")}
-                className="gap-1.5 text-xs"
-              >
-                <Layers className="w-3.5 h-3.5" />
-                Gestionar formularios →
-              </Button>
-            </div>
+            ) : (
+              <>
+                <EditableTable
+                  title={`Formularios de ${cultivo.nombre}`}
+                  data={cultivoDefs}
+                  columns={colsFormularios}
+                  onUpdate={updF}
+                  onDelete={delF}
+                  onAdd={() => addDef(selectedId)}
+                />
+                {/* Acceso rápido a formularios de este cultivo */}
+                <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Layers className="w-4 h-4 shrink-0" />
+                    <span>
+                      {cultivoDefs.length} formulario{cultivoDefs.length !== 1 ? "s" : ""} asignado{cultivoDefs.length !== 1 ? "s" : ""} a este cultivo
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate("/configuracion?tab=formularios")}
+                    className="gap-1.5 text-xs"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    Gestionar formularios →
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       ) : (
@@ -1183,11 +1386,15 @@ function TabCultivos() {
           </div>
           <div>
             <p className="font-semibold text-foreground">Sin cultivos registrados</p>
-            <p className="text-sm text-muted-foreground mt-1">Crea el primer cultivo para comenzar.</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {isSuperAdmin ? "Crea el primer cultivo para comenzar." : "Los cultivos se asignan según el plan del cliente."}
+            </p>
           </div>
-          <Button onClick={() => setShowAddCultivo(true)}>
-            <Plus className="w-4 h-4 mr-2" /> Nuevo Cultivo
-          </Button>
+          {isSuperAdmin && (
+            <Button onClick={() => setShowAddCultivo(true)}>
+              <Plus className="w-4 h-4 mr-2" /> Nuevo Cultivo
+            </Button>
+          )}
         </div>
       )}
 
@@ -1197,8 +1404,8 @@ function TabCultivos() {
         data={cultivos}
         columns={colsCultivos}
         onUpdate={updC}
-        onDelete={delC}
-        onAdd={() => setShowAddCultivo(true)}
+        onDelete={isSuperAdmin ? delC : undefined}
+        onAdd={isSuperAdmin ? () => setShowAddCultivo(true) : undefined}
         searchable={false}
       />
 
@@ -1276,6 +1483,7 @@ function TabCultivos() {
   );
 }
 
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 interface BrandConfig {
@@ -1290,17 +1498,21 @@ const Configuracion = () => {
   const initialTab   = searchParams.get("tab")   ?? "cultivos";
   const initialDefId = searchParams.get("def")   ?? "all";
 
-  const [brandConfig, setBrandConfig] = useState<BrandConfig>({
-    nombreEmpresa:   "BlueData",
-    colorPrimario:   "#2d6a4f",
-    colorSecundario: "#40916c",
-    colorAccent:     "#d4a72d",
-  });
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [camposDefId, setCamposDefId] = useState<string>(initialDefId);
+  const { hasPendingChanges: hasPending, setHasPendingChanges: setHasPending } = useConfig();
+  const { currentClienteName } = useRole();
 
   const [stepperOpen, setStepperOpen] = useState<boolean>(
     () => localStorage.getItem("config-stepper-open") !== "false"
   );
   const [showSistema, setShowSistema] = useState(false);
+  const [brandConfig, setBrandConfig] = useState<BrandConfig>({
+    nombreEmpresa: "BlueData",
+    colorPrimario: "#1a5c3a",
+    colorSecundario: "#40916c",
+    colorAccent: "#d4a72d",
+  });
 
   const toggleStepper = () => {
     const next = !stepperOpen;
@@ -1312,7 +1524,7 @@ const Configuracion = () => {
     <MainLayout>
       <PageHeader
         title="Configuración"
-        description="Cultivos, formularios y campos del sistema"
+        description={`Cultivos, formularios y campos del sistema — ${currentClienteName}`}
         actions={
           <Button
             variant="outline"
@@ -1365,29 +1577,43 @@ const Configuracion = () => {
         )}
       </div>
 
-      <Tabs key={initialTab} defaultValue={initialTab} className="space-y-6">
+      <Tabs
+        value={activeTab}
+        onValueChange={tab => {
+          if (hasPending) return; // block tab switch while rows are incomplete
+          setActiveTab(tab);
+        }}
+        className="space-y-6"
+      >
         <TabsList className="bg-muted p-1 rounded-lg flex-wrap gap-1 h-auto">
-          <TabsTrigger value="cultivos"     className="flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="cultivos"     disabled={hasPending && activeTab !== "cultivos"}     className="flex items-center gap-2 text-xs sm:text-sm">
             <Leaf      className="w-4 h-4" /> Cultivos
           </TabsTrigger>
-          <TabsTrigger value="formularios" className="flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="formularios" disabled={hasPending && activeTab !== "formularios"} className="flex items-center gap-2 text-xs sm:text-sm">
             <Layers    className="w-4 h-4" /> Formularios
           </TabsTrigger>
-          <TabsTrigger value="biblioteca"  className="flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="biblioteca"  disabled={hasPending && activeTab !== "biblioteca"}  className="flex items-center gap-2 text-xs sm:text-sm">
             <BookOpen  className="w-4 h-4" /> Biblioteca
           </TabsTrigger>
-          <TabsTrigger value="campos"      className="flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="campos"      disabled={hasPending && activeTab !== "campos"}      className="flex items-center gap-2 text-xs sm:text-sm">
             <List      className="w-4 h-4" /> Campos
           </TabsTrigger>
-          <TabsTrigger value="datos"       className="flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="datos"       disabled={hasPending && activeTab !== "datos"}       className="flex items-center gap-2 text-xs sm:text-sm">
             <Table2    className="w-4 h-4" /> Datos
           </TabsTrigger>
         </TabsList>
 
+        {hasPending && (
+          <div className="bg-amber-50 border border-amber-200/60 rounded-lg px-4 py-2.5 text-sm text-amber-800 flex items-center gap-2">
+            <Info className="w-4 h-4 shrink-0 text-amber-500" />
+            Completa los campos requeridos (<span className="text-destructive font-bold">*</span>) antes de cambiar de pestaña o agregar otra fila.
+          </div>
+        )}
+
         <TabsContent value="cultivos">   <TabCultivos    /></TabsContent>
-        <TabsContent value="formularios"><TabDefiniciones /></TabsContent>
-        <TabsContent value="biblioteca">  <TabBiblioteca  /></TabsContent>
-        <TabsContent value="campos">      <TabCampos initialDefId={initialDefId} /></TabsContent>
+        <TabsContent value="formularios"><TabDefiniciones onPendingChange={setHasPending} onNavigateToCampos={(defId) => { setCamposDefId(defId); setActiveTab("campos"); }} /></TabsContent>
+        <TabsContent value="biblioteca">  <TabBiblioteca  onPendingChange={setHasPending} /></TabsContent>
+        <TabsContent value="campos">      <TabCampos initialDefId={camposDefId} onPendingChange={setHasPending} /></TabsContent>
         <TabsContent value="datos">       <TabDatos       /></TabsContent>
 
       </Tabs>

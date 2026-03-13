@@ -18,6 +18,10 @@ export interface Column<T> {
   editable?: boolean;
   required?: boolean;
   render?: (value: any, row: T, rowIndex: number) => React.ReactNode;
+  /** Called when user clicks "Crear parámetro" in autocomplete dropdown. Receives the typed query. */
+  onCreateOption?: (query: string) => void;
+  /** Show a dropdown filter for this column. Auto-detects unique values if no filterOptions provided. */
+  filterable?: boolean;
 }
 
 interface EditableTableProps<T extends { id: string | number }> {
@@ -29,6 +33,9 @@ interface EditableTableProps<T extends { id: string | number }> {
   title?: string;
   searchable?: boolean;
   className?: string;
+  /** Called when incomplete-row state changes (true = has incomplete rows) */
+  onPendingChange?: (hasPending: boolean) => void;
+  /** Extra action buttons rendered in the Acciones column before delete */
   rowActions?: (row: T, rowIndex: number) => React.ReactNode;
 }
 
@@ -39,6 +46,7 @@ interface EditableCellProps {
   onSave: (value: any) => void;
   editable?: boolean;
   required?: boolean;
+  showRequired?: boolean;
 }
 
 // ─── AutocompleteCell ──────────────────────────────────────────────────────────
@@ -51,12 +59,16 @@ function AutocompleteCell({
   onSave,
   editable = true,
   required = false,
+  onCreateOption,
+  showRequired = false,
 }: {
   value: string;
   suggestions: { value: string; label: string }[];
   onSave: (v: string) => void;
   editable?: boolean;
   required?: boolean;
+  onCreateOption?: (query: string) => void;
+  showRequired?: boolean;
 }) {
   const [isEditing,   setIsEditing]   = useState(false);
   const [query,       setQuery]       = useState(value ?? "");
@@ -135,7 +147,13 @@ function AutocompleteCell({
       if (highlighted >= 0 && highlighted < filtered.length) {
         commit(filtered[highlighted].value);
       } else if (highlighted === filtered.length && showCreate) {
-        commit(query);
+        if (onCreateOption) {
+          onCreateOption(query.trim());
+          setIsEditing(false);
+          setHighlighted(-1);
+        } else {
+          commit(query);
+        }
       } else {
         commit(query);
       }
@@ -151,6 +169,110 @@ function AutocompleteCell({
     return <div className="px-3 py-2.5 text-sm">{value || "–"}</div>;
   }
 
+  if (isEditing) {
+    const dropdown =
+      (filtered.length > 0 || showCreate)
+        ? createPortal(
+            <div
+              style={{
+                position: "fixed",
+                top:    dropPos.top,
+                left:   dropPos.left,
+                width:  dropPos.width,
+                zIndex: 9999,
+              }}
+              className="bg-popover border border-border rounded-lg shadow-xl overflow-hidden"
+            >
+              {filtered.map((s, i) => (
+                <button
+                  key={s.value}
+                  // preventDefault evita que el input pierda foco (no dispara onBlur)
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => commit(s.value)}
+                  className={cn(
+                    "w-full text-left px-3 py-2 text-sm transition-colors",
+                    highlighted === i
+                      ? "bg-muted text-foreground"
+                      : "hover:bg-muted/60 text-foreground",
+                  )}
+                >
+                  {s.label}
+                </button>
+              ))}
+
+              {showCreate && (
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    if (onCreateOption) {
+                      onCreateOption(query.trim());
+                      setIsEditing(false);
+                      setHighlighted(-1);
+                    } else {
+                      commit(query.trim());
+                    }
+                  }}
+                  className={cn(
+                    "w-full text-left px-3 py-2 text-sm border-t border-border",
+                    "text-primary hover:bg-primary/10 transition-colors",
+                    "flex items-center gap-2",
+                    highlighted === filtered.length && "bg-primary/10",
+                  )}
+                >
+                  <Plus className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    Crear parámetro:{" "}
+                    <strong className="font-semibold">"{query.trim()}"</strong>
+                  </span>
+                </button>
+              )}
+            </div>,
+            document.body,
+          )
+        : null;
+
+    return (
+      <div className="flex flex-col gap-0.5 px-2 py-1">
+        <div className="flex items-center gap-1">
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={e => { setQuery(e.target.value); setHighlighted(-1); setHasError(false); }}
+            onKeyDown={handleKeyDown}
+            onBlur={() => commitBlur(query)}
+            placeholder="Escribir o buscar…"
+            className={cn(
+              "w-full bg-background rounded px-2 py-1 text-sm focus:outline-none focus:ring-2",
+              hasError
+                ? "border border-destructive ring-destructive/20 focus:ring-destructive/30"
+                : "border border-primary focus:ring-primary",
+            )}
+          />
+          {dropdown}
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => commit(query)}
+            className="p-1 text-success hover:bg-success/10 rounded"
+          >
+            <Check className="w-4 h-4" />
+          </button>
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { setQuery(value ?? ""); setIsEditing(false); setHasError(false); }}
+            className="p-1 text-destructive hover:bg-destructive/10 rounded"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        {hasError && (
+          <span className="text-[10px] text-destructive leading-none px-1">
+            Este campo es obligatorio
+          </span>
+        )}
+      </div>
+    );
+  }
+
   // Vista de lectura: indicador rojo si es requerido y está vacío
   if (!isEditing) {
     const isEmpty = !value?.trim();
@@ -162,105 +284,16 @@ function AutocompleteCell({
         tabIndex={0}
         onKeyDown={e => { if (e.key === "Enter" || e.key === " ") setIsEditing(true); }}
       >
-        {isEmpty && required
-          ? <span className="text-xs text-destructive/80 italic flex items-center gap-1">⚠ Requerido</span>
-          : (value || "–")}
+        {showRequired
+          ? <span className="text-destructive text-xs font-medium animate-pulse">Requerido</span>
+          : isEmpty && required
+            ? <span className="text-xs text-destructive/80 italic flex items-center gap-1">⚠ Requerido</span>
+            : (value || "–")}
       </div>
     );
   }
 
-  const dropdown =
-    (filtered.length > 0 || showCreate)
-      ? createPortal(
-          <div
-            style={{
-              position: "fixed",
-              top:    dropPos.top,
-              left:   dropPos.left,
-              width:  dropPos.width,
-              zIndex: 9999,
-            }}
-            className="bg-popover border border-border rounded-lg shadow-xl overflow-hidden"
-          >
-            {filtered.map((s, i) => (
-              <button
-                key={s.value}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => commit(s.value)}
-                className={cn(
-                  "w-full text-left px-3 py-2 text-sm transition-colors",
-                  highlighted === i
-                    ? "bg-muted text-foreground"
-                    : "hover:bg-muted/60 text-foreground",
-                )}
-              >
-                {s.label}
-              </button>
-            ))}
-
-            {showCreate && (
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => commit(query.trim())}
-                className={cn(
-                  "w-full text-left px-3 py-2 text-sm border-t border-border",
-                  "text-primary hover:bg-primary/10 transition-colors",
-                  "flex items-center gap-2",
-                  highlighted === filtered.length && "bg-primary/10",
-                )}
-              >
-                <Plus className="w-3.5 h-3.5 shrink-0" />
-                <span>
-                  Crear parámetro:{" "}
-                  <strong className="font-semibold">"{query.trim()}"</strong>
-                </span>
-              </button>
-            )}
-          </div>,
-          document.body,
-        )
-      : null;
-
-  return (
-    <div className="flex flex-col gap-0.5 px-2 py-1">
-      <div className="flex items-center gap-1">
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={e => { setQuery(e.target.value); setHighlighted(-1); setHasError(false); }}
-          onKeyDown={handleKeyDown}
-          onBlur={() => commitBlur(query)}
-          placeholder="Escribir o buscar…"
-          className={cn(
-            "w-full bg-background rounded px-2 py-1 text-sm focus:outline-none focus:ring-2",
-            hasError
-              ? "border border-destructive ring-destructive/20 focus:ring-destructive/30"
-              : "border border-primary focus:ring-primary",
-          )}
-        />
-        {dropdown}
-        <button
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => commit(query)}
-          className="p-1 text-success hover:bg-success/10 rounded"
-        >
-          <Check className="w-4 h-4" />
-        </button>
-        <button
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => { setQuery(value ?? ""); setIsEditing(false); setHasError(false); }}
-          className="p-1 text-destructive hover:bg-destructive/10 rounded"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-      {hasError && (
-        <span className="text-[10px] text-destructive leading-none px-1">
-          Este campo es obligatorio
-        </span>
-      )}
-    </div>
-  );
+  return null;
 }
 
 // ─── EditableCell ──────────────────────────────────────────────────────────────
@@ -272,6 +305,7 @@ function EditableCell({
   onSave,
   editable = true,
   required = false,
+  showRequired = false,
 }: EditableCellProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
@@ -415,9 +449,11 @@ function EditableCell({
           onClick={e => { e.stopPropagation(); onSave(!value); }}
         />
       ) : type === "select" && options ? (
-        isEmpty && required
-          ? <span className="text-xs text-destructive/80 italic flex items-center gap-1">⚠ Requerido</span>
+        showRequired
+          ? <span className="text-destructive text-xs font-medium animate-pulse">Requerido</span>
           : (options.find(o => o.value === value)?.label ?? value ?? "–")
+      ) : showRequired ? (
+        <span className="text-destructive text-xs font-medium animate-pulse">Requerido</span>
       ) : (
         isEmpty && required
           ? <span className="text-xs text-destructive/80 italic flex items-center gap-1">⚠ Requerido</span>
@@ -440,59 +476,80 @@ export function EditableTable<T extends { id: string | number }>({
   title,
   searchable = true,
   className,
+  onPendingChange,
   rowActions,
 }: EditableTableProps<T>) {
   const [searchTerm, setSearchTerm] = useState("");
   const [page,     setPage]     = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [newRowId, setNewRowId] = useState<string | number | null>(null);
+  const [deleteConfirmIdx, setDeleteConfirmIdx] = useState<number | null>(null);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [openFilter, setOpenFilter] = useState<string | null>(null);
+  const filterRef = useRef<HTMLDivElement>(null);
+  const newRowRef = useRef<HTMLTableRowElement>(null);
+  const prevDataLen = useRef(data.length);
 
-  // ── Highlight de fila nueva ───────────────────────────────────────────────
-  const [newRowId,      setNewRowId]      = useState<string | number | null>(null);
-  const [fadingRowId,   setFadingRowId]   = useState<string | number | null>(null);
-  const newRowRef  = useRef<HTMLTableRowElement>(null);
-  const prevLenRef = useRef(data.length);
-
-  // ── Confirmación de eliminación ───────────────────────────────────────────
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | number | null>(null);
-
+  // Close filter dropdown on outside click
   useEffect(() => {
-    if (data.length > prevLenRef.current) {
-      const newest = data[data.length - 1];
-      if (newest) {
-        // 1. Saltar a la última página
-        const totalPages = Math.max(1, Math.ceil(data.length / pageSize));
-        setPage(totalPages);
+    if (!openFilter) return;
+    const handler = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setOpenFilter(null);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [openFilter]);
 
-        // 2. Marcar la fila como nueva (color de entrada)
-        setNewRowId(newest.id);
-        setFadingRowId(null);
+  // Filterable columns
+  const filterableCols = columns.filter(c => c.filterable);
+  const hasFilters = filterableCols.length > 0;
+  const activeFilterCount = Object.values(columnFilters).filter(Boolean).length;
 
-        // 3. Iniciar el fade-out a los 1.4 s, limpiar a los 2.2 s
-        const t1 = window.setTimeout(() => setFadingRowId(newest.id), 1400);
-        const t2 = window.setTimeout(() => { setNewRowId(null); setFadingRowId(null); }, 2200);
-        return () => { clearTimeout(t1); clearTimeout(t2); };
-      }
-    }
-    prevLenRef.current = data.length;
-  }, [data.length, pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Required columns
+  const requiredKeys = columns.filter(c => c.required).map(c => c.key);
 
-  // Scroll hasta la fila nueva cuando el ref esté disponible
+  // Check if any row is missing required fields
+  const incompleteRowIds = new Set(
+    requiredKeys.length > 0
+      ? data
+          .filter(row =>
+            requiredKeys.some(k => {
+              const v = row[k];
+              return v === undefined || v === null || v === "";
+            }),
+          )
+          .map(row => row.id)
+      : [],
+  );
+  const hasIncomplete = incompleteRowIds.size > 0;
+
+  // Notify parent when pending state changes
   useEffect(() => {
-    if (newRowId && newRowRef.current) {
-      newRowRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    onPendingChange?.(hasIncomplete);
+  }, [hasIncomplete, onPendingChange]);
+
+  const filteredData = (() => {
+    let result = data;
+    // Apply column filters
+    for (const [key, filterVal] of Object.entries(columnFilters)) {
+      if (!filterVal) continue;
+      result = result.filter(row => {
+        const cellVal = row[key as keyof T];
+        if (typeof cellVal === "boolean") return String(cellVal) === filterVal;
+        return String(cellVal ?? "").toLowerCase() === filterVal.toLowerCase();
+      });
     }
-  }, [newRowId]);
-
-  // ── Filtrado y paginación ─────────────────────────────────────────────────
-
-  const filteredData = searchable
-    ? data.filter(row =>
+    // Apply search
+    if (searchable && searchTerm) {
+      result = result.filter(row =>
         columns.some(col => {
           const value = row[col.key];
           return value?.toString().toLowerCase().includes(searchTerm.toLowerCase());
         }),
-      )
-    : data;
+      );
+    }
+    return result;
+  })();
 
   const pageCount = Math.max(1, Math.ceil(filteredData.length / pageSize));
   const safePage  = Math.min(page, pageCount);
@@ -500,11 +557,37 @@ export function EditableTable<T extends { id: string | number }>({
   const pagedData = filteredData.slice(pageStart, pageStart + pageSize);
 
   // Reset to page 1 when search changes
-  useEffect(() => { setPage(1); setConfirmDeleteId(null); }, [searchTerm]);
+  useEffect(() => { setPage(1); setDeleteConfirmIdx(null); }, [searchTerm]);
   // Reset to page 1 if data shrinks below current page
   useEffect(() => { if (page > pageCount) setPage(pageCount); }, [filteredData.length]);
   // Cancel pending delete confirmation when navigating pages
-  useEffect(() => { setConfirmDeleteId(null); }, [page]);
+  useEffect(() => { setDeleteConfirmIdx(null); }, [page]);
+
+  // Detect newly added row → jump to its page, scroll into view, highlight
+  useEffect(() => {
+    if (data.length > prevDataLen.current) {
+      const lastRow = data[data.length - 1];
+      if (lastRow) {
+        setNewRowId(lastRow.id);
+        // Navigate to the page containing the new row
+        const idxInFiltered = filteredData.findIndex(d => d.id === lastRow.id);
+        if (idxInFiltered >= 0) {
+          setPage(Math.floor(idxInFiltered / pageSize) + 1);
+        }
+        // Clear highlight after 3s
+        const timer = setTimeout(() => setNewRowId(null), 3000);
+        return () => clearTimeout(timer);
+      }
+    }
+    prevDataLen.current = data.length;
+  }, [data.length]);
+
+  // Scroll new row into view once rendered
+  useEffect(() => {
+    if (newRowId !== null && newRowRef.current) {
+      newRowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [newRowId, safePage]);
 
   // Resolve the index into `data` by id (handles both search-filter and pagination offsets)
   const dataIdx = (row: T) => data.findIndex(d => d.id === row.id);
@@ -527,8 +610,19 @@ export function EditableTable<T extends { id: string | number }>({
               />
             </div>
           )}
+          {hasFilters && activeFilterCount > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground"
+              onClick={() => setColumnFilters({})}
+            >
+              <X className="w-3.5 h-3.5 mr-1" />
+              Limpiar filtros ({activeFilterCount})
+            </Button>
+          )}
           {onAdd && (
-            <Button onClick={onAdd} size="sm">
+            <Button onClick={onAdd} size="sm" disabled={hasIncomplete} title={hasIncomplete ? "Completa los campos requeridos antes de agregar otra fila" : undefined}>
               <Plus className="w-4 h-4 mr-2" />
               Agregar fila
             </Button>
@@ -541,11 +635,83 @@ export function EditableTable<T extends { id: string | number }>({
         <table className="data-table">
           <thead>
             <tr>
-              {columns.map(col => (
-                <th key={String(col.key)} style={{ width: col.width }}>
-                  {col.header}
-                </th>
-              ))}
+              {columns.map(col => {
+                const colKey = String(col.key);
+                const isFilterable = col.filterable;
+                const isFilterOpen = openFilter === colKey;
+                const hasActiveFilter = !!columnFilters[colKey];
+
+                // Compute unique values for filter dropdown
+                const uniqueValues = isFilterable
+                  ? Array.from(new Set(
+                      data
+                        .map(row => {
+                          const v = row[col.key];
+                          return v === undefined || v === null || v === "" ? null : String(v);
+                        })
+                        .filter((v): v is string => v !== null),
+                    )).sort()
+                  : [];
+
+                // Resolve display labels from options
+                const getLabel = (val: string) => {
+                  if (col.type === "checkbox") return val === "true" ? "Sí" : "No";
+                  const opt = col.options?.find(o => o.value === val);
+                  return opt ? opt.label : val;
+                };
+
+                return (
+                  <th key={colKey} style={{ width: col.width }} className="relative">
+                    <div className="flex items-center gap-1">
+                      <span>
+                        {col.header}
+                        {col.required && <span className="text-white ml-0.5">*</span>}
+                      </span>
+                      {isFilterable && uniqueValues.length > 1 && (
+                        <button
+                          onClick={() => setOpenFilter(isFilterOpen ? null : colKey)}
+                          className={cn(
+                            "p-0.5 rounded hover:bg-muted transition-colors",
+                            hasActiveFilter ? "text-primary" : "text-muted-foreground/50 hover:text-muted-foreground",
+                          )}
+                          title="Filtrar columna"
+                        >
+                          <Filter className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                    {isFilterOpen && (
+                      <div
+                        ref={filterRef}
+                        className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg min-w-[160px] py-1"
+                      >
+                        <button
+                          onClick={() => { setColumnFilters(prev => { const n = { ...prev }; delete n[colKey]; return n; }); setOpenFilter(null); }}
+                          className={cn(
+                            "w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors",
+                            !hasActiveFilter && "font-semibold text-primary",
+                          )}
+                        >
+                          Todos
+                        </button>
+                        {uniqueValues.map(val => (
+                          <button
+                            key={val}
+                            onClick={() => { setColumnFilters(prev => ({ ...prev, [colKey]: val })); setOpenFilter(null); setPage(1); }}
+                            className={cn(
+                              "w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors flex items-center gap-2",
+                              columnFilters[colKey] === val && "font-semibold text-primary",
+                            )}
+                          >
+                            {columnFilters[colKey] === val && <Check className="w-3 h-3" />}
+                            <span className={columnFilters[colKey] === val ? "" : "ml-5"}>{getLabel(val)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </th>
+                );
+              })}
               {(onDelete || rowActions) && <th style={{ width: rowActions ? "130px" : "60px" }}>Acciones</th>}
             </tr>
           </thead>
@@ -561,53 +727,57 @@ export function EditableTable<T extends { id: string | number }>({
               </tr>
             ) : (
               pagedData.map(row => {
-                const idx     = dataIdx(row);
-                const isNew   = row.id === newRowId;
-                const isFading= row.id === fadingRowId;
+                const idx = dataIdx(row);
+                const isNew = row.id === newRowId;
+                const isIncomplete = incompleteRowIds.has(row.id);
                 return (
                   <tr
                     key={row.id}
                     ref={isNew ? newRowRef : undefined}
                     className={cn(
-                      "transition-colors duration-700",
-                      isNew && !isFading
-                        ? "bg-emerald-50 border-l-[3px] border-l-emerald-500"
-                        : isFading
-                          ? "bg-transparent border-l-[3px] border-l-transparent"
-                          : "",
+                      isNew && "bg-emerald-500/10 transition-colors duration-700",
+                      isIncomplete && !isNew && "bg-amber-500/8",
                     )}
                   >
-                    {columns.map(col => (
-                      <td key={String(col.key)}>
-                        {col.render ? (
-                          col.render(row[col.key], row, idx)
-                        ) : col.type === "autocomplete" ? (
-                          <AutocompleteCell
-                            value={String(row[col.key] ?? "")}
-                            suggestions={col.options ?? []}
-                            editable={col.editable !== false}
-                            required={col.required}
-                            onSave={value => onUpdate(idx, col.key, value)}
-                          />
-                        ) : (
-                          <EditableCell
-                            value={row[col.key]}
-                            type={col.type}
-                            options={col.options}
-                            editable={col.editable !== false}
-                            required={col.required}
-                            onSave={value => onUpdate(idx, col.key, value)}
-                          />
-                        )}
-                      </td>
-                    ))}
+                    {columns.map(col => {
+                      const cellValue = row[col.key];
+                      const cellEmpty = cellValue === undefined || cellValue === null || cellValue === "";
+                      const cellRequired = !!col.required && cellEmpty && isIncomplete;
+                      return (
+                        <td key={String(col.key)}>
+                          {col.render ? (
+                            col.render(cellValue, row, idx)
+                          ) : col.type === "autocomplete" ? (
+                            <AutocompleteCell
+                              value={String(cellValue ?? "")}
+                              suggestions={col.options ?? []}
+                              editable={col.editable !== false}
+                              required={col.required}
+                              onSave={value => onUpdate(idx, col.key, value)}
+                              onCreateOption={col.onCreateOption}
+                              showRequired={cellRequired}
+                            />
+                          ) : (
+                            <EditableCell
+                              value={cellValue}
+                              type={col.type}
+                              options={col.options}
+                              editable={col.editable !== false}
+                              required={col.required}
+                              onSave={value => onUpdate(idx, col.key, value)}
+                              showRequired={cellRequired}
+                            />
+                          )}
+                        </td>
+                      );
+                    })}
                     {(onDelete || rowActions) && (
                       <td>
                         <div className="flex items-center gap-1 px-1">
                           {rowActions && rowActions(row, idx)}
                           {onDelete && (
                             <button
-                              onClick={() => setConfirmDeleteId(row.id)}
+                              onClick={() => setDeleteConfirmIdx(idx)}
                               title="Eliminar fila"
                               className={cn(
                                 "p-2 rounded transition-colors shrink-0",
@@ -696,8 +866,8 @@ export function EditableTable<T extends { id: string | number }>({
       {/* ── Modal de confirmación de eliminación ── */}
       {onDelete && (
         <Dialog
-          open={confirmDeleteId !== null}
-          onOpenChange={open => { if (!open) setConfirmDeleteId(null); }}
+          open={deleteConfirmIdx !== null}
+          onOpenChange={open => { if (!open) setDeleteConfirmIdx(null); }}
         >
           <DialogContent className="max-w-sm">
             <DialogHeader>
@@ -715,18 +885,17 @@ export function EditableTable<T extends { id: string | number }>({
             <DialogFooter className="gap-2 sm:gap-0">
               <Button
                 variant="outline"
-                onClick={() => setConfirmDeleteId(null)}
+                onClick={() => setDeleteConfirmIdx(null)}
               >
                 Cancelar
               </Button>
               <Button
                 variant="destructive"
                 onClick={() => {
-                  if (confirmDeleteId !== null) {
-                    const idx = data.findIndex(d => d.id === confirmDeleteId);
-                    if (idx !== -1) onDelete(idx);
+                  if (deleteConfirmIdx !== null && onDelete) {
+                    onDelete(deleteConfirmIdx);
                   }
-                  setConfirmDeleteId(null);
+                  setDeleteConfirmIdx(null);
                 }}
               >
                 <Trash2 className="w-4 h-4 mr-2" />

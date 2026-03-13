@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
+import { useConfig } from "@/contexts/ConfigContext";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -26,27 +27,27 @@ interface NavItem {
   label: string;
   icon: React.ElementType;
   path: string;
-  minLevel: number;
+  modulo: string;
   excludedRoles?: UserRole[];
 }
 
 // ─── Items de navegación ──────────────────────────────────────────────────────
 
 const navItems: NavItem[] = [
-  { label: "Dashboard",           icon: LayoutDashboard, path: "/",                 minLevel: 1 },
-  { label: "Laboratorio",         icon: FlaskConical,    path: "/laboratorio",      minLevel: 1 },
-  { label: "Vivero",              icon: Sprout,          path: "/vivero",           minLevel: 2 },
-  { label: "Cultivo",             icon: Leaf,            path: "/cultivo",          minLevel: 2 },
-  { label: "Cosecha",             icon: Scissors,        path: "/cosecha",          minLevel: 2 },
-  { label: "Post-cosecha",        icon: Package,         path: "/post-cosecha",     minLevel: 2 },
-  { label: "Producción",          icon: Factory,         path: "/produccion",       minLevel: 3 },
-  { label: "Recursos Humanos",    icon: Users,           path: "/recursos-humanos", minLevel: 3 },
-  { label: "Comercial",           icon: ShoppingCart,    path: "/comercial",        minLevel: 3 },
-  { label: "Gestión de Usuarios", icon: UserCog,         path: "/gestion-usuarios", minLevel: 5 },
+  { label: "Dashboard",           icon: LayoutDashboard, path: "/",                 modulo: "dashboard" },
+  { label: "Laboratorio",         icon: FlaskConical,    path: "/laboratorio",      modulo: "laboratorio" },
+  { label: "Vivero",              icon: Sprout,          path: "/vivero",           modulo: "vivero" },
+  { label: "Cultivo",             icon: Leaf,            path: "/cultivo",          modulo: "cultivo" },
+  { label: "Cosecha",             icon: Scissors,        path: "/cosecha",          modulo: "cosecha" },
+  { label: "Post-cosecha",        icon: Package,         path: "/post-cosecha",     modulo: "post-cosecha" },
+  { label: "Producción",          icon: Factory,         path: "/produccion",       modulo: "produccion" },
+  { label: "Recursos Humanos",    icon: Users,           path: "/recursos-humanos", modulo: "recursos-humanos" },
+  { label: "Comercial",           icon: ShoppingCart,    path: "/comercial",        modulo: "comercial" },
+  { label: "Gestión de Usuarios", icon: UserCog,         path: "/gestion-usuarios", modulo: "gestion-usuarios" },
 ];
 
 const bottomNavItems: NavItem[] = [
-  { label: "Configuración", icon: Settings, path: "/configuracion", minLevel: 5 },
+  { label: "Configuración", icon: Settings, path: "/configuracion", modulo: "configuracion" },
 ];
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -61,7 +62,8 @@ interface SidebarProps {
 export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { role, roleName, hierarchyLevel, currentUser, logout } = useRole();
+  const { role, roleName, currentUser, logout, hasPermission, currentClienteName } = useRole();
+  const { hasPendingChanges } = useConfig();
 
   const isActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
@@ -69,9 +71,8 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   };
 
   const canSeeItem = (item: NavItem): boolean => {
-    if (hierarchyLevel < item.minLevel) return false;
     if (item.excludedRoles?.includes(role)) return false;
-    return true;
+    return hasPermission(item.modulo, "ver");
   };
 
   const filteredNavItems    = navItems.filter(canSeeItem);
@@ -118,8 +119,13 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           <NavLink
             key={item.path}
             to={item.path}
-            className={cn("nav-item", isActive(item.path) && "active")}
+            className={cn(
+              "nav-item",
+              isActive(item.path) && "active",
+              hasPendingChanges && !isActive(item.path) && "opacity-40 pointer-events-none",
+            )}
             title={collapsed ? item.label : undefined}
+            onClick={e => { if (hasPendingChanges) e.preventDefault(); }}
           >
             <item.icon className="w-5 h-5 shrink-0" />
             {!collapsed && <span className="truncate">{item.label}</span>}
@@ -133,8 +139,13 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           <NavLink
             key={item.path}
             to={item.path}
-            className={cn("nav-item", isActive(item.path) && "active")}
+            className={cn(
+              "nav-item",
+              isActive(item.path) && "active",
+              hasPendingChanges && !isActive(item.path) && "opacity-40 pointer-events-none",
+            )}
             title={collapsed ? item.label : undefined}
+            onClick={e => { if (hasPendingChanges) e.preventDefault(); }}
           >
             <item.icon className="w-5 h-5 shrink-0" />
             {!collapsed && <span>{item.label}</span>}
@@ -157,6 +168,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                 {currentUser?.nombre || "Usuario Demo"}
               </p>
               <p className="text-xs text-sidebar-foreground/60 truncate">{roleName}</p>
+              <p className="text-[10px] text-sidebar-foreground/40 truncate">{currentClienteName}</p>
             </div>
           )}
           {!collapsed && (
