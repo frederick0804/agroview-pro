@@ -40,7 +40,7 @@ export default function Login() {
               <Leaf className="w-7 h-7 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-foreground">BlueData</h1>
+              <h1 className="text-2xl font-bold text-foreground">Agroworkin</h1>
               <p className="text-sm text-muted-foreground">Sistema de Gestión Agrícola</p>
             </div>
           </div>
@@ -69,7 +69,7 @@ export default function Login() {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="usuario@bluedata.com"
+                    placeholder="usuario@agroworkin.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="h-11"

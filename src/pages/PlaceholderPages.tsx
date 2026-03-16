@@ -49,7 +49,13 @@ const evaluateFormula = (formula: string, rowVals: Record<string, string>, field
 // Lee definición, parámetros y datos directamente del ConfigContext.
 // Cualquier cambio en Configuración se refleja aquí en tiempo real.
 
-function DynamicDefTable({ defId, moduloKey }: { defId: string; moduloKey: string }) {
+function DynamicDefTable({
+  defId, moduloKey, filterCultivoId,
+}: {
+  defId: string;
+  moduloKey: string;
+  filterCultivoId?: string; // filtra registros cuando el formulario es global
+}) {
   const { hasPermission } = useRole();
   const { definiciones, parametros, datos, addDato, updDato, delDato, setHasPendingChanges } = useConfig();
   const navigate = useNavigate();
@@ -65,8 +71,16 @@ function DynamicDefTable({ defId, moduloKey }: { defId: string; moduloKey: strin
 
   if (!def) return null;
 
-  // Datos de esta definición (del contexto — siempre actualizados)
-  const defDatos: ModDato[] = datos.filter(d => d.definicion_id === defId);
+  // Para formularios globales: filtrar registros por cultivo seleccionado.
+  // Para formularios específicos: mostrar todos (el cultivo ya está en la def).
+  const defDatos: ModDato[] = datos.filter(d => {
+    if (d.definicion_id !== defId) return false;
+    if (!def.cultivo_id && filterCultivoId) {
+      // formulario global — solo mostrar registros del cultivo seleccionado
+      return d.cultivo_id === filterCultivoId;
+    }
+    return true;
+  });
 
   // Aplanar ModDato → DynRow para EditableTable
   const rows: DynRow[] = defDatos.map(d => ({
@@ -150,8 +164,11 @@ function DynamicDefTable({ defId, moduloKey }: { defId: string; moduloKey: strin
       }
     : undefined;
 
-  const handleAdd = canCreate
-    ? () => { addDato(defId); }
+  // Formularios globales requieren un cultivo seleccionado para poder agregar
+  const canAddRecord = canCreate && (!def.cultivo_id ? !!filterCultivoId : true);
+
+  const handleAdd = canAddRecord
+    ? () => { addDato(defId, !def.cultivo_id ? filterCultivoId : undefined); }
     : undefined;
 
   return (
@@ -168,6 +185,15 @@ function DynamicDefTable({ defId, moduloKey }: { defId: string; moduloKey: strin
           Editar campos del formulario
         </Button>
       </div>
+
+      {/* Aviso cuando formulario global sin cultivo seleccionado */}
+      {!def.cultivo_id && !filterCultivoId && canCreate && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+          <Leaf className="w-3.5 h-3.5 shrink-0" />
+          Selecciona un cultivo arriba para poder agregar registros a este formulario global.
+        </div>
+      )}
+
       <EditableTable
         title={def.nombre}
         data={rows}
@@ -186,35 +212,55 @@ function DynamicDefTable({ defId, moduloKey }: { defId: string; moduloKey: strin
 // asignadas a este módulo en Configuración.
 
 function DynamicModulePage({ title, moduloKey }: { title: string; moduloKey: string }) {
-  const { roleName, hierarchyLevel, hasPermission } = useRole();
-  const { definiciones, cultivos } = useConfig();
+  const { role, roleName, hierarchyLevel, hasPermission, currentUser } = useRole();
+  const { definiciones, cultivos, datos, getUserDefAcceso } = useConfig();
   const navigate = useNavigate();
   const canExport = hasPermission(moduloKey, "exportar");
+  const userId = currentUser?.id ?? null;
 
-  // Todas las definiciones accesibles para este módulo
-  const defs = definiciones.filter(
-    d => d.modulo === moduloKey && hierarchyLevel >= d.nivel_minimo,
-  );
+  // Definiciones visibles para este usuario en este módulo.
+  // Prioridad de reglas (de mayor a menor):
+  //   A. Override explícito por usuario (DefinicionAccesoUsuario)
+  //      → habilitado:true  = acceso garantizado (ignora nivel/roles)
+  //      → habilitado:false = acceso bloqueado  (ignora nivel/roles)
+  //   B. Reglas de rol: nivel_minimo + roles_excluidos
+  const defs = definiciones.filter(d => {
+    if (d.modulo !== moduloKey || d.estado !== "activo") return false;
+    // A: override por usuario
+    if (userId != null) {
+      const acceso = getUserDefAcceso(d.id, userId);
+      if (acceso !== undefined) return acceso.habilitado;
+    }
+    // B: reglas de rol
+    return hierarchyLevel >= d.nivel_minimo &&
+           !(d.roles_excluidos ?? []).includes(role);
+  });
 
-  // IDs únicos de cultivos que tienen al menos 1 def en este módulo
-  const cultivoIdsWithDefs = [...new Set(
-    defs.filter(d => d.cultivo_id).map(d => d.cultivo_id as string),
-  )];
-  const hasGlobalDefs = defs.some(d => !d.cultivo_id);
+  // Cultivos que tienen alguna def específica O algún registro en defs globales
+  const cultivoIdsFromDefs    = defs.filter(d => d.cultivo_id).map(d => d.cultivo_id as string);
+  const globalDefIds          = defs.filter(d => !d.cultivo_id).map(d => d.id);
+  const cultivoIdsFromRecords = datos
+    .filter(d => globalDefIds.includes(d.definicion_id) && d.cultivo_id)
+    .map(d => d.cultivo_id as string);
 
-  // Mostrar selector de cultivo si hay defs de varios cultivos o mezcla cultivo+global
-  const showCultivoPicker =
-    cultivoIdsWithDefs.length > 1 ||
-    (cultivoIdsWithDefs.length >= 1 && hasGlobalDefs);
+  const allCultivoIds  = [...new Set([...cultivoIdsFromDefs, ...cultivoIdsFromRecords])];
+  const hasGlobalDefs  = defs.some(d => !d.cultivo_id);
+  const activeCultivos = cultivos.filter(c => allCultivoIds.includes(c.id));
 
+  // Mostrar picker cuando hay cultivos con defs/registros O al menos un cultivo activo en el sistema
+  const showCultivoPicker = activeCultivos.length > 0 || allCultivoIds.length > 0;
+
+  // "todos" = sin filtro; string = cultivo específico
   const [filterCultivoId, setFilterCultivoId] = useState<string>(
-    () => cultivoIdsWithDefs[0] ?? "",
+    () => activeCultivos[0]?.id ?? allCultivoIds[0] ?? "todos",
   );
 
-  // Defs visibles según el cultivo seleccionado
-  const filteredDefs = showCultivoPicker
-    ? defs.filter(d => (d.cultivo_id ?? "") === filterCultivoId)
-    : defs;
+  // Defs visibles según el cultivo:
+  //   - formularios globales: siempre visibles (sus registros se filtrarán por cultivo)
+  //   - formularios específicos: solo si coincide el cultivo
+  const filteredDefs = filterCultivoId === "todos"
+    ? defs
+    : defs.filter(d => !d.cultivo_id || d.cultivo_id === filterCultivoId);
 
   const [activeTab, setActiveTab] = useState<string>(() => filteredDefs[0]?.id ?? "");
 
@@ -226,6 +272,9 @@ function DynamicModulePage({ title, moduloKey }: { title: string; moduloKey: str
   const currentTab = filteredDefs.some(d => d.id === activeTab)
     ? activeTab
     : (filteredDefs[0]?.id ?? "");
+
+  // cultivoId que se pasa a DynamicDefTable para filtrar registros
+  const recordFilter = filterCultivoId === "todos" ? undefined : filterCultivoId;
 
   return (
     <MainLayout>
@@ -243,7 +292,6 @@ function DynamicModulePage({ title, moduloKey }: { title: string; moduloKey: str
       />
 
       {defs.length === 0 ? (
-        /* Sin definiciones configuradas para este módulo */
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
           <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center">
             <Settings className="w-7 h-7 text-muted-foreground" />
@@ -263,44 +311,67 @@ function DynamicModulePage({ title, moduloKey }: { title: string; moduloKey: str
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Selector de cultivo — solo cuando hay defs de múltiples cultivos */}
+          {/* ── Selector de cultivo ─────────────────────────────────────── */}
           {showCultivoPicker && (
             <div className="flex items-center gap-2 flex-wrap">
-              {hasGlobalDefs && (
-                <button
-                  onClick={() => setFilterCultivoId("")}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all",
-                    filterCultivoId === ""
-                      ? "bg-primary text-primary-foreground border-transparent shadow-sm"
-                      : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:shadow-sm",
-                  )}
-                >
-                  Global
-                </button>
-              )}
-              {cultivoIdsWithDefs.map(cid => {
-                const cultivo = cultivos.find(c => c.id === cid);
+              {/* Todos — sin filtro */}
+              <button
+                onClick={() => setFilterCultivoId("todos")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all",
+                  filterCultivoId === "todos"
+                    ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+                    : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:shadow-sm",
+                )}
+              >
+                Todos
+              </button>
+              {/* Un chip por cultivo */}
+              {cultivos.filter(c => c.activo).map(c => {
+                const specificCount = datos.filter(d =>
+                  globalDefIds.includes(d.definicion_id) && d.cultivo_id === c.id
+                ).length + defs.filter(d => d.cultivo_id === c.id).reduce(
+                  (acc, def) => acc + datos.filter(d => d.definicion_id === def.id).length, 0
+                );
                 return (
                   <button
-                    key={cid}
-                    onClick={() => setFilterCultivoId(cid)}
+                    key={c.id}
+                    onClick={() => setFilterCultivoId(c.id)}
                     className={cn(
                       "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all",
-                      filterCultivoId === cid
+                      filterCultivoId === c.id
                         ? "bg-primary text-primary-foreground border-transparent shadow-sm"
                         : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:shadow-sm",
                     )}
                   >
                     <Leaf className="w-3.5 h-3.5 shrink-0" />
-                    {cultivo?.nombre ?? cid}
+                    <span className="font-semibold">{c.nombre}</span>
+                    {specificCount > 0 && (
+                      <span className={cn(
+                        "text-[10px] opacity-70",
+                        filterCultivoId === c.id ? "text-primary-foreground/70" : "",
+                      )}>
+                        {specificCount}
+                      </span>
+                    )}
                   </button>
                 );
               })}
             </div>
           )}
 
-          {/* Contenido: ninguno / tabla única / tabs por def */}
+          {/* ── Aviso cultivo activo (formularios globales) ──────────────── */}
+          {hasGlobalDefs && filterCultivoId !== "todos" && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20 text-xs text-primary">
+              <Leaf className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                Mostrando registros de <strong>{cultivos.find(c => c.id === filterCultivoId)?.nombre ?? filterCultivoId}</strong>.
+                Los formularios globales filtran por este cultivo.
+              </span>
+            </div>
+          )}
+
+          {/* ── Contenido ───────────────────────────────────────────────── */}
           {filteredDefs.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center">
@@ -309,17 +380,30 @@ function DynamicModulePage({ title, moduloKey }: { title: string; moduloKey: str
               <p className="text-sm text-muted-foreground">Sin formularios para este cultivo.</p>
             </div>
           ) : filteredDefs.length === 1 ? (
-            <DynamicDefTable defId={filteredDefs[0].id} moduloKey={moduloKey} />
+            <DynamicDefTable
+              defId={filteredDefs[0].id}
+              moduloKey={moduloKey}
+              filterCultivoId={recordFilter}
+            />
           ) : (
             <Tabs value={currentTab} onValueChange={setActiveTab} className="space-y-6">
               <TabsList className="bg-muted p-1 rounded-lg flex-wrap gap-1 h-auto">
                 {filteredDefs.map(d => (
-                  <TabsTrigger key={d.id} value={d.id}>{d.nombre}</TabsTrigger>
+                  <TabsTrigger key={d.id} value={d.id}>
+                    {d.nombre}
+                    {!d.cultivo_id && (
+                      <span className="ml-1 text-[9px] opacity-60">global</span>
+                    )}
+                  </TabsTrigger>
                 ))}
               </TabsList>
               {filteredDefs.map(d => (
                 <TabsContent key={d.id} value={d.id}>
-                  <DynamicDefTable defId={d.id} moduloKey={moduloKey} />
+                  <DynamicDefTable
+                    defId={d.id}
+                    moduloKey={moduloKey}
+                    filterCultivoId={recordFilter}
+                  />
                 </TabsContent>
               ))}
             </Tabs>

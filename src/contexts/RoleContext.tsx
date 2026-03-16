@@ -37,6 +37,8 @@ export interface HardcodedUser {
   modulo?: string;
   clienteId?: number;
   productorId?: number;
+  area_asignada?: string;
+  activo?: boolean;
 }
 
 // ─── Clientes y Productores demo ──────────────────────────────────────────────
@@ -52,6 +54,8 @@ export interface DemoProductor {
   id: number;
   clienteId: number;
   nombre: string;
+  ruc: string;
+  pais: string;
 }
 
 export const CLIENTES_DEMO: DemoCliente[] = [
@@ -60,9 +64,9 @@ export const CLIENTES_DEMO: DemoCliente[] = [
 ];
 
 export const PRODUCTORES_DEMO: DemoProductor[] = [
-  { id: 1, clienteId: 1, nombre: "Fundo Los Andes" },
-  { id: 2, clienteId: 1, nombre: "Hacienda El Sol" },
-  { id: 3, clienteId: 2, nombre: "Campo Florido" },
+  { id: 1, clienteId: 1, nombre: "Fundo Los Andes", ruc: "76.111.222-3", pais: "Chile" },
+  { id: 2, clienteId: 1, nombre: "Hacienda El Sol",  ruc: "76.333.444-5", pais: "Chile" },
+  { id: 3, clienteId: 2, nombre: "Campo Florido",    ruc: "77.555.666-7", pais: "Chile" },
 ];
 
 // Permiso personalizado por usuario (§6 del informe)
@@ -77,124 +81,105 @@ export interface UserPermissionOverride {
 }
 
 // 6 usuarios demo — uno por rol
-export const hardcodedUsers: HardcodedUser[] = [
+export const INITIAL_USERS: HardcodedUser[] = [
   {
     id: 1,
     nombre: "Carlos Mendoza",
-    email: "superadmin@bluedata.com",
+    email: "superadmin@agroworkin.com",
     password: "super123",
     role: "super_admin",
+    activo: true,
     // sin clienteId → ve toda la plataforma
   },
   {
     id: 2,
     nombre: "Ana García",
-    email: "admin@bluedata.com",
+    email: "admin@agroworkin.com",
     password: "admin123",
     role: "cliente_admin",
     clienteId: 1, // AgroPro Chile
+    activo: true,
   },
   {
     id: 3,
     nombre: "Roberto Silva",
-    email: "productor@bluedata.com",
+    email: "productor@agroworkin.com",
     password: "prod123",
     role: "productor",
     modulo: "cultivo",
     clienteId: 1,
     productorId: 1, // Fundo Los Andes
+    activo: true,
   },
   {
     id: 4,
     nombre: "María López",
-    email: "jefe@bluedata.com",
+    email: "jefe@agroworkin.com",
     password: "jefe123",
     role: "jefe_area",
     clienteId: 1,
+    activo: true,
   },
   {
     id: 5,
     nombre: "Juan Pérez",
-    email: "supervisor@bluedata.com",
+    email: "supervisor@agroworkin.com",
     password: "sup123",
     role: "supervisor",
     clienteId: 1,
+    activo: true,
   },
   {
     id: 6,
     nombre: "Laura Torres",
-    email: "lector@bluedata.com",
+    email: "lector@agroworkin.com",
     password: "lector123",
     role: "lector",
     clienteId: 2, // Frutas del Valle
+    activo: true,
   },
 ];
 
-// Permisos por rol y módulo — según jerarquía del informe PDF
-const rolePermissions: Record<UserRole, Record<string, ActionPermission[]>> = {
-  // Nivel 6: acceso total sin restricciones
-  super_admin: {
-    dashboard: ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
-    laboratorio: ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
-    vivero: ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
-    cultivo: ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
-    cosecha: ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
-    "post-cosecha": ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
-    produccion: ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
-    "recursos-humanos": ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
-    comercial: ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
-    "gestion-usuarios": ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
-    configuracion: ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
-  },
-  // Nivel 5: dueño de la empresa — control total de su organización
-  cliente_admin: {
-    dashboard: ["ver", "crear", "editar", "eliminar", "exportar"],
-    laboratorio: ["ver", "crear", "editar", "eliminar", "exportar"],
-    vivero: ["ver", "crear", "editar", "eliminar", "exportar"],
-    cultivo: ["ver", "crear", "editar", "eliminar", "exportar"],
-    cosecha: ["ver", "crear", "editar", "eliminar", "exportar"],
-    "post-cosecha": ["ver", "crear", "editar", "eliminar", "exportar"],
-    produccion: ["ver", "crear", "editar", "eliminar", "exportar"],
-    "recursos-humanos": ["ver", "crear", "editar", "eliminar", "exportar"],
-    comercial: ["ver", "crear", "editar", "eliminar", "exportar"],
-    "gestion-usuarios": ["ver", "crear", "editar", "eliminar"],
-    configuracion: ["ver", "editar", "configurar"],
-  },
-  // Nivel 4: proveedor externo — solo ve sus propios datos
-  productor: {
-    dashboard: ["ver"],
-    cultivo: ["ver"],
-    cosecha: ["ver"],
-    "post-cosecha": ["ver"],
-  },
-  // Nivel 3: jefe de área — acceso completo en su departamento
-  jefe_area: {
-    dashboard: ["ver", "exportar"],
-    laboratorio: ["ver", "crear", "editar", "exportar"],
-    vivero: ["ver", "crear", "editar", "exportar"],
-    cultivo: ["ver", "crear", "editar", "exportar"],
-    cosecha: ["ver", "crear", "editar", "exportar"],
-    "post-cosecha": ["ver", "crear", "editar", "exportar"],
-    produccion: ["ver", "crear", "editar", "exportar"],
-    "recursos-humanos": ["ver", "exportar"],
-    comercial: ["ver", "exportar"],
-  },
-  // Nivel 2: personal de campo — puede ver y registrar información básica
-  supervisor: {
-    dashboard: ["ver", "exportar"],
-    vivero: ["ver"],
-    cultivo: ["ver", "crear"],
-    cosecha: ["ver", "crear", "exportar"],
-    "post-cosecha": ["ver", "crear", "exportar"],
-  },
-  // Nivel 1: solo consulta — no puede modificar nada
-  lector: {
-    dashboard: ["ver"],
-    laboratorio: ["ver"],
-    cosecha: ["ver"],
-    "post-cosecha": ["ver"],
-  },
+/** @deprecated Use `users` from `useRole()` — kept for legacy constant imports */
+export const hardcodedUsers = INITIAL_USERS;
+
+// ─── Acciones base por rol ────────────────────────────────────────────────────
+// El SET de acciones es UNIFORME en todos los módulos para cada rol.
+// Qué módulos puede usar un usuario se controla al crearlo (formModulosActivos).
+// Para permisos especiales en un módulo puntual → USUARIO_MODULO_ACCION_PERSONALIZADO (§6).
+//
+//  super_admin   Nv6  ─ gestión total de la plataforma
+//  cliente_admin Nv5  ─ gestión total de su organización (incluye configurar)
+//  productor     Nv4  ─ registra y edita sus propios datos de campo
+//  jefe_area     Nv3  ─ gestión operacional completa (sin eliminar ni configurar)
+//  supervisor    Nv2  ─ ingreso de datos básicos de campo
+//  lector        Nv1  ─ solo consulta, sin modificar nada
+
+export const ACTIONS_BY_ROLE: Record<UserRole, ActionPermission[]> = {
+  super_admin:   ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
+  cliente_admin: ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
+  productor:     ["ver", "crear", "editar"],
+  jefe_area:     ["ver", "crear", "editar", "exportar"],
+  supervisor:    ["ver", "crear"],
+  lector:        ["ver"],
 };
+
+// Genera rolePermissions automáticamente: las mismas acciones en todos los módulos
+const _ALL_MODULE_KEYS = [
+  "dashboard", "laboratorio", "vivero", "cultivo", "cosecha",
+  "post-cosecha", "produccion", "recursos-humanos", "comercial",
+  "informes", "gestion-usuarios", "configuracion",
+] as const;
+
+const rolePermissions: Record<UserRole, Record<string, ActionPermission[]>> =
+  Object.fromEntries(
+    (Object.entries(ACTIONS_BY_ROLE) as [UserRole, ActionPermission[]][]).map(
+      ([rol, acciones]) => [
+        rol,
+        Object.fromEntries(_ALL_MODULE_KEYS.map(m => [m, acciones])),
+      ]
+    )
+  ) as Record<UserRole, Record<string, ActionPermission[]>>;
 
 // Permisos personalizados demo (§6 del informe)
 const OVERRIDES_DEMO: UserPermissionOverride[] = [
@@ -220,6 +205,7 @@ export const ALL_MODULES = [
   { value: "produccion",       label: "Producción" },
   { value: "recursos-humanos", label: "Recursos Humanos" },
   { value: "comercial",        label: "Comercial" },
+  { value: "informes",         label: "Informes" },
   { value: "gestion-usuarios", label: "Gestión de Usuarios" },
   { value: "configuracion",    label: "Configuración" },
 ];
@@ -254,6 +240,21 @@ interface RoleContextType {
   // Multi-tenant
   currentClienteId: number | undefined;
   currentClienteName: string;
+  // Usuarios CRUD
+  users: HardcodedUser[];
+  addUser: (u: Omit<HardcodedUser, "id">) => HardcodedUser;
+  updUser: (id: number, changes: Partial<Omit<HardcodedUser, "id">>) => void;
+  delUser: (id: number) => void;
+  // Clientes CRUD
+  clientes: DemoCliente[];
+  addCliente: (c: Omit<DemoCliente, "id">) => DemoCliente;
+  updCliente: (id: number, changes: Partial<Omit<DemoCliente, "id">>) => void;
+  delCliente: (id: number) => void;
+  // Productores CRUD
+  productores: DemoProductor[];
+  addProductor: (p: Omit<DemoProductor, "id">) => DemoProductor;
+  updProductor: (id: number, changes: Partial<Omit<DemoProductor, "id">>) => void;
+  delProductor: (id: number) => void;
 }
 
 const roleNames: Record<UserRole, string> = {
@@ -272,10 +273,13 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<HardcodedUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [permissionOverrides, setPermissionOverrides] = useState<UserPermissionOverride[]>(OVERRIDES_DEMO);
+  const [users, setUsers] = useState<HardcodedUser[]>(INITIAL_USERS);
+  const [clientes, setClientes] = useState<DemoCliente[]>(CLIENTES_DEMO);
+  const [productores, setProductores] = useState<DemoProductor[]>(PRODUCTORES_DEMO);
 
   const login = (email: string, password: string): HardcodedUser | null => {
-    const user = hardcodedUsers.find(
-      (u) => u.email === email && u.password === password
+    const user = users.find(
+      (u) => u.email === email && u.password === password && u.activo !== false
     );
     if (user) {
       setCurrentUser(user);
@@ -294,7 +298,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
   const handleSetRole = (newRole: UserRole) => {
     setRole(newRole);
-    const demoUser = hardcodedUsers.find((u) => u.role === newRole);
+    const demoUser = users.find((u) => u.role === newRole);
     if (demoUser) {
       setCurrentUser(demoUser);
       setIsAuthenticated(true);
@@ -365,8 +369,49 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   // Multi-tenant
   const currentClienteId = currentUser?.clienteId;
   const currentClienteName = currentClienteId
-    ? CLIENTES_DEMO.find(c => c.id === currentClienteId)?.nombre ?? ""
+    ? clientes.find(c => c.id === currentClienteId)?.nombre ?? ""
     : "Todas las empresas";
+
+  // Usuarios CRUD
+  const addUser = (u: Omit<HardcodedUser, "id">): HardcodedUser => {
+    const newU: HardcodedUser = { ...u, id: Date.now() };
+    setUsers(prev => [...prev, newU]);
+    return newU;
+  };
+  const updUser = (id: number, changes: Partial<Omit<HardcodedUser, "id">>) => {
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, ...changes } : u));
+  };
+  const delUser = (id: number) => {
+    setUsers(prev => prev.filter(u => u.id !== id));
+    setPermissionOverrides(prev => prev.filter(o => o.userId !== id));
+  };
+
+  // Clientes CRUD
+  const addCliente = (c: Omit<DemoCliente, "id">): DemoCliente => {
+    const newC: DemoCliente = { ...c, id: Date.now() };
+    setClientes(prev => [...prev, newC]);
+    return newC;
+  };
+  const updCliente = (id: number, changes: Partial<Omit<DemoCliente, "id">>) => {
+    setClientes(prev => prev.map(c => c.id === id ? { ...c, ...changes } : c));
+  };
+  const delCliente = (id: number) => {
+    setClientes(prev => prev.filter(c => c.id !== id));
+    setProductores(prev => prev.filter(p => p.clienteId !== id));
+  };
+
+  // Productores CRUD
+  const addProductor = (p: Omit<DemoProductor, "id">): DemoProductor => {
+    const newP: DemoProductor = { ...p, id: Date.now() };
+    setProductores(prev => [...prev, newP]);
+    return newP;
+  };
+  const updProductor = (id: number, changes: Partial<Omit<DemoProductor, "id">>) => {
+    setProductores(prev => prev.map(p => p.id === id ? { ...p, ...changes } : p));
+  };
+  const delProductor = (id: number) => {
+    setProductores(prev => prev.filter(p => p.id !== id));
+  };
 
   return (
     <RoleContext.Provider
@@ -389,6 +434,18 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         getRoleBasePermissions,
         currentClienteId,
         currentClienteName,
+        users,
+        addUser,
+        updUser,
+        delUser,
+        clientes,
+        addCliente,
+        updCliente,
+        delCliente,
+        productores,
+        addProductor,
+        updProductor,
+        delProductor,
       }}
     >
       {children}
