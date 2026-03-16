@@ -4,15 +4,6 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
 import {
   Select,
   SelectContent,
@@ -20,7 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useRole, ROLE_LEVELS } from "@/contexts/RoleContext";
 import {
@@ -28,12 +21,9 @@ import {
   FileText,
   Table2,
   TrendingUp,
-  LayoutGrid,
-  List,
   Search,
   Star,
   Lock,
-  Calendar,
   FlaskConical,
   Sprout,
   Leaf,
@@ -49,15 +39,17 @@ import {
   Info,
   FileSpreadsheet,
   FileBarChart,
+  FileType,
   Zap,
   AlertTriangle,
-  ChevronRight,
   Plus,
   Download,
   RefreshCw,
   Layers,
   Settings2,
-  Pencil,
+  Calendar,
+  Mail,
+  X,
 } from "lucide-react";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -71,7 +63,7 @@ type CategoriaInforme =
   | "poscosecha"
   | "general";
 type EstadoInforme = "activo" | "borrador" | "archivado";
-type FormatoExport = "pdf" | "excel" | "csv";
+type FormatoExport = "pdf" | "excel" | "csv" | "word";
 type EstadoGeneracion = "completado" | "error" | "procesando";
 
 interface Informe {
@@ -87,11 +79,15 @@ interface Informe {
   es_favorito: boolean;
   es_programado: boolean;
   frecuencia_programacion?: "diaria" | "semanal" | "mensual";
+  hora_envio?: string;
+  destinatarios_programados?: string[];
+  formato_preferido?: FormatoExport;
   veces_generado: number;
   ultimo_uso?: string;
   cliente_id?: number;
   created_at: string;
   fuentes: string[];
+  builderConfig?: BuilderConfig;
 }
 
 interface InformeGeneracion {
@@ -602,9 +598,10 @@ const ESTADO_CONFIG: Record<EstadoInforme, { label: string; icon: React.ElementT
 };
 
 const FORMATO_CONFIG: Record<FormatoExport, { label: string; icon: React.ElementType; color: string }> = {
-  pdf: { label: "PDF", icon: FileBarChart, color: "text-rose-500" },
+  pdf:   { label: "PDF",   icon: FileBarChart,   color: "text-rose-500" },
   excel: { label: "Excel", icon: FileSpreadsheet, color: "text-green-600" },
-  csv: { label: "CSV", icon: FileText, color: "text-slate-500" },
+  csv:   { label: "CSV",   icon: FileText,        color: "text-slate-500" },
+  word:  { label: "Word",  icon: FileType,        color: "text-blue-600" },
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -649,25 +646,60 @@ function formatMs(ms: number) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-// ─── Sub-componentes ──────────────────────────────────────────────────────────
+// ─── NavItem ──────────────────────────────────────────────────────────────────
 
-interface InformeCardProps {
+interface NavItemProps {
+  icon: React.ElementType;
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  iconClass?: string;
+}
+
+function NavItem({ icon: Icon, label, count, active, onClick, iconClass }: NavItemProps) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors",
+        active
+          ? "bg-primary/10 text-primary font-medium"
+          : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+      )}
+    >
+      <Icon
+        className={cn(
+          "w-4 h-4 flex-shrink-0",
+          active ? "text-primary" : (iconClass ?? "text-muted-foreground"),
+        )}
+      />
+      <span className="flex-1 truncate text-xs">{label}</span>
+      <span
+        className={cn(
+          "text-[10px] px-1.5 py-0.5 rounded-full font-medium tabular-nums",
+          active
+            ? "bg-primary/15 text-primary"
+            : "bg-muted text-muted-foreground",
+        )}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
+// ─── InformeRow ───────────────────────────────────────────────────────────────
+
+interface InformeRowProps {
   informe: Informe;
   canAccess: boolean;
   selected: boolean;
   onClick: () => void;
   onToggleFavorite: () => void;
-  compact?: boolean;
 }
 
-function InformeCard({
-  informe,
-  canAccess,
-  selected,
-  onClick,
-  onToggleFavorite,
-  compact = false,
-}: InformeCardProps) {
+function InformeRow({ informe, canAccess, selected, onClick, onToggleFavorite }: InformeRowProps) {
   const cat = CATEGORIA_CONFIG[informe.categoria];
   const tipo = TIPO_CONFIG[informe.tipo_informe];
   const estado = ESTADO_CONFIG[informe.estado];
@@ -675,135 +707,103 @@ function InformeCard({
   const TipoIcon = tipo.icon;
   const EstadoIcon = estado.icon;
 
-  if (compact) {
-    return (
-      <button
-        onClick={onClick}
-        className={cn(
-          "w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all",
-          selected
-            ? "bg-primary/5 border-primary/30 shadow-sm"
-            : "bg-card border-border hover:border-primary/20 hover:bg-muted/30",
-          !canAccess && "opacity-50",
-        )}
-      >
-        <div className={cn("p-1.5 rounded-md flex-shrink-0", cat.bg, cat.border, "border")}>
-          <CatIcon className={cn("w-3.5 h-3.5", cat.color)} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium truncate">{informe.nombre}</p>
-          <p className="text-[10px] text-muted-foreground">{informe.codigo}</p>
-        </div>
-        {!canAccess && <Lock className="w-3 h-3 text-muted-foreground flex-shrink-0" />}
-        {informe.es_favorito && (
-          <Star className="w-3 h-3 text-amber-400 fill-amber-400 flex-shrink-0" />
-        )}
-        {selected && <ChevronRight className="w-3.5 h-3.5 text-primary flex-shrink-0" />}
-      </button>
-    );
-  }
-
   return (
-    <div
+    <button
       onClick={onClick}
       className={cn(
-        "group relative bg-card border rounded-xl p-4 cursor-pointer transition-all duration-200",
+        "group w-full text-left flex items-center gap-3 px-4 py-3",
+        "border-b border-border last:border-b-0 transition-colors duration-100",
         selected
-          ? "border-primary/50 shadow-md ring-1 ring-primary/20"
-          : "border-border hover:border-primary/30 hover:shadow-sm",
+          ? "bg-primary/5 border-l-[3px] border-l-primary"
+          : "hover:bg-muted/40 border-l-[3px] border-l-transparent",
         !canAccess && "opacity-60",
       )}
     >
-      {/* Header row */}
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className={cn("p-2 rounded-lg border", cat.bg, cat.border)}>
-            <CatIcon className={cn("w-4 h-4", cat.color)} />
-          </div>
-          <div>
-            <span className="text-[10px] font-mono text-muted-foreground">{informe.codigo}</span>
-            <div className="flex items-center gap-1 mt-0.5">
-              <TipoIcon className={cn("w-3 h-3", tipo.color)} />
-              <span className="text-[10px] text-muted-foreground">{tipo.label}</span>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {informe.es_programado && (
-            <span
-              className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200"
-              title={`Programado: ${informe.frecuencia_programacion}`}
-            >
-              <Zap className="w-2.5 h-2.5" />
-              {informe.frecuencia_programacion}
-            </span>
-          )}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleFavorite();
-            }}
-            className="p-1 rounded-md hover:bg-amber-50 transition-colors"
-            title={informe.es_favorito ? "Quitar de favoritos" : "Marcar como favorito"}
-          >
-            <Star
-              className={cn(
-                "w-3.5 h-3.5 transition-colors",
-                informe.es_favorito
-                  ? "text-amber-400 fill-amber-400"
-                  : "text-muted-foreground/40 group-hover:text-muted-foreground",
-              )}
-            />
-          </button>
-        </div>
+      {/* Category icon */}
+      <div className={cn("p-1.5 rounded-lg border flex-shrink-0", cat.bg, cat.border)}>
+        <CatIcon className={cn("w-3.5 h-3.5", cat.color)} />
       </div>
 
-      {/* Title */}
-      <h3 className="font-medium text-sm leading-snug mb-1.5 line-clamp-2">{informe.nombre}</h3>
-
-      {/* Description */}
-      <p className="text-[11px] text-muted-foreground line-clamp-2 mb-3 leading-relaxed">
-        {informe.descripcion}
-      </p>
-
-      {/* Footer row */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span
-            className={cn(
-              "inline-flex items-center gap-0.5 text-[10px] font-medium px-2 py-0.5 rounded-full border",
-              estado.badge,
-            )}
-          >
-            <EstadoIcon className="w-2.5 h-2.5" />
-            {estado.label}
+      {/* Main text — title + description */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={cn("text-sm font-medium truncate leading-snug", selected && "text-primary")}>
+            {informe.nombre}
           </span>
-          <span className={cn("inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded-full border", cat.bg, cat.border, cat.color)}>
-            {cat.label}
+          <span className="text-[10px] font-mono text-muted-foreground/60 flex-shrink-0">
+            {informe.codigo}
           </span>
         </div>
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-          {!canAccess ? (
-            <span className="inline-flex items-center gap-0.5 text-rose-500">
-              <Lock className="w-3 h-3" /> Sin acceso
+        <p className="text-[11px] text-muted-foreground truncate mt-0.5 leading-snug">
+          {informe.descripcion}
+        </p>
+      </div>
+
+      {/* Badges */}
+      <div className="hidden md:flex items-center gap-1.5 flex-shrink-0">
+        <span
+          className={cn(
+            "inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full border",
+            estado.badge,
+          )}
+        >
+          <EstadoIcon className="w-2.5 h-2.5" />
+          {estado.label}
+        </span>
+        <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full bg-muted border border-border text-muted-foreground">
+          <TipoIcon className={cn("w-2.5 h-2.5", tipo.color)} />
+          {tipo.label}
+        </span>
+        {informe.es_programado && (
+          <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200">
+            <Zap className="w-2.5 h-2.5" />
+            Auto
+          </span>
+        )}
+      </div>
+
+      {/* Stats */}
+      <div className="hidden lg:flex flex-col items-end gap-0.5 flex-shrink-0 w-24 text-[10px] text-muted-foreground">
+        {!canAccess ? (
+          <span className="flex items-center gap-1 text-rose-500">
+            <Lock className="w-3 h-3" />
+            Restringido
+          </span>
+        ) : (
+          <>
+            <span className="flex items-center gap-1">
+              <RefreshCw className="w-2.5 h-2.5" />
+              {informe.veces_generado}x generado
             </span>
-          ) : (
-            <>
-              <span className="flex items-center gap-0.5">
-                <RefreshCw className="w-2.5 h-2.5" />
-                {informe.veces_generado}x
+            {informe.ultimo_uso && (
+              <span className="flex items-center gap-1">
+                <Clock className="w-2.5 h-2.5" />
+                {formatDate(informe.ultimo_uso)}
               </span>
-              {informe.ultimo_uso && (
-                <span className="flex items-center gap-0.5">
-                  <Clock className="w-2.5 h-2.5" />
-                  {formatDate(informe.ultimo_uso)}
-                </span>
-              )}
-            </>
-          )}
-        </div>
+            )}
+          </>
+        )}
       </div>
-    </div>
+
+      {/* Star */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleFavorite();
+        }}
+        className="p-1.5 rounded-md hover:bg-amber-50 transition-colors flex-shrink-0"
+        title={informe.es_favorito ? "Quitar de favoritos" : "Marcar como favorito"}
+      >
+        <Star
+          className={cn(
+            "w-3.5 h-3.5 transition-colors",
+            informe.es_favorito
+              ? "text-amber-400 fill-amber-400"
+              : "text-muted-foreground/25 group-hover:text-muted-foreground/50",
+          )}
+        />
+      </button>
+    </button>
   );
 }
 
@@ -818,6 +818,7 @@ interface DetailPanelProps {
   onToggleFavorite: () => void;
   onClose: () => void;
   onConfigure: () => void;
+  onUpdateSchedule?: (changes: Partial<Pick<Informe, "es_programado" | "frecuencia_programacion" | "hora_envio" | "destinatarios_programados" | "formato_preferido">>) => void;
 }
 
 function DetailPanel({
@@ -829,6 +830,7 @@ function DetailPanel({
   onToggleFavorite,
   onClose,
   onConfigure,
+  onUpdateSchedule,
 }: DetailPanelProps) {
   const [tab, setTab] = useState("info");
   const [formato, setFormato] = useState<FormatoExport>("excel");
@@ -838,6 +840,18 @@ function DetailPanel({
   const [fechaHasta, setFechaHasta] = useState(new Date().toISOString().split("T")[0]);
   const [generando, setGenerando] = useState(false);
   const [generacionOk, setGeneracionOk] = useState(false);
+
+  // Scheduling state
+  const [schedEnabled, setSchedEnabled] = useState(informe.es_programado);
+  const [schedFrecuencia, setSchedFrecuencia] = useState<"diaria" | "semanal" | "mensual">(
+    informe.frecuencia_programacion ?? "semanal",
+  );
+  const [schedHora, setSchedHora] = useState(informe.hora_envio ?? "08:00");
+  const [schedDestinatarios, setSchedDestinatarios] = useState(
+    (informe.destinatarios_programados ?? []).join(", "),
+  );
+  const [schedFormato, setSchedFormato] = useState<FormatoExport>(informe.formato_preferido ?? "pdf");
+  const [schedSaved, setSchedSaved] = useState(false);
 
   const cat = CATEGORIA_CONFIG[informe.categoria];
   const tipo = TIPO_CONFIG[informe.tipo_informe];
@@ -857,6 +871,20 @@ function DetailPanel({
       setGeneracionOk(true);
       setTimeout(() => setGeneracionOk(false), 4000);
     }, 2200);
+  };
+
+  const handleGuardarSchedule = () => {
+    onUpdateSchedule?.({
+      es_programado: schedEnabled,
+      frecuencia_programacion: schedEnabled ? schedFrecuencia : undefined,
+      hora_envio: schedEnabled ? schedHora : undefined,
+      destinatarios_programados: schedEnabled
+        ? schedDestinatarios.split(",").map((e) => e.trim()).filter(Boolean)
+        : [],
+      formato_preferido: schedEnabled ? schedFormato : undefined,
+    });
+    setSchedSaved(true);
+    setTimeout(() => setSchedSaved(false), 2500);
   };
 
   return (
@@ -951,6 +979,13 @@ function DetailPanel({
                 <span className="ml-0.5 text-[9px] bg-primary/10 text-primary px-1 py-px rounded-full">
                   {historiales.length}
                 </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="programar" className="text-xs gap-1.5 h-7 rounded-md">
+              <Calendar className="w-3 h-3" />
+              Auto
+              {informe.es_programado && (
+                <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
               )}
             </TabsTrigger>
           </TabsList>
@@ -1078,8 +1113,8 @@ function DetailPanel({
                   <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">
                     Formato de salida
                   </Label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(["excel", "pdf", "csv"] as FormatoExport[]).map((f) => {
+                  <div className="grid grid-cols-2 gap-2">
+                    {(["excel", "pdf", "word", "csv"] as FormatoExport[]).map((f) => {
                       const fc = FORMATO_CONFIG[f];
                       const FIcon = fc.icon;
                       return (
@@ -1108,20 +1143,20 @@ function DetailPanel({
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-[10px] text-muted-foreground mb-1 block">Desde</label>
-                      <Input
+                      <input
                         type="date"
                         value={fechaDesde}
                         onChange={(e) => setFechaDesde(e.target.value)}
-                        className="h-8 text-xs"
+                        className="w-full h-8 text-xs px-2 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
                       />
                     </div>
                     <div>
                       <label className="text-[10px] text-muted-foreground mb-1 block">Hasta</label>
-                      <Input
+                      <input
                         type="date"
                         value={fechaHasta}
                         onChange={(e) => setFechaHasta(e.target.value)}
-                        className="h-8 text-xs"
+                        className="w-full h-8 text-xs px-2 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
                       />
                     </div>
                   </div>
@@ -1162,6 +1197,23 @@ function DetailPanel({
               <p className="text-[10px] text-muted-foreground/60 text-center">
                 Los resultados se registran automáticamente en el historial.
               </p>
+
+              {canCreate && (
+                <button
+                  onClick={() => setTab("programar")}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-dashed border-border hover:border-blue-300 hover:bg-blue-50/50 transition-all text-xs text-muted-foreground hover:text-blue-600"
+                >
+                  <Calendar className="w-3.5 h-3.5 shrink-0" />
+                  <span className="flex-1 text-left">
+                    {informe.es_programado
+                      ? `Programado · ${informe.frecuencia_programacion} a las ${informe.hora_envio ?? "08:00"}`
+                      : "Configurar envío automático…"}
+                  </span>
+                  {informe.es_programado && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                  )}
+                </button>
+              )}
             </>
           )}
         </TabsContent>
@@ -1232,6 +1284,160 @@ function DetailPanel({
             </div>
           )}
         </TabsContent>
+
+        {/* PROGRAMAR */}
+        <TabsContent
+          value="programar"
+          className="flex-1 overflow-y-auto px-5 py-4 space-y-4 mt-0"
+        >
+          {!canCreate ? (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <div className="p-3 rounded-full bg-amber-50 border border-amber-100">
+                <AlertTriangle className="w-6 h-6 text-amber-400" />
+              </div>
+              <p className="text-sm font-medium">Sin permiso de configurar</p>
+              <p className="text-xs text-muted-foreground">Solo administradores pueden programar envíos automáticos.</p>
+            </div>
+          ) : (
+            <>
+              {/* Enable toggle */}
+              <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-card">
+                <div className="flex items-center gap-2">
+                  <div className={cn("p-1.5 rounded-lg", schedEnabled ? "bg-blue-100" : "bg-muted")}>
+                    <Zap className={cn("w-3.5 h-3.5", schedEnabled ? "text-blue-600" : "text-muted-foreground")} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold">Envío automático</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {schedEnabled ? "Activo" : "Desactivado"}
+                    </p>
+                  </div>
+                </div>
+                <Switch checked={schedEnabled} onCheckedChange={setSchedEnabled} />
+              </div>
+
+              {/* Config fields */}
+              <div className={cn("space-y-3 transition-opacity", !schedEnabled && "opacity-40 pointer-events-none")}>
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                    Frecuencia
+                  </Label>
+                  <Select
+                    value={schedFrecuencia}
+                    onValueChange={(v) => setSchedFrecuencia(v as "diaria" | "semanal" | "mensual")}
+                    disabled={!schedEnabled}
+                  >
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="diaria">Diaria</SelectItem>
+                      <SelectItem value="semanal">Semanal (lunes)</SelectItem>
+                      <SelectItem value="mensual">Mensual (día 1)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                      Hora de envío
+                    </Label>
+                    <input
+                      type="time"
+                      value={schedHora}
+                      onChange={(e) => setSchedHora(e.target.value)}
+                      disabled={!schedEnabled}
+                      className="w-full h-9 text-xs px-2 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                      Formato
+                    </Label>
+                    <Select
+                      value={schedFormato}
+                      onValueChange={(v) => setSchedFormato(v as FormatoExport)}
+                      disabled={!schedEnabled}
+                    >
+                      <SelectTrigger className="h-9 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(["pdf", "excel", "word", "csv"] as FormatoExport[]).map((f) => {
+                          const fc = FORMATO_CONFIG[f];
+                          const FIcon = fc.icon;
+                          return (
+                            <SelectItem key={f} value={f}>
+                              <span className="flex items-center gap-1.5">
+                                <FIcon className={cn("w-3 h-3", fc.color)} />
+                                {fc.label}
+                              </span>
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                    <Mail className="w-3 h-3" /> Destinatarios
+                  </Label>
+                  <textarea
+                    value={schedDestinatarios}
+                    onChange={(e) => setSchedDestinatarios(e.target.value)}
+                    disabled={!schedEnabled}
+                    placeholder={"email1@empresa.com\nemail2@empresa.com"}
+                    rows={3}
+                    className="w-full text-xs px-2 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Un email por línea o separados por coma.</p>
+                </div>
+              </div>
+
+              <Button
+                size="sm"
+                className={cn("w-full gap-1.5", schedSaved && "bg-green-600 hover:bg-green-700")}
+                onClick={handleGuardarSchedule}
+              >
+                {schedSaved ? (
+                  <><CheckCircle2 className="w-3.5 h-3.5" /> Programación guardada</>
+                ) : (
+                  <><Calendar className="w-3.5 h-3.5" /> Guardar programación</>
+                )}
+              </Button>
+
+              {/* Current schedule summary */}
+              {informe.es_programado && informe.frecuencia_programacion && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 space-y-1.5">
+                  <p className="text-[10px] font-semibold text-blue-700 uppercase tracking-wide flex items-center gap-1">
+                    <Zap className="w-3 h-3" /> Programación activa
+                  </p>
+                  <div className="text-[11px] text-blue-800 space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="w-3 h-3 opacity-60" />
+                      <span className="capitalize">{informe.frecuencia_programacion} — {informe.hora_envio ?? "08:00"}</span>
+                    </div>
+                    {informe.formato_preferido && (
+                      <div className="flex items-center gap-1.5">
+                        {(() => { const fc = FORMATO_CONFIG[informe.formato_preferido]; const FIcon = fc.icon; return <FIcon className={cn("w-3 h-3", fc.color)} />; })()}
+                        <span>{FORMATO_CONFIG[informe.formato_preferido].label}</span>
+                      </div>
+                    )}
+                    {informe.destinatarios_programados && informe.destinatarios_programados.length > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <Mail className="w-3 h-3 opacity-60" />
+                        <span>{informe.destinatarios_programados.length} destinatario{informe.destinatarios_programados.length !== 1 ? "s" : ""}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </TabsContent>
       </Tabs>
     </div>
   );
@@ -1239,38 +1445,87 @@ function DetailPanel({
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 
+const CATEGORIES: CategoriaInforme[] = [
+  "laboratorio",
+  "vivero",
+  "siembra",
+  "cosecha",
+  "poscosecha",
+  "general",
+];
+
 const Informes = () => {
   const { role, hasPermission } = useRole();
   const userLevel = ROLE_LEVELS[role];
   const canExport = hasPermission("informes", "exportar");
   const canCreate = hasPermission("informes", "crear");
 
-  // Estado local
   const [informes, setInformes] = useState<Informe[]>(INFORMES_DEMO);
   const [search, setSearch] = useState("");
   const [filterTipo, setFilterTipo] = useState<string>("all");
   const [filterEstado, setFilterEstado] = useState<string>("all");
-  const [soloFavoritos, setSoloFavoritos] = useState(false);
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [activeTab, setActiveTab] = useState("all");
+  const [activeNav, setActiveNav] = useState<string>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Builder state
   const [builderOpen, setBuilderOpen] = useState(false);
-  const [builderTarget, setBuilderTarget] = useState<{ id?: string; nombre: string; descripcion: string; categoria: string } | null>(null);
+  const [builderTarget, setBuilderTarget] = useState<{
+    id?: string;
+    nombre: string;
+    descripcion: string;
+    categoria: string;
+    builderConfig?: BuilderConfig;
+  } | null>(null);
 
   const openBuilder = (inf?: Informe) => {
-    setBuilderTarget(inf ? { id: inf.id, nombre: inf.nombre, descripcion: inf.descripcion, categoria: inf.categoria } : { nombre: "", descripcion: "", categoria: "general" });
+    setBuilderTarget(
+      inf
+        ? { id: inf.id, nombre: inf.nombre, descripcion: inf.descripcion, categoria: inf.categoria, builderConfig: inf.builderConfig }
+        : { nombre: "", descripcion: "", categoria: "general" },
+    );
     setBuilderOpen(true);
   };
+
   const handleBuilderSave = (cfg: BuilderConfig) => {
     if (cfg.id) {
-      setInformes(prev => prev.map(i => i.id === cfg.id ? { ...i, nombre: cfg.nombre || i.nombre, descripcion: cfg.descripcion || i.descripcion, categoria: cfg.categoria as Informe["categoria"] } : i));
+      setInformes((prev) =>
+        prev.map((i) =>
+          i.id === cfg.id
+            ? {
+                ...i,
+                nombre: cfg.nombre || i.nombre,
+                descripcion: cfg.descripcion || i.descripcion,
+                categoria: cfg.categoria as Informe["categoria"],
+                builderConfig: cfg,
+              }
+            : i,
+        ),
+      );
+    } else {
+      const newId = `inf-${Date.now()}`;
+      const cat = (cfg.categoria as CategoriaInforme) || "general";
+      const newInforme: Informe = {
+        id: newId,
+        codigo: `USR-${String(informes.length + 1).padStart(3, "0")}`,
+        nombre: cfg.nombre || "Nuevo informe",
+        descripcion: cfg.descripcion || "",
+        tipo_informe: "grafico",
+        categoria: cat,
+        nivel_acceso_minimo: 1,
+        estado: "borrador",
+        es_favorito: false,
+        es_programado: false,
+        veces_generado: 0,
+        created_at: new Date().toISOString().split("T")[0],
+        fuentes: [...new Set(cfg.bloques.flatMap((b) => b.fuentesSeleccionadas))],
+        builderConfig: { ...cfg, id: newId },
+      };
+      setInformes((prev) => [...prev, newInforme]);
+      setSelectedId(newId);
     }
     setBuilderOpen(false);
   };
 
-  // Check de acceso por informe
   const canAccessInforme = (inf: Informe): boolean => {
     if (userLevel < inf.nivel_acceso_minimo) return false;
     if (inf.roles_permitidos && inf.roles_permitidos.length > 0) {
@@ -1279,13 +1534,29 @@ const Informes = () => {
     return true;
   };
 
-  // Informe seleccionado
   const selectedInforme = informes.find((i) => i.id === selectedId) ?? null;
 
-  // Filtrado
+  // Nav counts
+  const navCounts = useMemo(() => {
+    const result: Record<string, number> = {
+      all: informes.length,
+      favoritos: informes.filter((i) => i.es_favorito).length,
+      programados: informes.filter((i) => i.es_programado).length,
+    };
+    CATEGORIES.forEach((cat) => {
+      result[cat] = informes.filter((i) => i.categoria === cat).length;
+    });
+    return result;
+  }, [informes]);
+
+  // Filtered list
   const filtered = useMemo(() => {
     let list = informes;
-    if (activeTab !== "all") list = list.filter((i) => i.categoria === activeTab);
+
+    if (activeNav === "favoritos") list = list.filter((i) => i.es_favorito);
+    else if (activeNav === "programados") list = list.filter((i) => i.es_programado);
+    else if (activeNav !== "all") list = list.filter((i) => i.categoria === activeNav);
+
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
@@ -1297,21 +1568,9 @@ const Informes = () => {
     }
     if (filterTipo !== "all") list = list.filter((i) => i.tipo_informe === filterTipo);
     if (filterEstado !== "all") list = list.filter((i) => i.estado === filterEstado);
-    if (soloFavoritos) list = list.filter((i) => i.es_favorito);
-    return list;
-  }, [informes, activeTab, search, filterTipo, filterEstado, soloFavoritos]);
 
-  // Stats para el tab activo
-  const stats = useMemo(() => {
-    const scope = activeTab === "all" ? informes : informes.filter((i) => i.categoria === activeTab);
-    return {
-      total: scope.length,
-      accesibles: scope.filter(canAccessInforme).length,
-      favoritos: scope.filter((i) => i.es_favorito).length,
-      programados: scope.filter((i) => i.es_programado).length,
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [informes, activeTab, role]);
+    return list;
+  }, [informes, activeNav, search, filterTipo, filterEstado]);
 
   const toggleFavorite = (id: string) => {
     setInformes((prev) =>
@@ -1319,15 +1578,19 @@ const Informes = () => {
     );
   };
 
-  const TABS: { value: string; label: string; icon: React.ElementType }[] = [
-    { value: "all", label: "Todos", icon: BarChart2 },
-    { value: "laboratorio", label: "Laboratorio", icon: FlaskConical },
-    { value: "vivero", label: "Vivero", icon: Sprout },
-    { value: "siembra", label: "Siembra", icon: Leaf },
-    { value: "cosecha", label: "Cosecha", icon: Scissors },
-    { value: "poscosecha", label: "Poscosecha", icon: Package },
-    { value: "general", label: "General", icon: Globe },
-  ];
+  const changeNav = (nav: string) => {
+    setActiveNav(nav);
+    setSelectedId(null);
+  };
+
+  // Is "grouped all" mode: all + no search/type/estado filters
+  const isGroupedAll =
+    activeNav === "all" &&
+    !search.trim() &&
+    filterTipo === "all" &&
+    filterEstado === "all";
+
+  const hasActiveFilters = filterTipo !== "all" || filterEstado !== "all";
 
   return (
     <MainLayout>
@@ -1335,248 +1598,230 @@ const Informes = () => {
         title="Informes"
         description="Generación, consulta y programación de informes operacionales."
         actions={
-          <div className="flex items-center gap-2">
-            {canCreate && (
-              <Button size="sm" className="gap-1.5" onClick={() => openBuilder()}>
-                <Plus className="w-4 h-4" />
-                Nuevo informe
-              </Button>
-            )}
-          </div>
+          canCreate ? (
+            <Button size="sm" className="gap-1.5" onClick={() => openBuilder()}>
+              <Plus className="w-4 h-4" />
+              Nuevo informe
+            </Button>
+          ) : undefined
         }
       />
 
-      {/* Stats row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-        {[
-          {
-            label: "Informes totales",
-            value: stats.total,
-            icon: FileText,
-            color: "text-primary",
-            bg: "bg-primary/5",
-          },
-          {
-            label: "Accesibles",
-            value: stats.accesibles,
-            icon: CheckCircle2,
-            color: "text-success",
-            bg: "bg-success/5",
-          },
-          {
-            label: "Favoritos",
-            value: stats.favoritos,
-            icon: Star,
-            color: "text-amber-500",
-            bg: "bg-amber-50",
-          },
-          {
-            label: "Programados",
-            value: stats.programados,
-            icon: Zap,
-            color: "text-blue-500",
-            bg: "bg-blue-50",
-          },
-        ].map((s) => {
-          const SIcon = s.icon;
-          return (
-            <div
-              key={s.label}
-              className="bg-card rounded-xl border border-border px-4 py-3 flex items-center gap-3"
-            >
-              <div className={cn("p-2 rounded-lg", s.bg)}>
-                <SIcon className={cn("w-4 h-4", s.color)} />
-              </div>
-              <div>
-                <p className="text-xl font-bold leading-none">{s.value}</p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">{s.label}</p>
-              </div>
+      {/* 3-pane layout */}
+      <div className="flex items-start gap-4">
+        {/* ── Left sidebar ── */}
+        <aside className="w-48 flex-shrink-0 bg-card border border-border rounded-xl overflow-hidden sticky top-4 max-h-[calc(100vh-6rem)] flex flex-col">
+          {/* Search */}
+          <div className="p-3 border-b border-border flex-shrink-0">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Buscar…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full h-8 pl-8 pr-7 text-xs rounded-md border border-border bg-muted/50 focus:bg-background focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
             </div>
-          );
-        })}
-      </div>
+          </div>
 
-      {/* Main content */}
-      <div className={cn("flex gap-4 transition-all", selectedInforme ? "items-start" : "")}>
-        {/* Left column — list */}
-        <div className={cn("flex-1 min-w-0 space-y-4", selectedInforme && "max-w-[calc(100%-340px)]")}>
-          <Tabs
-            value={activeTab}
-            onValueChange={(v) => {
-              setActiveTab(v);
-              setSelectedId(null);
-            }}
-          >
-            {/* Category tabs */}
-            <div className="overflow-x-auto pb-1">
-              <TabsList className="bg-muted p-1 rounded-lg h-9 inline-flex gap-0.5 min-w-max">
-                {TABS.map((t) => {
-                  const TIcon = t.icon;
-                  const count =
-                    t.value === "all"
-                      ? informes.length
-                      : informes.filter((i) => i.categoria === t.value).length;
-                  return (
-                    <TabsTrigger
-                      key={t.value}
-                      value={t.value}
-                      className="gap-1.5 text-xs h-7 px-3 rounded-md data-[state=active]:shadow-sm"
-                    >
-                      <TIcon className="w-3.5 h-3.5" />
-                      {t.label}
-                      <span className="text-[9px] opacity-60">{count}</span>
-                    </TabsTrigger>
-                  );
-                })}
-              </TabsList>
+          {/* Nav */}
+          <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
+            <NavItem
+              icon={BarChart2}
+              label="Todos"
+              count={navCounts.all}
+              active={activeNav === "all"}
+              onClick={() => changeNav("all")}
+            />
+            <NavItem
+              icon={Star}
+              label="Favoritos"
+              count={navCounts.favoritos}
+              active={activeNav === "favoritos"}
+              onClick={() => changeNav("favoritos")}
+              iconClass="text-amber-500"
+            />
+            <NavItem
+              icon={Zap}
+              label="Programados"
+              count={navCounts.programados}
+              active={activeNav === "programados"}
+              onClick={() => changeNav("programados")}
+              iconClass="text-blue-500"
+            />
+
+            <div className="pt-3 pb-1 px-2">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                Módulos
+              </p>
             </div>
 
-            {/* Toolbar */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="relative flex-1 min-w-[180px]">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar informes…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-8 h-8 text-xs"
+            {CATEGORIES.map((cat) => {
+              const cfg = CATEGORIA_CONFIG[cat];
+              return (
+                <NavItem
+                  key={cat}
+                  icon={cfg.icon}
+                  label={cfg.label}
+                  count={navCounts[cat]}
+                  active={activeNav === cat}
+                  onClick={() => changeNav(cat)}
+                  iconClass={cfg.color}
                 />
-              </div>
-              <Select value={filterTipo} onValueChange={setFilterTipo}>
-                <SelectTrigger className="h-8 text-xs w-[120px]">
-                  <SelectValue placeholder="Tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los tipos</SelectItem>
-                  {(["tabla", "grafico", "mixto", "resumen"] as TipoInforme[]).map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {TIPO_CONFIG[t].label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={filterEstado} onValueChange={setFilterEstado}>
-                <SelectTrigger className="h-8 text-xs w-[120px]">
-                  <SelectValue placeholder="Estado" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los estados</SelectItem>
-                  {(["activo", "borrador", "archivado"] as EstadoInforme[]).map((e) => (
-                    <SelectItem key={e} value={e}>
-                      {ESTADO_CONFIG[e].label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <button
-                onClick={() => setSoloFavoritos((v) => !v)}
-                className={cn(
-                  "h-8 px-3 rounded-md border text-xs font-medium flex items-center gap-1.5 transition-all",
-                  soloFavoritos
-                    ? "bg-amber-50 border-amber-300 text-amber-600"
-                    : "border-border text-muted-foreground hover:border-amber-200",
-                )}
-              >
-                <Star className={cn("w-3.5 h-3.5", soloFavoritos && "fill-amber-400")} />
-                Favoritos
-              </button>
-              <div className="flex items-center border border-border rounded-md overflow-hidden">
-                <button
-                  onClick={() => setViewMode("grid")}
-                  className={cn(
-                    "p-1.5 transition-colors",
-                    viewMode === "grid"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted",
-                  )}
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setViewMode("list")}
-                  className={cn(
-                    "p-1.5 transition-colors",
-                    viewMode === "list"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted",
-                  )}
-                >
-                  <List className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
+              );
+            })}
+          </nav>
+        </aside>
 
-            {/* Content for all tabs (filtered) */}
-            {TABS.map((t) => (
-              <TabsContent key={t.value} value={t.value} className="mt-0">
-                {filtered.length === 0 ? (
-                  <div className="flex flex-col items-center gap-3 py-16 text-center bg-card rounded-xl border border-border">
-                    <BarChart2 className="w-10 h-10 text-muted-foreground/30" />
-                    <div>
-                      <p className="font-medium">Sin resultados</p>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Ajusta los filtros para ver informes disponibles.
-                      </p>
-                    </div>
-                    {(search || filterTipo !== "all" || filterEstado !== "all" || soloFavoritos) && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSearch("");
-                          setFilterTipo("all");
-                          setFilterEstado("all");
-                          setSoloFavoritos(false);
-                        }}
-                      >
-                        Limpiar filtros
-                      </Button>
-                    )}
-                  </div>
-                ) : viewMode === "grid" ? (
-                  <div
-                    className={cn(
-                      "grid gap-3",
-                      selectedInforme
-                        ? "grid-cols-1 xl:grid-cols-2"
-                        : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
-                    )}
+        {/* ── Center list ── */}
+        <div
+          className={cn(
+            "flex-1 min-w-0 bg-card border border-border rounded-xl overflow-hidden transition-all",
+          )}
+        >
+          {/* Toolbar */}
+          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-muted/20">
+            <span className="text-xs text-muted-foreground flex-1">
+              {filtered.length} informe{filtered.length !== 1 ? "s" : ""}
+              {(search.trim() || hasActiveFilters) && (
+                <span className="text-muted-foreground/60"> · filtrado</span>
+              )}
+            </span>
+
+            <Select value={filterTipo} onValueChange={setFilterTipo}>
+              <SelectTrigger className="h-7 text-xs w-[110px] bg-background">
+                <SelectValue placeholder="Tipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los tipos</SelectItem>
+                {(["tabla", "grafico", "mixto", "resumen"] as TipoInforme[]).map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {TIPO_CONFIG[t].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={filterEstado} onValueChange={setFilterEstado}>
+              <SelectTrigger className="h-7 text-xs w-[110px] bg-background">
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los estados</SelectItem>
+                {(["activo", "borrador", "archivado"] as EstadoInforme[]).map((e) => (
+                  <SelectItem key={e} value={e}>
+                    {ESTADO_CONFIG[e].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {hasActiveFilters && (
+              <button
+                onClick={() => {
+                  setFilterTipo("all");
+                  setFilterEstado("all");
+                }}
+                className="h-7 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground border border-border hover:border-primary/30 flex items-center gap-1 transition-colors"
+              >
+                <X className="w-3 h-3" />
+                Limpiar
+              </button>
+            )}
+          </div>
+
+          {/* List content */}
+          <div>
+            {filtered.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-16 text-center">
+                <BarChart2 className="w-10 h-10 text-muted-foreground/20" />
+                <div>
+                  <p className="font-medium text-sm">Sin resultados</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Ajusta los filtros para ver informes disponibles.
+                  </p>
+                </div>
+                {(search.trim() || hasActiveFilters) && (
+                  <button
+                    onClick={() => {
+                      setSearch("");
+                      setFilterTipo("all");
+                      setFilterEstado("all");
+                    }}
+                    className="text-xs text-primary hover:underline"
                   >
-                    {filtered.map((inf) => (
-                      <InformeCard
-                        key={inf.id}
-                        informe={inf}
-                        canAccess={canAccessInforme(inf)}
-                        selected={inf.id === selectedId}
-                        onClick={() => setSelectedId(inf.id === selectedId ? null : inf.id)}
-                        onToggleFavorite={() => toggleFavorite(inf.id)}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="bg-card rounded-xl border border-border divide-y divide-border overflow-hidden">
-                    {filtered.map((inf) => (
-                      <InformeCard
-                        key={inf.id}
-                        informe={inf}
-                        canAccess={canAccessInforme(inf)}
-                        selected={inf.id === selectedId}
-                        onClick={() => setSelectedId(inf.id === selectedId ? null : inf.id)}
-                        onToggleFavorite={() => toggleFavorite(inf.id)}
-                        compact
-                      />
-                    ))}
-                  </div>
+                    Limpiar todos los filtros
+                  </button>
                 )}
-              </TabsContent>
-            ))}
-          </Tabs>
+              </div>
+            ) : isGroupedAll ? (
+              // ── Grouped by category ──
+              CATEGORIES.map((cat) => {
+                const catInformes = filtered.filter((i) => i.categoria === cat);
+                if (catInformes.length === 0) return null;
+                const catCfg = CATEGORIA_CONFIG[cat];
+                const CatIcon = catCfg.icon;
+                return (
+                  <div key={cat}>
+                    {/* Section header */}
+                    <div
+                      className={cn(
+                        "flex items-center gap-2 px-4 py-1.5 border-b border-border",
+                        catCfg.bg,
+                      )}
+                    >
+                      <CatIcon className={cn("w-3.5 h-3.5", catCfg.color)} />
+                      <span className={cn("text-xs font-semibold", catCfg.color)}>
+                        {catCfg.label}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {catInformes.length}
+                      </span>
+                    </div>
+                    {/* Rows */}
+                    {catInformes.map((inf) => (
+                      <InformeRow
+                        key={inf.id}
+                        informe={inf}
+                        canAccess={canAccessInforme(inf)}
+                        selected={inf.id === selectedId}
+                        onClick={() => setSelectedId(inf.id === selectedId ? null : inf.id)}
+                        onToggleFavorite={() => toggleFavorite(inf.id)}
+                      />
+                    ))}
+                  </div>
+                );
+              })
+            ) : (
+              // ── Flat list ──
+              filtered.map((inf) => (
+                <InformeRow
+                  key={inf.id}
+                  informe={inf}
+                  canAccess={canAccessInforme(inf)}
+                  selected={inf.id === selectedId}
+                  onClick={() => setSelectedId(inf.id === selectedId ? null : inf.id)}
+                  onToggleFavorite={() => toggleFavorite(inf.id)}
+                />
+              ))
+            )}
+          </div>
         </div>
 
-        {/* Right panel — detail */}
+        {/* ── Right detail panel ── */}
         {selectedInforme && (
-          <div className="w-[320px] flex-shrink-0 bg-card border border-border rounded-xl overflow-hidden sticky top-4 max-h-[calc(100vh-120px)] flex flex-col">
+          <div className="w-[340px] flex-shrink-0 bg-card border border-border rounded-xl overflow-hidden sticky top-4 h-[calc(100vh-6rem)] flex flex-col">
             <DetailPanel
+              key={selectedInforme.id}
               informe={selectedInforme}
               generaciones={GENERACIONES_DEMO}
               canAccess={canAccessInforme(selectedInforme)}
@@ -1585,6 +1830,11 @@ const Informes = () => {
               onToggleFavorite={() => toggleFavorite(selectedInforme.id)}
               onClose={() => setSelectedId(null)}
               onConfigure={() => openBuilder(selectedInforme)}
+              onUpdateSchedule={(changes) =>
+                setInformes((prev) =>
+                  prev.map((i) => (i.id === selectedInforme.id ? { ...i, ...changes } : i)),
+                )
+              }
             />
           </div>
         )}
@@ -1593,7 +1843,18 @@ const Informes = () => {
       {/* Builder overlay */}
       {builderOpen && builderTarget && (
         <InformesBuilder
-          informe={builderTarget.id ? { id: builderTarget.id, nombre: builderTarget.nombre, descripcion: builderTarget.descripcion, categoria: builderTarget.categoria } : undefined}
+          key={builderTarget.id ?? "new"}
+          informe={
+            builderTarget.id
+              ? {
+                  id: builderTarget.id,
+                  nombre: builderTarget.nombre,
+                  descripcion: builderTarget.descripcion,
+                  categoria: builderTarget.categoria,
+                }
+              : undefined
+          }
+          existingConfig={builderTarget.builderConfig}
           onClose={() => setBuilderOpen(false)}
           onSave={handleBuilderSave}
         />
