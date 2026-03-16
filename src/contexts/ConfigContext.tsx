@@ -8,10 +8,11 @@
 import { createContext, useContext, useState, useMemo, type ReactNode } from "react";
 import {
   DEFINICIONES, PARAMETROS, DATOS_DEMO, PARAMETROS_LIBRARY, CULTIVOS, VARIEDADES, SNAPSHOTS_DEMO,
+  ACCESOS_DEFINICION_DEMO,
   type ModDef, type ModParam, type ModDato, type Parametro, type TipoDato, type EstadoDef,
-  type Cultivo, type Variedad, type DefSnapshot,
+  type Cultivo, type Variedad, type DefSnapshot, type DefinicionAccesoUsuario,
 } from "@/config/moduleDefinitions";
-import { useRole } from "@/contexts/RoleContext";
+import { useRole, ROLE_LEVELS } from "@/contexts/RoleContext";
 
 // ─── Tipos del contexto ───────────────────────────────────────────────────────
 
@@ -23,11 +24,14 @@ interface ConfigContextType {
   delParamLib:   (id: string) => void;
 
   // ── Definiciones (Definicion_registro) ──
-  definiciones: ModDef[];
-  addDef:  (cultivoId?: string) => void;
+  definiciones:    ModDef[];
+  allDefiniciones: ModDef[];                                           // sin filtro (solo super_admin)
+  addDef:      (cultivoId?: string, modulo?: string, clienteIdOverride?: number, productorIdOverride?: number) => void;
+  addEvento:   (registroDefId: string, modulo: string) => void;
   updDef:  (rowIndex: number, key: keyof ModDef, value: unknown) => void;
   delDef:  (rowIndex: number) => void;
   dupDef:  (id: string, nombre?: string) => void;
+  copyDefToClient: (sourceDefId: string, targetClienteId: number) => void;
 
   // ── Campos (Campos_configurados) ──
   parametros:   ModParam[];
@@ -38,26 +42,40 @@ interface ConfigContextType {
 
   // ── Datos (Datos_registro) ──
   datos:   ModDato[];
-  addDato: (defId: string) => ModDato;
+  addDato: (defId: string, cultivoId?: string) => ModDato;
   updDato: (id: string, updated: ModDato) => void;
   delDato: (id: string) => void;
 
   // ── Cultivos ──
-  cultivos:    Cultivo[];
-  addCultivo:  (partial?: Partial<Cultivo>) => void;
-  updCultivo:  (id: string, key: keyof Cultivo, value: unknown) => void;
-  delCultivo:  (id: string) => void;
+  cultivos:             Cultivo[];                                  // filtrados por cliente/productor activo
+  allCultivos:          Cultivo[];                                  // sin filtro (solo super_admin los ve todos)
+  addCultivo:           (partial?: Partial<Cultivo>) => void;
+  updCultivo:           (id: string, key: keyof Cultivo, value: unknown) => void;
+  updCultivoClientes:   (id: string, clienteIds: number[]) => void;
+  updCultivoProductores:(id: string, productorIds: number[]) => void;
+  delCultivo:           (id: string) => void;
 
   // ── Variedades (CAT_VARIEDADES) ──
-  variedades:  Variedad[];
-  addVariedad: (cultivoId: string) => void;
-  updVariedad: (id: string, key: keyof Variedad, value: unknown) => void;
-  delVariedad: (id: string) => void;
+  variedades:             Variedad[];                                  // filtradas por cliente activo
+  allVariedades:          Variedad[];                                  // sin filtro (solo super_admin)
+  addVariedad:            (cultivoId: string) => void;
+  addVariedadFull:        (cultivoId: string, nombre: string, codigo: string) => void;
+  updVariedad:            (id: string, key: keyof Variedad, value: unknown) => void;
+  updVariedadClientes:    (id: string, clienteIds: number[]) => void;
+  updVariedadProductores: (id: string, productorIds: number[]) => void;
+  delVariedad:            (id: string) => void;
 
   // ── Historial de versiones (Snapshots) ──
   snapshots:       DefSnapshot[];
   getDefSnapshots: (defId: string) => DefSnapshot[];
   createSnapshot:  (defId: string, cambio: string) => void;
+
+  // ── Accesos por usuario por definición ──
+  definicionAccesos:      DefinicionAccesoUsuario[];
+  getDefAccesos:          (defId: string) => DefinicionAccesoUsuario[];
+  getUserDefAcceso:       (defId: string, userId: number) => DefinicionAccesoUsuario | undefined;
+  addDefAcceso:           (acceso: Omit<DefinicionAccesoUsuario, "id" | "created_at">) => void;
+  removeDefAcceso:        (id: string) => void;
 
   // ── Bloqueo de navegación ──
   hasPendingChanges: boolean;
@@ -71,23 +89,43 @@ const ConfigContext = createContext<ConfigContextType | null>(null);
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function ConfigProvider({ children }: { children: ReactNode }) {
-  const { currentClienteId } = useRole();
+  const { currentClienteId, currentUser, role } = useRole();
+  const currentProductorId = currentUser?.productorId;
 
   const [parametrosLib, setParametrosLib] = useState<Parametro[]>(PARAMETROS_LIBRARY);
   const [allDefiniciones,  setDefiniciones]  = useState<ModDef[]>(DEFINICIONES);
   const [allParametros,    setParametros]    = useState<ModParam[]>(PARAMETROS);
   const [allDatos,         setDatos]         = useState<ModDato[]>(DATOS_DEMO);
-  const [cultivos,      setCultivos]      = useState<Cultivo[]>(CULTIVOS);
-  const [variedades,    setVariedades]    = useState<Variedad[]>(VARIEDADES);
-  const [snapshots,     setSnapshots]     = useState<DefSnapshot[]>(SNAPSHOTS_DEMO);
+  // ⚠️ Renamed to avoid conflict with the filtered useMemo `cultivos` below
+  const [rawCultivos,   setCultivos]   = useState<Cultivo[]>(CULTIVOS);
+  const [rawVariedades, setVariedades] = useState<Variedad[]>(VARIEDADES);
+  const [snapshots,         setSnapshots]         = useState<DefSnapshot[]>(SNAPSHOTS_DEMO);
+  const [definicionAccesos, setDefinicionAccesos] = useState<DefinicionAccesoUsuario[]>(ACCESOS_DEFINICION_DEMO);
   const [hasPendingChanges, setHasPendingChanges] = useState(false);
 
-  // ── Filtrado multi-tenant ────────────────────────────────────────────────
-  // super_admin (sin clienteId) ve todo; los demás ven solo su empresa
+  // ── Filtrado multi-tenant + jerarquía de niveles (§3 informe ROLES_PERMISOS) ─
+  // Nivel 1: tenant filter (cliente_id / productor_id)
+  // Nivel 2: nivel_minimo — solo ve formularios donde nivel_minimo <= nivel del rol
+  // Nivel 3: roles_excluidos — algunos formularios excluyen roles específicos
+  // super_admin (nivel 6, sin clienteId) ve todo; el filtro siempre pasa para él
   const definiciones = useMemo(() => {
-    if (!currentClienteId) return allDefiniciones;
-    return allDefiniciones.filter(d => !d.cliente_id || d.cliente_id === currentClienteId);
-  }, [allDefiniciones, currentClienteId]);
+    const userLevel = ROLE_LEVELS[role];
+    // Step 1: tenant scope
+    let list: ModDef[];
+    if (!currentClienteId) {
+      list = allDefiniciones;
+    } else if (currentProductorId) {
+      list = allDefiniciones.filter(d => d.productor_id === currentProductorId);
+    } else {
+      list = allDefiniciones.filter(d => d.cliente_id === currentClienteId && !d.productor_id);
+    }
+    // Step 2: apply nivel_minimo and roles_excluidos (§3.1 y §6.3 del informe)
+    return list.filter(d => {
+      if (d.nivel_minimo && d.nivel_minimo > userLevel) return false;
+      if (d.roles_excluidos && d.roles_excluidos.includes(role)) return false;
+      return true;
+    });
+  }, [allDefiniciones, currentClienteId, currentProductorId, role]);
 
   const visibleDefIds = useMemo(() => new Set(definiciones.map(d => d.id)), [definiciones]);
 
@@ -101,7 +139,31 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     return allDatos.filter(d => visibleDefIds.has(d.definicion_id));
   }, [allDatos, currentClienteId, visibleDefIds]);
 
-  // ── Biblioteca global ──────────────────────────────────────────────────────
+  // ── Filtrado cultivos/variedades por cliente y productor ─────────────────
+  // allCultivos: sin filtro → solo super_admin lo usa para gestión
+  // cultivos:    filtrados por clientes_ids + productores_ids según sesión activa
+  const cultivos = useMemo(() => {
+    // super_admin sin empresa → ve todos
+    if (!currentClienteId) return rawCultivos;
+    const porCliente = rawCultivos.filter(c =>
+      !c.clientes_ids || c.clientes_ids.length === 0 || c.clientes_ids.includes(currentClienteId)
+    );
+    if (!currentProductorId) return porCliente;
+    return porCliente.filter(c =>
+      !c.productores_ids || c.productores_ids.length === 0 || c.productores_ids.includes(currentProductorId)
+    );
+  }, [rawCultivos, currentClienteId, currentProductorId]);
+
+  const variedades = useMemo(() => {
+    const visibleIds = new Set(cultivos.map(c => c.id));
+    const list = rawVariedades.filter(v => visibleIds.has(v.cultivo_id));
+    if (!currentClienteId) return list;
+    // Filter by client (CONFIG_VARIEDADES_HABILITADAS.cliente_id)
+    const byClient = list.filter(v => !v.clientes_ids || v.clientes_ids.length === 0 || v.clientes_ids.includes(currentClienteId));
+    if (!currentProductorId) return byClient;
+    // Also filter by producer (CONFIG_VARIEDADES_HABILITADAS.productor_id)
+    return byClient.filter(v => !v.productores_ids || v.productores_ids.length === 0 || v.productores_ids.includes(currentProductorId));
+  }, [rawVariedades, cultivos, currentClienteId, currentProductorId]);
 
   const addParamLib = (partial?: Partial<Parametro>): Parametro => {
     const newParam: Parametro = {
@@ -128,19 +190,41 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   // ── Definiciones ──────────────────────────────────────────────────────────
 
-  const addDef = (cultivoId?: string) =>
+  const addDef = (cultivoId?: string, modulo?: string, clienteIdOverride?: number, productorIdOverride?: number) =>
     setDefiniciones(prev => [...prev, {
-      id:           String(Date.now()),
-      tipo:         "personalizado" as const,
-      nombre:       "",
-      descripcion:  "",
-      version:      "1.0",
-      nivel_minimo: 2,
-      modulo:       "cultivo",
-      estado:       "borrador" as EstadoDef,
-      cultivo_id:   cultivoId,
-      cliente_id:   currentClienteId,
+      id:               String(Date.now()),
+      tipo:             "personalizado" as const,
+      nombre:           "",
+      descripcion:      "",
+      version:          "1.0",
+      nivel_minimo:     1,
+      roles_excluidos:  [],
+      modulo:           modulo ?? "cultivo",
+      estado:           "borrador" as EstadoDef,
+      cultivo_id:       cultivoId,
+      cliente_id:       clienteIdOverride ?? currentClienteId,
+      productor_id:     productorIdOverride ?? currentProductorId,
     }]);
+
+  const addEvento = (registroDefId: string, modulo: string) => {
+    const registro = allDefiniciones.find(d => d.id === registroDefId);
+    setDefiniciones(prev => [...prev, {
+      id:                 `evt-${Date.now()}`,
+      tipo:               "personalizado" as const,
+      nombre:             "",
+      descripcion:        "",
+      version:            "1.0",
+      nivel_minimo:       registro?.nivel_minimo ?? 1,
+      roles_excluidos:    [],
+      modulo,
+      estado:             "borrador" as EstadoDef,
+      cultivo_id:         registro?.cultivo_id,
+      cliente_id:         registro?.cliente_id ?? currentClienteId,
+      productor_id:       registro?.productor_id,
+      tipo_formulario:    "evento" as const,
+      registro_padre_id:  registroDefId,
+    }]);
+  };
 
   const updDef = (i: number, k: keyof ModDef, v: unknown) => {
     const def = definiciones[i];
@@ -184,6 +268,48 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // Copia una definición (+ parámetros + eventos hijos) a otro cliente.
+  // Se crea como borrador con version 1.0, sin origen_id (es una raíz nueva).
+  const copyDefToClient = (sourceDefId: string, targetClienteId: number): void => {
+    const newId = String(Date.now());
+    setDefiniciones(prev => {
+      const src = prev.find(d => d.id === sourceDefId);
+      if (!src) return prev;
+      const parentCopy: ModDef = {
+        ...src,
+        id: newId,
+        version: "1.0",
+        estado: "borrador" as EstadoDef,
+        cliente_id: targetClienteId,
+        origen_id: undefined,
+        updated_at: new Date().toISOString(),
+        updated_by: "Admin",
+      };
+      const childEventos = prev.filter(d => d.registro_padre_id === sourceDefId);
+      const childCopies: ModDef[] = childEventos.map((evt, i) => ({
+        ...evt,
+        id: `${newId}-evt-${i}`,
+        version: "1.0",
+        estado: "borrador" as EstadoDef,
+        cliente_id: targetClienteId,
+        registro_padre_id: newId,
+        origen_id: undefined,
+        updated_at: new Date().toISOString(),
+        updated_by: "Admin",
+      }));
+      return [...prev, parentCopy, ...childCopies];
+    });
+    setParametros(prev => {
+      const srcParams = prev.filter(p => p.definicion_id === sourceDefId);
+      const cloned = srcParams.map((p, i) => ({
+        ...p,
+        id: `${newId}-p${i}`,
+        definicion_id: newId,
+      }));
+      return [...prev, ...cloned];
+    });
+  };
+
   // ── Campos (Campos_configurados) ──────────────────────────────────────────
 
   const addPar = (defId: string, parametroId = "", nombre = "") => {
@@ -191,7 +317,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     // Si se pasó un parametro_id, buscar el tipo_dato en la biblioteca
     const libParam = parametroId ? parametrosLib.find(p => p.id === parametroId) : undefined;
     setParametros(prev => [...prev, {
-      id:            String(Date.now()),
+      id:            `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       definicion_id: defId,
       parametro_id:  parametroId,
       nombre:        nombre || libParam?.nombre || "",
@@ -225,13 +351,14 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   // ── Datos ─────────────────────────────────────────────────────────────────
 
-  const addDato = (defId: string): ModDato => {
+  const addDato = (defId: string, cultivoId?: string): ModDato => {
     const params = parametros.filter(p => p.definicion_id === defId);
     const emptyVals: Record<string, string> = {};
     params.forEach(p => { emptyVals[p.nombre] = ""; });
     const newDato: ModDato = {
       id:            String(Date.now()),
       definicion_id: defId,
+      cultivo_id:    cultivoId,
       referencia:    "",
       fecha:         new Date().toISOString().split("T")[0],
       valores:       JSON.stringify(emptyVals),
@@ -265,6 +392,12 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setVariedades(prev => prev.filter(v => v.cultivo_id !== id));
   };
 
+  const updCultivoClientes = (id: string, clienteIds: number[]) =>
+    setCultivos(prev => prev.map(c => c.id === id ? { ...c, clientes_ids: clienteIds } : c));
+
+  const updCultivoProductores = (id: string, productorIds: number[]) =>
+    setCultivos(prev => prev.map(c => c.id === id ? { ...c, productores_ids: productorIds } : c));
+
   // ── Variedades ──────────────────────────────────────────────────────────────
 
   const addVariedad = (cultivoId: string) =>
@@ -277,11 +410,27 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       activo:      true,
     }]);
 
+  const addVariedadFull = (cultivoId: string, nombre: string, codigo: string) =>
+    setVariedades(prev => [...prev, {
+      id:          `v-${Date.now()}`,
+      cultivo_id:  cultivoId,
+      nombre,
+      codigo:      codigo.toUpperCase(),
+      descripcion: "",
+      activo:      true,
+    }]);
+
   const updVariedad = (id: string, k: keyof Variedad, v: unknown) =>
     setVariedades(prev => prev.map(v2 => v2.id === id ? { ...v2, [k]: v } : v2));
 
   const delVariedad = (id: string) =>
     setVariedades(prev => prev.filter(v => v.id !== id));
+
+  const updVariedadClientes = (id: string, clienteIds: number[]) =>
+    setVariedades(prev => prev.map(v => v.id === id ? { ...v, clientes_ids: clienteIds } : v));
+
+  const updVariedadProductores = (id: string, productorIds: number[]) =>
+    setVariedades(prev => prev.map(v => v.id === id ? { ...v, productores_ids: productorIds } : v));
 
   // ── Snapshots (historial de versiones) ───────────────────────────────────
 
@@ -305,15 +454,33 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setSnapshots(prev => [...prev, snap]);
   };
 
+  // ── Accesos por usuario por definición ──────────────────────────────────────
+
+  const getDefAccesos = (defId: string) =>
+    definicionAccesos.filter(a => a.definicion_id === defId);
+
+  const getUserDefAcceso = (defId: string, userId: number) =>
+    definicionAccesos.find(a => a.definicion_id === defId && a.usuario_id === userId);
+
+  const addDefAcceso = (acceso: Omit<DefinicionAccesoUsuario, "id" | "created_at">) =>
+    setDefinicionAccesos(prev => [
+      ...prev,
+      { ...acceso, id: `da-${Date.now()}`, created_at: new Date().toISOString() },
+    ]);
+
+  const removeDefAcceso = (id: string) =>
+    setDefinicionAccesos(prev => prev.filter(a => a.id !== id));
+
   return (
     <ConfigContext.Provider value={{
       parametrosLib, addParamLib, updParamLib, delParamLib,
-      definiciones,  addDef,      updDef,      delDef,      dupDef,
+      definiciones, allDefiniciones, addDef, addEvento, updDef, delDef, dupDef, copyDefToClient,
       parametros,    addPar,      updParByIdx, updParFull, delParByIdx,
       datos,         addDato,     updDato,     delDato,
-      cultivos,      addCultivo,  updCultivo,  delCultivo,
-      variedades,    addVariedad, updVariedad, delVariedad,
+      cultivos,      allCultivos: rawCultivos, addCultivo, updCultivo, updCultivoClientes, updCultivoProductores, delCultivo,
+      variedades,    allVariedades: rawVariedades, addVariedad, addVariedadFull, updVariedad, updVariedadClientes, updVariedadProductores, delVariedad,
       snapshots,     getDefSnapshots, createSnapshot,
+      definicionAccesos, getDefAccesos, getUserDefAcceso, addDefAcceso, removeDefAcceso,
       hasPendingChanges, setHasPendingChanges,
     }}>
       {children}

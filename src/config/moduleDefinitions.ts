@@ -39,20 +39,56 @@ export interface Parametro {
 // ─── ModDef — Definicion_registro ─────────────────────────────────────────────
 
 export interface ModDef {
-  id:           string;
-  tipo:         TipoConfig;
-  nombre:       string;
-  descripcion:  string;
-  version:      string;
-  nivel_minimo: number;
-  modulo:       string;
-  estado:       EstadoDef;
-  cultivo_id?:  string;  // null = aplica a todos los cultivos (global)
-  origen_id?:   string;  // undefined = raíz; asignado = versión derivada → apunta al id raíz
-  cliente_id?:  number;  // null = global (super admin)
-  updated_at?:  string;  // ISO timestamp de última modificación
-  updated_by?:  string;  // nombre del usuario que realizó el cambio
+  id:                  string;
+  tipo:                TipoConfig;
+  nombre:              string;
+  descripcion:         string;
+  version:             string;
+  nivel_minimo:        number;       // nivel jerárquico mínimo para acceder (1=Lector … 6=SuperAdmin)
+  roles_excluidos?:    string[];     // roles (UserRoleT keys) explícitamente sin acceso; undefined = ninguno
+  modulo:              string;
+  estado:              EstadoDef;
+  cultivo_id?:         string;       // undefined = global (todos los cultivos)
+  origen_id?:          string;       // undefined = raíz; asignado = apunta al id raíz de la familia
+  cliente_id?:         number;       // undefined = global (super admin)
+  productor_id?:       number;       // undefined = nivel cliente; asignado = formulario exclusivo del productor
+  // ── Tipo formulario (registro = principal / evento = hijo) ──
+  tipo_formulario?:    "registro" | "evento"; // undefined = "registro" (compatibilidad)
+  registro_padre_id?:  string;       // solo si tipo_formulario = "evento"; apunta al id del registro padre
+  updated_at?:         string;       // ISO timestamp de última modificación
+  updated_by?:         string;       // nombre del usuario que realizó el cambio
 }
+
+// ─── DefinicionAccesoUsuario — Override por usuario en una definición ─────────
+// Equivale a un USUARIO_DEFINICION_ACCESO en el ERD (extensión del patrón
+// USUARIO_MODULO_ACCION_PERSONALIZADO, pero a nivel de definición específica).
+// Prioridad: este override gana sobre nivel_minimo y roles_excluidos.
+
+export interface DefinicionAccesoUsuario {
+  id:               string;
+  definicion_id:    string;   // ID de la ModDef a la que aplica
+  usuario_id:       number;   // ID del usuario (hardcodedUsers.id)
+  habilitado:       boolean;  // true = acceso concedido; false = acceso bloqueado
+  justificacion:    string;
+  created_at:       string;   // ISO timestamp
+}
+
+export const ACCESOS_DEFINICION_DEMO: DefinicionAccesoUsuario[] = [
+  // Usuario 4 (Supervisor) puede acceder a "Ficha de Personal" aunque su rol esté excluido
+  {
+    id: "da-1", definicion_id: "3", usuario_id: 4,
+    habilitado: true,
+    justificacion: "Supervisor de RRHH necesita acceso para validar fichas de su área",
+    created_at: "2025-03-01T08:00:00Z",
+  },
+  // Usuario 5 (Productor) bloqueado explícitamente de "Análisis de Laboratorio"
+  {
+    id: "da-2", definicion_id: "5", usuario_id: 5,
+    habilitado: false,
+    justificacion: "Productor externo — datos de laboratorio son confidenciales para este contrato",
+    created_at: "2025-03-10T10:30:00Z",
+  },
+];
 
 // ─── DefSnapshot — Historial de versiones ─────────────────────────────────────
 // Cada snapshot captura el estado completo de una definición y sus campos
@@ -118,11 +154,12 @@ export interface ModParam {
 // ─── ModDato — Datos_registro ─────────────────────────────────────────────────
 
 export interface ModDato {
-  id:           string;
+  id:            string;
   definicion_id: string;
-  referencia:   string;
-  fecha:        string;
-  valores:      string; // JSONB: { [campo]: valor }
+  cultivo_id?:   string; // qué cultivo generó este registro (obligatorio en formas globales)
+  referencia:    string;
+  fecha:         string;
+  valores:       string; // JSONB: { [campo]: valor }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -175,69 +212,124 @@ export const PARAMETROS_LIBRARY: Parametro[] = [
 
 export const DEFINICIONES: ModDef[] = [
   {
+    // Global — aplica a todos los cultivos del cliente
     id: "1", tipo: "estructura_campo",
     nombre: "Estructura de Campo v2.0",
     descripcion: "Jerarquía Bloque → Macrotúnel → Nave",
-    version: "2.0", nivel_minimo: 2, modulo: "cultivo", estado: "activo",
+    version: "2.0", modulo: "cultivo", estado: "activo",
+    // Acceso: desde Supervisor (2) en adelante; Lector no puede ver ni editar
+    nivel_minimo: 2, roles_excluidos: ["lector"],
     cliente_id: 1,
     updated_at: "2025-01-10T09:30:00Z", updated_by: "Admin",
   },
   {
+    // Específico Arándano — solo cosecha de ese cultivo
     id: "2", tipo: "calibres",
     nombre: "Calibres Arándano Azul",
     descripcion: "Rangos de calibre en mm para selección de fruta",
-    version: "1.0", nivel_minimo: 2, modulo: "cosecha", estado: "activo", cultivo_id: "c-02",
+    version: "1.0", modulo: "cosecha", estado: "activo", cultivo_id: "c-02",
+    // Acceso: Supervisor+; sin restricciones de rol adicionales
+    nivel_minimo: 2, roles_excluidos: [],
     cliente_id: 1,
     updated_at: "2025-01-10T10:15:00Z", updated_by: "Admin",
   },
   {
+    // Global RRHH — datos sensibles de personal
     id: "3", tipo: "datos_personal",
     nombre: "Ficha de Personal v3.0",
     descripcion: "Datos dinámicos de trabajadores de campo",
-    version: "3.0", nivel_minimo: 3, modulo: "recursos-humanos", estado: "activo",
+    version: "3.0", modulo: "recursos-humanos", estado: "activo",
+    // Datos sensibles: mínimo Jefe de Área (3); Lector y Supervisor excluidos
+    nivel_minimo: 3, roles_excluidos: ["lector", "supervisor"],
     cliente_id: 1,
     updated_at: "2025-02-01T14:00:00Z", updated_by: "María López",
   },
   {
+    // Global RRHH — control de asistencia operativo (PRODUCTOR 1)
     id: "4", tipo: "asistencia",
-    nombre: "Control de Asistencia",
+    nombre: "Control de Asistencia Fundo Los Andes",
     descripcion: "Registro de timbrado y jornada laboral (QR/bio)",
-    version: "1.5", nivel_minimo: 3, modulo: "recursos-humanos", estado: "activo",
-    cliente_id: 1,
+    version: "1.5", modulo: "recursos-humanos", estado: "activo",
+    // Operativo: Jefe de Área (3)+; solo Lector excluido
+    nivel_minimo: 3, roles_excluidos: ["lector"],
+    cliente_id: 1, productor_id: 1,
     updated_at: "2025-03-06T08:00:00Z", updated_by: "Admin",
   },
   {
+    // Global — laboratorio abierto (PRODUCTOR 1)
     id: "5", tipo: "lab_analisis",
-    nombre: "Análisis de Laboratorio",
+    nombre: "Análisis de Laboratorio Fundo Los Andes",
     descripcion: "Parámetros de análisis físico-químico y biológico",
-    version: "1.0", nivel_minimo: 1, modulo: "laboratorio", estado: "activo",
-    cliente_id: 1,
+    version: "1.0", modulo: "laboratorio", estado: "activo",
+    // Acceso abierto: cualquier rol puede consultar resultados
+    nivel_minimo: 1, roles_excluidos: [],
+    cliente_id: 1, productor_id: 1,
     updated_at: "2025-01-28T11:30:00Z", updated_by: "Carlos Ruiz",
   },
   {
+    // Específico Fresa — cosecha del cultivo fresa
     id: "6", tipo: "calibres",
     nombre: "Calibres Fresa",
     descripcion: "Rangos de calibre en mm y gramos para selección de fresas",
-    version: "1.0", nivel_minimo: 2, modulo: "cosecha", estado: "activo", cultivo_id: "c-01",
+    version: "1.0", modulo: "cosecha", estado: "activo", cultivo_id: "c-01",
+    // Acceso: Supervisor+; sin exclusiones adicionales
+    nivel_minimo: 2, roles_excluidos: [],
     cliente_id: 1,
     updated_at: "2025-01-10T10:30:00Z", updated_by: "Admin",
   },
-  // Definiciones de Frutas del Valle (cliente 2)
+  // ── Frutas del Valle (cliente 2) ──────────────────────────────────────────
   {
     id: "7", tipo: "estructura_campo",
     nombre: "Estructura Fundo Valle",
     descripcion: "Organización de parcelas y sectores",
-    version: "1.0", nivel_minimo: 2, modulo: "cultivo", estado: "activo",
+    version: "1.0", modulo: "cultivo", estado: "activo",
+    nivel_minimo: 2, roles_excluidos: ["lector"],
     cliente_id: 2,
     updated_at: "2025-02-15T08:00:00Z", updated_by: "Laura Torres",
   },
   {
+    // En borrador — solo Productor+ puede verlo mientras se define
     id: "8", tipo: "cosecha_registro",
     nombre: "Registro de Cosecha Valle",
     descripcion: "Control de cosecha diario por parcela",
-    version: "1.0", nivel_minimo: 2, modulo: "cosecha", estado: "borrador",
+    version: "1.0", modulo: "cosecha", estado: "borrador",
+    nivel_minimo: 4, roles_excluidos: ["lector", "supervisor", "jefe_area"],
     cliente_id: 2,
     updated_at: "2025-02-20T09:00:00Z", updated_by: "Laura Torres",
+  },
+  // ── Eventos (hijos de registros) ──────────────────────────────────────────
+  {
+    id: "evt-1", tipo: "personalizado",
+    nombre: "Seguimiento Semanal",
+    descripcion: "Evento de seguimiento periódico del estado del campo",
+    version: "1.0", modulo: "cultivo", estado: "activo",
+    nivel_minimo: 1, roles_excluidos: [],
+    cliente_id: 1,
+    tipo_formulario: "evento",
+    registro_padre_id: "1",
+    updated_at: "2025-03-01T08:00:00Z", updated_by: "Admin",
+  },
+  {
+    id: "evt-2", tipo: "personalizado",
+    nombre: "Registro de Anomalía",
+    descripcion: "Documenta anomalías o incidencias detectadas durante el seguimiento",
+    version: "1.0", modulo: "cultivo", estado: "borrador",
+    nivel_minimo: 2, roles_excluidos: [],
+    cliente_id: 1,
+    tipo_formulario: "evento",
+    registro_padre_id: "1",
+    updated_at: "2025-03-05T10:30:00Z", updated_by: "Admin",
+  },
+  {
+    id: "evt-3", tipo: "personalizado",
+    nombre: "Resultado Complementario",
+    descripcion: "Análisis adicional que complementa el resultado principal del laboratorio",
+    version: "1.0", modulo: "laboratorio", estado: "activo",
+    nivel_minimo: 1, roles_excluidos: [],
+    cliente_id: 1,
+    tipo_formulario: "evento",
+    registro_padre_id: "5",
+    updated_at: "2025-03-10T09:00:00Z", updated_by: "Carlos Ruiz",
   },
 ];
 
@@ -285,74 +377,101 @@ export const PARAMETROS: ModParam[] = [
   // def 8: registro cosecha valle (cliente 2)
   { id: "31", definicion_id: "8", parametro_id: "p-01", nombre: "nombre",            tipo_dato: "Texto",  obligatorio: true,  orden: 1 },
   { id: "32", definicion_id: "8", parametro_id: "p-30", nombre: "observaciones",     tipo_dato: "Texto",  obligatorio: false, orden: 2 },
+  // evt-1: seguimiento semanal
+  { id: "e1-1", definicion_id: "evt-1", parametro_id: "p-26", nombre: "temperatura",    tipo_dato: "Número", obligatorio: false, orden: 1 },
+  { id: "e1-2", definicion_id: "evt-1", parametro_id: "p-27", nombre: "humedad",        tipo_dato: "Número", obligatorio: false, orden: 2 },
+  { id: "e1-3", definicion_id: "evt-1", parametro_id: "p-30", nombre: "observaciones",  tipo_dato: "Texto",  obligatorio: false, orden: 3 },
+  // evt-2: registro de anomalía
+  { id: "e2-1", definicion_id: "evt-2", parametro_id: "p-25", nombre: "tipo_anomalia",  tipo_dato: "Lista",  obligatorio: true,  orden: 1 },
+  { id: "e2-2", definicion_id: "evt-2", parametro_id: "p-30", nombre: "descripcion",    tipo_dato: "Texto",  obligatorio: true,  orden: 2 },
+  // evt-3: resultado complementario
+  { id: "e3-1", definicion_id: "evt-3", parametro_id: "p-21", nombre: "tipo_prueba",    tipo_dato: "Lista",  obligatorio: true,  orden: 1 },
+  { id: "e3-2", definicion_id: "evt-3", parametro_id: "p-23", nombre: "resultado",      tipo_dato: "Texto",  obligatorio: true,  orden: 2 },
+  { id: "e3-3", definicion_id: "evt-3", parametro_id: "p-30", nombre: "observaciones",  tipo_dato: "Texto",  obligatorio: false, orden: 3 },
 ];
 
 // ─── Datos demo ───────────────────────────────────────────────────────────────
 
 export const DATOS_DEMO: ModDato[] = [
-  { id: "d1",  definicion_id: "1", referencia: "Bloque A-1",            fecha: "2025-01-10", valores: '{"nombre":"Bloque A-1","nivel":1,"capacidad_plantas":4500}' },
-  { id: "d2",  definicion_id: "1", referencia: "Macrotúnel A-1-1",      fecha: "2025-01-10", valores: '{"nombre":"Macrotúnel A-1-1","nivel":2,"capacidad_plantas":900}' },
-  { id: "d3",  definicion_id: "2", referencia: "Jumbo",                  fecha: "2025-01-10", valores: '{"nombre":"Jumbo","mm_minimo":18,"mm_maximo":20,"peso_g_minimo":5}' },
-  { id: "d4",  definicion_id: "2", referencia: "Extra",                  fecha: "2025-01-10", valores: '{"nombre":"Extra","mm_minimo":16,"mm_maximo":18,"peso_g_minimo":4}' },
-  { id: "d5",  definicion_id: "3", referencia: "Pedro Soto",             fecha: "2025-02-01", valores: '{"rut":"12.345.678-9","nombre_completo":"Pedro Soto","cargo":"Cosechador","telefono":"+56912345678","fecha_ingreso":"2024-03-01","tipo_contrato":"plazo_fijo"}' },
-  { id: "d6",  definicion_id: "3", referencia: "Carmen Díaz",            fecha: "2025-02-01", valores: '{"rut":"11.222.333-4","nombre_completo":"Carmen Díaz","cargo":"Cosechadora","telefono":"+56987654321","fecha_ingreso":"2023-07-15","tipo_contrato":"Indefinido"}' },
-  { id: "d7",  definicion_id: "4", referencia: "Pedro Soto / entrada",   fecha: "2025-03-06", valores: '{"empleado_id":"12345678","tipo_marca":"entrada","hora":"07:42","ubicacion_gps":"Bloque A-1"}' },
-  { id: "d8",  definicion_id: "4", referencia: "Carmen Díaz / entrada",  fecha: "2025-03-06", valores: '{"empleado_id":"11222333","tipo_marca":"entrada","hora":"07:45","ubicacion_gps":"Bloque A-2"}' },
-  { id: "d9",  definicion_id: "5", referencia: "LAB-0112",               fecha: "2025-01-28", valores: '{"muestra":"LAB-0112","tipo_prueba":"Brix","cultivo":"Fresa Maravilla","resultado":"12.5","unidad":"°Brix","estado":"Completado"}' },
-  { id: "d10", definicion_id: "5", referencia: "LAB-0113",               fecha: "2025-01-28", valores: '{"muestra":"LAB-0113","tipo_prueba":"pH Suelo","cultivo":"Bloque A","resultado":"6.2","unidad":"pH","estado":"Completado"}' },
-  { id: "d11", definicion_id: "5", referencia: "LAB-0114",               fecha: "2025-01-29", valores: '{"muestra":"LAB-0114","tipo_prueba":"Conductividad","cultivo":"Bloque B","resultado":"1.8","unidad":"dS/m","estado":"Completado"}' },
-  { id: "d12", definicion_id: "5", referencia: "LAB-0115",               fecha: "2025-01-30", valores: '{"muestra":"LAB-0115","tipo_prueba":"Firmeza","cultivo":"Fresa San Andreas","resultado":"3.2","unidad":"N","estado":"En proceso"}' },
-  // def 6: calibres fresa
-  { id: "d13", definicion_id: "6", referencia: "Premium",               fecha: "2025-01-10", valores: '{"nombre":"Premium","mm_minimo":28,"mm_maximo":32,"peso_g_minimo":18}' },
-  { id: "d14", definicion_id: "6", referencia: "Selecta",               fecha: "2025-01-10", valores: '{"nombre":"Selecta","mm_minimo":24,"mm_maximo":28,"peso_g_minimo":14}' },
-  { id: "d15", definicion_id: "6", referencia: "Estándar",              fecha: "2025-01-10", valores: '{"nombre":"Estándar","mm_minimo":20,"mm_maximo":24,"peso_g_minimo":10}' },
-  // def 7: estructura fundo valle (cliente 2)
-  { id: "d16", definicion_id: "7", referencia: "Parcela Norte",           fecha: "2025-02-15", valores: '{"nombre":"Parcela Norte","bloque":"Sector A"}' },
-  { id: "d17", definicion_id: "7", referencia: "Parcela Sur",             fecha: "2025-02-15", valores: '{"nombre":"Parcela Sur","bloque":"Sector B"}' },
+  // def 1 — Estructura de Campo (global) — registros etiquetados por cultivo
+  { id: "d1",  definicion_id: "1", cultivo_id: "c-01", referencia: "Bloque A-1",          fecha: "2025-01-10", valores: '{"nombre":"Bloque A-1","nivel":1,"capacidad_plantas":4500}' },
+  { id: "d2",  definicion_id: "1", cultivo_id: "c-02", referencia: "Macrotúnel Arándano",  fecha: "2025-01-10", valores: '{"nombre":"Macrotúnel Arándano","nivel":2,"capacidad_plantas":900}' },
+  // def 2 — Calibres Arándano (específico c-02) — cultivo_id implícito en la def
+  { id: "d3",  definicion_id: "2", referencia: "Jumbo",  fecha: "2025-01-10", valores: '{"nombre":"Jumbo","mm_minimo":18,"mm_maximo":20,"peso_g_minimo":5}' },
+  { id: "d4",  definicion_id: "2", referencia: "Extra",  fecha: "2025-01-10", valores: '{"nombre":"Extra","mm_minimo":16,"mm_maximo":18,"peso_g_minimo":4}' },
+  // def 3 — Datos Personal (global) — etiquetados por cultivo donde trabajan
+  { id: "d5",  definicion_id: "3", cultivo_id: "c-01", referencia: "Pedro Soto",  fecha: "2025-02-01", valores: '{"rut":"12.345.678-9","nombre_completo":"Pedro Soto","cargo":"Cosechador","telefono":"+56912345678","fecha_ingreso":"2024-03-01","tipo_contrato":"plazo_fijo"}' },
+  { id: "d6",  definicion_id: "3", cultivo_id: "c-02", referencia: "Carmen Díaz", fecha: "2025-02-01", valores: '{"rut":"11.222.333-4","nombre_completo":"Carmen Díaz","cargo":"Cosechadora","telefono":"+56987654321","fecha_ingreso":"2023-07-15","tipo_contrato":"Indefinido"}' },
+  // def 4 — Asistencia (global) — etiquetados por cultivo
+  { id: "d7",  definicion_id: "4", cultivo_id: "c-01", referencia: "Pedro Soto / entrada",  fecha: "2025-03-06", valores: '{"empleado_id":"12345678","tipo_marca":"entrada","hora":"07:42","ubicacion_gps":"Bloque A-1"}' },
+  { id: "d8",  definicion_id: "4", cultivo_id: "c-02", referencia: "Carmen Díaz / entrada", fecha: "2025-03-06", valores: '{"empleado_id":"11222333","tipo_marca":"entrada","hora":"07:45","ubicacion_gps":"Bloque Arándano"}' },
+  // def 5 — Laboratorio (global) — etiquetados por cultivo del análisis
+  { id: "d9",  definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0112", fecha: "2025-01-28", valores: '{"muestra":"LAB-0112","tipo_prueba":"Brix","resultado":"12.5","unidad":"°Brix","estado":"Completado"}' },
+  { id: "d10", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0113", fecha: "2025-01-28", valores: '{"muestra":"LAB-0113","tipo_prueba":"pH Suelo","resultado":"6.2","unidad":"pH","estado":"Completado"}' },
+  { id: "d11", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0114", fecha: "2025-01-29", valores: '{"muestra":"LAB-0114","tipo_prueba":"Conductividad","resultado":"1.8","unidad":"dS/m","estado":"Completado"}' },
+  { id: "d12", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0115", fecha: "2025-01-30", valores: '{"muestra":"LAB-0115","tipo_prueba":"Firmeza","resultado":"3.2","unidad":"N","estado":"En proceso"}' },
+  // def 6 — Calibres Fresa (específico c-01)
+  { id: "d13", definicion_id: "6", referencia: "Premium",  fecha: "2025-01-10", valores: '{"nombre":"Premium","mm_minimo":28,"mm_maximo":32,"peso_g_minimo":18}' },
+  { id: "d14", definicion_id: "6", referencia: "Selecta",  fecha: "2025-01-10", valores: '{"nombre":"Selecta","mm_minimo":24,"mm_maximo":28,"peso_g_minimo":14}' },
+  { id: "d15", definicion_id: "6", referencia: "Estándar", fecha: "2025-01-10", valores: '{"nombre":"Estándar","mm_minimo":20,"mm_maximo":24,"peso_g_minimo":10}' },
+  // def 7 — estructura fundo valle (cliente 2)
+  { id: "d16", definicion_id: "7", referencia: "Parcela Norte", fecha: "2025-02-15", valores: '{"nombre":"Parcela Norte","bloque":"Sector A"}' },
+  { id: "d17", definicion_id: "7", referencia: "Parcela Sur",   fecha: "2025-02-15", valores: '{"nombre":"Parcela Sur","bloque":"Sector B"}' },
 ];
 
 // ─── Cultivo ──────────────────────────────────────────────────────────────────
 // Equivale a la tabla `Cultivos` del ERD.
 
 export interface Cultivo {
-  id:          string;
-  nombre:      string;    // ej: "Fresas"
-  codigo:      string;    // ej: "FRE"
-  descripcion: string;
-  activo:      boolean;
+  id:              string;
+  nombre:          string;    // ej: "Fresas"
+  codigo:          string;    // ej: "FRE"
+  descripcion:     string;
+  activo:          boolean;
+  // Control de acceso multi-tenant:
+  // vacío/undefined → visible para todos los clientes/productores
+  clientes_ids?:   number[];  // solo estos clientes pueden usar este cultivo
+  productores_ids?: number[]; // solo estos productores pueden usar este cultivo
 }
 
 // ─── Variedad — CAT_VARIEDADES ────────────────────────────────────────────────
 // Variedades por cultivo.
 
 export interface Variedad {
-  id:          string;
-  cultivo_id:  string;
-  nombre:      string;    // ej: "Festival"
-  codigo:      string;    // ej: "FES"
-  descripcion: string;
-  activo:      boolean;
+  id:           string;
+  cultivo_id:   string;
+  nombre:       string;    // ej: "Festival"
+  codigo:       string;    // ej: "FES"
+  descripcion:  string;
+  activo:       boolean;
+  // Control de acceso multi-tenant (CONFIG_VARIEDADES_HABILITADAS):
+  // vacío/undefined → visible a todos los clientes/productores habilitados para el cultivo
+  clientes_ids?:    number[];  // solo estos clientes pueden ver esta variedad
+  productores_ids?: number[];  // solo estos productores pueden ver esta variedad
 }
 
 // ─── Datos iniciales — Cultivos y Variedades ──────────────────────────────────
 
 export const CULTIVOS: Cultivo[] = [
-  { id: "c-01", nombre: "Fresas",     codigo: "FRE", descripcion: "Fragaria × ananassa",   activo: true  },
-  { id: "c-02", nombre: "Arándanos",  codigo: "ARA", descripcion: "Vaccinium spp.",         activo: true  },
-  { id: "c-03", nombre: "Frambuesas", codigo: "FRA", descripcion: "Rubus idaeus",           activo: false },
+  // Fresas → ambos clientes; productores 1 y 3
+  { id: "c-01", nombre: "Fresas",     codigo: "FRE", descripcion: "Fragaria × ananassa", activo: true,  clientes_ids: [1, 2], productores_ids: [1, 3] },
+  // Arándanos → solo cliente 1; productor 1
+  { id: "c-02", nombre: "Arándanos",  codigo: "ARA", descripcion: "Vaccinium spp.",       activo: true,  clientes_ids: [1],    productores_ids: [1] },
+  // Frambuesas → solo cliente 2; productor 3
+  { id: "c-03", nombre: "Frambuesas", codigo: "FRA", descripcion: "Rubus idaeus",         activo: false, clientes_ids: [2],    productores_ids: [3] },
 ];
 
 export const VARIEDADES: Variedad[] = [
-  // Fresas
-  { id: "v-01", cultivo_id: "c-01", nombre: "Festival",     codigo: "FES", descripcion: "Alta producción, fruto firme",     activo: true  },
-  { id: "v-02", cultivo_id: "c-01", nombre: "San Andreas",  codigo: "SAN", descripcion: "Día neutro, cosecha continua",     activo: true  },
-  { id: "v-03", cultivo_id: "c-01", nombre: "Camarosa",     codigo: "CAM", descripcion: "Fruto grande, buen sabor",         activo: false },
-  // Arándanos
-  { id: "v-04", cultivo_id: "c-02", nombre: "Biloxi",       codigo: "BIL", descripcion: "Baja estratificación, precoz",     activo: true  },
-  { id: "v-05", cultivo_id: "c-02", nombre: "O'Neal",       codigo: "ONE", descripcion: "Alta productividad, buen calibre", activo: true  },
-  { id: "v-06", cultivo_id: "c-02", nombre: "Emerald",      codigo: "EME", descripcion: "Fruto grande y firme",             activo: true  },
-  // Frambuesas
-  { id: "v-07", cultivo_id: "c-03", nombre: "Autumn Bliss", codigo: "AUT", descripcion: "Remontante de otoño",              activo: false },
+  // Fresas — ambos clientes tienen el cultivo, pero Cliente 2 solo usa Festival
+  { id: "v-01", cultivo_id: "c-01", nombre: "Festival",    codigo: "FES", descripcion: "Alta producción, fruto firme",     activo: true,  clientes_ids: [] },        // global → ambos
+  { id: "v-02", cultivo_id: "c-01", nombre: "San Andreas", codigo: "SAN", descripcion: "Día neutro, cosecha continua",     activo: true,  clientes_ids: [1] },       // solo Cliente 1
+  { id: "v-03", cultivo_id: "c-01", nombre: "Camarosa",    codigo: "CAM", descripcion: "Fruto grande, buen sabor",         activo: false, clientes_ids: [1] },       // solo Cliente 1
+  // Arándanos — solo Cliente 1
+  { id: "v-04", cultivo_id: "c-02", nombre: "Biloxi",      codigo: "BIL", descripcion: "Baja estratificación, precoz",     activo: true,  clientes_ids: [] },
+  { id: "v-05", cultivo_id: "c-02", nombre: "O'Neal",      codigo: "ONE", descripcion: "Alta productividad, buen calibre", activo: true,  clientes_ids: [] },
+  { id: "v-06", cultivo_id: "c-02", nombre: "Emerald",     codigo: "EME", descripcion: "Fruto grande y firme",             activo: true,  clientes_ids: [1] },       // solo Cliente 1
+  // Frambuesas — solo Cliente 2
+  { id: "v-07", cultivo_id: "c-03", nombre: "Autumn Bliss",codigo: "AUT", descripcion: "Remontante de otoño",              activo: false, clientes_ids: [] },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

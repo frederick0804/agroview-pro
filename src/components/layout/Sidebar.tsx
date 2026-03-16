@@ -15,6 +15,7 @@ import {
   User,
   Scissors,
   Package,
+  BarChart2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
@@ -42,6 +43,7 @@ const navItems: NavItem[] = [
   { label: "Producción",          icon: Factory,         path: "/produccion",       modulo: "produccion" },
   { label: "Recursos Humanos",    icon: Users,           path: "/recursos-humanos", modulo: "recursos-humanos" },
   { label: "Comercial",           icon: ShoppingCart,    path: "/comercial",        modulo: "comercial" },
+  { label: "Informes",            icon: BarChart2,       path: "/informes",         modulo: "informes" },
 ];
 
 const bottomNavItems: NavItem[] = [
@@ -93,7 +95,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
             <Leaf className="w-5 h-5 text-sidebar-primary-foreground" />
           </div>
           {!collapsed && (
-            <span className="text-lg font-bold text-sidebar-foreground">BlueData</span>
+            <span className="text-lg font-bold text-sidebar-foreground">Agroworkin</span>
           )}
         </div>
       </div>

@@ -44,7 +44,10 @@
       "Bash(cmd /c \"taskkill /PID 18788 /F\")",
       "Bash(cmd /c \"taskkill /F /PID 18788\")",
       "Bash(cmd /c \"taskkill /F /PID 18788 && echo killed\")",
-      "Bash(findstr \":8080 \")"
+      "Bash(findstr \":8080 \")",
+      "Bash(python3 -c \":*)",
+      "Bash(python -c \":*)",
+      "Bash(pip install:*)"
     ]
   }
 }
