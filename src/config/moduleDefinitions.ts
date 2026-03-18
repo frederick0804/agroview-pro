@@ -149,6 +149,12 @@ export interface ModParam {
   dependencias?:             CampoDependencia | null;
   /** Fórmula que referencia otros campos. Ej: "produccion / area" */
   formula?:                  string | null;
+  /** Columna Número: muestra botón de filtro con rango ≥ / ≤ en la tabla */
+  filtrable_rango?:          boolean;
+  /** Columna Texto/Lista/Fecha: muestra botón de búsqueda en la tabla */
+  filtrable_busqueda?:       boolean;
+  /** Permite ordenar la columna ascendente / descendente al hacer clic en el header */
+  ordenable?:                boolean;
 }
 
 // ─── ModDato — Datos_registro ─────────────────────────────────────────────────
@@ -419,6 +425,28 @@ export const DATOS_DEMO: ModDato[] = [
   { id: "d17", definicion_id: "7", referencia: "Parcela Sur",   fecha: "2025-02-15", valores: '{"nombre":"Parcela Sur","bloque":"Sector B"}' },
 ];
 
+// ─── Calibre ──────────────────────────────────────────────────────────────────
+// Rangos de tamaño/peso para clasificación de fruta por cultivo.
+
+export interface Calibre {
+  id:          string;
+  nombre:      string;      // "Premium", "Jumbo", "Extra", "Estándar"
+  mm_min?:     number;      // diámetro mínimo en mm
+  mm_max?:     number;      // diámetro máximo en mm
+  peso_g_min?: number;      // peso mínimo en gramos
+  peso_g_max?: number;      // peso máximo en gramos
+}
+
+// ─── NivelEstructura ──────────────────────────────────────────────────────────
+// Define los niveles jerárquicos del campo (Bloque → Macrotúnel → Nave…)
+
+export interface NivelEstructura {
+  nivel:  number;   // posición en la jerarquía (1-based)
+  label:  string;   // nombre visible: "Bloque", "Macrotúnel", "Nave"
+  abrev:  string;   // abreviatura: "BL", "MT", "NV"
+  activo: boolean;  // si este nivel aplica a este cultivo
+}
+
 // ─── Cultivo ──────────────────────────────────────────────────────────────────
 // Equivale a la tabla `Cultivos` del ERD.
 
@@ -432,6 +460,15 @@ export interface Cultivo {
   // vacío/undefined → visible para todos los clientes/productores
   clientes_ids?:   number[];  // solo estos clientes pueden usar este cultivo
   productores_ids?: number[]; // solo estos productores pueden usar este cultivo
+  // Medidas y unidades
+  unidad_superficie?: "ha" | "m2" | "acres";  // default: "ha"
+  unidad_produccion?: "kg" | "ton" | "cajas"; // default: "kg"
+  marco_plantacion?:  number;                 // plantas por ha (opcional)
+  // Configuración de calidad
+  unidad_calibre?: "mm" | "cm";  // unidad de medida del diámetro de la fruta; default: "mm"
+  calibres?: Calibre[];
+  // Configuración de campo
+  estructura?: NivelEstructura[];
 }
 
 // ─── Variedad — CAT_VARIEDADES ────────────────────────────────────────────────
@@ -454,11 +491,53 @@ export interface Variedad {
 
 export const CULTIVOS: Cultivo[] = [
   // Fresas → ambos clientes; productores 1 y 3
-  { id: "c-01", nombre: "Fresas",     codigo: "FRE", descripcion: "Fragaria × ananassa", activo: true,  clientes_ids: [1, 2], productores_ids: [1, 3] },
+  {
+    id: "c-01", nombre: "Fresas", codigo: "FRE", descripcion: "Fragaria × ananassa",
+    activo: true, clientes_ids: [1, 2], productores_ids: [1, 3],
+    unidad_superficie: "ha", unidad_produccion: "kg", marco_plantacion: 40000,
+    calibres: [
+      { id: "cal-01", nombre: "Premium",  mm_min: 28, mm_max: 32, peso_g_min: 18 },
+      { id: "cal-02", nombre: "Selecta",  mm_min: 24, mm_max: 28, peso_g_min: 14 },
+      { id: "cal-03", nombre: "Estándar", mm_min: 20, mm_max: 24, peso_g_min: 10 },
+      { id: "cal-04", nombre: "Descarte", mm_min: 0,  mm_max: 20, peso_g_min: 0  },
+    ],
+    estructura: [
+      { nivel: 1, label: "Bloque",    abrev: "BL", activo: true  },
+      { nivel: 2, label: "Hilera",    abrev: "HL", activo: true  },
+      { nivel: 3, label: "Cuadrante", abrev: "CU", activo: true  },
+      { nivel: 4, label: "Planta",    abrev: "PL", activo: false },
+    ],
+  },
   // Arándanos → solo cliente 1; productor 1
-  { id: "c-02", nombre: "Arándanos",  codigo: "ARA", descripcion: "Vaccinium spp.",       activo: true,  clientes_ids: [1],    productores_ids: [1] },
+  {
+    id: "c-02", nombre: "Arándanos", codigo: "ARA", descripcion: "Vaccinium spp.",
+    activo: true, clientes_ids: [1], productores_ids: [1],
+    unidad_superficie: "ha", unidad_produccion: "kg", marco_plantacion: 3300,
+    calibres: [
+      { id: "cal-05", nombre: "Jumbo",    mm_min: 18, mm_max: 22, peso_g_min: 5 },
+      { id: "cal-06", nombre: "Extra",    mm_min: 16, mm_max: 18, peso_g_min: 4 },
+      { id: "cal-07", nombre: "Estándar", mm_min: 13, mm_max: 16, peso_g_min: 2 },
+      { id: "cal-08", nombre: "Mirtilo",  mm_min: 10, mm_max: 13 },
+    ],
+    estructura: [
+      { nivel: 1, label: "Bloque",     abrev: "BL", activo: true  },
+      { nivel: 2, label: "Macrotúnel", abrev: "MT", activo: true  },
+      { nivel: 3, label: "Nave",       abrev: "NV", activo: true  },
+      { nivel: 4, label: "Hilera",     abrev: "HL", activo: true  },
+      { nivel: 5, label: "Cuadrante",  abrev: "CU", activo: false },
+    ],
+  },
   // Frambuesas → solo cliente 2; productor 3
-  { id: "c-03", nombre: "Frambuesas", codigo: "FRA", descripcion: "Rubus idaeus",         activo: false, clientes_ids: [2],    productores_ids: [3] },
+  {
+    id: "c-03", nombre: "Frambuesas", codigo: "FRA", descripcion: "Rubus idaeus",
+    activo: false, clientes_ids: [2], productores_ids: [3],
+    unidad_superficie: "ha", unidad_produccion: "kg",
+    calibres: [],
+    estructura: [
+      { nivel: 1, label: "Bloque", abrev: "BL", activo: true },
+      { nivel: 2, label: "Hilera", abrev: "HL", activo: true },
+    ],
+  },
 ];
 
 export const VARIEDADES: Variedad[] = [

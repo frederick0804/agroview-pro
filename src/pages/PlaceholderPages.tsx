@@ -118,6 +118,17 @@ function DynamicDefTable({
           col.options = p.opciones;
           col.filterable = true;
         }
+        if (p.filtrable_rango) {
+          col.filterable = true;
+          col.filterType = "range";
+        }
+        if (p.filtrable_busqueda) {
+          col.filterable = true;
+          col.filterType = "search";
+        }
+        if (p.ordenable) {
+          col.sortable = true;
+        }
         if (hasFormula) {
           col.header = `${col.header} ƒ`;
           col.render = (_value, row) => {

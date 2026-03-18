@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { RoleProvider, useRole } from "@/contexts/RoleContext";
 import { ConfigProvider } from "@/contexts/ConfigContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Configuracion from "./pages/Configuracion";
@@ -32,6 +33,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 const App = () => {
   return (
+    <ThemeProvider>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <RoleProvider>
@@ -60,6 +62,7 @@ const App = () => {
         </RoleProvider>
       </TooltipProvider>
     </QueryClientProvider>
+    </ThemeProvider>
   );
 };
 

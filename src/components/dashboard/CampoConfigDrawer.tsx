@@ -7,7 +7,7 @@ import { Label }    from "@/components/ui/label";
 import { Button }   from "@/components/ui/button";
 import { Switch }   from "@/components/ui/switch";
 import { Badge }    from "@/components/ui/badge";
-import { Settings2, Plus, X, Trash2, Link2, Calculator } from "lucide-react";
+import { Settings2, Plus, X, Trash2, Link2, Calculator, Table2, SlidersHorizontal, Search, ArrowUpDown } from "lucide-react";
 import type {
   ModParam, CampoValidaciones, CampoDependencia, CampoOpcion,
 } from "@/config/moduleDefinitions";
@@ -36,6 +36,9 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
   const [dependencia, setDependencia]   = useState<CampoDependencia | null>(null);
   const [formula, setFormula]           = useState<string>("");
   const [formulaEnabled, setFormulaEnabled] = useState(false);
+  const [filtrableRango,    setFiltrableRango]    = useState(false);
+  const [filtrableBusqueda, setFiltrableBusqueda] = useState(false);
+  const [ordenable,         setOrdenable]         = useState(false);
 
   useEffect(() => {
     if (!campo) return;
@@ -49,6 +52,9 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
     setDependencia(campo.dependencias ?? null);
     setFormula(campo.formula ?? "");
     setFormulaEnabled(!!campo.formula);
+    setFiltrableRango(campo.filtrable_rango ?? false);
+    setFiltrableBusqueda(campo.filtrable_busqueda ?? false);
+    setOrdenable(campo.ordenable ?? false);
   }, [campo]);
 
   if (!campo) return null;
@@ -58,6 +64,8 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
   const showTextValidations = tipo === "Texto";
   const showOpciones = tipo === "Lista";
   const showFormula = tipo === "Número";
+  const showFiltrableRango    = tipo === "Número";
+  const showFiltrableBusqueda = tipo === "Texto" || tipo === "Lista" || tipo === "Fecha";
 
   // Parse formula into tokens for visual display
   const formulaTokens = formula
@@ -103,6 +111,9 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
       opciones: showOpciones && opciones.length > 0 ? opciones : null,
       dependencias: dependencia,
       formula: hasFormula ? formula.trim() : null,
+      filtrable_rango: showFiltrableRango ? filtrableRango || undefined : undefined,
+      filtrable_busqueda: showFiltrableBusqueda ? filtrableBusqueda || undefined : undefined,
+      ordenable: ordenable || undefined,
     });
     onClose();
   };
@@ -426,6 +437,55 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                   </p>
                 </div>
               )}
+            </section>
+          )}
+
+          {/* ── Tabla ── */}
+          {(showFiltrableRango || showFiltrableBusqueda || true) && (
+            <section className="space-y-4">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                <Table2 className="w-3.5 h-3.5" /> Comportamiento en tabla
+              </h4>
+              <p className="text-[10px] text-muted-foreground leading-relaxed -mt-2">
+                Controles que aparecerán en el encabezado de esta columna.
+              </p>
+
+              {showFiltrableRango && (
+                <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Filtrar por rango</p>
+                      <p className="text-[10px] text-muted-foreground">Botón ≥ / ≤ para filtrar por valor mínimo y máximo</p>
+                    </div>
+                  </div>
+                  <Switch checked={filtrableRango} onCheckedChange={setFiltrableRango} />
+                </div>
+              )}
+
+              {showFiltrableBusqueda && (
+                <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <Search className="w-3.5 h-3.5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Activar búsqueda</p>
+                      <p className="text-[10px] text-muted-foreground">Barra de búsqueda de texto libre en la columna</p>
+                    </div>
+                  </div>
+                  <Switch checked={filtrableBusqueda} onCheckedChange={setFiltrableBusqueda} />
+                </div>
+              )}
+
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">Ordenable</p>
+                    <p className="text-[10px] text-muted-foreground">Permite ordenar ↑ asc / ↓ desc al hacer clic en el encabezado</p>
+                  </div>
+                </div>
+                <Switch checked={ordenable} onCheckedChange={setOrdenable} />
+              </div>
             </section>
           )}
 

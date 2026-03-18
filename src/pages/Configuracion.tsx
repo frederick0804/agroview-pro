@@ -22,8 +22,10 @@ import {
   Upload, X, Plus,
   Trash2, Info, CheckCircle2, Check, Clock, Archive, Leaf, Search, Copy, History,
   ChevronDown, RotateCcw, Power, XCircle, LayoutList, ArrowLeftRight, Lock, CheckSquare, Square, ListFilter, Zap,
+  Ruler, Scale, Network, ChevronRight, ArrowUp, ArrowDown,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
+import { useTheme, DEFAULT_THEME } from "@/contexts/ThemeContext";
 import {
   useRole,
   ALL_MODULES, ALL_ACTIONS, ACTIONS_BY_ROLE,
@@ -34,7 +36,7 @@ import {
   tipoBadgeColor, tipoLabels, estadoBadge,
   type ModDef, type ModParam, type Parametro,
   type TipoConfig, type TipoDato, type EstadoDef,
-  type Cultivo, type Variedad,
+  type Cultivo, type Variedad, type Calibre, type NivelEstructura,
 } from "@/config/moduleDefinitions";
 import { VersionDiffDialog } from "@/components/dashboard/VersionDiffDialog";
 import { CampoConfigDrawer } from "@/components/dashboard/CampoConfigDrawer";
@@ -234,6 +236,16 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
     sourceVersion: string; newVersion: string; paramCount: number; newName: string;
   } | null>(null);
   const [compareRootId, setCompareRootId] = useState<string | null>(null);
+
+  // ── Evento creation dialog ──────────────────────────────────────────────────
+  const [addEventoModal, setAddEventoModal] = useState<{
+    registroId: string; modulo: string;
+  } | null>(null);
+  const [newEventoNombre, setNewEventoNombre]         = useState("");
+  const [newEventoDescripcion, setNewEventoDescripcion] = useState("");
+  const [expandedEvDetail, setExpandedEvDetail] = useState<Set<string>>(new Set());
+  const toggleEvDetail = (evId: string) =>
+    setExpandedEvDetail(prev => { const n = new Set(prev); n.has(evId) ? n.delete(evId) : n.add(evId); return n; });
 
   // ── Bulk access dialog ───────────────────────────────────────────────────────
   const [accesosModal,   setAccesosModal]   = useState<string | null>(null); // defId
@@ -1077,91 +1089,167 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                   </button>
 
                   {isExpEventos && (
-                    <div className="mt-2.5 space-y-1">
+                    <div className="mt-2.5 space-y-2">
                       {eventos.length === 0 ? (
-                        <p className="text-xs text-muted-foreground italic py-1 px-1">
-                          Sin eventos. Añade uno con el botón de abajo.
-                        </p>
+                        <div className="flex flex-col items-center gap-1.5 py-4 text-center">
+                          <Zap className="w-5 h-5 text-amber-400/50" />
+                          <p className="text-xs text-muted-foreground">
+                            Sin eventos asociados a este registro.
+                          </p>
+                        </div>
                       ) : (
                         eventos.map(ev => {
                           const evCampos = parametros.filter(p => p.definicion_id === ev.id);
+                          const isDetailExp = expandedEvDetail.has(ev.id);
                           return (
                             <div
                               key={ev.id}
-                              className="flex items-center gap-2 py-1.5 px-2.5 rounded-lg bg-amber-500/5 hover:bg-amber-500/10 border border-amber-500/10 transition-colors group/ev"
+                              className="rounded-lg border border-amber-300/25 bg-gradient-to-b from-amber-500/[0.04] to-transparent overflow-hidden transition-all hover:border-amber-300/40"
                             >
-                              <div className={cn(
-                                "w-1.5 h-1.5 rounded-full shrink-0",
-                                ev.estado === "activo"   ? "bg-green-500" :
-                                ev.estado === "borrador" ? "bg-yellow-400" : "bg-gray-300",
-                              )} />
-                              <input
-                                value={ev.nombre}
-                                onChange={e => {
-                                  const idx = definiciones.findIndex(d => d.id === ev.id);
-                                  if (idx !== -1) updDef(idx, "nombre", e.target.value);
-                                }}
-                                placeholder="Nombre del evento…"
-                                className="text-xs font-medium flex-1 min-w-0 bg-transparent outline-none placeholder:italic placeholder:text-muted-foreground hover:bg-muted/40 focus:bg-background focus:px-1.5 focus:rounded focus:border focus:border-amber-400/50 transition-all"
-                              />
-                              <span className="text-[10px] text-muted-foreground shrink-0">
-                                {evCampos.length}c
-                              </span>
-                              <span className={cn(
-                                "text-[9px] font-medium px-1.5 py-0.5 rounded-full leading-none shrink-0",
-                                estadoBadge[ev.estado ?? "borrador"],
-                              )}>
-                                {ev.estado}
-                              </span>
-                              <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover/ev:opacity-100 transition-opacity">
-                                <button
-                                  onClick={() => {
+                              {/* ── Header row ────────────────────────── */}
+                              <div className="flex items-center gap-2 px-3 py-2">
+                                <div className={cn(
+                                  "w-2 h-2 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-card",
+                                  ev.estado === "activo"   ? "bg-green-500 ring-green-500/30" :
+                                  ev.estado === "borrador" ? "bg-yellow-400 ring-yellow-400/30" : "bg-gray-300 ring-gray-300/30",
+                                )} />
+                                <input
+                                  value={ev.nombre}
+                                  onChange={e => {
                                     const idx = definiciones.findIndex(d => d.id === ev.id);
-                                    if (idx !== -1) updDef(idx, "estado", ev.estado === "activo" ? "borrador" : "activo");
+                                    if (idx !== -1) updDef(idx, "nombre", e.target.value);
                                   }}
-                                  title={ev.estado === "activo" ? "Desactivar" : "Activar"}
-                                  className={cn(
-                                    "p-1 rounded transition-colors",
-                                    ev.estado === "activo"
-                                      ? "text-green-600 hover:text-yellow-600 hover:bg-yellow-500/10"
-                                      : "text-muted-foreground hover:text-green-600 hover:bg-green-500/10",
-                                  )}
-                                >
-                                  <Power className="w-3 h-3" />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setSelectedLibIds(new Set());
-                                    setCampoSearch("");
-                                    setCreateNewCampo(false);
-                                    setAddCampoModal({ defId: ev.id, rootId: ev.id });
-                                    setExpandedEventos(prev => new Set([...prev, rootId]));
-                                  }}
-                                  title="Gestionar campos del evento"
-                                  className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                                >
-                                  <List className="w-3 h-3" />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    const idx = definiciones.findIndex(d => d.id === ev.id);
-                                    if (idx !== -1) delDef(idx);
-                                  }}
-                                  title="Eliminar evento"
-                                  className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
+                                  placeholder="Nombre del evento…"
+                                  className="text-xs font-semibold flex-1 min-w-0 bg-transparent outline-none placeholder:italic placeholder:text-muted-foreground/60 hover:bg-muted/40 focus:bg-background focus:px-1.5 focus:rounded focus:border focus:border-amber-400/50 transition-all"
+                                />
+                                <span className={cn(
+                                  "text-[9px] font-medium px-1.5 py-0.5 rounded-full leading-none shrink-0 inline-flex items-center gap-0.5",
+                                  estadoBadge[ev.estado ?? "borrador"],
+                                )}>
+                                  <EstadoIcon estado={ev.estado ?? "borrador"} />
+                                  {ev.estado}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground font-mono bg-muted/50 px-1.5 py-0.5 rounded shrink-0">
+                                  {evCampos.length} campo{evCampos.length !== 1 ? "s" : ""}
+                                </span>
+                                <div className="flex items-center gap-0.5 shrink-0">
+                                  <button
+                                    onClick={() => toggleEvDetail(ev.id)}
+                                    title={isDetailExp ? "Ocultar detalle" : "Ver detalle"}
+                                    className={cn(
+                                      "p-1 rounded transition-colors",
+                                      isDetailExp
+                                        ? "text-amber-600 bg-amber-500/10"
+                                        : "text-muted-foreground hover:text-amber-600 hover:bg-amber-500/10",
+                                    )}
+                                  >
+                                    <ChevronDown className={cn("w-3 h-3 transition-transform duration-200", isDetailExp && "rotate-180")} />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const idx = definiciones.findIndex(d => d.id === ev.id);
+                                      if (idx !== -1) updDef(idx, "estado", ev.estado === "activo" ? "borrador" : "activo");
+                                    }}
+                                    title={ev.estado === "activo" ? "Desactivar" : "Activar"}
+                                    className={cn(
+                                      "p-1 rounded transition-colors",
+                                      ev.estado === "activo"
+                                        ? "text-green-600 hover:text-yellow-600 hover:bg-yellow-500/10"
+                                        : "text-muted-foreground hover:text-green-600 hover:bg-green-500/10",
+                                    )}
+                                  >
+                                    <Power className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedLibIds(new Set());
+                                      setCampoSearch("");
+                                      setCreateNewCampo(false);
+                                      setAddCampoModal({ defId: ev.id, rootId: ev.id });
+                                      setExpandedEventos(prev => new Set([...prev, rootId]));
+                                    }}
+                                    title="Gestionar campos del evento"
+                                    className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                                  >
+                                    <List className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const idx = definiciones.findIndex(d => d.id === ev.id);
+                                      if (idx !== -1) delDef(idx);
+                                    }}
+                                    title="Eliminar evento"
+                                    className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
                               </div>
+
+                              {/* ── Description row (always visible) ───── */}
+                              <div className="px-3 pb-2 -mt-0.5">
+                                <input
+                                  value={ev.descripcion}
+                                  onChange={e => {
+                                    const idx = definiciones.findIndex(d => d.id === ev.id);
+                                    if (idx !== -1) updDef(idx, "descripcion", e.target.value);
+                                  }}
+                                  placeholder="Agregar descripción del evento…"
+                                  className="text-[11px] text-muted-foreground w-full bg-transparent outline-none placeholder:italic placeholder:text-muted-foreground/40 hover:bg-muted/30 focus:bg-background focus:px-1.5 focus:rounded focus:border focus:border-amber-300/40 transition-all"
+                                />
+                              </div>
+
+                              {/* ── Expandable: field tags preview ────── */}
+                              {isDetailExp && (
+                                <div className="px-3 pb-2.5 border-t border-amber-200/15 pt-2">
+                                  {evCampos.length === 0 ? (
+                                    <p className="text-[10px] text-muted-foreground/60 italic">
+                                      Sin campos configurados —{" "}
+                                      <button
+                                        onClick={() => {
+                                          setSelectedLibIds(new Set());
+                                          setCampoSearch("");
+                                          setCreateNewCampo(false);
+                                          setAddCampoModal({ defId: ev.id, rootId: ev.id });
+                                        }}
+                                        className="text-amber-600 hover:underline font-medium not-italic"
+                                      >
+                                        agregar campos
+                                      </button>
+                                    </p>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-1">
+                                      {evCampos.sort((a, b) => a.orden - b.orden).map(c => (
+                                        <span
+                                          key={c.id}
+                                          className={cn(
+                                            "inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-md leading-none border",
+                                            c.obligatorio
+                                              ? "bg-amber-100/60 text-amber-700 border-amber-200/50 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-700/40"
+                                              : "bg-muted/50 text-muted-foreground border-border/50",
+                                          )}
+                                          title={`${c.nombre} (${c.tipo_dato})${c.obligatorio ? " — obligatorio" : ""}`}
+                                        >
+                                          {c.obligatorio && <span className="text-amber-500">*</span>}
+                                          {c.etiqueta_personalizada || c.nombre}
+                                          <span className="opacity-50 ml-0.5">{c.tipo_dato === "Número" ? "#" : c.tipo_dato === "Fecha" ? "📅" : c.tipo_dato === "Lista" ? "▾" : c.tipo_dato === "Sí/No" ? "☑" : ""}</span>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           );
                         })
                       )}
                       <button
                         onClick={() => {
-                          addEvento(latest.id, latest.modulo);
+                          setNewEventoNombre("");
+                          setNewEventoDescripcion("");
+                          setAddEventoModal({ registroId: latest.id, modulo: latest.modulo });
                         }}
-                        className="flex items-center gap-1.5 w-full px-2.5 py-1.5 rounded-lg border border-dashed border-amber-400/40 text-xs text-muted-foreground hover:text-amber-600 hover:border-amber-400/70 hover:bg-amber-500/5 transition-colors mt-1"
+                        className="flex items-center gap-1.5 w-full px-2.5 py-2 rounded-lg border border-dashed border-amber-400/40 text-xs text-muted-foreground hover:text-amber-600 hover:border-amber-400/70 hover:bg-amber-500/5 transition-colors mt-0.5"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         Nuevo evento
@@ -1190,6 +1278,71 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
             </div>
           ))}
         </div>
+      )}
+
+      {/* ── Modal: crear nuevo evento ───────────────────────────────────────── */}
+      {addEventoModal && (
+        <Dialog open onOpenChange={() => setAddEventoModal(null)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Zap className="w-5 h-5 text-amber-500" />
+                Nuevo evento
+              </DialogTitle>
+              <DialogDescription className="pt-1">
+                Los eventos son datos secundarios que complementan o documentan el registro padre.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 my-1">
+              <div className="space-y-1.5">
+                <Label htmlFor="evt-nombre" className="text-xs font-medium">
+                  Nombre <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="evt-nombre"
+                  value={newEventoNombre}
+                  onChange={e => setNewEventoNombre(e.target.value)}
+                  placeholder="Ej: SEGUIMIENTO_INTRODUCCION"
+                  className="text-sm"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="evt-desc" className="text-xs font-medium">
+                  Descripción <span className="text-muted-foreground font-normal">(opcional)</span>
+                </Label>
+                <Input
+                  id="evt-desc"
+                  value={newEventoDescripcion}
+                  onChange={e => setNewEventoDescripcion(e.target.value)}
+                  placeholder="Registro periódico de viabilidad, contaminación…"
+                  className="text-sm"
+                />
+              </div>
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setAddEventoModal(null)}>
+                Cancelar
+              </Button>
+              <Button
+                disabled={!newEventoNombre.trim()}
+                onClick={() => {
+                  addEvento(
+                    addEventoModal.registroId,
+                    addEventoModal.modulo,
+                    newEventoNombre.trim(),
+                    newEventoDescripcion.trim(),
+                  );
+                  setAddEventoModal(null);
+                }}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                <Zap className="w-4 h-4 mr-1.5" />
+                Crear evento
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* ── Modal: confirmar eliminación de definición ─────────────────────── */}
@@ -2455,6 +2608,501 @@ function TabCultivos() {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* ── Sección 3: Medidas y Unidades ───────────────────────────── */}
+            <div className="bg-card rounded-xl border border-border overflow-hidden">
+              <div className="px-4 py-3 border-b border-border bg-muted/20">
+                <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <Ruler className="w-4 h-4 text-primary" />
+                  Medidas y Unidades
+                </h3>
+              </div>
+              <div className="px-4 py-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Unidad de superficie */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    Unidad de superficie
+                  </label>
+                  <div className="flex rounded-lg border border-border overflow-hidden">
+                    {(["ha", "m2", "acres"] as const).map((opt) => {
+                      const labels: Record<string, string> = { ha: "ha", m2: "m²", acres: "acres" };
+                      const titles: Record<string, string> = { ha: "Hectáreas", m2: "Metros cuadrados", acres: "Acres" };
+                      const active = (cultivo.unidad_superficie ?? "ha") === opt;
+                      return (
+                        <button
+                          key={opt}
+                          disabled={!isSuperAdmin}
+                          onClick={() => updCultivo(cultivo.id, "unidad_superficie", opt)}
+                          title={titles[opt]}
+                          className={cn(
+                            "flex-1 py-2 text-xs font-medium border-r last:border-r-0 border-border transition-colors",
+                            active
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-card text-muted-foreground hover:bg-muted/60",
+                            !isSuperAdmin && "cursor-default",
+                          )}
+                        >
+                          {labels[opt]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Unidad de producción */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    Unidad de producción
+                  </label>
+                  <div className="flex rounded-lg border border-border overflow-hidden">
+                    {(["kg", "ton", "cajas"] as const).map((opt) => {
+                      const titles: Record<string, string> = { kg: "Kilogramos", ton: "Toneladas", cajas: "Cajas" };
+                      const active = (cultivo.unidad_produccion ?? "kg") === opt;
+                      return (
+                        <button
+                          key={opt}
+                          disabled={!isSuperAdmin}
+                          onClick={() => updCultivo(cultivo.id, "unidad_produccion", opt)}
+                          title={titles[opt]}
+                          className={cn(
+                            "flex-1 py-2 text-xs font-medium border-r last:border-r-0 border-border transition-colors",
+                            active
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-card text-muted-foreground hover:bg-muted/60",
+                            !isSuperAdmin && "cursor-default",
+                          )}
+                        >
+                          {opt}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Marco de plantación */}
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    Marco de plantación{" "}
+                    <span className="normal-case font-normal text-muted-foreground/70">(plantas por ha, opcional)</span>
+                  </label>
+                  <div className="flex items-center gap-2.5">
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="ej. 40000"
+                      value={cultivo.marco_plantacion ?? ""}
+                      onChange={e =>
+                        updCultivo(cultivo.id, "marco_plantacion", e.target.value ? Number(e.target.value) : undefined)
+                      }
+                      className="h-8 text-sm w-36"
+                      readOnly={!isSuperAdmin}
+                      disabled={!isSuperAdmin}
+                    />
+                    <span className="text-xs text-muted-foreground">pl/ha</span>
+                    {!!cultivo.marco_plantacion && cultivo.marco_plantacion > 0 && (
+                      <span className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded-md border border-border">
+                        ≈ {(cultivo.marco_plantacion / 10000).toFixed(2)} pl/m²
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ── Sección 4: Calibres ──────────────────────────────────────── */}
+            <div className="bg-card rounded-xl border border-border overflow-hidden">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <Scale className="w-4 h-4 text-amber-600" />
+                  Calibres
+                  <span className="text-[11px] font-normal text-muted-foreground">
+                    ({(cultivo.calibres ?? []).length})
+                  </span>
+                </h3>
+                <div className="flex items-center gap-2 ml-auto flex-wrap">
+                  {/* mm / cm toggle */}
+                  <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5 border border-border text-[11px]">
+                    {(["mm", "cm"] as const).map(unit => (
+                      <button
+                        key={unit}
+                        onClick={() => isSuperAdmin && updCultivo(cultivo.id, "unidad_calibre", unit)}
+                        disabled={!isSuperAdmin}
+                        className={cn(
+                          "px-2 py-0.5 rounded font-medium transition-colors",
+                          (cultivo.unidad_calibre ?? "mm") === unit
+                            ? "bg-background text-foreground shadow-sm"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {unit}
+                      </button>
+                    ))}
+                  </div>
+                  {isSuperAdmin && (
+                    <>
+                      {(cultivo.calibres ?? []).length === 0 && (
+                        <button
+                          onClick={() => {
+                            const plantilla: Calibre[] = [
+                              { id: `cal-${Date.now()}-1`, nombre: "Premium",  mm_min: 28, mm_max: 32, peso_g_min: 18 },
+                              { id: `cal-${Date.now()}-2`, nombre: "Extra",    mm_min: 24, mm_max: 28, peso_g_min: 14 },
+                              { id: `cal-${Date.now()}-3`, nombre: "Estándar", mm_min: 20, mm_max: 24, peso_g_min: 10 },
+                              { id: `cal-${Date.now()}-4`, nombre: "Descarte", mm_min: 0,  mm_max: 20 },
+                            ];
+                            updCultivo(cultivo.id, "calibres", plantilla);
+                          }}
+                          className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground border border-dashed border-border px-2 py-1 rounded-md hover:border-primary/40 transition-colors"
+                        >
+                          <ListFilter className="w-3.5 h-3.5" /> Cargar plantilla
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          const nuevo: Calibre = { id: `cal-${Date.now()}`, nombre: "" };
+                          updCultivo(cultivo.id, "calibres", [...(cultivo.calibres ?? []), nuevo]);
+                        }}
+                        className="flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/70 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Agregar
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {(cultivo.calibres ?? []).length === 0 ? (
+                <div className="px-4 py-8 text-center space-y-2">
+                  <Scale className="w-7 h-7 mx-auto text-muted-foreground/20" />
+                  <p className="text-xs text-muted-foreground">Sin calibres configurados.</p>
+                  {isSuperAdmin && (
+                    <p className="text-[10px] text-muted-foreground/60">
+                      Usa "Cargar plantilla" para empezar rápido.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  {/* Table header */}
+                  {(() => {
+                    const u = cultivo.unidad_calibre ?? "mm";
+                    return (
+                      <div className="grid items-center gap-x-2 px-4 py-2 bg-muted/30 border-b border-border text-[10px] font-semibold text-muted-foreground uppercase tracking-wider"
+                        style={{ gridTemplateColumns: "1fr 64px 64px 80px 80px 28px" }}>
+                        <span>Nombre</span>
+                        <span className="text-center">{u} mín</span>
+                        <span className="text-center">{u} máx</span>
+                        <span className="text-center">Peso mín (g)</span>
+                        <span className="text-center">Peso máx (g)</span>
+                        <span />
+                      </div>
+                    );
+                  })()}
+
+                  {/* Table rows */}
+                  <div className="divide-y divide-border">
+                    {(cultivo.calibres ?? []).map((cal, idx) => {
+                      const DOT_COLORS = [
+                        "bg-amber-400", "bg-violet-500", "bg-blue-500",
+                        "bg-slate-400", "bg-emerald-500", "bg-rose-500",
+                        "bg-orange-400", "bg-teal-500",
+                      ];
+                      const dotColor = DOT_COLORS[idx % DOT_COLORS.length];
+
+                      const updCal = (field: keyof Calibre, val: unknown) => {
+                        const updated = (cultivo.calibres ?? []).map(c =>
+                          c.id === cal.id ? { ...c, [field]: val } : c
+                        );
+                        updCultivo(cultivo.id, "calibres", updated);
+                      };
+
+                      const delCal = () => {
+                        updCultivo(
+                          cultivo.id,
+                          "calibres",
+                          (cultivo.calibres ?? []).filter(c => c.id !== cal.id),
+                        );
+                      };
+
+                      const numInput = (field: keyof Calibre) => (
+                        <input
+                          type="number"
+                          min={0}
+                          value={cal[field] as number ?? ""}
+                          onChange={e => updCal(field, e.target.value !== "" ? Number(e.target.value) : undefined)}
+                          readOnly={!isSuperAdmin}
+                          disabled={!isSuperAdmin}
+                          className="w-full text-xs text-center bg-muted/40 rounded-md px-1.5 py-1.5 border border-transparent focus:border-primary/50 focus:bg-background focus:outline-none disabled:opacity-60 transition-colors"
+                        />
+                      );
+
+                      return (
+                        <div
+                          key={cal.id}
+                          className="group grid items-center gap-x-2 px-4 py-2 hover:bg-muted/20 transition-colors"
+                          style={{ gridTemplateColumns: "1fr 64px 64px 80px 80px 28px" }}
+                        >
+                          {/* Color dot + nombre */}
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className={cn("w-2 h-2 rounded-full flex-shrink-0", dotColor)} />
+                            <input
+                              value={cal.nombre}
+                              onChange={e => updCal("nombre", e.target.value)}
+                              placeholder="ej. Premium"
+                              readOnly={!isSuperAdmin}
+                              disabled={!isSuperAdmin}
+                              className="flex-1 text-sm font-medium bg-transparent border-0 focus:outline-none min-w-0 disabled:opacity-60"
+                            />
+                            {cal.mm_min !== undefined && cal.mm_max !== undefined && (
+                              <span className="text-[10px] text-muted-foreground/60 flex-shrink-0 hidden xl:block">
+                                {cal.mm_min}–{cal.mm_max} {cultivo.unidad_calibre ?? "mm"}
+                              </span>
+                            )}
+                          </div>
+
+                          {numInput("mm_min")}
+                          {numInput("mm_max")}
+                          {numInput("peso_g_min")}
+                          {numInput("peso_g_max")}
+
+                          {/* Delete */}
+                          {isSuperAdmin ? (
+                            <button
+                              onClick={delCal}
+                              title="Eliminar calibre"
+                              className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          ) : <span />}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Summary strip */}
+                  <div className="px-4 py-2 bg-muted/10 border-t border-border flex items-center gap-3 flex-wrap">
+                    {(cultivo.calibres ?? []).filter(c => c.nombre).map((cal, idx) => {
+                      const DOT_COLORS = ["bg-amber-400", "bg-violet-500", "bg-blue-500", "bg-slate-400", "bg-emerald-500", "bg-rose-500", "bg-orange-400", "bg-teal-500"];
+                      return (
+                        <span key={cal.id} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                          <span className={cn("w-2 h-2 rounded-full", DOT_COLORS[idx % DOT_COLORS.length])} />
+                          <span className="font-medium">{cal.nombre}</span>
+                          {cal.mm_min !== undefined && cal.mm_max !== undefined && (
+                            <span>{cal.mm_min}–{cal.mm_max}{cultivo.unidad_calibre ?? "mm"}</span>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── Sección 5: Estructura de Campo ──────────────────────────── */}
+            <div className="bg-card rounded-xl border border-border overflow-hidden">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Network className="w-4 h-4 text-sky-600" />
+                    Estructura de Campo
+                  </h3>
+                  <span className="text-[10px] text-muted-foreground">
+                    Define los niveles jerárquicos del campo
+                  </span>
+                </div>
+                {isSuperAdmin && (
+                  <div className="flex items-center gap-2">
+                    {(cultivo.estructura ?? []).length === 0 && (
+                      <button
+                        onClick={() => {
+                          const plantilla: NivelEstructura[] = [
+                            { nivel: 1, label: "Bloque",     abrev: "BL", activo: true  },
+                            { nivel: 2, label: "Macrotúnel", abrev: "MT", activo: true  },
+                            { nivel: 3, label: "Nave",       abrev: "NV", activo: true  },
+                            { nivel: 4, label: "Hilera",     abrev: "HL", activo: false },
+                            { nivel: 5, label: "Cuadrante",  abrev: "CU", activo: false },
+                          ];
+                          updCultivo(cultivo.id, "estructura", plantilla);
+                        }}
+                        className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground border border-dashed border-border px-2 py-1 rounded-md hover:border-primary/40 transition-colors"
+                      >
+                        <ListFilter className="w-3.5 h-3.5" /> Cargar plantilla
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        const current = cultivo.estructura ?? [];
+                        const nuevoNivel: NivelEstructura = {
+                          nivel: current.length + 1,
+                          label: "",
+                          abrev: "",
+                          activo: true,
+                        };
+                        updCultivo(cultivo.id, "estructura", [...current, nuevoNivel]);
+                      }}
+                      className="flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/70 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Agregar nivel
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {(cultivo.estructura ?? []).length === 0 ? (
+                <div className="px-4 py-8 text-center space-y-2">
+                  <Network className="w-7 h-7 mx-auto text-muted-foreground/20" />
+                  <p className="text-xs text-muted-foreground">Sin estructura configurada.</p>
+                  {isSuperAdmin && (
+                    <p className="text-[10px] text-muted-foreground/60">
+                      Usa "Cargar plantilla" para la jerarquía estándar.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  {/* Level rows */}
+                  <div className="divide-y divide-border">
+                    {(cultivo.estructura ?? []).map((nivel, idx) => {
+                      const niveles = cultivo.estructura ?? [];
+
+                      const updNivel = (field: keyof NivelEstructura, val: unknown) => {
+                        const updated = niveles.map(n =>
+                          n.nivel === nivel.nivel ? { ...n, [field]: val } : n
+                        );
+                        updCultivo(cultivo.id, "estructura", updated);
+                      };
+
+                      const moveUp = () => {
+                        if (idx === 0) return;
+                        const reordered = [...niveles];
+                        [reordered[idx - 1], reordered[idx]] = [reordered[idx], reordered[idx - 1]];
+                        updCultivo(cultivo.id, "estructura", reordered.map((n, i) => ({ ...n, nivel: i + 1 })));
+                      };
+
+                      const moveDown = () => {
+                        if (idx === niveles.length - 1) return;
+                        const reordered = [...niveles];
+                        [reordered[idx], reordered[idx + 1]] = [reordered[idx + 1], reordered[idx]];
+                        updCultivo(cultivo.id, "estructura", reordered.map((n, i) => ({ ...n, nivel: i + 1 })));
+                      };
+
+                      return (
+                        <div
+                          key={nivel.nivel}
+                          className={cn(
+                            "group flex items-center gap-3 px-4 py-2.5 transition-colors",
+                            nivel.activo
+                              ? "hover:bg-muted/20"
+                              : "opacity-50 hover:opacity-70",
+                          )}
+                        >
+                          {/* Toggle activo */}
+                          <Switch
+                            checked={nivel.activo}
+                            onCheckedChange={v => updNivel("activo", v)}
+                            disabled={!isSuperAdmin}
+                            className="scale-75 origin-left shrink-0"
+                          />
+
+                          {/* Número de nivel */}
+                          <span
+                            className={cn(
+                              "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0",
+                              nivel.activo
+                                ? "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
+                                : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {idx + 1}
+                          </span>
+
+                          {/* Label editable */}
+                          <input
+                            value={nivel.label}
+                            onChange={e => updNivel("label", e.target.value)}
+                            readOnly={!isSuperAdmin}
+                            disabled={!isSuperAdmin}
+                            placeholder="Nombre del nivel"
+                            className="flex-1 text-sm font-medium bg-transparent border-0 focus:outline-none disabled:opacity-60 min-w-0"
+                          />
+
+                          {/* Abreviatura */}
+                          <input
+                            value={nivel.abrev}
+                            onChange={e => updNivel("abrev", e.target.value.toUpperCase().slice(0, 4))}
+                            readOnly={!isSuperAdmin}
+                            disabled={!isSuperAdmin}
+                            placeholder="AB"
+                            maxLength={4}
+                            className="w-10 text-[10px] font-mono text-center bg-muted/40 rounded-md px-1.5 py-1 border border-transparent focus:border-primary/50 focus:bg-background focus:outline-none disabled:opacity-60 uppercase transition-colors"
+                          />
+
+                          {/* Reorder + Delete */}
+                          {isSuperAdmin && (
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <div className="flex flex-col gap-0.5">
+                                <button
+                                  onClick={moveUp}
+                                  disabled={idx === 0}
+                                  className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  <ArrowUp className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={moveDown}
+                                  disabled={idx === (cultivo.estructura ?? []).length - 1}
+                                  className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  <ArrowDown className="w-3 h-3" />
+                                </button>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  const updated = (cultivo.estructura ?? [])
+                                    .filter(n => n.nivel !== nivel.nivel)
+                                    .map((n, i) => ({ ...n, nivel: i + 1 }));
+                                  updCultivo(cultivo.id, "estructura", updated);
+                                }}
+                                title="Eliminar nivel"
+                                className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Hierarchy preview */}
+                  {(cultivo.estructura ?? []).some(n => n.activo) && (
+                    <div className="mx-4 mb-4 mt-3 px-3 py-2.5 rounded-lg bg-sky-50 border border-sky-100 dark:bg-sky-950/20 dark:border-sky-900/40">
+                      <p className="text-[10px] font-semibold text-sky-700 dark:text-sky-400 uppercase tracking-wider mb-2">
+                        Jerarquía activa
+                      </p>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {(cultivo.estructura ?? [])
+                          .filter(n => n.activo)
+                          .map((n, i, arr) => (
+                            <span key={n.nivel} className="flex items-center gap-1">
+                              <span className="text-xs font-semibold text-sky-700 dark:text-sky-300 bg-sky-100 dark:bg-sky-900/40 px-2 py-0.5 rounded-md">
+                                {n.label}
+                              </span>
+                              <span className="text-[9px] font-mono text-sky-400 dark:text-sky-600">
+                                {n.abrev}
+                              </span>
+                              {i < arr.length - 1 && (
+                                <ChevronRight className="w-3.5 h-3.5 text-sky-400 mx-0.5" />
+                              )}
+                            </span>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
           </div>
@@ -4740,13 +5388,6 @@ function TabUsuarios() {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-interface BrandConfig {
-  nombreEmpresa:   string;
-  colorPrimario:   string;
-  colorSecundario: string;
-  colorAccent:     string;
-}
-
 const Configuracion = () => {
   const [searchParams] = useSearchParams();
   const validTabs      = ["cultivos", "formularios", "usuarios"];
@@ -4757,12 +5398,59 @@ const Configuracion = () => {
   const { currentClienteName } = useRole();
 
   const [showSistema, setShowSistema] = useState(false);
-  const [brandConfig, setBrandConfig] = useState<BrandConfig>({
-    nombreEmpresa:   "BlueData",
-    colorPrimario:   "#1a5c3a",
-    colorSecundario: "#40916c",
-    colorAccent:     "#d4a72d",
+
+  // ── Tema y branding ───────────────────────────────────────────────────────
+  const { theme, saveTheme, toggleDarkMode } = useTheme();
+
+  // Draft local — los cambios de color/nombre solo se aplican al hacer "Guardar"
+  const [draft, setDraft] = useState({
+    colorPrimario:   theme.colorPrimario,
+    colorSecundario: theme.colorSecundario,
+    colorAccent:     theme.colorAccent,
+    nombreEmpresa:   theme.nombreEmpresa,
   });
+  const [brandSaved, setBrandSaved] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // Resincronizar draft con el tema guardado cada vez que el Sheet se abre
+  useEffect(() => {
+    if (showSistema) {
+      setDraft({
+        colorPrimario:   theme.colorPrimario,
+        colorSecundario: theme.colorSecundario,
+        colorAccent:     theme.colorAccent,
+        nombreEmpresa:   theme.nombreEmpresa,
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSistema]);
+
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => saveTheme({ logo: reader.result as string });
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveBrand = () => {
+    saveTheme(draft);
+    setBrandSaved(true);
+    setTimeout(() => setBrandSaved(false), 2500);
+  };
+
+  const handleResetBrand = () => {
+    const defaults = {
+      colorPrimario:   DEFAULT_THEME.colorPrimario,
+      colorSecundario: DEFAULT_THEME.colorSecundario,
+      colorAccent:     DEFAULT_THEME.colorAccent,
+      nombreEmpresa:   DEFAULT_THEME.nombreEmpresa,
+    };
+    setDraft(defaults);
+    saveTheme(defaults);
+    setBrandSaved(true);
+    setTimeout(() => setBrandSaved(false), 2500);
+  };
 
   return (
     <MainLayout>
@@ -4796,28 +5484,28 @@ const Configuracion = () => {
             disabled={hasPending && activeTab !== "cultivos"}
             className="flex items-center gap-2 text-xs sm:text-sm"
           >
-            <Leaf className="w-4 h-4" /> Cultivos
+            <Leaf className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> Cultivos
           </TabsTrigger>
           <TabsTrigger
             value="formularios"
             disabled={hasPending && activeTab !== "formularios"}
             className="flex items-center gap-2 text-xs sm:text-sm"
           >
-            <Layers className="w-4 h-4" /> Formularios
+            <Layers className="w-4 h-4 text-blue-600 dark:text-blue-400" /> Formularios
           </TabsTrigger>
           <TabsTrigger
             value="empresas"
             disabled={hasPending && activeTab !== "empresas"}
             className="flex items-center gap-2 text-xs sm:text-sm"
           >
-            <Building2 className="w-4 h-4" /> Empresas
+            <Building2 className="w-4 h-4 text-violet-600 dark:text-violet-400" /> Empresas
           </TabsTrigger>
           <TabsTrigger
             value="usuarios"
             disabled={hasPending && activeTab !== "usuarios"}
             className="flex items-center gap-2 text-xs sm:text-sm"
           >
-            <Users2 className="w-4 h-4" /> Usuarios
+            <Users2 className="w-4 h-4 text-cyan-600 dark:text-cyan-400" /> Usuarios
           </TabsTrigger>
         </TabsList>
 
@@ -4865,18 +5553,63 @@ const Configuracion = () => {
               <div className="space-y-4">
                 <div>
                   <Label>Logo de la Empresa</Label>
-                  <div className="border-2 border-dashed border-border rounded-lg p-6 text-center mt-2">
-                    <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-xs text-muted-foreground mb-2">Arrastra tu logo o haz click</p>
-                    <Button variant="outline" size="sm">Seleccionar archivo</Button>
-                  </div>
+                  {/* Input oculto para el file picker */}
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleLogoChange}
+                  />
+                  {theme.logo ? (
+                    <div className="mt-2 flex items-center gap-3">
+                      <div className="relative inline-block">
+                        <img
+                          src={theme.logo}
+                          alt="Logo de la empresa"
+                          className="h-16 max-w-[180px] object-contain rounded-lg border border-border bg-muted/30 p-1"
+                        />
+                        <button
+                          onClick={() => saveTheme({ logo: null })}
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center shadow"
+                          title="Eliminar logo"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        type="button"
+                        onClick={() => logoInputRef.current?.click()}
+                      >
+                        Cambiar
+                      </Button>
+                    </div>
+                  ) : (
+                    <div
+                      className="border-2 border-dashed border-border rounded-lg p-6 text-center mt-2 cursor-pointer hover:border-primary/50 hover:bg-muted/20 transition-colors"
+                      onClick={() => logoInputRef.current?.click()}
+                    >
+                      <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                      <p className="text-xs text-muted-foreground mb-2">Arrastra tu logo o haz click</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); logoInputRef.current?.click(); }}
+                      >
+                        Seleccionar archivo
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="nombreEmpresa">Nombre de la Empresa</Label>
                   <Input
                     id="nombreEmpresa"
-                    value={brandConfig.nombreEmpresa}
-                    onChange={e => setBrandConfig(p => ({ ...p, nombreEmpresa: e.target.value }))}
+                    value={draft.nombreEmpresa}
+                    onChange={e => setDraft(p => ({ ...p, nombreEmpresa: e.target.value }))}
                     className="mt-2"
                   />
                 </div>
@@ -4887,8 +5620,8 @@ const Configuracion = () => {
                       <div key={key} className="flex items-center gap-3">
                         <input
                           type="color"
-                          value={brandConfig[key]}
-                          onChange={e => setBrandConfig(p => ({ ...p, [key]: e.target.value }))}
+                          value={draft[key]}
+                          onChange={e => setDraft(p => ({ ...p, [key]: e.target.value }))}
                           className="w-9 h-9 rounded-md cursor-pointer border border-border shrink-0"
                         />
                         <div className="flex-1 min-w-0">
@@ -4896,8 +5629,8 @@ const Configuracion = () => {
                             {["Color Primario", "Color Secundario", "Color de Acento"][i]}
                           </p>
                           <Input
-                            value={brandConfig[key]}
-                            onChange={e => setBrandConfig(p => ({ ...p, [key]: e.target.value }))}
+                            value={draft[key]}
+                            onChange={e => setDraft(p => ({ ...p, [key]: e.target.value }))}
                             className="h-8 text-sm"
                           />
                         </div>
@@ -4905,8 +5638,18 @@ const Configuracion = () => {
                     ))}
                   </div>
                 </div>
-                <div className="flex justify-end pt-2">
-                  <Button size="sm">Guardar cambios</Button>
+                <div className="flex items-center justify-between gap-2 pt-2">
+                  <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={handleResetBrand}>
+                    <RotateCcw className="w-3 h-3 mr-1" /> Restaurar
+                  </Button>
+                  <div className="flex items-center gap-2">
+                    {brandSaved && (
+                      <span className="text-xs text-emerald-600 flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Guardado
+                      </span>
+                    )}
+                    <Button size="sm" onClick={handleSaveBrand}>Guardar cambios</Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -4920,11 +5663,19 @@ const Configuracion = () => {
                 Avanzado
               </h3>
               <div className="space-y-4">
+                {/* Modo oscuro — controlado */}
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">Modo Oscuro</p>
+                    <p className="text-xs text-muted-foreground">Activar tema oscuro para la interfaz</p>
+                  </div>
+                  <Switch checked={theme.darkMode} onCheckedChange={toggleDarkMode} />
+                </div>
+                {/* Otros ajustes (sin backend aún) */}
                 {[
-                  { label: "Modo Oscuro",              desc: "Activar tema oscuro para la interfaz",       checked: false },
                   { label: "Notificaciones por Email", desc: "Recibir alertas importantes por correo",     checked: true  },
-                  { label: "Auto-guardado",             desc: "Guardar cambios automáticamente en tablas",  checked: true  },
-                  { label: "Multi-tenant activo",       desc: "Habilitar aislamiento de datos por empresa", checked: true  },
+                  { label: "Auto-guardado",            desc: "Guardar cambios automáticamente en tablas",  checked: true  },
+                  { label: "Multi-tenant activo",      desc: "Habilitar aislamiento de datos por empresa", checked: true  },
                 ].map(item => (
                   <div key={item.label} className="flex items-center justify-between gap-4">
                     <div className="min-w-0">

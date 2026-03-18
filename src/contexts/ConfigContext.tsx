@@ -27,7 +27,7 @@ interface ConfigContextType {
   definiciones:    ModDef[];
   allDefiniciones: ModDef[];                                           // sin filtro (solo super_admin)
   addDef:      (cultivoId?: string, modulo?: string, clienteIdOverride?: number, productorIdOverride?: number) => void;
-  addEvento:   (registroDefId: string, modulo: string) => void;
+  addEvento:   (registroDefId: string, modulo: string, nombre?: string, descripcion?: string) => void;
   updDef:  (rowIndex: number, key: keyof ModDef, value: unknown) => void;
   delDef:  (rowIndex: number) => void;
   dupDef:  (id: string, nombre?: string) => void;
@@ -206,13 +206,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       productor_id:     productorIdOverride ?? currentProductorId,
     }]);
 
-  const addEvento = (registroDefId: string, modulo: string) => {
+  const addEvento = (registroDefId: string, modulo: string, nombre?: string, descripcion?: string) => {
     const registro = allDefiniciones.find(d => d.id === registroDefId);
     setDefiniciones(prev => [...prev, {
       id:                 `evt-${Date.now()}`,
       tipo:               "personalizado" as const,
-      nombre:             "",
-      descripcion:        "",
+      nombre:             nombre ?? "",
+      descripcion:        descripcion ?? "",
       version:            "1.0",
       nivel_minimo:       registro?.nivel_minimo ?? 1,
       roles_excluidos:    [],
