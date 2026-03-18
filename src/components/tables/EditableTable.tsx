@@ -662,7 +662,7 @@ export function EditableTable<T extends { id: string | number }>({
   const dataIdx = (row: T) => data.findIndex(d => d.id === row.id);
 
   return (
-    <div className={cn("bg-card rounded-xl border border-border overflow-hidden", className)}>
+    <div className={cn("bg-card rounded-xl border border-border", className)}>
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border flex-wrap gap-2">
         {title && <h3 className="font-semibold text-foreground">{title}</h3>}

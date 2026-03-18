@@ -18,7 +18,7 @@ export type TipoConfig =
   | "trazabilidad"
   | "inventario"
   | "personalizado";
-export type TipoDato   = "Texto" | "Número" | "Fecha" | "Sí/No" | "Lista";
+export type TipoDato   = "Texto" | "Número" | "Fecha" | "Sí/No" | "Lista" | "Foto" | "Archivo";
 export type EstadoDef  = "activo" | "borrador" | "archivado";
 
 // ─── Parametro — Biblioteca Global ────────────────────────────────────────────
@@ -155,6 +155,10 @@ export interface ModParam {
   filtrable_busqueda?:       boolean;
   /** Permite ordenar la columna ascendente / descendente al hacer clic en el header */
   ordenable?:                boolean;
+  /** Fuente de datos del campo. "manual" = entrada del usuario (default), "ia" = llenado automático por IA, "ia_editable" = IA sugiere pero el usuario puede corregir */
+  fuente_datos?:             "manual" | "ia" | "ia_editable";
+  /** Instrucción para la IA: qué dato debe extraer del input (foto, texto, etc.). Ej: "Identificar plagas visibles en la imagen" */
+  ia_instruccion?:           string;
 }
 
 // ─── ModDato — Datos_registro ─────────────────────────────────────────────────
@@ -569,6 +573,8 @@ export const tipoDatoInputType: Record<TipoDato, string> = {
   Fecha:   "date",
   "Sí/No": "text",
   Lista:   "text",
+  Foto:    "file",
+  Archivo: "file",
 };
 
 export const tipoBadgeColor: Record<TipoConfig, string> = {

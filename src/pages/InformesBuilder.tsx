@@ -64,6 +64,10 @@ import {
   Plus,
   Pencil,
   GripVertical,
+  Calculator,
+  FunctionSquare,
+  Link2,
+  Sigma,
 } from "lucide-react";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -88,6 +92,15 @@ interface FuenteInfo {
   id: string;
   label: string;
   campos: CampoInfo[];
+}
+
+interface CampoCalculado {
+  id: string;
+  label: string;
+  operacion: "/" | "+" | "-" | "*" | "pct";
+  campoA: string;  // "FUENTE_ID:campo_id"
+  campoB: string;  // "FUENTE_ID:campo_id"
+  unidad?: string;
 }
 
 export interface PlantillaConfig {
@@ -116,6 +129,7 @@ export interface GraficoBloque {
   mostrarLeyenda: boolean;
   mostrarGrid: boolean;
   mostrarTooltip: boolean;
+  camposCalculados?: CampoCalculado[];
 }
 
 export interface TablaBloque {
@@ -125,6 +139,7 @@ export interface TablaBloque {
   moduloActivo: string;
   fuentesSeleccionadas: string[];
   columnas: string[];
+  camposCalculados?: CampoCalculado[];
 }
 
 export type ReporteBloque = GraficoBloque | TablaBloque;
@@ -486,6 +501,7 @@ function createDefaultGrafico(num: number): GraficoBloque {
     mostrarLeyenda: true,
     mostrarGrid: true,
     mostrarTooltip: true,
+    camposCalculados: [],
   };
 }
 
@@ -497,6 +513,7 @@ function createDefaultTabla(num: number): TablaBloque {
     moduloActivo: "Cosecha",
     fuentesSeleccionadas: ["REGISTRO_COSECHA"],
     columnas: ["semana", "kg_cosechados", "horas_trabajadas", "rendimiento_kg_hr"],
+    camposCalculados: [],
   };
 }
 
@@ -766,12 +783,19 @@ function LiveChart({
 function GraficoBloqueView({ bloque, colors }: { bloque: GraficoBloque; colors: string[] }) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes), []);
 
-  const camposDisponibles = useMemo(() => {
+  const camposDisponibles = useMemo((): CampoInfo[] => {
     const selected = allFuentes.filter((f) => bloque.fuentesSeleccionadas.includes(f.id));
     const all = selected.flatMap((f) => f.campos);
     const seen = new Set<string>();
-    return all.filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
-  }, [bloque.fuentesSeleccionadas, allFuentes]);
+    const base = all.filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
+    const calcFields: CampoInfo[] = (bloque.camposCalculados ?? []).map(cc => ({
+      id: cc.id,
+      label: cc.label || "Cálculo",
+      tipo: "metrica" as const,
+      unidad: cc.unidad,
+    }));
+    return [...base, ...calcFields];
+  }, [bloque.fuentesSeleccionadas, bloque.camposCalculados, allFuentes]);
 
   const metricsDisp = camposDisponibles.filter((c) => c.tipo === "metrica");
   const dimensiones = camposDisponibles.filter((c) => c.tipo === "dimension");
@@ -815,12 +839,19 @@ function GraficoBloqueView({ bloque, colors }: { bloque: GraficoBloque; colors: 
 function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: string[] }) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes), []);
 
-  const camposDisponibles = useMemo(() => {
+  const camposDisponibles = useMemo((): CampoInfo[] => {
     const selected = allFuentes.filter((f) => bloque.fuentesSeleccionadas.includes(f.id));
     const all = selected.flatMap((f) => f.campos);
     const seen = new Set<string>();
-    return all.filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
-  }, [bloque.fuentesSeleccionadas, allFuentes]);
+    const base = all.filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
+    const calcFields: CampoInfo[] = (bloque.camposCalculados ?? []).map(cc => ({
+      id: cc.id,
+      label: cc.label || "Cálculo",
+      tipo: "metrica" as const,
+      unidad: cc.unidad,
+    }));
+    return [...base, ...calcFields];
+  }, [bloque.fuentesSeleccionadas, bloque.camposCalculados, allFuentes]);
 
   const cols = useMemo(() => {
     if (bloque.columnas.length > 0) {
@@ -904,56 +935,184 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
 // ─── FuenteSelector — shared module/fuente picker for block editor ────────────
 
 interface FuenteSelectorProps {
-  moduloActivo: string;
   fuentesSeleccionadas: string[];
-  onModuloChange: (m: string) => void;
   onFuenteToggle: (id: string) => void;
 }
-function FuenteSelector({ moduloActivo, fuentesSeleccionadas, onModuloChange, onFuenteToggle }: FuenteSelectorProps) {
+function FuenteSelector({ fuentesSeleccionadas, onFuenteToggle }: FuenteSelectorProps) {
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(Object.keys(MODULOS_FUENTES)));
   return (
-    <>
-      <div className="flex flex-wrap gap-1.5">
-        {Object.entries(MODULOS_FUENTES).map(([modulo, { icon: MIcon, color }]) => (
-          <button
-            key={modulo}
-            onClick={() => onModuloChange(modulo)}
-            className={cn(
-              "flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-full border transition-all",
-              moduloActivo === modulo
-                ? "bg-foreground text-background border-foreground"
-                : "border-border text-muted-foreground hover:border-foreground/40",
-            )}
-          >
-            <MIcon className={cn("w-3 h-3", moduloActivo === modulo ? "" : color)} />
-            {modulo}
-          </button>
-        ))}
-      </div>
-      <div className="space-y-1">
-        {(MODULOS_FUENTES[moduloActivo]?.fuentes ?? []).map((fuente) => {
-          const isOn = fuentesSeleccionadas.includes(fuente.id);
-          return (
+    <div className="space-y-2">
+      {Object.entries(MODULOS_FUENTES).map(([modulo, { icon: MIcon, color, fuentes }]) => {
+        const isOpen = expanded.has(modulo);
+        const selectedCount = fuentes.filter(f => fuentesSeleccionadas.includes(f.id)).length;
+        return (
+          <div key={modulo} className="rounded-lg border border-border overflow-hidden">
             <button
-              key={fuente.id}
-              onClick={() => onFuenteToggle(fuente.id)}
-              className={cn(
-                "w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-all",
-                isOn ? "bg-primary/5 border-primary/40 shadow-sm" : "border-border hover:border-primary/20 hover:bg-muted/30",
-              )}
+              type="button"
+              onClick={() => setExpanded(prev => { const n = new Set(prev); if (n.has(modulo)) n.delete(modulo); else n.add(modulo); return n; })}
+              className="w-full flex items-center gap-2 px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
             >
-              <div className={cn("w-4 h-4 rounded flex items-center justify-center shrink-0", isOn ? "bg-primary" : "border border-muted-foreground/30")}>
-                {isOn && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold">{fuente.label}</p>
-                <p className="text-[10px] font-mono text-muted-foreground">{fuente.id}</p>
-              </div>
-              <span className="text-[9px] text-muted-foreground shrink-0">{fuente.campos.length} campos</span>
+              <MIcon className={cn("w-3.5 h-3.5 shrink-0", color)} />
+              <span className="text-xs font-semibold flex-1 truncate">{modulo}</span>
+              {selectedCount > 0 && (
+                <span className="text-[9px] font-bold bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full shrink-0">
+                  {selectedCount}
+                </span>
+              )}
+              <ChevronDown className={cn("w-3 h-3 text-muted-foreground transition-transform shrink-0", isOpen && "rotate-180")} />
             </button>
-          );
-        })}
-      </div>
-    </>
+            {isOpen && (
+              <div className="divide-y divide-border/50">
+                {fuentes.map(fuente => {
+                  const isOn = fuentesSeleccionadas.includes(fuente.id);
+                  return (
+                    <button key={fuente.id} type="button" onClick={() => onFuenteToggle(fuente.id)}
+                      className={cn("w-full flex items-center gap-2 px-3 py-2 text-left transition-colors",
+                        isOn ? "bg-primary/5" : "hover:bg-muted/20")}
+                    >
+                      <div className={cn("w-4 h-4 rounded flex items-center justify-center shrink-0",
+                        isOn ? "bg-primary" : "border border-muted-foreground/30")}>
+                        {isOn && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium">{fuente.label}</p>
+                        <p className="text-[9px] font-mono text-muted-foreground">{fuente.id}</p>
+                      </div>
+                      <span className="text-[9px] text-muted-foreground border border-border/60 rounded px-1 py-0.5 shrink-0">
+                        {fuente.campos.length} campos
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── CamposCalculadosEditor — define cross-module calculated fields ────────────
+
+// Helper: resolve "FUENTE_ID:campo_id" → label
+function resolveFieldLabel(token: string): string {
+  if (!token) return "—";
+  const [fuenteId, campoId] = token.split(":");
+  const allFuentes = Object.values(MODULOS_FUENTES).flatMap(m => m.fuentes);
+  const fuente = allFuentes.find(f => f.id === fuenteId);
+  const campo = fuente?.campos.find(c => c.id === campoId);
+  return campo ? `${fuente?.label ?? fuenteId} · ${campo.label}` : token;
+}
+
+const OP_OPTIONS: Array<{ value: CampoCalculado["operacion"]; label: string; symbol: string }> = [
+  { value: "/",   label: "Ratio (A ÷ B)",       symbol: "÷" },
+  { value: "+",   label: "Suma (A + B)",         symbol: "+" },
+  { value: "-",   label: "Diferencia (A − B)",   symbol: "−" },
+  { value: "*",   label: "Producto (A × B)",     symbol: "×" },
+  { value: "pct", label: "Porcentaje (A/B×100)", symbol: "%" },
+];
+
+interface CamposCalculadosEditorProps {
+  camposCalculados: CampoCalculado[];
+  fuentesSeleccionadas: string[];
+  onChange: (calcs: CampoCalculado[]) => void;
+}
+function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChange }: CamposCalculadosEditorProps) {
+  const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap(m => m.fuentes), []);
+
+  // Build a flat list of available field tokens from selected sources
+  const availableFields = useMemo(() => {
+    return fuentesSeleccionadas.flatMap(fId => {
+      const fuente = allFuentes.find(f => f.id === fId);
+      if (!fuente) return [];
+      return fuente.campos
+        .filter(c => c.tipo === "metrica")
+        .map(c => ({ token: `${fId}:${c.id}`, label: `${fuente.label} · ${c.label}`, unidad: c.unidad }));
+    });
+  }, [fuentesSeleccionadas, allFuentes]);
+
+  const addCalculo = () => {
+    const newCalc: CampoCalculado = {
+      id: `calc_${Date.now()}`,
+      label: `Cálculo ${camposCalculados.length + 1}`,
+      operacion: "/",
+      campoA: availableFields[0]?.token ?? "",
+      campoB: availableFields[1]?.token ?? availableFields[0]?.token ?? "",
+      unidad: "",
+    };
+    onChange([...camposCalculados, newCalc]);
+  };
+
+  const updCalc = (id: string, changes: Partial<CampoCalculado>) => {
+    onChange(camposCalculados.map(c => c.id === id ? { ...c, ...changes } : c));
+  };
+
+  const removeCalc = (id: string) => {
+    onChange(camposCalculados.filter(c => c.id !== id));
+  };
+
+  return (
+    <div className="space-y-2">
+      {camposCalculados.length === 0 && (
+        <p className="text-[10px] text-muted-foreground italic py-1">
+          Ningún cálculo definido. Agrega uno para combinar campos de distintas fuentes.
+        </p>
+      )}
+      {camposCalculados.map((calc, i) => (
+        <div key={calc.id} className="rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/20 p-2.5 space-y-2">
+          <div className="flex items-center gap-2">
+            <FunctionSquare className="w-3.5 h-3.5 text-violet-600 shrink-0" />
+            <span className="text-[10px] font-semibold text-violet-700 dark:text-violet-300">Campo #{i + 1}</span>
+            <input
+              value={calc.label}
+              onChange={e => updCalc(calc.id, { label: e.target.value })}
+              placeholder="Nombre del campo…"
+              className="flex-1 h-6 text-xs px-2 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <button type="button" onClick={() => removeCalc(calc.id)}
+              className="p-0.5 text-muted-foreground/50 hover:text-destructive transition-colors">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          {/* Formula row */}
+          <div className="grid grid-cols-[1fr_auto_1fr] gap-1.5 items-center">
+            <select value={calc.campoA} onChange={e => updCalc(calc.id, { campoA: e.target.value })}
+              className="h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary truncate">
+              <option value="">— Campo A —</option>
+              {availableFields.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
+            </select>
+            <select value={calc.operacion} onChange={e => updCalc(calc.id, { operacion: e.target.value as CampoCalculado["operacion"] })}
+              className="h-7 text-[10px] px-1.5 rounded border border-primary/40 bg-primary/5 text-primary font-bold focus:outline-none focus:ring-1 focus:ring-primary w-12 text-center">
+              {OP_OPTIONS.map(op => <option key={op.value} value={op.value}>{op.symbol}</option>)}
+            </select>
+            <select value={calc.campoB} onChange={e => updCalc(calc.id, { campoB: e.target.value })}
+              className="h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary truncate">
+              <option value="">— Campo B —</option>
+              {availableFields.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
+            </select>
+          </div>
+          {/* Preview + unit */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 text-[9px] text-muted-foreground bg-muted/40 rounded px-2 py-1 font-mono truncate">
+              {calc.label || "resultado"} = {resolveFieldLabel(calc.campoA).split(" · ")[1] ?? "A"} {OP_OPTIONS.find(o => o.value === calc.operacion)?.symbol ?? "÷"} {resolveFieldLabel(calc.campoB).split(" · ")[1] ?? "B"}
+            </div>
+            <input value={calc.unidad ?? ""} onChange={e => updCalc(calc.id, { unidad: e.target.value })}
+              placeholder="ud."
+              className="w-16 h-6 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary text-center font-mono" />
+          </div>
+        </div>
+      ))}
+      <button type="button" onClick={addCalculo} disabled={availableFields.length < 2}
+        className={cn("w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-dashed text-xs font-medium transition-all",
+          availableFields.length < 2
+            ? "border-border/40 text-muted-foreground/40 cursor-not-allowed"
+            : "border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20 hover:border-violet-400")}>
+        <Calculator className="w-3.5 h-3.5" />
+        + Agregar cálculo cruzado
+        {availableFields.length < 2 && <span className="text-[9px] ml-1">(selecciona ≥2 fuentes con métricas)</span>}
+      </button>
+    </div>
   );
 }
 
@@ -1068,13 +1227,21 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
   // Derived state for the selected block's editor
   const selectedBloque = config.bloques.find((b) => b.id === selectedBloqueId) ?? null;
 
-  const selectedCampos = useMemo(() => {
+  const selectedCampos = useMemo((): CampoInfo[] => {
     if (!selectedBloque) return [];
     const allFuentes = Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes);
     const selected = allFuentes.filter((f) => selectedBloque.fuentesSeleccionadas.includes(f.id));
     const all = selected.flatMap((f) => f.campos);
     const seen = new Set<string>();
-    return all.filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
+    const base = all.filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
+    // Add calculated fields as metrics
+    const calcFields: CampoInfo[] = (selectedBloque.camposCalculados ?? []).map(cc => ({
+      id: cc.id,
+      label: cc.label || `Cálculo`,
+      tipo: "metrica" as const,
+      unidad: cc.unidad,
+    }));
+    return [...base, ...calcFields];
   }, [selectedBloque]);
 
   const selectedDimensiones = selectedCampos.filter((c) => c.tipo === "dimension");
@@ -1303,14 +1470,37 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                     <div className="space-y-2">
                       <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
                         <Database className="w-3 h-3" /> Fuentes de datos
+                        {selectedBloque.fuentesSeleccionadas.length > 0 && (
+                          <span className="ml-auto text-[9px] font-normal normal-case text-muted-foreground">
+                            {selectedBloque.fuentesSeleccionadas.length} seleccionada{selectedBloque.fuentesSeleccionadas.length !== 1 ? "s" : ""}
+                          </span>
+                        )}
                       </Label>
                       <FuenteSelector
-                        moduloActivo={selectedBloque.moduloActivo}
                         fuentesSeleccionadas={selectedBloque.fuentesSeleccionadas}
-                        onModuloChange={(m) => updBloque(selectedBloque.id, { moduloActivo: m })}
                         onFuenteToggle={(id) => toggleFuenteBloque(selectedBloque.id, id)}
                       />
                     </div>
+
+                    {/* Cálculos cruzados */}
+                    {selectedBloque.fuentesSeleccionadas.length > 0 && (
+                      <div className="space-y-2">
+                        <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                          <Calculator className="w-3 h-3 text-violet-500" />
+                          <span className="text-violet-700 dark:text-violet-300">Cálculos cruzados</span>
+                          {(selectedBloque.camposCalculados?.length ?? 0) > 0 && (
+                            <span className="ml-auto text-[9px] font-normal normal-case text-violet-500">
+                              {selectedBloque.camposCalculados!.length} definido{selectedBloque.camposCalculados!.length !== 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </Label>
+                        <CamposCalculadosEditor
+                          camposCalculados={selectedBloque.camposCalculados ?? []}
+                          fuentesSeleccionadas={selectedBloque.fuentesSeleccionadas}
+                          onChange={(calcs) => updBloque(selectedBloque.id, { camposCalculados: calcs })}
+                        />
+                      </div>
+                    )}
 
                     {/* Gráfico: Dimensión y métricas */}
                     {selectedGrafico && selectedCampos.length > 0 && (

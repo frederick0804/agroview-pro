@@ -84,14 +84,14 @@ export function applyTheme(theme: ThemeConfig): void {
     const sS = Math.min(s, 45); // cap saturación para evitar colores muy vivos
     if (theme.darkMode) {
       root.style.setProperty("--sidebar-background",        `${h} ${Math.min(sS, 25)}% 6%`);
-      root.style.setProperty("--sidebar-accent",            `${h} 20% 14%`);
-      root.style.setProperty("--sidebar-border",            `${h} 15% 17%`);
-      root.style.setProperty("--sidebar-muted",             `${h} 15% 24%`);
+      root.style.setProperty("--sidebar-accent",            `${h} ${Math.min(sS, 20)}% 14%`);
+      root.style.setProperty("--sidebar-border",            `${h} ${Math.min(sS, 15)}% 17%`);
+      root.style.setProperty("--sidebar-muted",             `${h} ${Math.min(sS, 15)}% 24%`);
     } else {
       root.style.setProperty("--sidebar-background",        `${h} ${sS}% 18%`);
-      root.style.setProperty("--sidebar-accent",            `${h} 35% 25%`);
-      root.style.setProperty("--sidebar-border",            `${h} 30% 25%`);
-      root.style.setProperty("--sidebar-muted",             `${h} 20% 35%`);
+      root.style.setProperty("--sidebar-accent",            `${h} ${Math.min(sS + 10, 35)}% 25%`);
+      root.style.setProperty("--sidebar-border",            `${h} ${Math.min(sS + 5, 30)}% 25%`);
+      root.style.setProperty("--sidebar-muted",             `${h} ${Math.min(sS, 20)}% 35%`);
     }
     // Items activos del sidebar — usa el primario directo
     root.style.setProperty("--sidebar-primary",             hsl);

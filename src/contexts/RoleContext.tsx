@@ -38,6 +38,8 @@ export interface HardcodedUser {
   clienteId?: number;
   productorId?: number;
   area_asignada?: string;
+  /** For supervisor: which specific form definition IDs they can access */
+  definiciones_asignadas?: string[];
   activo?: boolean;
 }
 
@@ -80,6 +82,13 @@ export interface UserPermissionOverride {
   createdAt: string;
 }
 
+// ─── Módulos "operativos" — los que se restringen por area_asignada ───────────
+// dashboard, informes, configuracion, gestion-usuarios están fuera de este filtro.
+const AREA_MODULES = [
+  "laboratorio", "vivero", "cultivo", "cosecha",
+  "post-cosecha", "produccion", "recursos-humanos", "comercial",
+] as const;
+
 // 6 usuarios demo — uno por rol
 export const INITIAL_USERS: HardcodedUser[] = [
   {
@@ -106,9 +115,8 @@ export const INITIAL_USERS: HardcodedUser[] = [
     email: "productor@agroworkin.com",
     password: "prod123",
     role: "productor",
-    modulo: "cultivo",
     clienteId: 1,
-    productorId: 1, // Fundo Los Andes
+    productorId: 1, // Fundo Los Andes — acceso completo a sus módulos
     activo: true,
   },
   {
@@ -118,6 +126,7 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "jefe123",
     role: "jefe_area",
     clienteId: 1,
+    area_asignada: "cultivo", // solo Cultivo
     activo: true,
   },
   {
@@ -127,6 +136,8 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "sup123",
     role: "supervisor",
     clienteId: 1,
+    area_asignada: "cultivo", // solo Cultivo
+    // definiciones_asignadas se puede configurar para limitar formularios
     activo: true,
   },
   {
@@ -136,6 +147,7 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "lector123",
     role: "lector",
     clienteId: 2, // Frutas del Valle
+    area_asignada: "vivero", // solo Vivero, solo lectura
     activo: true,
   },
 ];
@@ -158,7 +170,7 @@ export const hardcodedUsers = INITIAL_USERS;
 export const ACTIONS_BY_ROLE: Record<UserRole, ActionPermission[]> = {
   super_admin:   ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
   cliente_admin: ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
-  productor:     ["ver", "crear", "editar"],
+  productor:     ["ver", "crear", "editar", "configurar"],
   jefe_area:     ["ver", "crear", "editar", "exportar"],
   supervisor:    ["ver", "crear"],
   lector:        ["ver"],
@@ -231,6 +243,10 @@ interface RoleContextType {
   hasPermission: (modulo: string, accion: ActionPermission) => boolean;
   getModulePermissions: (modulo: string) => ActionPermission[];
   canAccessSection: (nivelMinimo: number, rolesExcluidos?: UserRole[]) => boolean;
+  /** Check if current user can access a given module at all */
+  canAccessModule: (modulo: string) => boolean;
+  /** Get list of module keys the current user can access */
+  getAccessibleModules: () => string[];
   // Permisos personalizados por usuario (§6)
   permissionOverrides: UserPermissionOverride[];
   addOverride: (override: Omit<UserPermissionOverride, "id" | "createdAt">) => void;
@@ -305,8 +321,38 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // §6.2 Prioridad: permiso personalizado > permiso del rol > denegado
+  // ─── Module access logic ─────────────────────────────────────────────────────
+  // Roles with area_asignada (jefe_area, supervisor, lector) can only access
+  // their assigned module. Dashboard is always accessible.
+  // super_admin, cliente_admin, productor → access all modules.
+  const canAccessModule = (modulo: string): boolean => {
+    // Dashboard siempre accesible
+    if (modulo === "dashboard") return true;
+    // super_admin → todo
+    if (role === "super_admin") return true;
+    // cliente_admin → todo de su empresa
+    if (role === "cliente_admin") return true;
+    // productor → todo de su scope (como un mini cliente_admin)
+    if (role === "productor") return true;
+    // jefe_area, supervisor, lector → solo area_asignada
+    const area = currentUser?.area_asignada;
+    if (!area) return true; // sin restricción si no tiene area asignada
+    // Módulos no-operativos: configuracion solo para roles altos, informes filtrado
+    if (modulo === "configuracion") return role === "jefe_area"; // jefe puede ver config de su área
+    if (modulo === "gestion-usuarios") return false;
+    if (modulo === "informes") return true; // informes filtrado por área en la vista
+    // Check: ¿es el módulo asignado?
+    return modulo === area;
+  };
+
+  const getAccessibleModules = (): string[] => {
+    return _ALL_MODULE_KEYS.filter(m => canAccessModule(m));
+  };
+
+  // §6.2 Prioridad: módulo accesible > permiso personalizado > permiso del rol > denegado
   const hasPermission = (modulo: string, accion: ActionPermission): boolean => {
+    // Paso 0: ¿Tiene acceso al módulo?
+    if (!canAccessModule(modulo)) return false;
     // Paso 1: ¿Existe un permiso personalizado para este usuario?
     if (currentUser) {
       const override = permissionOverrides.find(
@@ -320,6 +366,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   };
 
   const getModulePermissions = (modulo: string): ActionPermission[] => {
+    if (!canAccessModule(modulo)) return [];
     return rolePermissions[role]?.[modulo] ?? [];
   };
 
@@ -427,6 +474,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         hasPermission,
         getModulePermissions,
         canAccessSection,
+        canAccessModule,
+        getAccessibleModules,
         permissionOverrides,
         addOverride,
         removeOverride,

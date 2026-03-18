@@ -19,63 +19,63 @@ import { useRole, ROLE_LEVELS } from "@/contexts/RoleContext";
 interface ConfigContextType {
   // ── Biblioteca global de parámetros (Parametros) ──
   parametrosLib: Parametro[];
-  addParamLib:   (p?: Partial<Parametro>) => Parametro;
-  updParamLib:   (id: string, key: keyof Parametro, value: unknown) => void;
-  delParamLib:   (id: string) => void;
+  addParamLib: (p?: Partial<Parametro>) => Parametro;
+  updParamLib: (id: string, key: keyof Parametro, value: unknown) => void;
+  delParamLib: (id: string) => void;
 
   // ── Definiciones (Definicion_registro) ──
-  definiciones:    ModDef[];
+  definiciones: ModDef[];
   allDefiniciones: ModDef[];                                           // sin filtro (solo super_admin)
-  addDef:      (cultivoId?: string, modulo?: string, clienteIdOverride?: number, productorIdOverride?: number) => void;
-  addEvento:   (registroDefId: string, modulo: string, nombre?: string, descripcion?: string) => void;
-  updDef:  (rowIndex: number, key: keyof ModDef, value: unknown) => void;
-  delDef:  (rowIndex: number) => void;
-  dupDef:  (id: string, nombre?: string) => void;
+  addDef: (cultivoId?: string, modulo?: string, clienteIdOverride?: number, productorIdOverride?: number) => void;
+  addEvento: (registroDefId: string, modulo: string, nombre?: string, descripcion?: string) => void;
+  updDef: (rowIndex: number, key: keyof ModDef, value: unknown) => void;
+  delDef: (rowIndex: number) => void;
+  dupDef: (id: string, nombre?: string) => void;
   copyDefToClient: (sourceDefId: string, targetClienteId: number) => void;
 
   // ── Campos (Campos_configurados) ──
-  parametros:   ModParam[];
-  addPar:       (defId: string, parametroId?: string, nombre?: string) => void;
-  updParByIdx:  (absIdx: number, key: keyof ModParam, value: unknown) => void;
-  updParFull:   (id: string, updated: Partial<ModParam>) => void;
-  delParByIdx:  (absIdx: number) => void;
+  parametros: ModParam[];
+  addPar: (defId: string, parametroId?: string, nombre?: string) => void;
+  updParByIdx: (absIdx: number, key: keyof ModParam, value: unknown) => void;
+  updParFull: (id: string, updated: Partial<ModParam>) => void;
+  delParByIdx: (absIdx: number) => void;
 
   // ── Datos (Datos_registro) ──
-  datos:   ModDato[];
+  datos: ModDato[];
   addDato: (defId: string, cultivoId?: string) => ModDato;
   updDato: (id: string, updated: ModDato) => void;
   delDato: (id: string) => void;
 
   // ── Cultivos ──
-  cultivos:             Cultivo[];                                  // filtrados por cliente/productor activo
-  allCultivos:          Cultivo[];                                  // sin filtro (solo super_admin los ve todos)
-  addCultivo:           (partial?: Partial<Cultivo>) => void;
-  updCultivo:           (id: string, key: keyof Cultivo, value: unknown) => void;
-  updCultivoClientes:   (id: string, clienteIds: number[]) => void;
-  updCultivoProductores:(id: string, productorIds: number[]) => void;
-  delCultivo:           (id: string) => void;
+  cultivos: Cultivo[];                                  // filtrados por cliente/productor activo
+  allCultivos: Cultivo[];                                  // sin filtro (solo super_admin los ve todos)
+  addCultivo: (partial?: Partial<Cultivo>) => void;
+  updCultivo: (id: string, key: keyof Cultivo, value: unknown) => void;
+  updCultivoClientes: (id: string, clienteIds: number[]) => void;
+  updCultivoProductores: (id: string, productorIds: number[]) => void;
+  delCultivo: (id: string) => void;
 
   // ── Variedades (CAT_VARIEDADES) ──
-  variedades:             Variedad[];                                  // filtradas por cliente activo
-  allVariedades:          Variedad[];                                  // sin filtro (solo super_admin)
-  addVariedad:            (cultivoId: string) => void;
-  addVariedadFull:        (cultivoId: string, nombre: string, codigo: string) => void;
-  updVariedad:            (id: string, key: keyof Variedad, value: unknown) => void;
-  updVariedadClientes:    (id: string, clienteIds: number[]) => void;
+  variedades: Variedad[];                                  // filtradas por cliente activo
+  allVariedades: Variedad[];                                  // sin filtro (solo super_admin)
+  addVariedad: (cultivoId: string) => void;
+  addVariedadFull: (cultivoId: string, nombre: string, codigo: string) => void;
+  updVariedad: (id: string, key: keyof Variedad, value: unknown) => void;
+  updVariedadClientes: (id: string, clienteIds: number[]) => void;
   updVariedadProductores: (id: string, productorIds: number[]) => void;
-  delVariedad:            (id: string) => void;
+  delVariedad: (id: string) => void;
 
   // ── Historial de versiones (Snapshots) ──
-  snapshots:       DefSnapshot[];
+  snapshots: DefSnapshot[];
   getDefSnapshots: (defId: string) => DefSnapshot[];
-  createSnapshot:  (defId: string, cambio: string) => void;
+  createSnapshot: (defId: string, cambio: string) => void;
 
   // ── Accesos por usuario por definición ──
-  definicionAccesos:      DefinicionAccesoUsuario[];
-  getDefAccesos:          (defId: string) => DefinicionAccesoUsuario[];
-  getUserDefAcceso:       (defId: string, userId: number) => DefinicionAccesoUsuario | undefined;
-  addDefAcceso:           (acceso: Omit<DefinicionAccesoUsuario, "id" | "created_at">) => void;
-  removeDefAcceso:        (id: string) => void;
+  definicionAccesos: DefinicionAccesoUsuario[];
+  getDefAccesos: (defId: string) => DefinicionAccesoUsuario[];
+  getUserDefAcceso: (defId: string, userId: number) => DefinicionAccesoUsuario | undefined;
+  addDefAcceso: (acceso: Omit<DefinicionAccesoUsuario, "id" | "created_at">) => void;
+  removeDefAcceso: (id: string) => void;
 
   // ── Bloqueo de navegación ──
   hasPendingChanges: boolean;
@@ -93,13 +93,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const currentProductorId = currentUser?.productorId;
 
   const [parametrosLib, setParametrosLib] = useState<Parametro[]>(PARAMETROS_LIBRARY);
-  const [allDefiniciones,  setDefiniciones]  = useState<ModDef[]>(DEFINICIONES);
-  const [allParametros,    setParametros]    = useState<ModParam[]>(PARAMETROS);
-  const [allDatos,         setDatos]         = useState<ModDato[]>(DATOS_DEMO);
+  const [allDefiniciones, setDefiniciones] = useState<ModDef[]>(DEFINICIONES);
+  const [allParametros, setParametros] = useState<ModParam[]>(PARAMETROS);
+  const [allDatos, setDatos] = useState<ModDato[]>(DATOS_DEMO);
   // ⚠️ Renamed to avoid conflict with the filtered useMemo `cultivos` below
-  const [rawCultivos,   setCultivos]   = useState<Cultivo[]>(CULTIVOS);
+  const [rawCultivos, setCultivos] = useState<Cultivo[]>(CULTIVOS);
   const [rawVariedades, setVariedades] = useState<Variedad[]>(VARIEDADES);
-  const [snapshots,         setSnapshots]         = useState<DefSnapshot[]>(SNAPSHOTS_DEMO);
+  const [snapshots, setSnapshots] = useState<DefSnapshot[]>(SNAPSHOTS_DEMO);
   const [definicionAccesos, setDefinicionAccesos] = useState<DefinicionAccesoUsuario[]>(ACCESOS_DEFINICION_DEMO);
   const [hasPendingChanges, setHasPendingChanges] = useState(false);
 
@@ -167,14 +167,14 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   const addParamLib = (partial?: Partial<Parametro>): Parametro => {
     const newParam: Parametro = {
-      id:                  `p-${Date.now()}`,
-      nombre:              partial?.nombre              ?? "",
-      codigo:              partial?.codigo              ?? "",
-      tipo_dato:           partial?.tipo_dato           ?? "Texto",
-      unidad_medida:       partial?.unidad_medida       ?? "",
-      descripcion:         partial?.descripcion         ?? "",
+      id: `p-${Date.now()}`,
+      nombre: partial?.nombre ?? "",
+      codigo: partial?.codigo ?? "",
+      tipo_dato: partial?.tipo_dato ?? "Texto",
+      unidad_medida: partial?.unidad_medida ?? "",
+      descripcion: partial?.descripcion ?? "",
       obligatorio_default: partial?.obligatorio_default ?? false,
-      activo:              true,
+      activo: true,
     };
     setParametrosLib(prev => [...prev, newParam]);
     return newParam;
@@ -192,37 +192,37 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   const addDef = (cultivoId?: string, modulo?: string, clienteIdOverride?: number, productorIdOverride?: number) =>
     setDefiniciones(prev => [...prev, {
-      id:               String(Date.now()),
-      tipo:             "personalizado" as const,
-      nombre:           "",
-      descripcion:      "",
-      version:          "1.0",
-      nivel_minimo:     1,
-      roles_excluidos:  [],
-      modulo:           modulo ?? "cultivo",
-      estado:           "borrador" as EstadoDef,
-      cultivo_id:       cultivoId,
-      cliente_id:       clienteIdOverride ?? currentClienteId,
-      productor_id:     productorIdOverride ?? currentProductorId,
+      id: String(Date.now()),
+      tipo: "personalizado" as const,
+      nombre: "",
+      descripcion: "",
+      version: "1.0",
+      nivel_minimo: 1,
+      roles_excluidos: [],
+      modulo: modulo ?? "cultivo",
+      estado: "borrador" as EstadoDef,
+      cultivo_id: cultivoId,
+      cliente_id: clienteIdOverride ?? currentClienteId,
+      productor_id: productorIdOverride ?? currentProductorId,
     }]);
 
   const addEvento = (registroDefId: string, modulo: string, nombre?: string, descripcion?: string) => {
     const registro = allDefiniciones.find(d => d.id === registroDefId);
     setDefiniciones(prev => [...prev, {
-      id:                 `evt-${Date.now()}`,
-      tipo:               "personalizado" as const,
-      nombre:             nombre ?? "",
-      descripcion:        descripcion ?? "",
-      version:            "1.0",
-      nivel_minimo:       registro?.nivel_minimo ?? 1,
-      roles_excluidos:    [],
+      id: `evt-${Date.now()}`,
+      tipo: "personalizado" as const,
+      nombre: nombre ?? "",
+      descripcion: descripcion ?? "",
+      version: "1.0",
+      nivel_minimo: registro?.nivel_minimo ?? 1,
+      roles_excluidos: [],
       modulo,
-      estado:             "borrador" as EstadoDef,
-      cultivo_id:         registro?.cultivo_id,
-      cliente_id:         registro?.cliente_id ?? currentClienteId,
-      productor_id:       registro?.productor_id,
-      tipo_formulario:    "evento" as const,
-      registro_padre_id:  registroDefId,
+      estado: "borrador" as EstadoDef,
+      cultivo_id: registro?.cultivo_id,
+      cliente_id: registro?.cliente_id ?? currentClienteId,
+      productor_id: registro?.productor_id,
+      tipo_formulario: "evento" as const,
+      registro_padre_id: registroDefId,
     }]);
   };
 
@@ -261,7 +261,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       const origParams = prev.filter(p => p.definicion_id === id);
       const cloned = origParams.map((p, i) => ({
         ...p,
-        id:            `${newId}-p${i}`,
+        id: `${newId}-p${i}`,
         definicion_id: newId,
       }));
       return [...prev, ...cloned];
@@ -317,13 +317,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     // Si se pasó un parametro_id, buscar el tipo_dato en la biblioteca
     const libParam = parametroId ? parametrosLib.find(p => p.id === parametroId) : undefined;
     setParametros(prev => [...prev, {
-      id:            `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       definicion_id: defId,
-      parametro_id:  parametroId,
-      nombre:        nombre || libParam?.nombre || "",
-      tipo_dato:     libParam?.tipo_dato ?? ("Texto" as TipoDato),
-      obligatorio:   libParam?.obligatorio_default ?? false,
-      orden:         count + 1,
+      parametro_id: parametroId,
+      nombre: nombre || libParam?.nombre || "",
+      tipo_dato: libParam?.tipo_dato ?? ("Texto" as TipoDato),
+      obligatorio: libParam?.obligatorio_default ?? false,
+      orden: count + 1,
     }]);
   };
 
@@ -356,12 +356,12 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     const emptyVals: Record<string, string> = {};
     params.forEach(p => { emptyVals[p.nombre] = ""; });
     const newDato: ModDato = {
-      id:            String(Date.now()),
+      id: String(Date.now()),
       definicion_id: defId,
-      cultivo_id:    cultivoId,
-      referencia:    "",
-      fecha:         new Date().toISOString().split("T")[0],
-      valores:       JSON.stringify(emptyVals),
+      cultivo_id: cultivoId,
+      referencia: "",
+      fecha: new Date().toISOString().split("T")[0],
+      valores: JSON.stringify(emptyVals),
     };
     setDatos(prev => [...prev, newDato]);
     return newDato;
@@ -377,11 +377,11 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   const addCultivo = (partial?: Partial<Cultivo>) =>
     setCultivos(prev => [...prev, {
-      id:          `c-${Date.now()}`,
-      nombre:      partial?.nombre      ?? "",
-      codigo:      partial?.codigo      ?? "",
+      id: `c-${Date.now()}`,
+      nombre: partial?.nombre ?? "",
+      codigo: partial?.codigo ?? "",
       descripcion: partial?.descripcion ?? "",
-      activo:      true,
+      activo: true,
     }]);
 
   const updCultivo = (id: string, k: keyof Cultivo, v: unknown) =>
@@ -402,22 +402,22 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   const addVariedad = (cultivoId: string) =>
     setVariedades(prev => [...prev, {
-      id:          `v-${Date.now()}`,
-      cultivo_id:  cultivoId,
-      nombre:      "",
-      codigo:      "",
+      id: `v-${Date.now()}`,
+      cultivo_id: cultivoId,
+      nombre: "",
+      codigo: "",
       descripcion: "",
-      activo:      true,
+      activo: true,
     }]);
 
   const addVariedadFull = (cultivoId: string, nombre: string, codigo: string) =>
     setVariedades(prev => [...prev, {
-      id:          `v-${Date.now()}`,
-      cultivo_id:  cultivoId,
+      id: `v-${Date.now()}`,
+      cultivo_id: cultivoId,
       nombre,
-      codigo:      codigo.toUpperCase(),
+      codigo: codigo.toUpperCase(),
       descripcion: "",
-      activo:      true,
+      activo: true,
     }]);
 
   const updVariedad = (id: string, k: keyof Variedad, v: unknown) =>
@@ -442,14 +442,14 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     if (!def) return;
     const campos = parametros.filter(p => p.definicion_id === defId).sort((a, b) => a.orden - b.orden);
     const snap: DefSnapshot = {
-      id:            `snap-${Date.now()}`,
+      id: `snap-${Date.now()}`,
       definicion_id: defId,
-      version:       def.version,
-      timestamp:     new Date().toISOString(),
-      usuario:       def.updated_by ?? "Admin",
+      version: def.version,
+      timestamp: new Date().toISOString(),
+      usuario: def.updated_by ?? "Admin",
       cambio,
-      definicion:    { id: def.id, tipo: def.tipo, nombre: def.nombre, descripcion: def.descripcion, version: def.version, nivel_minimo: def.nivel_minimo, modulo: def.modulo, estado: def.estado, cultivo_id: def.cultivo_id, cliente_id: def.cliente_id },
-      campos:        campos.map(c => ({ ...c })),
+      definicion: { id: def.id, tipo: def.tipo, nombre: def.nombre, descripcion: def.descripcion, version: def.version, nivel_minimo: def.nivel_minimo, modulo: def.modulo, estado: def.estado, cultivo_id: def.cultivo_id, cliente_id: def.cliente_id },
+      campos: campos.map(c => ({ ...c })),
     };
     setSnapshots(prev => [...prev, snap]);
   };
@@ -475,11 +475,11 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     <ConfigContext.Provider value={{
       parametrosLib, addParamLib, updParamLib, delParamLib,
       definiciones, allDefiniciones, addDef, addEvento, updDef, delDef, dupDef, copyDefToClient,
-      parametros,    addPar,      updParByIdx, updParFull, delParByIdx,
-      datos,         addDato,     updDato,     delDato,
-      cultivos,      allCultivos: rawCultivos, addCultivo, updCultivo, updCultivoClientes, updCultivoProductores, delCultivo,
-      variedades,    allVariedades: rawVariedades, addVariedad, addVariedadFull, updVariedad, updVariedadClientes, updVariedadProductores, delVariedad,
-      snapshots,     getDefSnapshots, createSnapshot,
+      parametros, addPar, updParByIdx, updParFull, delParByIdx,
+      datos, addDato, updDato, delDato,
+      cultivos, allCultivos: rawCultivos, addCultivo, updCultivo, updCultivoClientes, updCultivoProductores, delCultivo,
+      variedades, allVariedades: rawVariedades, addVariedad, addVariedadFull, updVariedad, updVariedadClientes, updVariedadProductores, delVariedad,
+      snapshots, getDefSnapshots, createSnapshot,
       definicionAccesos, getDefAccesos, getUserDefAcceso, addDefAcceso, removeDefAcceso,
       hasPendingChanges, setHasPendingChanges,
     }}>

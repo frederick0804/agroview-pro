@@ -1,5 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { InformesBuilder, type BuilderConfig } from "./InformesBuilder";
+import { InformeVersionDialog } from "@/components/dashboard/InformeVersionDialog";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,17 @@ import {
   Calendar,
   Mail,
   X,
+  Users,
+  User,
+  UserPlus,
+  ChevronDown,
+  Eye,
+  Pencil,
+  GitBranch,
+  RotateCcw,
+  Trash2,
+  ArrowLeftRight,
+  Copy,
 } from "lucide-react";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -87,6 +99,19 @@ interface Informe {
   cliente_id?: number;
   created_at: string;
   fuentes: string[];
+  builderConfig?: BuilderConfig;
+  versiones?: InformeSnapshot[];
+}
+
+interface InformeSnapshot {
+  id: string;
+  informe_id: string;
+  version: string;
+  timestamp: string;
+  usuario: string;
+  cambio: string;
+  nombre: string;
+  descripcion: string;
   builderConfig?: BuilderConfig;
 }
 
@@ -127,6 +152,28 @@ const INFORMES_DEMO: Informe[] = [
       "LOTE_MULTIPLICACION",
       "LOTE_ACLIMATACION",
     ],
+    versiones: [
+      {
+        id: "isnap-1",
+        informe_id: "inf-01",
+        version: "1.0",
+        timestamp: "2025-01-15T10:00:00Z",
+        usuario: "Ana García",
+        cambio: "Versión inicial",
+        nombre: "Trazabilidad de Lotes de Laboratorio",
+        descripcion: "Seguimiento completo del ciclo de vida de cada lote desde importación de material hasta salida del laboratorio. Incluye lotes de introducción, multiplicación y aclimatación con sus eventos de seguimiento.",
+      },
+      {
+        id: "isnap-2",
+        informe_id: "inf-01",
+        version: "2.0",
+        timestamp: "2025-02-20T14:30:00Z",
+        usuario: "Ana García",
+        cambio: "Ajuste de métricas y fuentes",
+        nombre: "Trazabilidad de Lotes de Laboratorio",
+        descripcion: "Seguimiento completo del ciclo de vida de cada lote desde importación de material hasta salida del laboratorio. Incluye lotes de introducción, multiplicación y aclimatación con sus eventos de seguimiento.",
+      },
+    ],
   },
   {
     id: "inf-02",
@@ -150,6 +197,28 @@ const INFORMES_DEMO: Informe[] = [
       "LOTE_ACLIMATACION",
       "RENDIMIENTO_ACLIMATACION",
       "CALIDAD_ACLIMATACION",
+    ],
+    versiones: [
+      {
+        id: "isnap-3",
+        informe_id: "inf-02",
+        version: "1.0",
+        timestamp: "2025-01-20T09:00:00Z",
+        usuario: "Roberto Silva",
+        cambio: "Versión inicial",
+        nombre: "Estado de Propagación de Material Vegetal",
+        descripcion: "Vista consolidada del estado actual de todos los lotes en propagación. Muestra tasas de multiplicación, rendimientos de aclimatación y calidad por variedad.",
+      },
+      {
+        id: "isnap-4",
+        informe_id: "inf-02",
+        version: "2.0",
+        timestamp: "2025-03-01T11:00:00Z",
+        usuario: "Roberto Silva",
+        cambio: "Ajuste de métricas y fuentes",
+        nombre: "Estado de Propagación de Material Vegetal",
+        descripcion: "Vista consolidada del estado actual de todos los lotes en propagación. Muestra tasas de multiplicación, rendimientos de aclimatación y calidad por variedad.",
+      },
     ],
   },
   {
@@ -695,11 +764,23 @@ interface InformeRowProps {
   informe: Informe;
   canAccess: boolean;
   selected: boolean;
+  canCreate?: boolean;
   onClick: () => void;
   onToggleFavorite: () => void;
+  onPreview?: () => void;
+  onEditBuilder?: () => void;
 }
 
-function InformeRow({ informe, canAccess, selected, onClick, onToggleFavorite }: InformeRowProps) {
+function InformeRow({
+  informe,
+  canAccess,
+  selected,
+  canCreate,
+  onClick,
+  onToggleFavorite,
+  onPreview,
+  onEditBuilder,
+}: InformeRowProps) {
   const cat = CATEGORIA_CONFIG[informe.categoria];
   const tipo = TIPO_CONFIG[informe.tipo_informe];
   const estado = ESTADO_CONFIG[informe.estado];
@@ -785,6 +866,34 @@ function InformeRow({ informe, canAccess, selected, onClick, onToggleFavorite }:
         )}
       </div>
 
+      {/* Quick action buttons */}
+      <div className="flex items-center gap-0.5 flex-shrink-0">
+        {onPreview && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onPreview();
+            }}
+            className="p-1 rounded hover:bg-muted/60 text-muted-foreground/40 hover:text-muted-foreground transition-colors opacity-0 group-hover:opacity-100"
+            title="Vista previa"
+          >
+            <Eye className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {canCreate && informe.builderConfig && onEditBuilder && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditBuilder();
+            }}
+            className="p-1 rounded hover:bg-muted/60 text-muted-foreground/40 hover:text-primary transition-colors opacity-0 group-hover:opacity-100"
+            title="Editar plantilla"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
       {/* Star */}
       <button
         onClick={(e) => {
@@ -807,6 +916,358 @@ function InformeRow({ informe, canAccess, selected, onClick, onToggleFavorite }:
   );
 }
 
+// ─── VersionesTabContent ──────────────────────────────────────────────────────
+
+interface VersionesTabContentProps {
+  sorted: InformeSnapshot[];
+  latestSnap?: InformeSnapshot;
+  informe: Informe;
+  onRestoreVersion?: (snap: InformeSnapshot) => void;
+  onCopyVersionAsNew?: (snap: InformeSnapshot) => void;
+  onArchiveVersion?: (snapId: string) => void;
+  onDeleteVersion?: (snapId: string) => void;
+}
+
+function VersionesTabContent({
+  sorted, latestSnap, informe,
+  onRestoreVersion, onCopyVersionAsNew, onArchiveVersion, onDeleteVersion,
+}: VersionesTabContentProps) {
+  const [diffLeftIdx, setDiffLeftIdx]   = useState<number | null>(null);
+  const [diffRightIdx, setDiffRightIdx] = useState<number | null>(null);
+  const [showPreview, setShowPreview]   = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const handleSelectForDiff = (idx: number) => {
+    if (diffLeftIdx === null) {
+      setDiffLeftIdx(idx);
+    } else if (diffRightIdx === null && idx !== diffLeftIdx) {
+      setDiffRightIdx(idx);
+    } else {
+      // Reset and start new selection
+      setDiffLeftIdx(idx);
+      setDiffRightIdx(null);
+    }
+  };
+
+  const leftSnap  = diffLeftIdx  !== null ? sorted[diffLeftIdx]  : null;
+  const rightSnap = diffRightIdx !== null ? sorted[diffRightIdx] : null;
+
+  const cat = CATEGORIA_CONFIG[informe.categoria];
+  const tipo = TIPO_CONFIG[informe.tipo_informe];
+  const CatIcon = cat.icon;
+
+  if (sorted.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-10 text-center">
+        <div className="p-3 rounded-full bg-muted/50">
+          <GitBranch className="w-6 h-6 text-muted-foreground" />
+        </div>
+        <p className="text-sm font-medium">Sin historial de versiones</p>
+        <p className="text-xs text-muted-foreground">
+          Las versiones se crean automáticamente cada vez que guardas cambios en la plantilla.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* ── Actions bar ── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 flex-1">
+          <GitBranch className="w-3 h-3" />
+          {sorted.length} versión{sorted.length !== 1 ? "es" : ""}
+        </p>
+        {sorted.length >= 2 && (
+          <button
+            onClick={() => { setDiffLeftIdx(1); setDiffRightIdx(0); }}
+            className={cn(
+              "text-[10px] px-2 py-1 rounded-md font-medium flex items-center gap-1 transition-colors",
+              diffLeftIdx !== null ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400" : "text-muted-foreground hover:bg-muted",
+            )}
+          >
+            <ArrowLeftRight className="w-3 h-3" /> Comparar
+          </button>
+        )}
+        <button
+          onClick={() => setShowPreview(p => !p)}
+          className={cn(
+            "text-[10px] px-2 py-1 rounded-md font-medium flex items-center gap-1 transition-colors",
+            showPreview ? "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-400" : "text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <Eye className="w-3 h-3" /> Vista previa
+        </button>
+      </div>
+
+      {/* ── Timeline ── */}
+      <div className="space-y-2">
+        {sorted.map((snap, i) => {
+          const isLatest = snap.id === latestSnap?.id;
+          const isDiffLeft = diffLeftIdx === i;
+          const isDiffRight = diffRightIdx === i;
+          const bloqueCount = snap.builderConfig?.bloques?.length ?? 0;
+
+          return (
+            <div
+              key={snap.id}
+              className={cn(
+                "rounded-xl border p-3 space-y-1.5 transition-all",
+                isLatest ? "border-primary/40 bg-primary/5" : "border-border bg-card",
+                isDiffLeft && "ring-2 ring-blue-400/50",
+                isDiffRight && "ring-2 ring-green-400/50",
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <div
+                  className={cn(
+                    "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0",
+                    isLatest
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-muted text-muted-foreground border-border",
+                  )}
+                >
+                  v{snap.version}
+                </div>
+                {isLatest && (
+                  <span className="text-[9px] font-semibold text-primary uppercase tracking-wide">
+                    Actual
+                  </span>
+                )}
+                {isDiffLeft && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-300 font-bold">A</span>}
+                {isDiffRight && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-300 font-bold">B</span>}
+                <span className="flex-1" />
+                <span className="text-[10px] text-muted-foreground">
+                  {new Date(snap.timestamp).toLocaleDateString("es-CL", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </span>
+              </div>
+              <p className="text-xs font-medium">{snap.cambio}</p>
+              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                <User className="w-2.5 h-2.5" />
+                {snap.usuario}
+                {bloqueCount > 0 && (
+                  <>
+                    <span className="text-border">·</span>
+                    <span>{bloqueCount} bloque{bloqueCount !== 1 ? "s" : ""}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Actions row */}
+              <div className="flex items-center gap-1 mt-1 flex-wrap">
+                {diffLeftIdx !== null && (
+                  <button
+                    onClick={() => handleSelectForDiff(i)}
+                    className="text-[10px] text-indigo-600 hover:underline flex items-center gap-0.5"
+                  >
+                    <ArrowLeftRight className="w-2.5 h-2.5" /> Diff
+                  </button>
+                )}
+                {!isLatest && snap.builderConfig && onRestoreVersion && (
+                  <button
+                    onClick={() => onRestoreVersion(snap)}
+                    className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
+                  >
+                    <RotateCcw className="w-2.5 h-2.5" /> Restaurar
+                  </button>
+                )}
+                {onCopyVersionAsNew && (
+                  <button
+                    onClick={() => onCopyVersionAsNew(snap)}
+                    className="text-[10px] text-violet-600 hover:underline flex items-center gap-0.5"
+                  >
+                    <Copy className="w-2.5 h-2.5" /> Copiar
+                  </button>
+                )}
+                {!isLatest && onArchiveVersion && (
+                  <button
+                    onClick={() => onArchiveVersion(snap.id)}
+                    className="text-[10px] text-amber-600 hover:underline flex items-center gap-0.5"
+                  >
+                    <Archive className="w-2.5 h-2.5" /> Archivar
+                  </button>
+                )}
+                {onDeleteVersion && (
+                  <button
+                    onClick={() => setConfirmDeleteId(snap.id)}
+                    className="text-[10px] text-destructive/60 hover:text-destructive flex items-center gap-0.5"
+                  >
+                    <Trash2 className="w-2.5 h-2.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Diff panel ── */}
+      {leftSnap && rightSnap && (
+        <div className="rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/20 p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-semibold text-indigo-700 dark:text-indigo-400 flex items-center gap-1">
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+              v{leftSnap.version} ↔ v{rightSnap.version}
+            </p>
+            <button onClick={() => { setDiffLeftIdx(null); setDiffRightIdx(null); }} className="text-muted-foreground hover:text-foreground">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          {/* Prop diffs */}
+          <div className="space-y-1.5 text-[10px]">
+            {leftSnap.nombre !== rightSnap.nombre && (
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold w-16 shrink-0">Nombre</span>
+                <span className="bg-red-50 text-red-700 px-1.5 py-0.5 rounded line-through truncate max-w-[100px]">{leftSnap.nombre}</span>
+                <span>→</span>
+                <span className="bg-green-50 text-green-700 px-1.5 py-0.5 rounded truncate max-w-[100px]">{rightSnap.nombre}</span>
+              </div>
+            )}
+            {leftSnap.descripcion !== rightSnap.descripcion && (
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold w-16 shrink-0">Desc.</span>
+                <span className="text-amber-600">Descripción modificada</span>
+              </div>
+            )}
+          </div>
+          {/* Bloques diff */}
+          {leftSnap.builderConfig && rightSnap.builderConfig && (
+            <div className="grid grid-cols-2 gap-2 text-[10px]">
+              <div className="space-y-1">
+                <p className="font-semibold text-blue-700 flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300 flex items-center justify-center text-[8px] font-bold">A</span>
+                  v{leftSnap.version} — {leftSnap.builderConfig.bloques.length} bloques
+                </p>
+                {leftSnap.builderConfig.bloques.map(b => (
+                  <div key={b.id} className="flex items-center gap-1 text-muted-foreground">
+                    {b.tipo === "grafico" ? <BarChart2 className="w-2.5 h-2.5" /> : <Table2 className="w-2.5 h-2.5" />}
+                    <span className="truncate">{b.titulo || b.tipo}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-1">
+                <p className="font-semibold text-green-700 flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full bg-green-100 border border-green-300 flex items-center justify-center text-[8px] font-bold">B</span>
+                  v{rightSnap.version} — {rightSnap.builderConfig.bloques.length} bloques
+                </p>
+                {rightSnap.builderConfig.bloques.map(b => (
+                  <div key={b.id} className="flex items-center gap-1 text-muted-foreground">
+                    {b.tipo === "grafico" ? <BarChart2 className="w-2.5 h-2.5" /> : <Table2 className="w-2.5 h-2.5" />}
+                    <span className="truncate">{b.titulo || b.tipo}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Document Preview ── */}
+      {showPreview && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border bg-gradient-to-r from-sky-50 to-indigo-50 dark:from-sky-950/30 dark:to-indigo-950/30 flex items-center justify-between">
+            <h4 className="text-xs font-semibold text-foreground flex items-center gap-2">
+              <Eye className="w-3.5 h-3.5 text-sky-600" />
+              Vista previa — {informe.nombre}
+            </h4>
+            <button onClick={() => setShowPreview(false)} className="text-muted-foreground hover:text-foreground">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="p-4 space-y-4">
+            {/* Header */}
+            <div className="text-center pb-3 border-b border-dashed border-border">
+              <div className={cn("inline-flex p-2 rounded-xl border mb-2", cat.bg, cat.border)}>
+                <CatIcon className={cn("w-5 h-5", cat.color)} />
+              </div>
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Informe</p>
+              <h3 className="text-base font-bold text-foreground">{informe.nombre}</h3>
+              <p className="text-[11px] font-mono text-muted-foreground mt-0.5">{informe.codigo}</p>
+            </div>
+
+            {/* Metadata */}
+            <div className="grid grid-cols-2 gap-2 text-[10px]">
+              <div className="flex justify-between border-b border-border pb-1">
+                <span className="text-muted-foreground">Categoría</span>
+                <span className={cn("font-medium", cat.color)}>{cat.label}</span>
+              </div>
+              <div className="flex justify-between border-b border-border pb-1">
+                <span className="text-muted-foreground">Tipo</span>
+                <span className="font-medium">{tipo.label}</span>
+              </div>
+              <div className="flex justify-between border-b border-border pb-1">
+                <span className="text-muted-foreground">Estado</span>
+                <span className="font-medium">{ESTADO_CONFIG[informe.estado].label}</span>
+              </div>
+              <div className="flex justify-between border-b border-border pb-1">
+                <span className="text-muted-foreground">Generado</span>
+                <span className="font-medium">{informe.veces_generado}x</span>
+              </div>
+            </div>
+
+            {/* Description */}
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Descripción</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">{informe.descripcion}</p>
+            </div>
+
+            {/* Fuentes */}
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Fuentes de datos ({informe.fuentes.length})</p>
+              <div className="flex flex-wrap gap-1">
+                {informe.fuentes.map(f => (
+                  <span key={f} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted border border-border text-muted-foreground">
+                    {f}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Schedule */}
+            {informe.es_programado && (
+              <div className="text-[10px] bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-2 flex items-center gap-2">
+                <Zap className="w-3 h-3 text-blue-600 shrink-0" />
+                Programado: {informe.frecuencia_programacion} {informe.hora_envio ? `a las ${informe.hora_envio}` : ""}
+              </div>
+            )}
+
+            {/* Versions summary */}
+            <div className="pt-2 border-t border-dashed border-border text-center text-[10px] text-muted-foreground">
+              {sorted.length} versión{sorted.length !== 1 ? "es" : ""}
+              {informe.ultimo_uso ? ` · Último uso: ${formatDate(informe.ultimo_uso)}` : ""}
+              {informe.created_at ? ` · Creado: ${formatDate(informe.created_at)}` : ""}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm delete overlay ── */}
+      {confirmDeleteId && (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-destructive" />
+            <p className="text-xs font-semibold">¿Eliminar esta versión?</p>
+          </div>
+          <p className="text-[10px] text-muted-foreground">Esta acción no se puede deshacer.</p>
+          <div className="flex items-center gap-2 justify-end">
+            <button onClick={() => setConfirmDeleteId(null)} className="px-3 py-1 text-[10px] rounded-md border border-border hover:bg-muted">Cancelar</button>
+            <button
+              onClick={() => { onDeleteVersion?.(confirmDeleteId); setConfirmDeleteId(null); }}
+              className="px-3 py-1 text-[10px] rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              <Trash2 className="w-3 h-3 inline mr-1" /> Eliminar
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Panel de detalle ─────────────────────────────────────────────────────────
 
 interface DetailPanelProps {
@@ -819,6 +1280,12 @@ interface DetailPanelProps {
   onClose: () => void;
   onConfigure: () => void;
   onUpdateSchedule?: (changes: Partial<Pick<Informe, "es_programado" | "frecuencia_programacion" | "hora_envio" | "destinatarios_programados" | "formato_preferido">>) => void;
+  onDeleteTemplate?: () => void;
+  onDeleteInforme?: () => void;
+  onRestoreVersion?: (snap: InformeSnapshot) => void;
+  onCopyVersionAsNew?: (snap: InformeSnapshot) => void;
+  onArchiveVersion?: (snapId: string) => void;
+  onDeleteVersion?: (snapId: string) => void;
 }
 
 function DetailPanel({
@@ -831,8 +1298,16 @@ function DetailPanel({
   onClose,
   onConfigure,
   onUpdateSchedule,
+  onDeleteTemplate,
+  onDeleteInforme,
+  onRestoreVersion,
+  onCopyVersionAsNew,
+  onArchiveVersion,
+  onDeleteVersion,
 }: DetailPanelProps) {
   const [tab, setTab] = useState("info");
+  const [showVersionDialog, setShowVersionDialog] = useState(false);
+  const [confirmDeleteInforme, setConfirmDeleteInforme] = useState(false);
   const [formato, setFormato] = useState<FormatoExport>("excel");
   const [fechaDesde, setFechaDesde] = useState(
     new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
@@ -847,9 +1322,13 @@ function DetailPanel({
     informe.frecuencia_programacion ?? "semanal",
   );
   const [schedHora, setSchedHora] = useState(informe.hora_envio ?? "08:00");
-  const [schedDestinatarios, setSchedDestinatarios] = useState(
-    (informe.destinatarios_programados ?? []).join(", "),
+  const [schedDestinatarios, setSchedDestinatarios] = useState<string[]>(
+    informe.destinatarios_programados ?? [],
   );
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [showUserSearch, setShowUserSearch] = useState(false);
+  const userSearchRef = useRef<HTMLDivElement>(null);
+  const { users, currentUser } = useRole();
   const [schedFormato, setSchedFormato] = useState<FormatoExport>(informe.formato_preferido ?? "pdf");
   const [schedSaved, setSchedSaved] = useState(false);
 
@@ -878,9 +1357,7 @@ function DetailPanel({
       es_programado: schedEnabled,
       frecuencia_programacion: schedEnabled ? schedFrecuencia : undefined,
       hora_envio: schedEnabled ? schedHora : undefined,
-      destinatarios_programados: schedEnabled
-        ? schedDestinatarios.split(",").map((e) => e.trim()).filter(Boolean)
-        : [],
+      destinatarios_programados: schedEnabled ? schedDestinatarios : [],
       formato_preferido: schedEnabled ? schedFormato : undefined,
     });
     setSchedSaved(true);
@@ -960,8 +1437,8 @@ function DetailPanel({
 
       {/* Tabs */}
       <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col min-h-0">
-        <div className="mx-4 mt-3 mb-0 flex items-center gap-2">
-          <TabsList className="bg-muted h-8 p-0.5 rounded-lg flex-1">
+        <div className="mx-4 mt-3 mb-0 flex items-center gap-2 overflow-x-auto scrollbar-none">
+          <TabsList className="bg-muted h-8 p-0.5 rounded-lg shrink-0">
             <TabsTrigger value="info" className="text-xs gap-1.5 h-7 rounded-md">
               <Info className="w-3 h-3" /> Info
             </TabsTrigger>
@@ -988,16 +1465,46 @@ function DetailPanel({
                 <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
               )}
             </TabsTrigger>
+            <TabsTrigger value="versiones" className="text-xs gap-1.5 h-7 rounded-md">
+              <GitBranch className="w-3 h-3" />
+              Versiones
+              {informe.versiones && informe.versiones.length > 0 && (
+                <span className="ml-0.5 text-[9px] bg-primary/10 text-primary px-1 py-px rounded-full">
+                  {informe.versiones.length}
+                </span>
+              )}
+            </TabsTrigger>
           </TabsList>
           {canCreate && (
-            <button
-              onClick={onConfigure}
-              title="Editar configuración del informe"
-              className="h-8 px-2.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-muted/50 transition-all flex items-center gap-1.5 text-xs font-medium shrink-0"
-            >
-              <Settings2 className="w-3.5 h-3.5" />
-              Editar
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={onConfigure}
+                title="Editar configuración del informe"
+                className="h-8 px-2.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-muted/50 transition-all flex items-center gap-1.5 text-xs font-medium"
+              >
+                <Settings2 className="w-3.5 h-3.5" />
+                Editar
+              </button>
+              {informe.builderConfig && onDeleteTemplate && (
+                <button
+                  onClick={onDeleteTemplate}
+                  title="Eliminar plantilla"
+                  className="h-8 px-2 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/10 hover:border-destructive/60 transition-all flex items-center gap-1 text-xs font-medium"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {onDeleteInforme && (
+                <button
+                  onClick={() => setConfirmDeleteInforme(true)}
+                  title="Eliminar informe completo"
+                  className="h-8 px-2 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/10 hover:border-destructive/60 transition-all flex items-center gap-1 text-xs font-medium"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span className="text-[10px]">Eliminar</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -1006,6 +1513,28 @@ function DetailPanel({
           value="info"
           className="flex-1 overflow-y-auto px-5 py-4 space-y-4 mt-0"
         >
+          {/* Confirm delete informe */}
+          {confirmDeleteInforme && (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-3 animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-destructive" />
+                <p className="text-xs font-semibold">¿Eliminar este informe por completo?</p>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Se eliminará «{informe.nombre}» y todas sus versiones. Esta acción no se puede deshacer.
+              </p>
+              <div className="flex items-center gap-2 justify-end">
+                <button onClick={() => setConfirmDeleteInforme(false)} className="px-3 py-1.5 text-[10px] rounded-md border border-border hover:bg-muted font-medium">Cancelar</button>
+                <button
+                  onClick={() => { onDeleteInforme?.(); setConfirmDeleteInforme(false); }}
+                  className="px-3 py-1.5 text-[10px] rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 font-medium flex items-center gap-1"
+                >
+                  <Trash2 className="w-3 h-3" /> Eliminar informe
+                </button>
+              </div>
+            </div>
+          )}
+
           <div>
             <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
               Descripción
@@ -1381,20 +1910,218 @@ function DetailPanel({
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                    <Mail className="w-3 h-3" /> Destinatarios
-                  </Label>
-                  <textarea
-                    value={schedDestinatarios}
-                    onChange={(e) => setSchedDestinatarios(e.target.value)}
-                    disabled={!schedEnabled}
-                    placeholder={"email1@empresa.com\nemail2@empresa.com"}
-                    rows={3}
-                    className="w-full text-xs px-2 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary resize-none"
-                  />
-                  <p className="text-[10px] text-muted-foreground">Un email por línea o separados por coma.</p>
-                </div>
+                {/* ── Destinatarios builder ── */}
+                {(() => {
+                  // Role config: label, icon color, bg
+                  const ROLES_DISPONIBLES: Array<{ key: string; label: string; singular: string; color: string; bg: string; border: string }> = [
+                    { key: "supervisor",    label: "Supervisores",     singular: "Supervisor",    color: "text-blue-700 dark:text-blue-300",    bg: "bg-blue-50 dark:bg-blue-950/30",   border: "border-blue-200 dark:border-blue-800" },
+                    { key: "jefe_area",     label: "Jefes de área",    singular: "Jefe de área",  color: "text-violet-700 dark:text-violet-300", bg: "bg-violet-50 dark:bg-violet-950/30", border: "border-violet-200 dark:border-violet-800" },
+                    { key: "productor",     label: "Productores",      singular: "Productor",     color: "text-emerald-700 dark:text-emerald-300", bg: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-200 dark:border-emerald-800" },
+                    { key: "cliente_admin", label: "Admins empresa",   singular: "Admin empresa", color: "text-amber-700 dark:text-amber-300",   bg: "bg-amber-50 dark:bg-amber-950/30",  border: "border-amber-200 dark:border-amber-800" },
+                    { key: "lector",        label: "Lectores",         singular: "Lector",        color: "text-slate-700 dark:text-slate-300",   bg: "bg-slate-50 dark:bg-slate-950/30",  border: "border-slate-200 dark:border-slate-800" },
+                  ];
+
+                  // Users visible to current user (same clienteId, or all for super_admin)
+                  const visibleUsers = users.filter(u =>
+                    u.activo !== false &&
+                    (currentUser?.role === "super_admin" || u.clienteId === currentUser?.clienteId) &&
+                    u.id !== currentUser?.id,
+                  );
+
+                  // Count users per role
+                  const countByRole = (roleKey: string) =>
+                    visibleUsers.filter(u => u.role === roleKey).length;
+
+                  const toggleRole = (roleKey: string) => {
+                    const token = `role:${roleKey}`;
+                    setSchedDestinatarios(prev =>
+                      prev.includes(token) ? prev.filter(t => t !== token) : [...prev, token],
+                    );
+                  };
+
+                  const addUser = (email: string) => {
+                    const token = `user:${email}`;
+                    if (!schedDestinatarios.includes(token)) {
+                      setSchedDestinatarios(prev => [...prev, token]);
+                    }
+                    setUserSearchQuery("");
+                    setShowUserSearch(false);
+                  };
+
+                  const removeItem = (token: string) => {
+                    setSchedDestinatarios(prev => prev.filter(t => t !== token));
+                  };
+
+                  // Expand selections into actual user count
+                  const estimatedCount = (() => {
+                    const counted = new Set<string>();
+                    for (const token of schedDestinatarios) {
+                      if (token.startsWith("role:")) {
+                        const roleKey = token.slice(5);
+                        visibleUsers.filter(u => u.role === roleKey).forEach(u => counted.add(u.email));
+                      } else if (token.startsWith("user:")) {
+                        counted.add(token.slice(5));
+                      }
+                    }
+                    return counted.size;
+                  })();
+
+                  // Filtered users for search
+                  const searchResults = userSearchQuery.length >= 1
+                    ? visibleUsers.filter(u =>
+                        (u.nombre.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+                         u.email.toLowerCase().includes(userSearchQuery.toLowerCase())) &&
+                        !schedDestinatarios.includes(`user:${u.email}`),
+                      ).slice(0, 6)
+                    : [];
+
+                  return (
+                    <div className="space-y-3">
+                      <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                        <Mail className="w-3 h-3" /> Destinatarios
+                      </Label>
+
+                      {/* — Por rol — */}
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                          <Users className="w-3 h-3" /> Por grupo de rol
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {ROLES_DISPONIBLES.map(r => {
+                            const count = countByRole(r.key);
+                            const active = schedDestinatarios.includes(`role:${r.key}`);
+                            if (count === 0) return null;
+                            return (
+                              <button
+                                key={r.key}
+                                type="button"
+                                onClick={() => toggleRole(r.key)}
+                                className={cn(
+                                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-all",
+                                  active
+                                    ? cn(r.bg, r.border, r.color, "shadow-sm")
+                                    : "bg-card border-border text-muted-foreground hover:border-primary/40 hover:bg-muted/50",
+                                )}
+                              >
+                                <Users className="w-3 h-3" />
+                                {r.label}
+                                <span className={cn(
+                                  "text-[9px] px-1 rounded-full font-bold",
+                                  active ? "bg-white/60 dark:bg-black/20" : "bg-muted",
+                                )}>
+                                  {count}
+                                </span>
+                                {active && <X className="w-2.5 h-2.5 ml-0.5 opacity-60" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* — Usuario específico — */}
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                          <User className="w-3 h-3" /> Usuario específico
+                        </p>
+                        <div ref={userSearchRef} className="relative">
+                          <div className="flex items-center gap-1.5 h-8 px-2 rounded-md border border-border bg-background text-xs focus-within:ring-1 focus-within:ring-primary focus-within:border-primary/50">
+                            <UserPlus className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                            <input
+                              value={userSearchQuery}
+                              onChange={e => { setUserSearchQuery(e.target.value); setShowUserSearch(true); }}
+                              onFocus={() => setShowUserSearch(true)}
+                              onBlur={() => setTimeout(() => setShowUserSearch(false), 150)}
+                              placeholder="Buscar por nombre o email…"
+                              className="flex-1 bg-transparent outline-none text-xs placeholder:text-muted-foreground/60"
+                            />
+                            <ChevronDown className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                          </div>
+                          {showUserSearch && searchResults.length > 0 && (
+                            <div className="absolute z-50 top-full mt-1 w-full rounded-md border border-border bg-popover shadow-md overflow-hidden">
+                              {searchResults.map(u => (
+                                <button
+                                  key={u.id}
+                                  type="button"
+                                  onMouseDown={() => addUser(u.email)}
+                                  className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted/60 transition-colors"
+                                >
+                                  <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                    <User className="w-3 h-3 text-primary" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium truncate">{u.nombre}</p>
+                                    <p className="text-[10px] text-muted-foreground truncate">{u.email}</p>
+                                  </div>
+                                  <span className="text-[9px] text-muted-foreground capitalize bg-muted px-1.5 py-0.5 rounded-full flex-shrink-0">
+                                    {u.role.replace("_", " ")}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {showUserSearch && userSearchQuery.length >= 1 && searchResults.length === 0 && (
+                            <div className="absolute z-50 top-full mt-1 w-full rounded-md border border-border bg-popover shadow-md px-3 py-2">
+                              <p className="text-xs text-muted-foreground">Sin resultados para "{userSearchQuery}"</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* — Selección actual — */}
+                      {schedDestinatarios.length > 0 && (
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] text-muted-foreground">Selección actual</p>
+                          <div className="flex flex-wrap gap-1.5 p-2.5 rounded-lg bg-muted/30 border border-border min-h-[36px]">
+                            {schedDestinatarios.map(token => {
+                              if (token.startsWith("role:")) {
+                                const roleKey = token.slice(5);
+                                const r = ROLES_DISPONIBLES.find(x => x.key === roleKey);
+                                const count = countByRole(roleKey);
+                                if (!r) return null;
+                                return (
+                                  <span key={token} className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-medium", r.bg, r.border, r.color)}>
+                                    <Users className="w-2.5 h-2.5" />
+                                    {r.label}
+                                    <span className="opacity-60">({count})</span>
+                                    <button type="button" onClick={() => removeItem(token)} className="ml-0.5 hover:opacity-100 opacity-50 transition-opacity">
+                                      <X className="w-2.5 h-2.5" />
+                                    </button>
+                                  </span>
+                                );
+                              }
+                              if (token.startsWith("user:")) {
+                                const email = token.slice(5);
+                                const u = visibleUsers.find(x => x.email === email);
+                                return (
+                                  <span key={token} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-card text-[11px] font-medium text-foreground">
+                                    <User className="w-2.5 h-2.5 text-primary" />
+                                    {u?.nombre ?? email}
+                                    <button type="button" onClick={() => removeItem(token)} className="ml-0.5 hover:text-destructive opacity-50 hover:opacity-100 transition-all">
+                                      <X className="w-2.5 h-2.5" />
+                                    </button>
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })}
+                          </div>
+                          {estimatedCount > 0 && (
+                            <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                              <Mail className="w-2.5 h-2.5" />
+                              ~{estimatedCount} destinatario{estimatedCount !== 1 ? "s" : ""} recibirán este informe
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {schedDestinatarios.length === 0 && (
+                        <p className="text-[10px] text-muted-foreground italic">
+                          Selecciona al menos un rol o usuario para el envío automático.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               <Button
@@ -1427,9 +2154,15 @@ function DetailPanel({
                       </div>
                     )}
                     {informe.destinatarios_programados && informe.destinatarios_programados.length > 0 && (
-                      <div className="flex items-center gap-1.5">
-                        <Mail className="w-3 h-3 opacity-60" />
-                        <span>{informe.destinatarios_programados.length} destinatario{informe.destinatarios_programados.length !== 1 ? "s" : ""}</span>
+                      <div className="flex items-start gap-1.5">
+                        <Mail className="w-3 h-3 opacity-60 mt-0.5 flex-shrink-0" />
+                        <div className="flex flex-wrap gap-1">
+                          {informe.destinatarios_programados.map(token => (
+                            <span key={token} className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">
+                              {token.startsWith("role:") ? `Todos: ${token.slice(5).replace("_", " ")}` : token.startsWith("user:") ? token.slice(5) : token}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1438,7 +2171,190 @@ function DetailPanel({
             </>
           )}
         </TabsContent>
+
+        {/* VERSIONES */}
+        <TabsContent value="versiones" className="flex-1 overflow-y-auto px-5 py-4 space-y-3 mt-0">
+          {(() => {
+            const snaps = informe.versiones ?? [];
+            const sorted = [...snaps].sort((a, b) => {
+              const [aMaj = 0] = (a.version ?? "1.0").split(".").map(Number);
+              const [bMaj = 0] = (b.version ?? "1.0").split(".").map(Number);
+              return bMaj - aMaj;
+            });
+            const latestSnap = sorted[0];
+            const cat = CATEGORIA_CONFIG[informe.categoria];
+            const tipo = TIPO_CONFIG[informe.tipo_informe];
+            const CatIcon = cat.icon;
+
+            if (sorted.length === 0) {
+              return (
+                <div className="flex flex-col items-center gap-3 py-10 text-center">
+                  <div className="p-3 rounded-full bg-muted/50">
+                    <GitBranch className="w-6 h-6 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm font-medium">Sin historial de versiones</p>
+                  <p className="text-xs text-muted-foreground">
+                    Las versiones se crean automáticamente cada vez que guardas cambios en la plantilla.
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="space-y-3">
+                {/* Actions bar */}
+                <div className="flex items-center gap-2">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 flex-1">
+                    <GitBranch className="w-3 h-3" />
+                    {sorted.length} versión{sorted.length !== 1 ? "es" : ""}
+                  </p>
+                  <button
+                    onClick={() => setShowVersionDialog(true)}
+                    className="text-[10px] px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm"
+                  >
+                    <ArrowLeftRight className="w-3 h-3" /> Control de versiones
+                  </button>
+                </div>
+
+                {/* Timeline preview (compact) */}
+                <div className="space-y-1.5">
+                  {sorted.slice(0, 5).map((snap, i) => {
+                    const isLatest = snap.id === latestSnap?.id;
+                    const bloqueCount = snap.builderConfig?.bloques?.length ?? 0;
+                    return (
+                      <div
+                        key={snap.id}
+                        className={cn(
+                          "rounded-xl border p-2.5 space-y-1 transition-all cursor-pointer hover:shadow-sm",
+                          isLatest ? "border-primary/40 bg-primary/5" : "border-border bg-card",
+                        )}
+                        onClick={() => setShowVersionDialog(true)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={cn(
+                              "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0",
+                              isLatest
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-muted text-muted-foreground border-border",
+                            )}
+                          >
+                            v{snap.version}
+                          </div>
+                          {isLatest && (
+                            <span className="text-[9px] font-semibold text-primary uppercase tracking-wide">
+                              Actual
+                            </span>
+                          )}
+                          <span className="flex-1" />
+                          <span className="text-[10px] text-muted-foreground">
+                            {new Date(snap.timestamp).toLocaleDateString("es-CL", {
+                              day: "2-digit",
+                              month: "short",
+                              year: "numeric",
+                            })}
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-medium truncate">{snap.cambio}</p>
+                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                          <User className="w-2.5 h-2.5" />
+                          {snap.usuario}
+                          {bloqueCount > 0 && (
+                            <>
+                              <span className="text-border">·</span>
+                              <span>{bloqueCount} bloque{bloqueCount !== 1 ? "s" : ""}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {sorted.length > 5 && (
+                  <button
+                    onClick={() => setShowVersionDialog(true)}
+                    className="w-full text-[10px] text-primary hover:underline text-center py-1"
+                  >
+                    Ver todas las {sorted.length} versiones →
+                  </button>
+                )}
+
+                {/* Document preview card */}
+                <div className="rounded-xl border border-border bg-gradient-to-br from-card to-muted/20 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-border bg-muted/30 flex items-center gap-2">
+                    <Eye className="w-3 h-3 text-sky-600" />
+                    <span className="text-[10px] font-semibold">Vista previa del documento</span>
+                  </div>
+                  <div className="p-3 space-y-2.5">
+                    <div className="text-center pb-2 border-b border-dashed border-border">
+                      <div className={cn("inline-flex p-1.5 rounded-lg border mb-1.5", cat.bg, cat.border)}>
+                        <CatIcon className={cn("w-4 h-4", cat.color)} />
+                      </div>
+                      <p className="text-[9px] uppercase tracking-widest text-muted-foreground">Informe</p>
+                      <h4 className="text-xs font-bold text-foreground">{informe.nombre}</h4>
+                      <p className="text-[10px] font-mono text-muted-foreground">{informe.codigo}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5 text-[9px]">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Categoría</span>
+                        <span className={cn("font-medium", cat.color)}>{cat.label}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Tipo</span>
+                        <span className="font-medium">{tipo.label}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Estado</span>
+                        <span className="font-medium">{ESTADO_CONFIG[informe.estado].label}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Generado</span>
+                        <span className="font-medium">{informe.veces_generado}x</span>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-semibold text-muted-foreground mb-0.5">Fuentes</p>
+                      <div className="flex flex-wrap gap-0.5">
+                        {informe.fuentes.slice(0, 4).map(f => (
+                          <span key={f} className="text-[8px] font-mono px-1 py-0.5 rounded bg-muted border border-border text-muted-foreground">
+                            {f}
+                          </span>
+                        ))}
+                        {informe.fuentes.length > 4 && (
+                          <span className="text-[8px] text-muted-foreground">+{informe.fuentes.length - 4}</span>
+                        )}
+                      </div>
+                    </div>
+                    {informe.es_programado && (
+                      <div className="text-[9px] bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded px-2 py-1 flex items-center gap-1">
+                        <Zap className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                        {informe.frecuencia_programacion} {informe.hora_envio ? `· ${informe.hora_envio}` : ""}
+                      </div>
+                    )}
+                    <div className="text-center text-[9px] text-muted-foreground pt-1 border-t border-dashed border-border">
+                      {sorted.length} versión{sorted.length !== 1 ? "es" : ""}
+                      {informe.created_at ? ` · Creado: ${formatDate(informe.created_at)}` : ""}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </TabsContent>
       </Tabs>
+
+      {/* ── InformeVersionDialog ── */}
+      <InformeVersionDialog
+        open={showVersionDialog}
+        onClose={() => setShowVersionDialog(false)}
+        snapshots={informe.versiones ?? []}
+        informeNombre={informe.nombre}
+        onRestore={(snap) => { onRestoreVersion?.(snap); setShowVersionDialog(false); }}
+        onCopyAsNew={(snap) => { onCopyVersionAsNew?.(snap); setShowVersionDialog(false); }}
+        onArchive={(snapId) => onArchiveVersion?.(snapId)}
+        onDelete={(snapId) => onDeleteVersion?.(snapId)}
+      />
     </div>
   );
 }
@@ -1466,6 +2382,7 @@ const Informes = () => {
   const [filterEstado, setFilterEstado] = useState<string>("all");
   const [activeNav, setActiveNav] = useState<string>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
 
   // Builder state
   const [builderOpen, setBuilderOpen] = useState(false);
@@ -1489,17 +2406,29 @@ const Informes = () => {
   const handleBuilderSave = (cfg: BuilderConfig) => {
     if (cfg.id) {
       setInformes((prev) =>
-        prev.map((i) =>
-          i.id === cfg.id
-            ? {
-                ...i,
-                nombre: cfg.nombre || i.nombre,
-                descripcion: cfg.descripcion || i.descripcion,
-                categoria: cfg.categoria as Informe["categoria"],
-                builderConfig: cfg,
-              }
-            : i,
-        ),
+        prev.map((i) => {
+          if (i.id !== cfg.id) return i;
+          const nextVersionNum = (i.versiones?.length ?? 0) + 1;
+          const newSnap: InformeSnapshot = {
+            id: `isnap-${Date.now()}`,
+            informe_id: cfg.id!,
+            version: `${nextVersionNum}.0`,
+            timestamp: new Date().toISOString(),
+            usuario: "Usuario actual",
+            cambio: nextVersionNum === 1 ? "Versión inicial" : "Actualización de plantilla",
+            nombre: cfg.nombre || i.nombre,
+            descripcion: cfg.descripcion || i.descripcion,
+            builderConfig: cfg,
+          };
+          return {
+            ...i,
+            nombre: cfg.nombre || i.nombre,
+            descripcion: cfg.descripcion || i.descripcion,
+            categoria: cfg.categoria as Informe["categoria"],
+            builderConfig: cfg,
+            versiones: [...(i.versiones ?? []), newSnap],
+          };
+        }),
       );
     } else {
       const newId = `inf-${Date.now()}`;
@@ -1519,6 +2448,19 @@ const Informes = () => {
         created_at: new Date().toISOString().split("T")[0],
         fuentes: [...new Set(cfg.bloques.flatMap((b) => b.fuentesSeleccionadas))],
         builderConfig: { ...cfg, id: newId },
+        versiones: [
+          {
+            id: `isnap-${Date.now()}`,
+            informe_id: newId,
+            version: "1.0",
+            timestamp: new Date().toISOString(),
+            usuario: "Usuario actual",
+            cambio: "Creación inicial",
+            nombre: cfg.nombre || "Nuevo informe",
+            descripcion: cfg.descripcion || "",
+            builderConfig: { ...cfg, id: newId },
+          },
+        ],
       };
       setInformes((prev) => [...prev, newInforme]);
       setSelectedId(newId);
@@ -1534,7 +2476,85 @@ const Informes = () => {
     return true;
   };
 
+  // ── Version action handlers ──
+  const restoreVersion = (snap: InformeSnapshot) => {
+    if (!snap.builderConfig) return;
+    setInformes(prev => prev.map(i => {
+      if (i.id !== snap.informe_id) return i;
+      const nextV = (i.versiones?.length ?? 0) + 1;
+      const newSnap: InformeSnapshot = {
+        id: `isnap-${Date.now()}`,
+        informe_id: i.id,
+        version: `${nextV}.0`,
+        timestamp: new Date().toISOString(),
+        usuario: "Usuario actual",
+        cambio: `Restaurado desde v${snap.version}`,
+        nombre: snap.nombre,
+        descripcion: snap.descripcion,
+        builderConfig: snap.builderConfig,
+      };
+      return {
+        ...i,
+        nombre: snap.nombre,
+        descripcion: snap.descripcion,
+        builderConfig: snap.builderConfig,
+        versiones: [...(i.versiones ?? []), newSnap],
+      };
+    }));
+  };
+
+  const copyVersionAsNew = (snap: InformeSnapshot) => {
+    const newId = `inf-${Date.now()}`;
+    const cat = (snap.builderConfig?.categoria as CategoriaInforme) ?? "general";
+    const newInforme: Informe = {
+      id: newId,
+      codigo: `USR-${String(informes.length + 1).padStart(3, "0")}`,
+      nombre: `${snap.nombre} (copia)`,
+      descripcion: snap.descripcion,
+      tipo_informe: "grafico",
+      categoria: cat,
+      nivel_acceso_minimo: 1,
+      estado: "borrador",
+      es_favorito: false,
+      es_programado: false,
+      veces_generado: 0,
+      created_at: new Date().toISOString().split("T")[0],
+      fuentes: snap.builderConfig
+        ? [...new Set(snap.builderConfig.bloques.flatMap(b => b.fuentesSeleccionadas))]
+        : [],
+      builderConfig: snap.builderConfig ? { ...snap.builderConfig, id: newId } : undefined,
+      versiones: [{
+        id: `isnap-${Date.now()}`,
+        informe_id: newId,
+        version: "1.0",
+        timestamp: new Date().toISOString(),
+        usuario: "Usuario actual",
+        cambio: `Copiado desde v${snap.version} de "${snap.nombre}"`,
+        nombre: `${snap.nombre} (copia)`,
+        descripcion: snap.descripcion,
+        builderConfig: snap.builderConfig ? { ...snap.builderConfig, id: newId } : undefined,
+      }],
+    };
+    setInformes(prev => [...prev, newInforme]);
+    setSelectedId(newId);
+  };
+
+  const archiveVersion = (snapId: string) => {
+    setInformes(prev => prev.map(i => ({
+      ...i,
+      versiones: (i.versiones ?? []).filter(v => v.id !== snapId),
+    })));
+  };
+
+  const deleteVersion = (snapId: string) => {
+    setInformes(prev => prev.map(i => ({
+      ...i,
+      versiones: (i.versiones ?? []).filter(v => v.id !== snapId),
+    })));
+  };
+
   const selectedInforme = informes.find((i) => i.id === selectedId) ?? null;
+  const previewInforme = informes.find((i) => i.id === previewId) ?? null;
 
   // Nav counts
   const navCounts = useMemo(() => {
@@ -1794,8 +2814,11 @@ const Informes = () => {
                         informe={inf}
                         canAccess={canAccessInforme(inf)}
                         selected={inf.id === selectedId}
+                        canCreate={canCreate}
                         onClick={() => setSelectedId(inf.id === selectedId ? null : inf.id)}
                         onToggleFavorite={() => toggleFavorite(inf.id)}
+                        onPreview={() => setPreviewId(inf.id)}
+                        onEditBuilder={() => openBuilder(inf)}
                       />
                     ))}
                   </div>
@@ -1809,8 +2832,11 @@ const Informes = () => {
                   informe={inf}
                   canAccess={canAccessInforme(inf)}
                   selected={inf.id === selectedId}
+                  canCreate={canCreate}
                   onClick={() => setSelectedId(inf.id === selectedId ? null : inf.id)}
                   onToggleFavorite={() => toggleFavorite(inf.id)}
+                  onPreview={() => setPreviewId(inf.id)}
+                  onEditBuilder={() => openBuilder(inf)}
                 />
               ))
             )}
@@ -1835,10 +2861,191 @@ const Informes = () => {
                   prev.map((i) => (i.id === selectedInforme.id ? { ...i, ...changes } : i)),
                 )
               }
+              onDeleteTemplate={() => {
+                setInformes((prev) =>
+                  prev.map((i) =>
+                    i.id === selectedInforme?.id ? { ...i, builderConfig: undefined } : i,
+                  ),
+                );
+              }}
+              onDeleteInforme={() => {
+                setInformes((prev) => prev.filter((i) => i.id !== selectedInforme?.id));
+                setSelectedId(null);
+              }}
+              onRestoreVersion={restoreVersion}
+              onCopyVersionAsNew={copyVersionAsNew}
+              onArchiveVersion={archiveVersion}
+              onDeleteVersion={deleteVersion}
             />
           </div>
         )}
       </div>
+
+      {/* Quick Preview Modal */}
+      {previewInforme && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          onClick={() => setPreviewId(null)}
+        >
+          <div
+            className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-border flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {(() => {
+                  const c = CATEGORIA_CONFIG[previewInforme.categoria];
+                  const CIcon = c.icon;
+                  return (
+                    <div className={cn("p-2 rounded-lg border", c.bg, c.border)}>
+                      <CIcon className={cn("w-4 h-4", c.color)} />
+                    </div>
+                  );
+                })()}
+                <div>
+                  <h2 className="text-sm font-bold">{previewInforme.nombre}</h2>
+                  <p className="text-xs text-muted-foreground">
+                    {previewInforme.codigo} · {previewInforme.descripcion}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPreviewId(null)}
+                className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {previewInforme.builderConfig ? (
+                <>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div className="rounded-lg bg-muted/40 border border-border p-3">
+                      <p className="text-lg font-bold">{previewInforme.builderConfig.bloques.length}</p>
+                      <p className="text-[11px] text-muted-foreground">Bloques</p>
+                    </div>
+                    <div className="rounded-lg bg-muted/40 border border-border p-3">
+                      <p className="text-lg font-bold">
+                        {[...new Set(previewInforme.builderConfig.bloques.flatMap((b) => b.fuentesSeleccionadas))].length}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">Fuentes</p>
+                    </div>
+                    <div className="rounded-lg bg-muted/40 border border-border p-3">
+                      <p className="text-lg font-bold">{previewInforme.versiones?.length ?? 0}</p>
+                      <p className="text-[11px] text-muted-foreground">Versiones</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      Bloques del informe
+                    </p>
+                    {previewInforme.builderConfig.bloques.map((bloque, i) => (
+                      <div
+                        key={bloque.id}
+                        className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/20"
+                      >
+                        <span className="text-[10px] text-muted-foreground w-5 text-center font-mono">
+                          #{i + 1}
+                        </span>
+                        {bloque.tipo === "grafico" ? (
+                          <BarChart2 className="w-4 h-4 text-blue-500 shrink-0" />
+                        ) : (
+                          <Table2 className="w-4 h-4 text-purple-500 shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold truncate">
+                            {bloque.titulo || (bloque.tipo === "grafico" ? "Gráfico" : "Tabla")}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {bloque.fuentesSeleccionadas.length} fuente
+                            {bloque.fuentesSeleccionadas.length !== 1 ? "s" : ""}
+                            {bloque.tipo === "grafico"
+                              ? ` · ${(bloque as { tipoGrafico: string }).tipoGrafico}`
+                              : ""}
+                          </p>
+                        </div>
+                        {bloque.tipo === "grafico" && (
+                          <span className="text-[9px] text-muted-foreground border border-border rounded px-1.5 py-0.5 shrink-0 capitalize">
+                            {(bloque as { tipoGrafico: string }).tipoGrafico?.replace("_", " ")}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {previewInforme.builderConfig.subtitulo && (
+                    <p className="text-xs text-muted-foreground italic">
+                      {previewInforme.builderConfig.subtitulo}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="flex flex-col items-center gap-3 py-10 text-center">
+                  <div className="p-3 rounded-full bg-muted/50">
+                    <Eye className="w-6 h-6 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm font-medium">Sin plantilla configurada</p>
+                  <p className="text-xs text-muted-foreground">
+                    Abre el editor para diseñar la estructura visual de este informe.
+                  </p>
+                </div>
+              )}
+            </div>
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-border flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const s = ESTADO_CONFIG[previewInforme.estado];
+                  const SIcon = s.icon;
+                  return (
+                    <span
+                      className={cn(
+                        "flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-full border",
+                        s.badge,
+                      )}
+                    >
+                      <SIcon className="w-3 h-3" />
+                      {s.label}
+                    </span>
+                  );
+                })()}
+                {previewInforme.es_programado && (
+                  <span className="flex items-center gap-1 text-[11px] text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded-full">
+                    <Zap className="w-3 h-3" />
+                    Programado
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {canCreate && previewInforme.builderConfig && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 h-8 text-xs"
+                    onClick={() => {
+                      setPreviewId(null);
+                      openBuilder(previewInforme);
+                    }}
+                  >
+                    <Pencil className="w-3.5 h-3.5" /> Editar
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  className="gap-1.5 h-8 text-xs"
+                  onClick={() => {
+                    setPreviewId(null);
+                    setSelectedId(previewInforme.id);
+                  }}
+                >
+                  <Eye className="w-3.5 h-3.5" /> Ver detalle
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Builder overlay */}
       {builderOpen && builderTarget && (
