@@ -18,11 +18,16 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from "@/components/ui/sheet";
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Layers, List, Palette, Settings2, BookOpen,
   Upload, X, Plus,
   Trash2, Info, CheckCircle2, Check, Clock, Archive, Leaf, Search, Copy, History,
   ChevronDown, RotateCcw, Power, XCircle, LayoutList, ArrowLeftRight, Lock, CheckSquare, Square, ListFilter, Zap,
-  Ruler, Scale, Network, ChevronRight, ArrowUp, ArrowDown,
+  Ruler, Scale, Network, ChevronRight, ArrowUp, ArrowDown, Map as MapIcon, MoreHorizontal, Tag,
+  Hash, ToggleLeft, Image as ImageIcon,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { useTheme, DEFAULT_THEME } from "@/contexts/ThemeContext";
@@ -36,14 +41,15 @@ import {
   tipoBadgeColor, tipoLabels, estadoBadge,
   type ModDef, type ModParam, type Parametro,
   type TipoConfig, type TipoDato, type EstadoDef,
-  type Cultivo, type Variedad, type Calibre, type NivelEstructura,
+  type Cultivo, type Variedad, type Calibre, type NivelEstructura, type BloqueLayout,
 } from "@/config/moduleDefinitions";
 import { VersionDiffDialog } from "@/components/dashboard/VersionDiffDialog";
 import { CampoConfigDrawer } from "@/components/dashboard/CampoConfigDrawer";
+import { CampoMapaEditor } from "@/components/cultivo/CampoMapaEditor";
 import {
   Shield, ShieldCheck, Sprout as SproutIcon, Briefcase, Eye,
   BookOpen as BookOpenAlt, Mail, Calendar,
-  ShieldAlert, AlertTriangle, Users2, Building2, Tractor, Pencil, Globe, FileText,
+  ShieldAlert, AlertTriangle, Users2, Building2, Tractor, Pencil, Globe, FileText, MapPin,
 } from "lucide-react";
 
 // ─── InfoBanner (dismissible) ─────────────────────────────────────────────────
@@ -149,34 +155,338 @@ function EstadoIcon({ estado }: { estado: EstadoDef }) {
 
 // ─── Biblioteca interna (usada en Sheet desde TabFormularios) ─────────────────
 
+const TIPO_META: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
+  "Texto":   { icon: FileText,    color: "text-blue-700 dark:text-blue-400",    bg: "bg-blue-100 dark:bg-blue-900/30" },
+  "Número":  { icon: Hash,        color: "text-amber-700 dark:text-amber-400",  bg: "bg-amber-100 dark:bg-amber-900/30" },
+  "Fecha":   { icon: Calendar,    color: "text-purple-700 dark:text-purple-400",bg: "bg-purple-100 dark:bg-purple-900/30" },
+  "Sí/No":  { icon: ToggleLeft,  color: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-100 dark:bg-emerald-900/30" },
+  "Lista":   { icon: List,        color: "text-orange-700 dark:text-orange-400",bg: "bg-orange-100 dark:bg-orange-900/30" },
+  "Foto":    { icon: ImageIcon,   color: "text-pink-700 dark:text-pink-400",    bg: "bg-pink-100 dark:bg-pink-900/30" },
+  "Archivo": { icon: FileText,    color: "text-slate-700 dark:text-slate-400",  bg: "bg-slate-100 dark:bg-slate-900/30" },
+};
+
+const EMPTY_PARAM_FORM = { nombre: "", codigo: "", tipo_dato: "Texto" as TipoDato, unidad_medida: "", descripcion: "", obligatorio_default: false };
+
 function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => void }) {
   const { parametrosLib, addParamLib, updParamLib, delParamLib } = useConfig();
 
-  const colsLib: Column<Parametro>[] = [
-    { key: "nombre",              header: "Nombre (snake_case)", width: "180px", required: true },
-    { key: "codigo",              header: "Código",               width: "90px" },
-    { key: "tipo_dato",           header: "Tipo",                  width: "120px", type: "select", options: TIPO_DATO_OPTIONS, required: true, filterable: true },
-    { key: "unidad_medida",       header: "Unidad",               width: "80px" },
-    { key: "descripcion",         header: "Descripción",           width: "260px" },
-    { key: "obligatorio_default", header: "Oblig. default",        width: "100px", type: "checkbox", filterable: true },
-  ];
+  const [libSearch,    setLibSearch]    = useState("");
+  const [typeFilter,   setTypeFilter]   = useState<string>("Todos");
+  const [editingId,    setEditingId]    = useState<string | null>(null);
+  const [editForm,     setEditForm]     = useState<typeof EMPTY_PARAM_FORM>(EMPTY_PARAM_FORM);
+  const [showAddForm,  setShowAddForm]  = useState(false);
+  const [newForm,      setNewForm]      = useState<typeof EMPTY_PARAM_FORM>(EMPTY_PARAM_FORM);
+  const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
+
+  const tipos = ["Todos", "Texto", "Número", "Fecha", "Sí/No", "Lista", "Foto", "Archivo"];
+
+  const filtered = useMemo(() => parametrosLib.filter(p => {
+    const matchSearch = !libSearch ||
+      p.nombre.toLowerCase().includes(libSearch.toLowerCase()) ||
+      p.descripcion?.toLowerCase().includes(libSearch.toLowerCase()) ||
+      p.codigo?.toLowerCase().includes(libSearch.toLowerCase()) ||
+      p.unidad_medida?.toLowerCase().includes(libSearch.toLowerCase());
+    const matchType = typeFilter === "Todos" || p.tipo_dato === typeFilter;
+    return matchSearch && matchType;
+  }), [parametrosLib, libSearch, typeFilter]);
+
+  const startEdit = (p: Parametro) => {
+    setEditingId(p.id);
+    setEditForm({ nombre: p.nombre, codigo: p.codigo ?? "", tipo_dato: p.tipo_dato, unidad_medida: p.unidad_medida ?? "", descripcion: p.descripcion ?? "", obligatorio_default: p.obligatorio_default });
+  };
+
+  const saveEdit = () => {
+    if (!editingId || !editForm.nombre.trim()) return;
+    updParamLib(editingId, "nombre",              editForm.nombre.trim());
+    updParamLib(editingId, "codigo",              editForm.codigo.trim().toUpperCase());
+    updParamLib(editingId, "tipo_dato",           editForm.tipo_dato);
+    updParamLib(editingId, "unidad_medida",       editForm.unidad_medida.trim());
+    updParamLib(editingId, "descripcion",         editForm.descripcion.trim());
+    updParamLib(editingId, "obligatorio_default", editForm.obligatorio_default);
+    setEditingId(null);
+    onPendingChange?.(false);
+  };
+
+  const saveNew = () => {
+    if (!newForm.nombre.trim()) return;
+    addParamLib();
+    // updParamLib on the last added
+    setTimeout(() => {
+      const last = parametrosLib[parametrosLib.length - 1];
+      if (last) {
+        updParamLib(last.id, "nombre",              newForm.nombre.trim());
+        updParamLib(last.id, "codigo",              newForm.codigo.trim().toUpperCase());
+        updParamLib(last.id, "tipo_dato",           newForm.tipo_dato);
+        updParamLib(last.id, "unidad_medida",       newForm.unidad_medida.trim());
+        updParamLib(last.id, "descripcion",         newForm.descripcion.trim());
+        updParamLib(last.id, "obligatorio_default", newForm.obligatorio_default);
+      }
+    }, 0);
+    setNewForm(EMPTY_PARAM_FORM);
+    setShowAddForm(false);
+  };
 
   return (
-    <div className="space-y-5">
-      <InfoBanner storageKey="biblioteca">
-        <strong>Biblioteca Global</strong> — catálogo de campos reutilizables en cualquier módulo.
-        Al agregar un campo a una definición, se sugiere desde aquí.
-      </InfoBanner>
-      <EditableTable
-        title={`Biblioteca de Parámetros (${parametrosLib.length})`}
-        data={parametrosLib}
-        columns={colsLib}
-        onUpdate={(idx, key, val) => updParamLib(parametrosLib[idx].id, key, val)}
-        onDelete={idx => delParamLib(parametrosLib[idx].id)}
-        onAdd={() => addParamLib()}
-        onPendingChange={onPendingChange}
-        searchable
-      />
+    <div className="space-y-4">
+      {/* ── Barra superior ─────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            value={libSearch}
+            onChange={e => setLibSearch(e.target.value)}
+            placeholder="Buscar parámetro…"
+            className="w-full pl-9 pr-8 py-2 text-sm rounded-lg bg-muted/40 border border-border focus:border-primary/50 focus:outline-none focus:bg-background transition-colors"
+          />
+          {libSearch && (
+            <button onClick={() => setLibSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        <Button size="sm" onClick={() => { setShowAddForm(true); setNewForm(EMPTY_PARAM_FORM); }}>
+          <Plus className="w-4 h-4 mr-1.5" /> Nuevo parámetro
+        </Button>
+      </div>
+
+      {/* ── Filtros por tipo ─────────────────────────────────────────── */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {tipos.map(t => {
+          const meta = TIPO_META[t];
+          const TIcon = meta?.icon;
+          const isActive = typeFilter === t;
+          return (
+            <button
+              key={t}
+              onClick={() => setTypeFilter(t)}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all",
+                isActive
+                  ? t === "Todos"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : cn(meta?.bg, meta?.color, "border-transparent")
+                  : "bg-muted/40 text-muted-foreground border-border hover:bg-muted/60",
+              )}
+            >
+              {TIcon && <TIcon className="w-3 h-3" />}
+              {t}
+              {t !== "Todos" && (
+                <span className={cn("text-[10px] ml-0.5 opacity-70")}>
+                  {parametrosLib.filter(p => p.tipo_dato === t).length}
+                </span>
+              )}
+            </button>
+          );
+        })}
+        <span className="ml-auto text-[11px] text-muted-foreground">
+          {filtered.length} de {parametrosLib.length}
+        </span>
+      </div>
+
+      {/* ── Formulario nuevo parámetro ────────────────────────────────── */}
+      {showAddForm && (
+        <div className="rounded-xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 space-y-3">
+          <p className="text-xs font-semibold text-primary flex items-center gap-1.5">
+            <Plus className="w-3.5 h-3.5" /> Nuevo parámetro
+          </p>
+          <LibParamForm form={newForm} onChange={setNewForm} />
+          <div className="flex items-center gap-2 pt-1">
+            <Button size="sm" onClick={saveNew} disabled={!newForm.nombre.trim()}>
+              <Check className="w-3.5 h-3.5 mr-1" /> Guardar
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setShowAddForm(false)}>Cancelar</Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Lista de parámetros ───────────────────────────────────────── */}
+      {filtered.length === 0 ? (
+        <div className="py-16 text-center space-y-2">
+          <BookOpen className="w-8 h-8 mx-auto text-muted-foreground/20" />
+          <p className="text-sm text-muted-foreground">
+            {libSearch ? `Sin resultados para "${libSearch}"` : "Biblioteca vacía."}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(p => {
+            const meta = TIPO_META[p.tipo_dato] ?? TIPO_META["Texto"];
+            const TIcon = meta.icon;
+            const isEditing = editingId === p.id;
+            const isDeleting = confirmDelId === p.id;
+
+            return (
+              <div
+                key={p.id}
+                className={cn(
+                  "rounded-xl border bg-card transition-all",
+                  isEditing ? "border-primary/40 shadow-sm" : "border-border hover:border-border/80",
+                )}
+              >
+                {isEditing ? (
+                  /* ── Modo edición ── */
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className={cn("w-6 h-6 rounded-lg flex items-center justify-center shrink-0", meta.bg)}>
+                        <TIcon className={cn("w-3.5 h-3.5", meta.color)} />
+                      </div>
+                      <span className="text-xs font-semibold text-primary">Editando parámetro</span>
+                    </div>
+                    <LibParamForm form={editForm} onChange={f => setEditForm(f)} />
+                    <div className="flex items-center gap-2 pt-1">
+                      <Button size="sm" onClick={saveEdit} disabled={!editForm.nombre.trim()}>
+                        <Check className="w-3.5 h-3.5 mr-1" /> Guardar
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancelar</Button>
+                    </div>
+                  </div>
+                ) : isDeleting ? (
+                  /* ── Confirmar eliminación ── */
+                  <div className="px-4 py-3 flex items-center gap-3">
+                    <span className="flex-1 text-sm text-destructive font-medium">
+                      ¿Eliminar <strong>{p.nombre}</strong>?
+                    </span>
+                    <Button size="sm" variant="destructive" onClick={() => { delParamLib(p.id); setConfirmDelId(null); }}>
+                      Eliminar
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setConfirmDelId(null)}>Cancelar</Button>
+                  </div>
+                ) : (
+                  /* ── Vista normal ── */
+                  <div className="flex items-center gap-3 px-4 py-3 group">
+                    {/* Tipo icon */}
+                    <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0", meta.bg)}>
+                      <TIcon className={cn("w-4 h-4", meta.color)} />
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold">{p.nombre.replace(/_/g, " ")}</span>
+                        {p.codigo && (
+                          <span className="text-[10px] font-mono bg-muted border border-border px-1.5 py-0.5 rounded text-muted-foreground shrink-0">
+                            {p.codigo}
+                          </span>
+                        )}
+                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0", meta.bg, meta.color)}>
+                          {p.tipo_dato}
+                        </span>
+                        {p.unidad_medida && (
+                          <span className="text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded shrink-0">
+                            {p.unidad_medida}
+                          </span>
+                        )}
+                        {p.obligatorio_default && (
+                          <span className="text-[10px] text-rose-600 bg-rose-50 border border-rose-200 dark:bg-rose-900/20 dark:border-rose-800/40 px-1.5 py-0.5 rounded-full font-medium shrink-0">
+                            Obligatorio
+                          </span>
+                        )}
+                      </div>
+                      {p.descripcion && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{p.descripcion}</p>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button
+                        onClick={() => startEdit(p)}
+                        className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors"
+                        title="Editar"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelId(p.id)}
+                        className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/8 transition-colors"
+                        title="Eliminar"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Formulario de campo de biblioteca ──────────────────────────────────────────
+function LibParamForm({
+  form,
+  onChange,
+}: {
+  form: { nombre: string; codigo: string; tipo_dato: TipoDato; unidad_medida: string; descripcion: string; obligatorio_default: boolean };
+  onChange: (f: typeof form) => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="space-y-1">
+        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+          Nombre <span className="text-destructive">*</span>
+        </label>
+        <Input
+          value={form.nombre}
+          onChange={e => onChange({ ...form, nombre: e.target.value.replace(/\s+/g, "_").toLowerCase() })}
+          placeholder="nombre_del_parametro"
+          className="h-8 text-sm font-mono"
+          autoFocus
+        />
+      </div>
+      <div className="space-y-1">
+        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Código</label>
+        <Input
+          value={form.codigo}
+          onChange={e => onChange({ ...form, codigo: e.target.value.toUpperCase().slice(0, 8) })}
+          placeholder="COD"
+          className="h-8 text-sm font-mono"
+          maxLength={8}
+        />
+      </div>
+      <div className="space-y-1">
+        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+          Tipo <span className="text-destructive">*</span>
+        </label>
+        <select
+          value={form.tipo_dato}
+          onChange={e => onChange({ ...form, tipo_dato: e.target.value as TipoDato })}
+          className="w-full h-8 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
+        >
+          {["Texto", "Número", "Fecha", "Sí/No", "Lista", "Foto", "Archivo"].map(t => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+      </div>
+      <div className="space-y-1">
+        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Unidad de medida</label>
+        <Input
+          value={form.unidad_medida}
+          onChange={e => onChange({ ...form, unidad_medida: e.target.value })}
+          placeholder="ej. kg, °C, mm"
+          className="h-8 text-sm"
+        />
+      </div>
+      <div className="space-y-1 sm:col-span-2">
+        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Descripción</label>
+        <Input
+          value={form.descripcion}
+          onChange={e => onChange({ ...form, descripcion: e.target.value })}
+          placeholder="Descripción breve del parámetro"
+          className="h-8 text-sm"
+        />
+      </div>
+      <div className="flex items-center gap-2 sm:col-span-2">
+        <Switch
+          checked={form.obligatorio_default}
+          onCheckedChange={v => onChange({ ...form, obligatorio_default: v })}
+          className="scale-75"
+        />
+        <label className="text-xs text-muted-foreground">Obligatorio por defecto al agregar a un formulario</label>
+      </div>
     </div>
   );
 }
@@ -192,7 +502,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
     addPar, updParFull, delParByIdx,
     getDefAccesos, addDefAcceso, removeDefAcceso,
   } = useConfig();
-  const { role, clientes, productores, users: allUsers } = useRole();
+  const { role, clientes, productores, users: allUsers, empresaCtxId } = useRole();
   const isSuperAdmin = role === "super_admin";
 
   // ── Estado ──────────────────────────────────────────────────────────────────
@@ -200,12 +510,14 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
   const [expandedCampos,  setExpandedCampos]  = useState<Set<string>>(new Set());
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
   const [expandedEventos, setExpandedEventos] = useState<Set<string>>(new Set());
+  const [expandedAcceso,  setExpandedAcceso]  = useState<Set<string>>(new Set());
   const [configCampoId,   setConfigCampoId]   = useState<string | null>(null);
   const [showBiblioteca,  setShowBiblioteca]  = useState(false);
   const [addCampoModal,   setAddCampoModal]   = useState<{ defId: string; rootId: string } | null>(null);
-  const [campoSearch,     setCampoSearch]     = useState("");
-  const [selectedLibIds,  setSelectedLibIds]  = useState<Set<string>>(new Set());
-  const [createNewCampo,  setCreateNewCampo]  = useState(false);
+  const [campoSearch,       setCampoSearch]       = useState("");
+  const [campoTypeFilter,   setCampoTypeFilter]   = useState<string>("Todos");
+  const [selectedLibIds,    setSelectedLibIds]    = useState<Set<string>>(new Set());
+  const [createNewCampo,    setCreateNewCampo]    = useState(false);
 
   // Super admin: filtro por cliente y productor
   const [selectedClienteFilter, setSelectedClienteFilter] = useState<number | null>(null);
@@ -218,6 +530,11 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
   useEffect(() => {
     setSelectedProductorFilter(null);
   }, [selectedClienteFilter]);
+
+  // Sincronizar empresa context global → filtro local
+  useEffect(() => {
+    if (isSuperAdmin) setSelectedClienteFilter(empresaCtxId);
+  }, [empresaCtxId, isSuperAdmin]);
 
   const [archiveModal, setArchiveModal] = useState<{
     defId: string; rootId: string; nombre: string; version: string;
@@ -341,6 +658,8 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
     setExpandedHistory(prev => { const n = new Set(prev); n.has(rootId) ? n.delete(rootId) : n.add(rootId); return n; });
   const toggleExpandEventos = (rootId: string) =>
     setExpandedEventos(prev => { const n = new Set(prev); n.has(rootId) ? n.delete(rootId) : n.add(rootId); return n; });
+  const toggleExpandAcceso  = (rootId: string) =>
+    setExpandedAcceso(prev => { const n = new Set(prev); n.has(rootId) ? n.delete(rootId) : n.add(rootId); return n; });
 
 
   return (
@@ -560,317 +879,248 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
             const blockDeactivate     = latest.estado === "activo"
                                         && otherLiveVersions.length === 0
                                         && defDatos.length > 0;
+            const isExpAcceso         = expandedAcceso.has(rootId);
+            const accesoLabel         = NIVEL_ACCESS_OPTIONS.find(n => n.value === latest.nivel_minimo)?.label ?? "Todos";
+            const rolesExcluidosCount = (latest.roles_excluidos ?? []).length;
+            const accesosCount        = getDefAccesos(latest.id).length;
 
             return (
               <div key={rootId} className="bg-card border border-border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col">
 
                 {/* ── Cabecera ──────────────────────────────────────────── */}
-                <div className="px-4 pt-3.5 pb-3 border-b border-border bg-muted/20">
-                  {/* Badges + controles de versión */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-1">
+                <div className="px-4 pt-3 pb-3 border-b border-border bg-muted/20">
+
+                  {/* Fila superior: badges de estado + menú de acciones */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-1 min-w-0">
                       <span className={cn(
-                        "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none",
+                        "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none shrink-0",
                         tipoBadgeColor[rep.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700",
                       )}>
                         {tipoLabels[rep.tipo as TipoConfig] ?? rep.tipo}
                       </span>
                       <span className={cn(
-                        "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5",
+                        "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5 shrink-0",
                         estadoBadge[rep.estado ?? "borrador"],
                       )}>
                         <EstadoIcon estado={rep.estado ?? "borrador"} />
                         {rep.estado ?? "borrador"}
                       </span>
+                      <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded shrink-0">
+                        v{latest.version || "1.0"}
+                      </span>
                       {hasHistory && (
                         <button
                           onClick={() => toggleExpandHistory(rootId)}
                           className={cn(
-                            "inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none transition-colors",
-                            isExpHistory
-                              ? "bg-primary/15 text-primary"
-                              : "bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary",
+                            "inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none transition-colors shrink-0",
+                            isExpHistory ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary",
                           )}
                           title={isExpHistory ? "Ocultar historial" : "Ver historial de versiones"}
                         >
-                          <History className="w-2.5 h-2.5" />
-                          {versions.length}v
+                          <History className="w-2.5 h-2.5" />{versions.length}v
                         </button>
                       )}
-                      {/* Badge de empresa cuando se ven todas */}
                       {isSuperAdmin && selectedClienteFilter === null && latest.cliente_id && (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800">
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800 shrink-0">
                           <Building2 className="w-2.5 h-2.5" />
                           {clientes.find(c => c.id === latest.cliente_id)?.nombre ?? `#${latest.cliente_id}`}
                         </span>
                       )}
-                      {/* Badge de productor cuando corresponde */}
                       {isSuperAdmin && latest.productor_id && (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800">
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800 shrink-0">
                           <Tractor className="w-2.5 h-2.5" />
                           {productores.find(p => p.id === latest.productor_id)?.nombre ?? `Productor #${latest.productor_id}`}
                         </span>
                       )}
                     </div>
 
-                    {/* Controles de versión */}
-                    <div className="flex items-center gap-0.5 shrink-0">
-                      <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
-                        v{latest.version || "1.0"}
-                      </span>
-                      <button
-                        onClick={() => {
-                          const idx = definiciones.findIndex(d => d.id === latest.id);
-                          if (idx !== -1) updDef(idx, "version", bumpV(latest.version || "1.0", "minor"));
-                        }}
-                        title="Incrementar versión menor (ej. 1.0 → 1.1)"
-                        className="text-[10px] font-mono text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded transition-colors"
-                      >
-                        +0.1
-                      </button>
-                      <button
-                        onClick={() => setConfirmDup({
-                          rootId,
-                          sourceId:      latest.id,
-                          sourceName:    latest.nombre,
-                          sourceVersion: latest.version || "1.0",
-                          newVersion:    bumpV(latest.version || "1.0", "major"),
-                          paramCount:    parametros.filter(p => p.definicion_id === latest.id).length,
-                          newName:       latest.nombre,
-                        })}
-                        title="Nueva versión mayor"
-                        className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                      >
-                        <Copy className="w-3 h-3" />
-                      </button>
-                      {hasHistory && (
-                        <button
-                          onClick={() => setCompareRootId(rootId)}
-                          title="Comparar versiones"
-                          className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                        >
-                          <ArrowLeftRight className="w-3 h-3" />
+                    {/* ─ Menú de acciones ─────────────────────────────── */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0" title="Acciones">
+                          <MoreHorizontal className="w-4 h-4" />
                         </button>
-                      )}
-                      {/* Activar / Desactivar versión actual */}
-                      {latest.estado !== "archivado" && (
-                        <button
-                          disabled={blockDeactivate}
-                          onClick={() => {
-                            if (blockDeactivate) return;
-                            const idx = definiciones.findIndex(d => d.id === latest.id);
-                            if (idx === -1) return;
-                            const newEstado = latest.estado === "activo" ? "borrador" : "activo";
-                            updDef(idx, "estado", newEstado);
-                          }}
-                          title={
-                            blockDeactivate
-                              ? `Tiene ${defDatos.length} dato${defDatos.length !== 1 ? "s" : ""} registrado${defDatos.length !== 1 ? "s" : ""} — crea otra versión primero`
-                              : latest.estado === "activo" ? "Desactivar (→ borrador)" : "Activar"
-                          }
-                          className={cn(
-                            "p-1 rounded transition-colors",
-                            blockDeactivate
-                              ? "text-muted-foreground/40 cursor-not-allowed"
-                              : latest.estado === "activo"
-                                ? "text-green-600 hover:text-yellow-600 hover:bg-yellow-500/10"
-                                : "text-muted-foreground hover:text-green-600 hover:bg-green-500/10",
-                          )}
-                        >
-                          <Power className="w-3 h-3" />
-                        </button>
-                      )}
-                      {/* Eliminar — solo cuando es borrador */}
-                      {latest.estado === "borrador" && (
-                        <button
-                          onClick={() => setConfirmDelId(latest.id)}
-                          title="Eliminar definición (solo borradores)"
-                          className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      )}
-                      {/* Archivar */}
-                      {latest.estado !== "archivado" && (
-                        <button
-                          onClick={() => {
-                            const others = versions.filter(v => v.id !== latest.id && v.estado !== "archivado");
-                            setArchiveActivateId(others[0]?.id ?? "");
-                            setArchiveModal({ defId: latest.id, rootId, nombre: latest.nombre, version: latest.version || "1.0", otherVersions: others });
-                          }}
-                          title="Archivar esta versión"
-                          className="p-1 rounded text-muted-foreground hover:text-amber-600 hover:bg-amber-500/10 transition-colors"
-                        >
-                          <Archive className="w-3 h-3" />
-                        </button>
-                      )}
-                      {/* Restaurar si está archivado */}
-                      {latest.estado === "archivado" && (
-                        <button
-                          onClick={() => {
-                            const idx = definiciones.findIndex(d => d.id === latest.id);
-                            if (idx !== -1) updDef(idx, "estado", "borrador");
-                          }}
-                          title="Restaurar a borrador"
-                          className="p-1 rounded text-amber-600 hover:bg-amber-500/10 transition-colors"
-                        >
-                          <RotateCcw className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-52">
+                        <DropdownMenuItem onClick={() => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "version", bumpV(latest.version || "1.0", "minor")); }}>
+                          <Tag className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                          Subir versión menor (+0.1)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setConfirmDup({ rootId, sourceId: latest.id, sourceName: latest.nombre, sourceVersion: latest.version || "1.0", newVersion: bumpV(latest.version || "1.0", "major"), paramCount: parametros.filter(p => p.definicion_id === latest.id).length, newName: latest.nombre })}>
+                          <Copy className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                          Nueva versión mayor
+                        </DropdownMenuItem>
+                        {hasHistory && (
+                          <DropdownMenuItem onClick={() => setCompareRootId(rootId)}>
+                            <ArrowLeftRight className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                            Comparar versiones
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => { setAccesosModal(latest.id); setAccSearch(""); setAccFilter("todos"); setAccSelected(new Set()); }}>
+                          <Lock className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                          Gestionar accesos
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        {latest.estado !== "archivado" && (
+                          <DropdownMenuItem
+                            disabled={blockDeactivate}
+                            onClick={() => { if (blockDeactivate) return; const idx = definiciones.findIndex(d => d.id === latest.id); if (idx === -1) return; updDef(idx, "estado", latest.estado === "activo" ? "borrador" : "activo"); }}
+                            className={latest.estado === "activo" ? "text-yellow-600 focus:text-yellow-700" : "text-green-600 focus:text-green-700"}
+                            title={blockDeactivate ? `Tiene ${defDatos.length} dato(s) — crea otra versión primero` : undefined}
+                          >
+                            <Power className="w-3.5 h-3.5 mr-2" />
+                            {latest.estado === "activo" ? "Pasar a borrador" : "Activar"}
+                          </DropdownMenuItem>
+                        )}
+                        {latest.estado !== "archivado" && (
+                          <DropdownMenuItem
+                            onClick={() => { const others = versions.filter(v => v.id !== latest.id && v.estado !== "archivado"); setArchiveActivateId(others[0]?.id ?? ""); setArchiveModal({ defId: latest.id, rootId, nombre: latest.nombre, version: latest.version || "1.0", otherVersions: others }); }}
+                            className="text-amber-600 focus:text-amber-700"
+                          >
+                            <Archive className="w-3.5 h-3.5 mr-2" />
+                            Archivar versión
+                          </DropdownMenuItem>
+                        )}
+                        {latest.estado === "archivado" && (
+                          <DropdownMenuItem onClick={() => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "estado", "borrador"); }}>
+                            <RotateCcw className="w-3.5 h-3.5 mr-2 text-amber-600" />
+                            Restaurar a borrador
+                          </DropdownMenuItem>
+                        )}
+                        {latest.estado === "borrador" && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => setConfirmDelId(latest.id)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                              <Trash2 className="w-3.5 h-3.5 mr-2" />
+                              Eliminar definición
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
 
-                  {/* Nombre y metadatos */}
-                  <div className="mt-2">
-                    <input
-                      value={latest.nombre}
-                      onChange={e => {
-                        const idx = definiciones.findIndex(d => d.id === latest.id);
-                        if (idx !== -1) updDef(idx, "nombre", e.target.value);
-                      }}
-                      placeholder="(sin nombre)"
-                      className="font-semibold text-foreground leading-snug w-full bg-transparent outline-none placeholder:italic placeholder:text-muted-foreground hover:bg-muted/30 focus:bg-background focus:px-1.5 focus:rounded focus:border focus:border-primary/40 transition-all text-sm"
-                    />
-                    {/* Row 1: módulo · cultivo */}
-                    <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground flex-wrap">
-                      <span>{MODULO_OPTIONS.find(m => m.value === latest.modulo)?.label ?? latest.modulo}</span>
-                      <span>·</span>
-                      <select
-                        value={latest.cultivo_id ?? ""}
-                        onChange={e => {
-                          const idx = definiciones.findIndex(d => d.id === latest.id);
-                          if (idx !== -1) updDef(idx, "cultivo_id", e.target.value || undefined);
-                        }}
-                        onClick={e => e.stopPropagation()}
-                        title="Alcance del formulario"
-                        className={cn(
-                          "text-[10px] font-medium px-1.5 py-0.5 rounded-full border cursor-pointer outline-none transition-colors",
-                          latest.cultivo_id
-                            ? "bg-primary/10 text-primary border-primary/20 hover:bg-primary/20"
-                            : "bg-muted text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
-                        )}
-                      >
-                        <option value="">🌐 Global — todos los cultivos</option>
-                        {cardCultivos.map(c => (
-                          <option key={c.id} value={c.id}>🌿 {c.nombre}</option>
-                        ))}
-                      </select>
-                    </div>
+                  {/* Nombre editable */}
+                  <input
+                    value={latest.nombre}
+                    onChange={e => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "nombre", e.target.value); }}
+                    placeholder="(sin nombre)"
+                    className="font-semibold text-foreground leading-snug w-full bg-transparent outline-none placeholder:italic placeholder:text-muted-foreground hover:bg-muted/30 focus:bg-background focus:px-1.5 focus:rounded focus:border focus:border-primary/40 transition-all text-sm mt-2"
+                  />
 
-                    {/* Row 2: control de acceso — nivel mínimo + roles excluidos */}
-                    <div className="flex items-center gap-1.5 mt-1 flex-wrap" onClick={e => e.stopPropagation()}>
-                      <Lock className="w-2.5 h-2.5 text-muted-foreground/60 shrink-0" />
+                  {/* Módulo · Cultivo */}
+                  <div className="flex items-center gap-1.5 mt-1 text-[11px] text-muted-foreground flex-wrap" onClick={e => e.stopPropagation()}>
+                    <span className="shrink-0">{MODULO_OPTIONS.find(m => m.value === latest.modulo)?.label ?? latest.modulo}</span>
+                    <span>·</span>
+                    <select
+                      value={latest.cultivo_id ?? ""}
+                      onChange={e => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "cultivo_id", e.target.value || undefined); }}
+                      onClick={e => e.stopPropagation()}
+                      title="Alcance del formulario"
+                      className={cn(
+                        "text-[10px] font-medium px-1.5 py-0.5 rounded-full border cursor-pointer outline-none transition-colors",
+                        latest.cultivo_id ? "bg-primary/10 text-primary border-primary/20 hover:bg-primary/20" : "bg-muted text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
+                      )}
+                    >
+                      <option value="">🌐 Global — todos los cultivos</option>
+                      {cardCultivos.map(c => <option key={c.id} value={c.id}>🌿 {c.nombre}</option>)}
+                    </select>
+                  </div>
 
-                      {/* Nivel mínimo selector */}
-                      <select
-                        value={latest.nivel_minimo}
-                        onChange={e => {
-                          const idx = definiciones.findIndex(d => d.id === latest.id);
-                          if (idx !== -1) updDef(idx, "nivel_minimo", Number(e.target.value));
-                        }}
-                        title="Nivel de acceso mínimo requerido"
-                        className={cn(
-                          "text-[10px] font-medium px-1.5 py-0.5 rounded-full border cursor-pointer outline-none transition-colors",
-                          latest.nivel_minimo > 1
-                            ? "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800"
-                            : "bg-muted text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
-                        )}
-                      >
-                        {NIVEL_ACCESS_OPTIONS.map(n => (
-                          <option key={n.value} value={n.value}>
-                            {n.icon} {n.label} (Nv.{n.value})
-                          </option>
-                        ))}
-                      </select>
+                  {/* Control de acceso — colapsable */}
+                  <div className="mt-2.5 pt-2 border-t border-border/40" onClick={e => e.stopPropagation()}>
+                    {/* Fila resumen — siempre visible, clic para expandir */}
+                    <button
+                      onClick={() => toggleExpandAcceso(rootId)}
+                      className="flex items-center gap-1.5 w-full group/acc hover:opacity-80 transition-opacity"
+                    >
+                      <Lock className="w-2.5 h-2.5 text-muted-foreground/50 shrink-0" />
+                      <span className={cn(
+                        "text-[10px] font-medium px-1.5 py-0.5 rounded-full border shrink-0",
+                        latest.nivel_minimo > 1
+                          ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800"
+                          : "bg-muted text-muted-foreground border-border",
+                      )}>
+                        {accesoLabel}
+                      </span>
+                      {rolesExcluidosCount > 0 && (
+                        <span className="text-[10px] text-destructive/70 font-medium shrink-0">
+                          {rolesExcluidosCount} rol{rolesExcluidosCount > 1 ? "es" : ""} excluido{rolesExcluidosCount > 1 ? "s" : ""}
+                        </span>
+                      )}
+                      {accesosCount > 0 && (
+                        <span className="text-[10px] text-primary/70 font-medium shrink-0">
+                          · {accesosCount} override{accesosCount > 1 ? "s" : ""}
+                        </span>
+                      )}
+                      <ChevronDown className={cn(
+                        "w-3 h-3 text-muted-foreground/40 ml-auto transition-transform duration-200",
+                        isExpAcceso && "rotate-180",
+                      )} />
+                    </button>
 
-                      {/* Chips de roles excluidos */}
-                      {(latest.roles_excluidos ?? []).map(r => {
-                        const rOpt = ROLE_ACCESS_OPTIONS.find(x => x.value === r);
-                        return (
-                          <span
-                            key={r}
-                            className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20"
-                          >
-                            {rOpt?.short ?? r}
-                            <button
-                              onClick={() => {
-                                const idx = definiciones.findIndex(d => d.id === latest.id);
-                                if (idx !== -1)
-                                  updDef(idx, "roles_excluidos",
-                                    (latest.roles_excluidos ?? []).filter(x => x !== r));
-                              }}
-                              className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity leading-none"
-                              title={`Quitar exclusión de ${rOpt?.label ?? r}`}
-                            >×</button>
-                          </span>
-                        );
-                      })}
-
-                      {/* Selector para agregar rol excluido */}
-                      {(() => {
-                        const excluded = latest.roles_excluidos ?? [];
-                        const available = ROLE_ACCESS_OPTIONS.filter(r => !excluded.includes(r.value));
-                        if (available.length === 0) return null;
-                        return (
+                    {/* Controles expandidos */}
+                    {isExpAcceso && (
+                      <div className="mt-2 space-y-2 pt-2 border-t border-border/30">
+                        {/* Nivel mínimo + roles excluidos */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <select
-                            value=""
-                            onChange={e => {
-                              if (!e.target.value) return;
-                              const idx = definiciones.findIndex(d => d.id === latest.id);
-                              if (idx !== -1)
-                                updDef(idx, "roles_excluidos", [...excluded, e.target.value]);
-                            }}
-                            title="Excluir un rol de este formulario"
-                            className="text-[9px] px-1.5 py-0.5 rounded-full border border-dashed border-border cursor-pointer outline-none text-muted-foreground hover:border-destructive/50 hover:text-destructive transition-colors bg-transparent"
+                            value={latest.nivel_minimo}
+                            onChange={e => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "nivel_minimo", Number(e.target.value)); }}
+                            title="Nivel de acceso mínimo"
+                            className={cn(
+                              "text-[10px] font-medium px-1.5 py-0.5 rounded-full border cursor-pointer outline-none transition-colors",
+                              latest.nivel_minimo > 1 ? "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800" : "bg-muted text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
+                            )}
                           >
-                            <option value="">+ excluir rol</option>
-                            {available.map(r => (
-                              <option key={r.value} value={r.value}>{r.label}</option>
-                            ))}
+                            {NIVEL_ACCESS_OPTIONS.map(n => <option key={n.value} value={n.value}>{n.icon} {n.label} (Nv.{n.value})</option>)}
                           </select>
-                        );
-                      })()}
-                    </div>
-
-                    {/* Row 3: overrides por usuario ─────────────────────── */}
-                    {(() => {
-                      const accesos = getDefAccesos(latest.id);
-                      const nAllow  = accesos.filter(a => a.habilitado).length;
-                      const nBlock  = accesos.filter(a => !a.habilitado).length;
-                      return (
-                        <div
-                          className="flex items-center gap-1.5 mt-1 flex-wrap cursor-default"
-                          onClick={e => e.stopPropagation()}
-                        >
-                          <Users2 className="w-2.5 h-2.5 text-muted-foreground/60 shrink-0" />
-
-                          {accesos.length === 0 ? (
-                            <span className="text-[9px] text-muted-foreground/50 italic">Sin overrides</span>
-                          ) : (
-                            <>
-                              {nAllow > 0 && (
-                                <span className="text-[9px] font-medium text-success">✓ {nAllow}</span>
-                              )}
-                              {nBlock > 0 && (
-                                <span className="text-[9px] font-medium text-destructive">✕ {nBlock}</span>
-                              )}
-                            </>
-                          )}
-
-                          <button
-                            onClick={() => {
-                              setAccesosModal(latest.id);
-                              setAccSearch("");
-                              setAccFilter("todos");
-                              setAccSelected(new Set());
-                            }}
-                            className="ml-auto text-[9px] font-medium text-primary hover:underline transition-colors shrink-0"
-                          >
-                            Gestionar accesos →
-                          </button>
+                          {(latest.roles_excluidos ?? []).map(r => {
+                            const rOpt = ROLE_ACCESS_OPTIONS.find(x => x.value === r);
+                            return (
+                              <span key={r} className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 shrink-0">
+                                {rOpt?.short ?? r}
+                                <button onClick={() => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "roles_excluidos", (latest.roles_excluidos ?? []).filter(x => x !== r)); }} className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity leading-none" title={`Quitar exclusión de ${rOpt?.label ?? r}`}>×</button>
+                              </span>
+                            );
+                          })}
+                          {(() => {
+                            const excluded = latest.roles_excluidos ?? [];
+                            const available = ROLE_ACCESS_OPTIONS.filter(r => !excluded.includes(r.value));
+                            if (available.length === 0) return null;
+                            return (
+                              <select value="" onChange={e => { if (!e.target.value) return; const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "roles_excluidos", [...excluded, e.target.value]); }} className="text-[9px] px-1.5 py-0.5 rounded-full border border-dashed border-border cursor-pointer outline-none text-muted-foreground hover:border-destructive/50 hover:text-destructive transition-colors bg-transparent shrink-0">
+                                <option value="">+ excluir rol</option>
+                                {available.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                              </select>
+                            );
+                          })()}
                         </div>
-                      );
-                    })()}
+                        {/* Overrides */}
+                        {(() => {
+                          const accesos = getDefAccesos(latest.id);
+                          const nAllow = accesos.filter(a => a.habilitado).length;
+                          const nBlock = accesos.filter(a => !a.habilitado).length;
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <Users2 className="w-2.5 h-2.5 text-muted-foreground/60 shrink-0" />
+                              {accesos.length === 0
+                                ? <span className="text-[9px] text-muted-foreground/50 italic">Sin overrides</span>
+                                : <>
+                                    {nAllow > 0 && <span className="text-[9px] font-medium text-success">✓ {nAllow}</span>}
+                                    {nBlock > 0 && <span className="text-[9px] font-medium text-destructive">✕ {nBlock}</span>}
+                                  </>
+                              }
+                              <button onClick={() => { setAccesosModal(latest.id); setAccSearch(""); setAccFilter("todos"); setAccSelected(new Set()); }} className="ml-auto text-[9px] font-medium text-primary hover:underline transition-colors shrink-0">
+                                Gestionar accesos →
+                              </button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1670,16 +1920,16 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
       {/* ── Modal: Selector desde Biblioteca ─────────────────────────────── */}
       <Dialog
         open={!!addCampoModal}
-        onOpenChange={open => { if (!open) setAddCampoModal(null); }}
+        onOpenChange={open => { if (!open) { setAddCampoModal(null); setCampoTypeFilter("Todos"); } }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <BookOpen className="w-5 h-5 text-primary" />
-              Agregar campo desde Biblioteca
+              <BookOpen className="w-4.5 h-4.5 text-primary" />
+              Agregar campos al formulario
             </DialogTitle>
             <DialogDescription>
-              Selecciona uno o más parámetros de la biblioteca para añadirlos al formulario.
+              Selecciona parámetros de la biblioteca global o crea uno nuevo en blanco.
             </DialogDescription>
           </DialogHeader>
 
@@ -1690,7 +1940,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               autoFocus
               value={campoSearch}
               onChange={e => setCampoSearch(e.target.value)}
-              placeholder="Buscar parámetro…"
+              placeholder="Buscar por nombre, código o descripción…"
               className="w-full pl-9 pr-8 py-2 text-sm rounded-lg bg-muted/40 border border-border focus:border-primary/50 focus:outline-none focus:bg-background transition-colors"
             />
             {campoSearch && (
@@ -1700,39 +1950,73 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
             )}
           </div>
 
+          {/* Filtros por tipo */}
+          <div className="flex items-center gap-1.5 flex-wrap -mt-1">
+            {["Todos", "Texto", "Número", "Fecha", "Sí/No", "Lista"].map(t => {
+              const meta = TIPO_META[t];
+              const TIcon = meta?.icon;
+              const isActive = campoTypeFilter === t;
+              return (
+                <button
+                  key={t}
+                  onClick={() => setCampoTypeFilter(t)}
+                  className={cn(
+                    "flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border transition-all",
+                    isActive
+                      ? t === "Todos"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : cn(meta?.bg, meta?.color, "border-transparent")
+                      : "bg-muted/40 text-muted-foreground border-border hover:bg-muted/60",
+                  )}
+                >
+                  {TIcon && <TIcon className="w-2.5 h-2.5" />}
+                  {t}
+                </button>
+              );
+            })}
+          </div>
+
           {/* Lista de parámetros de la biblioteca */}
-          <div className="max-h-72 overflow-y-auto rounded-lg border border-border divide-y divide-border">
+          <div className="max-h-64 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
             {(() => {
               const defId = addCampoModal?.defId ?? "";
               const existingNames = new Set(parametros.filter(p => p.definicion_id === defId).map(p => p.nombre));
               const filtered = parametrosLib.filter(p =>
                 p.activo !== false &&
-                (p.nombre.toLowerCase().includes(campoSearch.toLowerCase()) ||
-                 p.descripcion?.toLowerCase().includes(campoSearch.toLowerCase()) ||
-                 p.codigo?.toLowerCase().includes(campoSearch.toLowerCase()))
+                (campoTypeFilter === "Todos" || p.tipo_dato === campoTypeFilter) &&
+                (!campoSearch ||
+                  p.nombre.toLowerCase().includes(campoSearch.toLowerCase()) ||
+                  p.descripcion?.toLowerCase().includes(campoSearch.toLowerCase()) ||
+                  p.codigo?.toLowerCase().includes(campoSearch.toLowerCase()))
               );
               if (filtered.length === 0) {
                 return (
-                  <div className="py-8 text-center text-sm text-muted-foreground">
-                    Sin resultados para &ldquo;{campoSearch}&rdquo;
+                  <div className="py-10 text-center space-y-1">
+                    <BookOpen className="w-6 h-6 mx-auto text-muted-foreground/20" />
+                    <p className="text-sm text-muted-foreground">
+                      {campoSearch ? `Sin resultados para "${campoSearch}"` : "No hay parámetros de este tipo."}
+                    </p>
                   </div>
                 );
               }
               return filtered.map(lib => {
+                const meta = TIPO_META[lib.tipo_dato] ?? TIPO_META["Texto"];
+                const TIcon = meta.icon;
                 const alreadyIn = existingNames.has(lib.nombre);
                 const selected  = selectedLibIds.has(lib.id);
                 return (
                   <label
                     key={lib.id}
                     className={cn(
-                      "flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-colors",
+                      "flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors",
                       alreadyIn
                         ? "opacity-50 cursor-not-allowed bg-muted/20"
                         : selected
-                          ? "bg-primary/8 hover:bg-primary/12"
+                          ? "bg-primary/8 hover:bg-primary/10"
                           : "hover:bg-muted/40",
                     )}
                   >
+                    {/* Checkbox */}
                     <input
                       type="checkbox"
                       disabled={alreadyIn}
@@ -1744,19 +2028,26 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                           return next;
                         });
                       }}
-                      className="mt-0.5 shrink-0 accent-primary"
+                      className="shrink-0 accent-primary"
                     />
+                    {/* Tipo icon */}
+                    <div className={cn("w-7 h-7 rounded-md flex items-center justify-center shrink-0", meta.bg)}>
+                      <TIcon className={cn("w-3.5 h-3.5", meta.color)} />
+                    </div>
+                    {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-sm font-medium text-foreground">
                           {lib.nombre.replace(/_/g, " ")}
                         </span>
-                        <span className="text-[10px] font-mono bg-muted border border-border px-1.5 py-0.5 rounded text-muted-foreground shrink-0">
-                          {lib.tipo_dato}
-                        </span>
+                        {lib.codigo && (
+                          <span className="text-[10px] font-mono bg-muted border border-border px-1.5 py-0.5 rounded text-muted-foreground shrink-0">
+                            {lib.codigo}
+                          </span>
+                        )}
                         {lib.unidad_medida && (
-                          <span className="text-[10px] text-muted-foreground shrink-0">
-                            ({lib.unidad_medida})
+                          <span className="text-[10px] bg-muted/60 text-muted-foreground px-1.5 py-0.5 rounded shrink-0">
+                            {lib.unidad_medida}
                           </span>
                         )}
                         {alreadyIn && (
@@ -1766,11 +2057,10 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                         )}
                       </div>
                       {lib.descripcion && (
-                        <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                          {lib.descripcion}
-                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{lib.descripcion}</p>
                       )}
                     </div>
+                    {selected && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
                   </label>
                 );
               });
@@ -1790,14 +2080,14 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               onChange={e => setCreateNewCampo(e.target.checked)}
               className="shrink-0 accent-primary"
             />
-            <div className="flex items-center gap-2">
-              <div className="w-5 h-5 rounded-full border-2 border-dashed border-muted-foreground flex items-center justify-center">
-                <Plus className="w-3 h-3 text-muted-foreground" />
-              </div>
-              <span className="text-sm font-medium text-muted-foreground">
-                Crear nuevo parámetro en blanco
-              </span>
+            <div className="w-7 h-7 rounded-md border-2 border-dashed border-muted-foreground/40 flex items-center justify-center shrink-0">
+              <Plus className="w-3.5 h-3.5 text-muted-foreground" />
             </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Crear campo en blanco</p>
+              <p className="text-[11px] text-muted-foreground/60">Se añadirá un campo vacío para configurar manualmente</p>
+            </div>
+            {createNewCampo && <Check className="w-3.5 h-3.5 text-primary ml-auto shrink-0" />}
           </label>
 
           <DialogFooter className="gap-2 sm:gap-0 pt-1">
@@ -2266,11 +2556,19 @@ function TabCultivos() {
     variedades, addVariedad, updVariedad, delVariedad,
   } = useConfig();
   const navigate = useNavigate();
-  const { role } = useRole();
+  const { role, empresaCtxId, clientes } = useRole();
   const isSuperAdmin = role === "super_admin";
+  // cliente_admin y productor también pueden editar calibres, estructura, medidas y mapa del cultivo
+  const canEditCultivo = isSuperAdmin || role === "cliente_admin" || role === "productor";
 
-  // super_admin ve todos (incluye desasignados); otros roles solo los que le corresponden
-  const cultivosList = isSuperAdmin ? allCultivos : cultivos;
+  // super_admin ve todos; si tiene empresa filtrada, filtra por clientes_ids
+  const cultivosBase = isSuperAdmin ? allCultivos : cultivos;
+  const cultivosList = isSuperAdmin && empresaCtxId
+    ? cultivosBase.filter(c => !c.clientes_ids || c.clientes_ids.length === 0 || c.clientes_ids.includes(empresaCtxId))
+    : cultivosBase;
+  const empresaCtxNombre = isSuperAdmin && empresaCtxId
+    ? clientes.find(c => c.id === empresaCtxId)?.nombre ?? null
+    : null;
 
   const firstActive = cultivosList.find(c => c.activo)?.id ?? cultivosList[0]?.id ?? "";
   const [selectedId,     setSelectedId]     = useState<string>(firstActive);
@@ -2331,6 +2629,14 @@ function TabCultivos() {
       <InfoBanner storageKey="cultivos">
         <strong>Cultivos</strong> — gestiona cultivos activos, sus variedades y qué formularios aplican sólo a ese cultivo o a todos.
       </InfoBanner>
+
+      {/* ── Banner empresa filtrada (super_admin) ─────────────────────── */}
+      {empresaCtxNombre && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-900/10 dark:border-amber-700/30 text-amber-700 dark:text-amber-400 text-xs">
+          <Building2 className="w-3.5 h-3.5 shrink-0" />
+          <span>Mostrando cultivos de <strong>{empresaCtxNombre}</strong></span>
+        </div>
+      )}
 
       {/* ── Layout master / detail ─────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4 items-start">
@@ -2633,7 +2939,7 @@ function TabCultivos() {
                       return (
                         <button
                           key={opt}
-                          disabled={!isSuperAdmin}
+                          disabled={!canEditCultivo}
                           onClick={() => updCultivo(cultivo.id, "unidad_superficie", opt)}
                           title={titles[opt]}
                           className={cn(
@@ -2641,7 +2947,7 @@ function TabCultivos() {
                             active
                               ? "bg-primary text-primary-foreground"
                               : "bg-card text-muted-foreground hover:bg-muted/60",
-                            !isSuperAdmin && "cursor-default",
+                            !canEditCultivo && "cursor-default",
                           )}
                         >
                           {labels[opt]}
@@ -2663,7 +2969,7 @@ function TabCultivos() {
                       return (
                         <button
                           key={opt}
-                          disabled={!isSuperAdmin}
+                          disabled={!canEditCultivo}
                           onClick={() => updCultivo(cultivo.id, "unidad_produccion", opt)}
                           title={titles[opt]}
                           className={cn(
@@ -2671,7 +2977,7 @@ function TabCultivos() {
                             active
                               ? "bg-primary text-primary-foreground"
                               : "bg-card text-muted-foreground hover:bg-muted/60",
-                            !isSuperAdmin && "cursor-default",
+                            !canEditCultivo && "cursor-default",
                           )}
                         >
                           {opt}
@@ -2697,8 +3003,8 @@ function TabCultivos() {
                         updCultivo(cultivo.id, "marco_plantacion", e.target.value ? Number(e.target.value) : undefined)
                       }
                       className="h-8 text-sm w-36"
-                      readOnly={!isSuperAdmin}
-                      disabled={!isSuperAdmin}
+                      readOnly={!canEditCultivo}
+                      disabled={!canEditCultivo}
                     />
                     <span className="text-xs text-muted-foreground">pl/ha</span>
                     {!!cultivo.marco_plantacion && cultivo.marco_plantacion > 0 && (
@@ -2727,8 +3033,8 @@ function TabCultivos() {
                     {(["mm", "cm"] as const).map(unit => (
                       <button
                         key={unit}
-                        onClick={() => isSuperAdmin && updCultivo(cultivo.id, "unidad_calibre", unit)}
-                        disabled={!isSuperAdmin}
+                        onClick={() => canEditCultivo && updCultivo(cultivo.id, "unidad_calibre", unit)}
+                        disabled={!canEditCultivo}
                         className={cn(
                           "px-2 py-0.5 rounded font-medium transition-colors",
                           (cultivo.unidad_calibre ?? "mm") === unit
@@ -2740,7 +3046,7 @@ function TabCultivos() {
                       </button>
                     ))}
                   </div>
-                  {isSuperAdmin && (
+                  {canEditCultivo && (
                     <>
                       {(cultivo.calibres ?? []).length === 0 && (
                         <button
@@ -2776,7 +3082,7 @@ function TabCultivos() {
                 <div className="px-4 py-8 text-center space-y-2">
                   <Scale className="w-7 h-7 mx-auto text-muted-foreground/20" />
                   <p className="text-xs text-muted-foreground">Sin calibres configurados.</p>
-                  {isSuperAdmin && (
+                  {canEditCultivo && (
                     <p className="text-[10px] text-muted-foreground/60">
                       Usa "Cargar plantilla" para empezar rápido.
                     </p>
@@ -2831,8 +3137,8 @@ function TabCultivos() {
                           min={0}
                           value={cal[field] as number ?? ""}
                           onChange={e => updCal(field, e.target.value !== "" ? Number(e.target.value) : undefined)}
-                          readOnly={!isSuperAdmin}
-                          disabled={!isSuperAdmin}
+                          readOnly={!canEditCultivo}
+                          disabled={!canEditCultivo}
                           className="w-full text-xs text-center bg-muted/40 rounded-md px-1.5 py-1.5 border border-transparent focus:border-primary/50 focus:bg-background focus:outline-none disabled:opacity-60 transition-colors"
                         />
                       );
@@ -2850,8 +3156,8 @@ function TabCultivos() {
                               value={cal.nombre}
                               onChange={e => updCal("nombre", e.target.value)}
                               placeholder="ej. Premium"
-                              readOnly={!isSuperAdmin}
-                              disabled={!isSuperAdmin}
+                              readOnly={!canEditCultivo}
+                              disabled={!canEditCultivo}
                               className="flex-1 text-sm font-medium bg-transparent border-0 focus:outline-none min-w-0 disabled:opacity-60"
                             />
                             {cal.mm_min !== undefined && cal.mm_max !== undefined && (
@@ -2867,7 +3173,7 @@ function TabCultivos() {
                           {numInput("peso_g_max")}
 
                           {/* Delete */}
-                          {isSuperAdmin ? (
+                          {canEditCultivo ? (
                             <button
                               onClick={delCal}
                               title="Eliminar calibre"
@@ -2912,7 +3218,7 @@ function TabCultivos() {
                     Define los niveles jerárquicos del campo
                   </span>
                 </div>
-                {isSuperAdmin && (
+                {canEditCultivo && (
                   <div className="flex items-center gap-2">
                     {(cultivo.estructura ?? []).length === 0 && (
                       <button
@@ -2954,7 +3260,7 @@ function TabCultivos() {
                 <div className="px-4 py-8 text-center space-y-2">
                   <Network className="w-7 h-7 mx-auto text-muted-foreground/20" />
                   <p className="text-xs text-muted-foreground">Sin estructura configurada.</p>
-                  {isSuperAdmin && (
+                  {canEditCultivo && (
                     <p className="text-[10px] text-muted-foreground/60">
                       Usa "Cargar plantilla" para la jerarquía estándar.
                     </p>
@@ -3002,7 +3308,7 @@ function TabCultivos() {
                           <Switch
                             checked={nivel.activo}
                             onCheckedChange={v => updNivel("activo", v)}
-                            disabled={!isSuperAdmin}
+                            disabled={!canEditCultivo}
                             className="scale-75 origin-left shrink-0"
                           />
 
@@ -3022,8 +3328,8 @@ function TabCultivos() {
                           <input
                             value={nivel.label}
                             onChange={e => updNivel("label", e.target.value)}
-                            readOnly={!isSuperAdmin}
-                            disabled={!isSuperAdmin}
+                            readOnly={!canEditCultivo}
+                            disabled={!canEditCultivo}
                             placeholder="Nombre del nivel"
                             className="flex-1 text-sm font-medium bg-transparent border-0 focus:outline-none disabled:opacity-60 min-w-0"
                           />
@@ -3032,15 +3338,15 @@ function TabCultivos() {
                           <input
                             value={nivel.abrev}
                             onChange={e => updNivel("abrev", e.target.value.toUpperCase().slice(0, 4))}
-                            readOnly={!isSuperAdmin}
-                            disabled={!isSuperAdmin}
+                            readOnly={!canEditCultivo}
+                            disabled={!canEditCultivo}
                             placeholder="AB"
                             maxLength={4}
                             className="w-10 text-[10px] font-mono text-center bg-muted/40 rounded-md px-1.5 py-1 border border-transparent focus:border-primary/50 focus:bg-background focus:outline-none disabled:opacity-60 uppercase transition-colors"
                           />
 
                           {/* Reorder + Delete */}
-                          {isSuperAdmin && (
+                          {canEditCultivo && (
                             <div className="flex items-center gap-1 flex-shrink-0">
                               <div className="flex flex-col gap-0.5">
                                 <button
@@ -3105,6 +3411,33 @@ function TabCultivos() {
                 </div>
               )}
             </div>
+
+            {/* ── Sección 5: Mapa visual del campo ───────────────────────────────────── */}
+            {(cultivo.estructura ?? []).some(n => n.activo) && (
+              <div className="rounded-lg border bg-card text-card-foreground overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
+                  <div className="flex items-center gap-2">
+                    <MapIcon className="w-4 h-4 text-emerald-500" />
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Mapa del Campo
+                    </h3>
+                    <span className="text-[10px] text-muted-foreground">
+                      Distribución visual de la estructura
+                    </span>
+                  </div>
+                </div>
+                <div className="p-4">
+                  <CampoMapaEditor
+                    estructura={cultivo.estructura ?? []}
+                    layout={cultivo.layout_mapa ?? []}
+                    onLayoutChange={(newLayout) =>
+                      updCultivo(cultivo.id, "layout_mapa", newLayout)
+                    }
+                    readOnly={!canEditCultivo}
+                  />
+                </div>
+              </div>
+            )}
 
           </div>
         )}
@@ -3179,13 +3512,18 @@ function TabCultivos() {
 // Solo super_admin puede crear/editar/eliminar clientes y productores.
 // Un cliente puede tener múltiples productores; los productores no ven datos de otros.
 
-const EMPTY_EMPRESA = { nombre: "", ruc: "", pais: "Chile" };
+const EMPTY_EMPRESA = { nombre: "", ruc: "", pais: "Chile", direccion: "" };
 
 function TabEmpresas() {
   const { role, clientes, addCliente, updCliente, delCliente,
-          productores, addProductor, updProductor, delProductor } = useRole();
+          productores, addProductor, updProductor, delProductor,
+          currentUser } = useRole();
   const { allCultivos, allVariedades, updCultivoClientes, updCultivoProductores, updVariedadClientes, updVariedadProductores } = useConfig();
-  const isSuperAdmin = role === "super_admin";
+  const isSuperAdmin    = role === "super_admin";
+  const isClienteAdmin  = role === "cliente_admin";
+  const isProductor     = role === "productor";
+  const currentClienteId   = currentUser?.clienteId   ?? null;
+  const currentProductorId = currentUser?.productorId ?? null;
 
   // ── Toggle cultivo para un cliente ─────────────────────────────────────────
   // clientes_ids vacío = global (todos lo ven). Al desmarcar un global
@@ -3252,8 +3590,11 @@ function TabEmpresas() {
 
   // ── Estado de búsqueda y expansión ─────────────────────────────────────────
   const [search,              setSearch]              = useState("");
-  const [expandedId,          setExpandedId]          = useState<number | null>(null);
-  const [activeSubTab,        setActiveSubTab]        = useState<"cultivos" | "productores">("cultivos");
+  // No super_admin: auto-expand su única empresa
+  const [expandedId,          setExpandedId]          = useState<number | null>(
+    () => !isSuperAdmin ? (currentClienteId ?? null) : null,
+  );
+  const [activeSubTab,        setActiveSubTab]        = useState<"cultivos" | "productores">("productores");
 
   // ── Estado formularios clientes ─────────────────────────────────────────────
   const [showAddCliente,      setShowAddCliente]      = useState(false);
@@ -3274,11 +3615,12 @@ function TabEmpresas() {
   // ── CRUD clientes ──────────────────────────────────────────────────────────
   const handleSaveCliente = () => {
     if (!validEmpresa(clienteForm)) return;
+    const payload = { nombre: clienteForm.nombre.trim(), ruc: clienteForm.ruc.trim(), pais: clienteForm.pais.trim(), direccion: clienteForm.direccion?.trim() || undefined };
     if (editCliente) {
-      updCliente(editCliente.id, { nombre: clienteForm.nombre.trim(), ruc: clienteForm.ruc.trim(), pais: clienteForm.pais.trim() });
+      updCliente(editCliente.id, payload);
       setEditCliente(null);
     } else {
-      const c = addCliente({ nombre: clienteForm.nombre.trim(), ruc: clienteForm.ruc.trim(), pais: clienteForm.pais.trim() });
+      const c = addCliente(payload);
       setExpandedId(c.id);
     }
     setClienteForm(EMPTY_EMPRESA);
@@ -3294,11 +3636,12 @@ function TabEmpresas() {
   // ── CRUD productores ───────────────────────────────────────────────────────
   const handleSaveProductor = () => {
     if (!validEmpresa(prodForm)) return;
+    const payload = { nombre: prodForm.nombre.trim(), ruc: prodForm.ruc.trim(), pais: prodForm.pais.trim(), direccion: prodForm.direccion?.trim() || undefined };
     if (editProductor) {
-      updProductor(editProductor.id, { nombre: prodForm.nombre.trim(), ruc: prodForm.ruc.trim(), pais: prodForm.pais.trim() });
+      updProductor(editProductor.id, payload);
       setEditProductor(null);
     } else if (showAddProd !== null) {
-      addProductor({ clienteId: showAddProd, nombre: prodForm.nombre.trim(), ruc: prodForm.ruc.trim(), pais: prodForm.pais.trim() });
+      addProductor({ clienteId: showAddProd, ...payload });
     }
     setProdForm(EMPTY_EMPRESA);
     setShowAddProd(null);
@@ -3310,11 +3653,216 @@ function TabEmpresas() {
   };
 
   // ── Filtrado ───────────────────────────────────────────────────────────────
-  const filteredClientes = clientes.filter(c =>
+  // No super_admin: solo ven su propia empresa
+  const baseClientes = isSuperAdmin
+    ? clientes
+    : clientes.filter(c => c.id === currentClienteId);
+
+  const filteredClientes = baseClientes.filter(c =>
     !search ||
     c.nombre.toLowerCase().includes(search.toLowerCase()) ||
     c.ruc.toLowerCase().includes(search.toLowerCase())
   );
+
+  // ── Vista perfil para cliente_admin y productor ─────────────────────────
+  if (!isSuperAdmin) {
+    const miCliente = clientes.find(c => c.id === currentClienteId);
+    const miProductor = isProductor
+      ? productores.find(p => p.id === currentProductorId)
+      : null;
+
+    const cultivosCliente = miCliente
+      ? allCultivos.filter(c => !c.clientes_ids || c.clientes_ids.length === 0 || c.clientes_ids.includes(miCliente.id))
+      : [];
+
+    const cultivosProductor = miProductor
+      ? cultivosCliente.filter(c => {
+          const pIds = c.productores_ids ?? [];
+          return pIds.length === 0 || pIds.includes(miProductor.id);
+        })
+      : cultivosCliente;
+
+    const cultivosMostrar = isProductor ? cultivosProductor : cultivosCliente;
+    const productoresCliente = miCliente
+      ? productores.filter(p => p.clienteId === miCliente.id)
+      : [];
+
+    const entidad = isProductor ? miProductor : miCliente;
+    const esProductorCard = isProductor && miProductor;
+
+    return (
+      <div className="space-y-5">
+        {!entidad ? (
+          <div className="rounded-xl border bg-card flex flex-col items-center gap-3 py-16 text-muted-foreground">
+            <Building2 className="w-10 h-10 opacity-20" />
+            <p className="text-sm">No se encontraron datos de empresa.</p>
+          </div>
+        ) : (
+          <>
+            {/* ── Header de perfil ─────────────────────────────────────── */}
+            <div className="rounded-xl border bg-card overflow-hidden">
+              {/* Banner decorativo */}
+              <div className="h-16 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent" />
+
+              <div className="px-6 pb-5">
+                {/* Avatar flotando sobre el banner */}
+                <div className="-mt-8 mb-3 flex items-end justify-between">
+                  <div className="w-14 h-14 rounded-2xl bg-card border-2 border-border shadow-sm flex items-center justify-center">
+                    {esProductorCard
+                      ? <Tractor className="w-6 h-6 text-amber-500" />
+                      : <Building2 className="w-6 h-6 text-primary" />
+                    }
+                  </div>
+                  {isClienteAdmin && (
+                    <span className="text-[11px] px-2.5 py-1 rounded-full bg-primary/10 text-primary font-medium">
+                      Cliente Admin
+                    </span>
+                  )}
+                  {isProductor && (
+                    <span className="text-[11px] px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400 font-medium">
+                      Productor
+                    </span>
+                  )}
+                </div>
+
+                {/* Nombre y datos básicos */}
+                <h2 className="text-xl font-bold">{entidad.nombre}</h2>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                  <span className="text-sm text-muted-foreground font-mono">{entidad.ruc}</span>
+                  <span className="w-1 h-1 rounded-full bg-border" />
+                  <span className="text-sm text-muted-foreground">{entidad.pais}</span>
+                </div>
+                {entidad.direccion && (
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-sm text-muted-foreground">{entidad.direccion}</span>
+                  </div>
+                )}
+
+                {/* Si es productor, mostrar su empresa principal */}
+                {isProductor && miCliente && (
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-sm text-muted-foreground">Empresa: <span className="font-medium text-foreground">{miCliente.nombre}</span></span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── Cultivos y Variedades ────────────────────────────────── */}
+            <div className="rounded-xl border bg-card p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Leaf className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-sm font-semibold">Cultivos y Variedades</h3>
+                <span className="ml-auto text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                  {cultivosMostrar.length} activo{cultivosMostrar.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+
+              {cultivosMostrar.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic">Sin cultivos habilitados.</p>
+              ) : (
+                <div className="space-y-3">
+                  {cultivosMostrar.map(c => {
+                    const vars = allVariedades.filter(v => {
+                      if (v.cultivo_id !== c.id) return false;
+                      if (isProductor && miProductor) {
+                        const vPIds = v.productores_ids ?? [];
+                        return vPIds.length === 0 || vPIds.includes(miProductor.id);
+                      }
+                      if (miCliente) {
+                        const vCIds = v.clientes_ids ?? [];
+                        return vCIds.length === 0 || vCIds.includes(miCliente.id);
+                      }
+                      return true;
+                    });
+                    return (
+                      <div key={c.id} className="rounded-lg border border-emerald-200/60 bg-emerald-50/30 dark:border-emerald-800/40 dark:bg-emerald-900/5 px-3.5 py-2.5">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Leaf className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">{c.nombre}</span>
+                          <span className="text-[10px] font-mono text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded">{c.codigo}</span>
+                        </div>
+                        {vars.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5 pl-5">
+                            {vars.map(v => (
+                              <span key={v.id} className="text-[11px] px-2 py-0.5 rounded-full border border-amber-300/70 bg-amber-50 text-amber-700 dark:border-amber-700/40 dark:bg-amber-900/10 dark:text-amber-400">
+                                {v.nombre}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground italic pl-5">Sin variedades registradas</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* ── Productores integrados (solo cliente_admin) ──────────── */}
+            {isClienteAdmin && (
+              <div className="rounded-xl border bg-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Tractor className="w-4 h-4 text-amber-500" />
+                  <h3 className="text-sm font-semibold">Productores integrados</h3>
+                  <span className="ml-auto text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                    {productoresCliente.length} registrado{productoresCliente.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+
+                {productoresCliente.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic">Sin productores internos registrados.</p>
+                ) : (
+                  <div className="space-y-2.5">
+                    {productoresCliente.map(prod => {
+                      const prodCultivos = cultivosCliente.filter(c => {
+                        const pIds = c.productores_ids ?? [];
+                        return pIds.length === 0 || pIds.includes(prod.id);
+                      });
+                      return (
+                        <div key={prod.id} className="rounded-lg border bg-muted/20 px-4 py-3 flex flex-col gap-2">
+                          <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center shrink-0 mt-0.5">
+                              <Tractor className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold">{prod.nombre}</p>
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                                <span className="text-xs text-muted-foreground font-mono">{prod.ruc}</span>
+                                <span className="w-1 h-1 rounded-full bg-border" />
+                                <span className="text-xs text-muted-foreground">{prod.pais}</span>
+                              </div>
+                              {prod.direccion && (
+                                <div className="flex items-center gap-1 mt-1">
+                                  <MapPin className="w-3 h-3 text-muted-foreground shrink-0" />
+                                  <span className="text-xs text-muted-foreground">{prod.direccion}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          {prodCultivos.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 pl-11">
+                              {prodCultivos.map(c => (
+                                <span key={c.id} className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200/70 text-emerald-700 dark:bg-emerald-900/10 dark:border-emerald-800/40 dark:text-emerald-400">
+                                  <Leaf className="w-2.5 h-2.5" />{c.nombre}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -3323,28 +3871,28 @@ function TabEmpresas() {
         Solo el <strong>superadministrador</strong> puede crear, editar o eliminar empresas y productores.
       </InfoBanner>
 
-      {/* ── Barra superior ───────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Buscar empresa o RUC…"
-            className="w-full pl-8 pr-8 py-1.5 text-sm rounded-lg bg-muted/50 border border-border focus:border-primary/50 focus:outline-none transition-colors"
-          />
-          {search && (
-            <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-        {isSuperAdmin && (
+      {/* ── Barra superior — solo super_admin ───────────────────────────── */}
+      {isSuperAdmin && (
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Buscar empresa o RUC…"
+              className="w-full pl-8 pr-8 py-1.5 text-sm rounded-lg bg-muted/50 border border-border focus:border-primary/50 focus:outline-none transition-colors"
+            />
+            {search && (
+              <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
           <Button size="sm" onClick={() => { setClienteForm(EMPTY_EMPRESA); setEditCliente(null); setShowAddCliente(true); }}>
             <Plus className="w-4 h-4 mr-1.5" /> Nueva empresa
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ── Lista de clientes ─────────────────────────────────────────────── */}
       {filteredClientes.length === 0 ? (
@@ -3355,7 +3903,11 @@ function TabEmpresas() {
       ) : (
         <div className="space-y-3">
           {filteredClientes.map(cliente => {
-            const prodList   = productores.filter(p => p.clienteId === cliente.id);
+            // Productor: solo ve su propio row; cliente_admin: ve todos los productores de su empresa
+            const prodList = isProductor
+              ? productores.filter(p => p.clienteId === cliente.id && p.id === currentProductorId)
+              : productores.filter(p => p.clienteId === cliente.id);
+            const allProdCount = productores.filter(p => p.clienteId === cliente.id).length;
             const isExpanded = expandedId === cliente.id;
             // Cuántos cultivos están habilitados para este cliente
             const cultivosHabilitados = allCultivos.filter(c =>
@@ -3380,26 +3932,32 @@ function TabEmpresas() {
                     <p className="text-xs text-muted-foreground">{cliente.ruc} · {cliente.pais}</p>
                   </div>
 
-                  {/* Badge productor count */}
+                  {/* Badges + acciones */}
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="hidden sm:inline text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                      {prodList.length} productor{prodList.length !== 1 ? "es" : ""}
-                    </span>
-                    <span className={cn(
-                      "text-[11px] px-2 py-0.5 rounded-full font-medium",
-                      cultivosHabilitados.length > 0
-                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400"
-                        : "bg-muted text-muted-foreground",
-                    )}>
-                      <Leaf className="w-2.5 h-2.5 inline mr-1 -mt-px" />
-                      {cultivosHabilitados.length}/{allCultivos.length} cultivo{allCultivos.length !== 1 ? "s" : ""}
-                    </span>
+                    {/* Productor count — super_admin ve total; cliente_admin ve total; productor no lo ve */}
+                    {!isProductor && (
+                      <span className="hidden sm:inline text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                        {allProdCount} productor{allProdCount !== 1 ? "es" : ""}
+                      </span>
+                    )}
+                    {/* Cultivos — solo super_admin ve la configuración */}
+                    {isSuperAdmin && (
+                      <span className={cn(
+                        "text-[11px] px-2 py-0.5 rounded-full font-medium",
+                        cultivosHabilitados.length > 0
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400"
+                          : "bg-muted text-muted-foreground",
+                      )}>
+                        <Leaf className="w-2.5 h-2.5 inline mr-1 -mt-px" />
+                        {cultivosHabilitados.length}/{allCultivos.length} cultivo{allCultivos.length !== 1 ? "s" : ""}
+                      </span>
+                    )}
 
-                    {/* Actions (super_admin) */}
+                    {/* Actions (super_admin only) */}
                     {isSuperAdmin && (
                       <div className="flex items-center gap-1">
                         <button
-                          onClick={() => { setClienteForm({ nombre: cliente.nombre, ruc: cliente.ruc, pais: cliente.pais }); setEditCliente(cliente); setShowAddCliente(true); }}
+                          onClick={() => { setClienteForm({ nombre: cliente.nombre, ruc: cliente.ruc, pais: cliente.pais, direccion: cliente.direccion ?? "" }); setEditCliente(cliente); setShowAddCliente(true); }}
                           className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors"
                           title="Editar empresa"
                         >
@@ -3415,14 +3973,18 @@ function TabEmpresas() {
                       </div>
                     )}
 
-                    {/* Expand toggle */}
-                    <button
-                      onClick={() => { setExpandedId(isExpanded ? null : cliente.id); if (!isExpanded) setActiveSubTab("cultivos"); }}
-                      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-                      title={isExpanded ? "Cerrar" : "Ver productores y cultivos"}
-                    >
-                      <ChevronDown className={cn("w-4 h-4 transition-transform", isExpanded && "rotate-180")} />
-                    </button>
+                    {/* Expand toggle — solo super_admin puede colapsar; otros siempre expandido */}
+                    {isSuperAdmin ? (
+                      <button
+                        onClick={() => { setExpandedId(isExpanded ? null : cliente.id); if (!isExpanded) setActiveSubTab("productores"); }}
+                        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                        title={isExpanded ? "Cerrar" : "Ver productores y cultivos"}
+                      >
+                        <ChevronDown className={cn("w-4 h-4 transition-transform", isExpanded && "rotate-180")} />
+                      </button>
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-muted-foreground/40 rotate-180" />
+                    )}
                   </div>
                 </div>
 
@@ -3584,7 +4146,9 @@ function TabEmpresas() {
                         <div className="px-4 py-2 flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <Tractor className="w-3.5 h-3.5 text-muted-foreground" />
-                            <span className="text-xs font-medium text-muted-foreground">Productores internos</span>
+                            <span className="text-xs font-medium text-muted-foreground">
+                              {isProductor ? "Mis datos" : "Productores internos"}
+                            </span>
                           </div>
                           {isSuperAdmin && (
                             <button
@@ -3602,7 +4166,9 @@ function TabEmpresas() {
                             <p className="text-xs text-muted-foreground italic">
                               {isSuperAdmin
                                 ? "Sin productores. Agrega el primero."
-                                : "Esta empresa no tiene productores internos registrados."}
+                                : isProductor
+                                  ? "No se encontraron tus datos de productor."
+                                  : "Esta empresa no tiene productores internos registrados."}
                             </p>
                           </div>
                         ) : (
@@ -3621,7 +4187,14 @@ function TabEmpresas() {
                                       <Tractor className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium truncate">{prod.nombre}</p>
+                                      <div className="flex items-center gap-2">
+                                        <p className="text-sm font-medium truncate">{prod.nombre}</p>
+                                        {isProductor && prod.id === currentProductorId && (
+                                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400 font-medium shrink-0">
+                                            Mis datos
+                                          </span>
+                                        )}
+                                      </div>
                                       <p className="text-xs text-muted-foreground">{prod.ruc} · {prod.pais}</p>
                                     </div>
                                     {isSuperAdmin && (
@@ -3637,7 +4210,7 @@ function TabEmpresas() {
                                     {isSuperAdmin && (
                                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                                         <button
-                                          onClick={() => { setProdForm({ nombre: prod.nombre, ruc: prod.ruc, pais: prod.pais }); setEditProductor(prod); setShowAddProd(prod.clienteId); }}
+                                          onClick={() => { setProdForm({ nombre: prod.nombre, ruc: prod.ruc, pais: prod.pais, direccion: prod.direccion ?? "" }); setEditProductor(prod); setShowAddProd(prod.clienteId); }}
                                           className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors"
                                           title="Editar productor"
                                         >
@@ -3757,9 +4330,15 @@ function TabEmpresas() {
               <Label className="text-xs font-medium">RUC / NIT <span className="text-destructive">*</span></Label>
               <Input value={clienteForm.ruc} onChange={e => setClienteForm(p => ({ ...p, ruc: e.target.value }))} placeholder="ej. 76.123.456-7" />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">País <span className="text-destructive">*</span></Label>
+                <Input value={clienteForm.pais} onChange={e => setClienteForm(p => ({ ...p, pais: e.target.value }))} placeholder="ej. Chile" />
+              </div>
+            </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">País <span className="text-destructive">*</span></Label>
-              <Input value={clienteForm.pais} onChange={e => setClienteForm(p => ({ ...p, pais: e.target.value }))} placeholder="ej. Chile" />
+              <Label className="text-xs font-medium">Dirección</Label>
+              <Input value={clienteForm.direccion ?? ""} onChange={e => setClienteForm(p => ({ ...p, direccion: e.target.value }))} placeholder="ej. Av. Apoquindo 4501, Las Condes" />
             </div>
           </div>
           <DialogFooter>
@@ -3791,9 +4370,15 @@ function TabEmpresas() {
               <Label className="text-xs font-medium">RUC / NIT <span className="text-destructive">*</span></Label>
               <Input value={prodForm.ruc} onChange={e => setProdForm(p => ({ ...p, ruc: e.target.value }))} placeholder="ej. 76.111.222-3" />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">País <span className="text-destructive">*</span></Label>
+                <Input value={prodForm.pais} onChange={e => setProdForm(p => ({ ...p, pais: e.target.value }))} placeholder="ej. Chile" />
+              </div>
+            </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">País <span className="text-destructive">*</span></Label>
-              <Input value={prodForm.pais} onChange={e => setProdForm(p => ({ ...p, pais: e.target.value }))} placeholder="ej. Chile" />
+              <Label className="text-xs font-medium">Dirección</Label>
+              <Input value={prodForm.direccion ?? ""} onChange={e => setProdForm(p => ({ ...p, direccion: e.target.value }))} placeholder="ej. Camino Los Andes s/n, Colina" />
             </div>
           </div>
           <DialogFooter>
@@ -3900,7 +4485,7 @@ function TabUsuarios() {
   const {
     addOverride, removeOverride, getUserOverrides, getRoleBasePermissions,
     clientes, productores, users: contextUsers, addUser, updUser, delUser,
-    currentUser, role: currentRole_ctx, currentClienteId,
+    currentUser, role: currentRole_ctx, currentClienteId, empresaCtxId,
   } = useRole();
   const { definiciones, getDefAccesos, addDefAcceso, removeDefAcceso } = useConfig();
 
@@ -3916,7 +4501,8 @@ function TabUsuarios() {
     contextUsers
       .filter(u =>
         ROLE_LEVELS[u.role] < myLevel &&
-        (isSuperAdmin || u.clienteId === currentClienteId)
+        (isSuperAdmin || u.clienteId === currentClienteId) &&
+        (!isSuperAdmin || !empresaCtxId || u.clienteId === empresaCtxId)
       )
       .map(u => ({
         id:           u.id,
@@ -4234,6 +4820,14 @@ function TabUsuarios() {
         <strong>Gestión de Usuarios</strong> — administra roles y configura permisos especiales
         por módulo y acción. Haz clic en un usuario para abrir su matriz de permisos.
       </InfoBanner>
+
+      {/* ── Banner empresa filtrada (super_admin) ─────────────────────── */}
+      {isSuperAdmin && empresaCtxId && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-900/10 dark:border-amber-700/30 text-amber-700 dark:text-amber-400 text-xs">
+          <Building2 className="w-3.5 h-3.5 shrink-0" />
+          <span>Mostrando usuarios de <strong>{clientes.find(c => c.id === empresaCtxId)?.nombre ?? ""}</strong></span>
+        </div>
+      )}
 
       {/* ── Toolbar ───────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -4571,13 +5165,14 @@ function TabUsuarios() {
           )}
         </div>
 
-        {/* ── Perfil de acceso unificado ─────────────────────────────────── */}
+        {/* ── Perfil de acceso ─────────────────────────────────────────────── */}
         <div className="bg-card rounded-xl border border-border overflow-hidden sticky top-4 flex flex-col max-h-[calc(100vh-140px)]">
-          {/* Panel header */}
-          <div className="px-4 py-2.5 border-b border-border flex items-center justify-between shrink-0">
+
+          {/* Header */}
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
             <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
               <ShieldAlert className="w-4 h-4 text-primary" />
-              {selectedUser ? "Perfil de acceso" : "Acceso"}
+              Perfil de acceso
             </h3>
             {selectedUser && (
               <button
@@ -4592,123 +5187,143 @@ function TabUsuarios() {
 
           {!selectedUser ? (
             /* Empty state */
-            <div className="px-4 py-12 text-center space-y-2 flex-1">
-              <Users2 className="w-9 h-9 mx-auto text-muted-foreground/25" />
-              <p className="text-sm text-muted-foreground">Selecciona un usuario para ver su perfil de acceso completo.</p>
+            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center flex-1 px-6">
+              <div className="w-12 h-12 rounded-2xl bg-muted/50 flex items-center justify-center">
+                <Users2 className="w-6 h-6 text-muted-foreground/30" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Sin usuario seleccionado</p>
+                <p className="text-xs text-muted-foreground/60 mt-0.5">Haz clic en un usuario de la tabla para ver su perfil de acceso.</p>
+              </div>
             </div>
           ) : (() => {
             const userOverrides     = getUserOverrides(selectedUser.id);
             const accesosDelUsuario = definiciones
               .flatMap(d => getDefAccesos(d.id).filter(a => a.usuario_id === selectedUser.id));
-
+            const totalOverrides    = userOverrides.length + accesosDelUsuario.length;
             const q = panelSearch.toLowerCase();
 
             return (
               <>
-                {/* Mini profile */}
-                <div className="px-4 py-2.5 border-b border-border shrink-0">
+                {/* ── Tarjeta de usuario ──────────────────────────────── */}
+                <div className="px-4 py-4 border-b border-border shrink-0 space-y-3">
                   <div className="flex items-center gap-3">
                     <div className={cn(
-                      "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                      "w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold shrink-0",
                       avatarColors[users.findIndex(u => u.id === selectedUser.id) % avatarColors.length],
                     )}>
                       {initials(selectedUser.nombre)}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-[12px] text-foreground truncate">{selectedUser.nombre}</p>
-                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                        <span className={cn(
-                          "inline-flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full",
-                          rolConfig[selectedUser.rol]?.color,
-                        )}>
-                          {(() => { const Ic = rolConfig[selectedUser.rol]?.icon ?? Shield; return <Ic className="w-2 h-2" />; })()}
-                          {selectedUser.rol}
-                        </span>
-                        {/* Hierarchy level badge (§2 informe: Nivel 1–6) */}
-                        <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary" title="Nivel jerárquico (1=Lector … 6=Super Admin)">
-                          Nv{selectedUser.nivel}
-                          <span className="flex gap-px ml-0.5">
-                            {Array.from({ length: 6 }).map((_, i) => (
-                              <span key={i} className={cn("inline-block w-1 h-1 rounded-sm", i < selectedUser.nivel ? "bg-primary" : "bg-primary/20")} />
-                            ))}
-                          </span>
-                        </span>
-                        <span className="text-[9px] text-muted-foreground truncate">{selectedUser.empresa}</span>
-                      </div>
-                    </div>
-                    {/* Override counters */}
-                    <div className="shrink-0 text-right">
-                      <p className="text-[9px] text-muted-foreground leading-tight">
-                        {userOverrides.length > 0 && <span className="text-primary font-medium">{userOverrides.length} mod</span>}
-                        {userOverrides.length > 0 && accesosDelUsuario.length > 0 && <span className="mx-0.5">·</span>}
-                        {accesosDelUsuario.length > 0 && <span className="text-primary font-medium">{accesosDelUsuario.length} form</span>}
-                        {userOverrides.length === 0 && accesosDelUsuario.length === 0 && <span className="italic">sin overrides</span>}
-                      </p>
-                      <p className="text-[8px] text-muted-foreground/60 mt-0.5">overrides activos</p>
+                      <p className="font-semibold text-sm text-foreground truncate">{selectedUser.nombre}</p>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">{selectedUser.empresa}</p>
                     </div>
                   </div>
+
+                  {/* Badges de rol y nivel */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={cn(
+                      "inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg",
+                      rolConfig[selectedUser.rol]?.color,
+                    )}>
+                      {(() => { const Ic = rolConfig[selectedUser.rol]?.icon ?? Shield; return <Ic className="w-3 h-3" />; })()}
+                      {selectedUser.rol}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg bg-primary/10 text-primary" title="Nivel jerárquico (1=Lector … 6=Super Admin)">
+                      Nv.{selectedUser.nivel}
+                      <span className="flex gap-0.5">
+                        {Array.from({ length: 6 }).map((_, i) => (
+                          <span key={i} className={cn("inline-block w-1.5 h-1.5 rounded-sm", i < selectedUser.nivel ? "bg-primary" : "bg-primary/20")} />
+                        ))}
+                      </span>
+                    </span>
+                  </div>
+
+                  {/* Resumen de overrides */}
+                  {totalOverrides > 0 ? (
+                    <div className="flex items-center gap-2 p-2.5 rounded-lg bg-primary/5 border border-primary/15">
+                      <ShieldAlert className="w-3.5 h-3.5 text-primary/60 shrink-0" />
+                      <span className="text-[11px] text-primary/80 flex-1">
+                        {userOverrides.length > 0 && <><strong>{userOverrides.length}</strong> override{userOverrides.length !== 1 ? "s" : ""} de módulo</>}
+                        {userOverrides.length > 0 && accesosDelUsuario.length > 0 && " · "}
+                        {accesosDelUsuario.length > 0 && <><strong>{accesosDelUsuario.length}</strong> de formulario</>}
+                      </span>
+                      <button
+                        onClick={() => { userOverrides.forEach(ov => removeOverride(ov.id)); accesosDelUsuario.forEach(a => removeDefAcceso(a.id)); }}
+                        className="text-[10px] text-destructive hover:text-destructive/70 transition-colors shrink-0 font-medium"
+                      >
+                        Limpiar
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground/50 italic">Sin overrides — acceso según rol</p>
+                  )}
                 </div>
 
-                {/* Legend + Search */}
-                <div className="px-3 py-2 border-b border-border bg-muted/20 shrink-0 space-y-1.5">
-                  {/* Leyenda dos niveles (§1.1 informe) */}
-                  <div className="flex items-start gap-2 text-[8px] text-muted-foreground">
-                    <div className="flex flex-wrap items-center gap-2 flex-1">
-                      <span className="font-semibold text-foreground/50 uppercase tracking-wider">L1 Jerarquía</span>
-                      <span className="text-muted-foreground/60">Nv= nivel mínimo · excluido = rol bloqueado</span>
-                      <span className="font-semibold text-foreground/50 uppercase tracking-wider ml-1">L2 Acciones</span>
-                      <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-success/40 inline-block"/>rol ✓</span>
-                      <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-400/60 inline-block"/>sin acceso</span>
-                      <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-success inline-block"/>override ✓</span>
-                      <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-destructive inline-block"/>override ✕</span>
-                    </div>
+                {/* ── Leyenda + Búsqueda ──────────────────────────────── */}
+                <div className="px-4 py-3 border-b border-border bg-muted/10 shrink-0 space-y-2.5">
+                  {/* Leyenda simplificada */}
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <span className="w-2 h-2 rounded-full bg-success/50 shrink-0" />
+                      Acceso por rol
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <span className="w-2 h-2 rounded-full bg-amber-400/70 shrink-0" />
+                      Sin acceso
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <span className="w-2 h-2 rounded-full bg-success shrink-0" />
+                      Override: permitido
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <span className="w-2 h-2 rounded-full bg-destructive shrink-0" />
+                      Override: bloqueado
+                    </span>
                   </div>
-                  {/* Search */}
+                  {/* Buscador */}
                   <div className="relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
                     <input
                       value={panelSearch}
                       onChange={e => setPanelSearch(e.target.value)}
                       placeholder="Buscar módulo o formulario…"
-                      className="w-full pl-7 pr-6 py-1 text-[11px] rounded-md bg-background border border-border focus:border-primary/50 focus:outline-none transition-colors"
+                      className="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg bg-background border border-border focus:border-primary/50 focus:outline-none transition-colors"
                     />
                     {panelSearch && (
-                      <button onClick={() => setPanelSearch("")} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                      <button onClick={() => setPanelSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                         <X className="w-3 h-3" />
                       </button>
                     )}
                   </div>
                 </div>
 
-                {/* ── Cascade: module → formularios ──────────────────────── */}
-                <div className="overflow-y-auto flex-1 divide-y divide-border">
+                {/* ── Módulos y formularios ───────────────────────────── */}
+                <div className="overflow-y-auto flex-1">
                   {MODULO_OPTIONS.map(mod => {
                     const modDefs = definiciones.filter(d => d.modulo === mod.value && d.estado === "activo");
-
-                    // Filter by search
                     const modMatchesSearch = !q || mod.label.toLowerCase().includes(q);
                     const filteredDefs = modDefs.filter(d => !q || d.nombre.toLowerCase().includes(q) || modMatchesSearch);
                     if (!modMatchesSearch && filteredDefs.length === 0) return null;
-                    // Hide modules with no formularios UNLESS they already have overrides for this user
                     const hasModOverrides = userOverrides.some(o => o.modulo === mod.value);
                     if (modDefs.length === 0 && !hasModOverrides) return null;
 
                     return (
-                      <div key={mod.value}>
-                        {/* Module header */}
-                        <div className="px-3 py-1.5 bg-muted/30 flex items-center gap-2">
-                          <p className="text-[9px] font-bold text-foreground/70 uppercase tracking-wider flex-1">{mod.label}</p>
-                          {/* Compact action flags — click = matrix cell override */}
-                          <div className="flex gap-0.5" title="Clica una acción para agregar/quitar override de módulo">
+                      <div key={mod.value} className="border-b border-border last:border-b-0">
+                        {/* Cabecera de módulo */}
+                        <div className="px-4 py-2.5 bg-muted/30 flex items-center gap-3">
+                          <p className="text-[11px] font-bold text-foreground/70 uppercase tracking-wider flex-1">{mod.label}</p>
+                          {/* Botones de acción del módulo */}
+                          <div className="flex gap-1" title="Clic para agregar/quitar override de módulo">
                             {ALL_ACTIONS.map(a => {
                               const ov        = userOverrides.find(o => o.modulo === mod.value && o.accion === a.value);
                               const hasBase   = getRoleBasePermissions(selectedUser.roleKey, mod.value).includes(a.value);
                               const effective = ov ? ov.habilitado : hasBase;
-                              // Bloqueado: no hay override existente, el click OTORGARÍA, y el admin no tiene ese permiso
                               const wouldGrant = !ov && !hasBase;
                               const locked     = wouldGrant && !canGrantAction(mod.value, a.value);
-                              const tipBase    = `${a.label}: ${effective ? "Permitido" : "Denegado"}${ov ? " (override)" : " (base)"}`;
-                              const tip        = locked ? `${a.label}: no puedes otorgar lo que no tienes` : tipBase;
+                              const tip        = locked
+                                ? `${a.label}: no puedes otorgar lo que no tienes`
+                                : `${a.label}: ${effective ? "Permitido" : "Denegado"}${ov ? " (override)" : " (base)"}`;
                               return (
                                 <button
                                   key={a.value}
@@ -4716,24 +5331,24 @@ function TabUsuarios() {
                                   title={tip}
                                   disabled={locked}
                                   className={cn(
-                                    "w-5 h-4 rounded text-[7px] font-bold transition-colors",
+                                    "w-6 h-6 rounded-md text-[9px] font-bold transition-colors flex items-center justify-center",
                                     locked
                                       ? "bg-muted/30 text-muted-foreground/20 cursor-not-allowed"
                                       : ov
-                                        ? ov.habilitado ? "bg-success text-white" : "bg-destructive text-white"
-                                        : hasBase ? "bg-success/20 text-success/80" : "bg-muted/50 text-muted-foreground/40",
+                                        ? ov.habilitado ? "bg-success text-white shadow-sm" : "bg-destructive text-white shadow-sm"
+                                        : hasBase ? "bg-success/15 text-success/80 hover:bg-success/25" : "bg-muted/60 text-muted-foreground/50 hover:bg-muted",
                                   )}
                                 >
-                                  {locked ? <Lock className="w-2 h-2 mx-auto" /> : a.label[0].toUpperCase()}
+                                  {locked ? <Lock className="w-2.5 h-2.5" /> : a.label[0].toUpperCase()}
                                 </button>
                               );
                             })}
                           </div>
                         </div>
 
-                        {/* Formulario rows */}
+                        {/* Filas de formularios */}
                         {filteredDefs.length === 0 ? (
-                          <p className="text-[9px] text-muted-foreground/50 italic px-4 py-1.5">Sin formularios activos</p>
+                          <p className="text-[10px] text-muted-foreground/50 italic px-4 py-3">Sin formularios activos</p>
                         ) : (
                           filteredDefs.map(def => {
                             const ovAcceso  = getDefAccesos(def.id).find(a => a.usuario_id === selectedUser.id);
@@ -4741,93 +5356,101 @@ function TabUsuarios() {
                             const levelOK   = selectedUser.nivel >= (def.nivel_minimo ?? 1);
                             const notExcl   = !(def.roles_excluidos ?? []).includes(selectedUser.roleKey);
                             const roleOK    = hasModVer && levelOK && notExcl;
-
-                            // Reason for exclusion (tooltip hint)
-                            const blockReason = !hasModVer ? "sin acceso al módulo"
-                              : !levelOK ? `nivel insuficiente (necesita ${def.nivel_minimo})`
-                              : !notExcl ? "rol excluido en esta definición"
+                            const blockReason = !hasModVer ? "Sin acceso al módulo"
+                              : !levelOK ? `Nivel insuficiente (requiere Nv.${def.nivel_minimo})`
+                              : !notExcl ? "Rol excluido de este formulario"
                               : "";
 
                             return (
                               <div
                                 key={def.id}
-                                className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/10 border-t border-border/40 transition-colors"
+                                className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/10 border-t border-border/30 transition-colors"
                               >
-                                {/* Status dot */}
-                                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0 mt-0.5",
+                                {/* Indicador de estado */}
+                                <span className={cn(
+                                  "w-2 h-2 rounded-full shrink-0",
                                   ovAcceso
                                     ? ovAcceso.habilitado ? "bg-success" : "bg-destructive"
-                                    : roleOK ? "bg-success/50" : "bg-amber-400/60"
+                                    : roleOK ? "bg-success/50" : "bg-amber-400/70"
                                 )} />
 
-                                {/* Name + nivel/exclusion badges */}
-                                <span className="flex-1 min-w-0">
-                                  <span
-                                    className="text-[11px] text-foreground truncate"
+                                {/* Nombre + badges */}
+                                <div className="flex-1 min-w-0">
+                                  <p
+                                    className="text-xs font-medium text-foreground truncate"
                                     title={def.nombre + (blockReason ? ` — ${blockReason}` : "")}
                                   >
                                     {def.nombre}
-                                    {def.cultivo_id && <span className="text-[9px] text-primary/60 ml-1">🌿</span>}
+                                    {def.cultivo_id && <span className="ml-1 text-primary/50">🌿</span>}
+                                  </p>
+                                  {/* Badges secundarios solo si hay restricciones */}
+                                  {((def.nivel_minimo ?? 1) > 1 || !notExcl) && (
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                      {(def.nivel_minimo ?? 1) > 1 && (
+                                        <span className={cn(
+                                          "text-[9px] font-semibold px-1 py-px rounded",
+                                          !levelOK
+                                            ? "bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
+                                            : "bg-muted text-muted-foreground",
+                                        )}>
+                                          Nv.{def.nivel_minimo}
+                                        </span>
+                                      )}
+                                      {!notExcl && (
+                                        <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold px-1 py-px rounded bg-rose-100 text-rose-600 dark:bg-rose-900/20 dark:text-rose-400">
+                                          <Lock className="w-2 h-2" /> excluido
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Estado + acción */}
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span
+                                    title={!ovAcceso && !roleOK ? blockReason : undefined}
+                                    className={cn(
+                                      "text-[10px] font-medium px-2 py-0.5 rounded-full border",
+                                      ovAcceso
+                                        ? ovAcceso.habilitado
+                                          ? "bg-success/10 text-success border-success/25"
+                                          : "bg-destructive/10 text-destructive border-destructive/20"
+                                        : roleOK
+                                          ? "bg-muted/50 text-muted-foreground border-border"
+                                          : "bg-amber-50 text-amber-700 border-amber-200/60 dark:bg-amber-900/20 dark:text-amber-400",
+                                    )}
+                                  >
+                                    {ovAcceso
+                                      ? ovAcceso.habilitado ? "✓ override" : "✕ bloqueado"
+                                      : roleOK ? "✓ por rol" : "✗ sin acceso"
+                                    }
                                   </span>
-                                  {/* Hierarchy level badge (§3.1 informe) */}
-                                  {(def.nivel_minimo ?? 1) > 1 && (
-                                    <span className={cn(
-                                      "inline-flex items-center gap-0.5 ml-1 text-[8px] font-semibold px-1 py-px rounded-sm",
-                                      !levelOK
-                                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
-                                        : "bg-muted/60 text-muted-foreground",
-                                    )} title={`Requiere nivel ${def.nivel_minimo}+`}>
-                                      Nv{def.nivel_minimo}
-                                    </span>
+                                  {ovAcceso ? (
+                                    <button
+                                      onClick={() => removeDefAcceso(ovAcceso.id)}
+                                      title="Quitar override — volver a reglas del rol"
+                                      className="text-[10px] px-2 py-0.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+                                    >
+                                      ↩ rol
+                                    </button>
+                                  ) : roleOK ? (
+                                    <button
+                                      onClick={() => addDefAcceso({ definicion_id: def.id, usuario_id: selectedUser.id, habilitado: false, justificacion: "Bloqueado desde gestión de usuarios" })}
+                                      title="Bloquear acceso a este formulario"
+                                      className="w-6 h-6 rounded-md border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors flex items-center justify-center"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => addDefAcceso({ definicion_id: def.id, usuario_id: selectedUser.id, habilitado: true, justificacion: "Concedido desde gestión de usuarios" })}
+                                      title="Conceder acceso explícito"
+                                      className="w-6 h-6 rounded-md border border-success/30 text-success hover:bg-success/10 transition-colors flex items-center justify-center"
+                                    >
+                                      <Check className="w-3 h-3" />
+                                    </button>
                                   )}
-                                  {/* Role exclusion badge (§6.3 informe) */}
-                                  {!notExcl && (
-                                    <span className="inline-flex items-center gap-0.5 ml-1 text-[8px] font-semibold px-1 py-px rounded-sm bg-rose-100 text-rose-600 dark:bg-rose-900/20 dark:text-rose-400" title="Tu rol está excluido de este formulario">
-                                      <Lock className="w-2 h-2" /> excluido
-                                    </span>
-                                  )}
-                                </span>
-
-                                {/* Status badge */}
-                                <span
-                                  title={!ovAcceso && !roleOK ? `Bloqueado: ${blockReason}` : undefined}
-                                  className={cn(
-                                    "text-[9px] font-medium px-1.5 py-0 rounded-full border shrink-0",
-                                    ovAcceso
-                                      ? ovAcceso.habilitado
-                                        ? "bg-success/10 text-success border-success/25"
-                                        : "bg-destructive/10 text-destructive border-destructive/20"
-                                      : roleOK
-                                        ? "bg-muted/40 text-muted-foreground/70 border-border"
-                                        : "bg-amber-50 text-amber-700 border-amber-200/60 dark:bg-amber-900/20 dark:text-amber-400",
-                                  )}
-                                >
-                                  {ovAcceso
-                                    ? ovAcceso.habilitado ? "✓ override" : "✕ override"
-                                    : roleOK ? "✓ rol" : "✗ sin acceso"
-                                  }
-                                </span>
-
-                                {/* Single action */}
-                                {ovAcceso ? (
-                                  <button
-                                    onClick={() => removeDefAcceso(ovAcceso.id)}
-                                    title="Quitar override — volver a reglas de rol"
-                                    className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors shrink-0"
-                                  >← rol</button>
-                                ) : roleOK ? (
-                                  <button
-                                    onClick={() => addDefAcceso({ definicion_id: def.id, usuario_id: selectedUser.id, habilitado: false, justificacion: "Bloqueado desde gestión de usuarios" })}
-                                    title="Bloquear acceso a este formulario"
-                                    className="text-[9px] px-1 py-0.5 rounded border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors shrink-0 font-medium"
-                                  >✕</button>
-                                ) : (
-                                  <button
-                                    onClick={() => addDefAcceso({ definicion_id: def.id, usuario_id: selectedUser.id, habilitado: true, justificacion: "Concedido desde gestión de usuarios" })}
-                                    title="Conceder acceso explícito a este formulario"
-                                    className="text-[9px] px-1 py-0.5 rounded border border-success/30 text-success hover:bg-success/10 transition-colors shrink-0 font-medium"
-                                  >✓</button>
-                                )}
+                                </div>
                               </div>
                             );
                           })
@@ -4836,28 +5459,6 @@ function TabUsuarios() {
                     );
                   })}
                 </div>
-
-                {/* Footer: clear all */}
-                {(userOverrides.length > 0 || accesosDelUsuario.length > 0) && (
-                  <div className="px-4 py-2 border-t border-border flex items-center gap-3 shrink-0 bg-muted/10">
-                    <ShieldAlert className="w-3 h-3 text-primary/50 shrink-0" />
-                    <span className="text-[10px] text-muted-foreground flex-1">
-                      {userOverrides.length} módulo{userOverrides.length !== 1 ? "s" : ""}
-                      {" · "}
-                      {accesosDelUsuario.length} formulario{accesosDelUsuario.length !== 1 ? "s" : ""}
-                      {" con override"}
-                    </span>
-                    <button
-                      onClick={() => {
-                        userOverrides.forEach(ov => removeOverride(ov.id));
-                        accesosDelUsuario.forEach(a => removeDefAcceso(a.id));
-                      }}
-                      className="text-[10px] text-destructive hover:text-destructive/70 transition-colors shrink-0"
-                    >
-                      Limpiar todo
-                    </button>
-                  </div>
-                )}
               </>
             );
           })()}
@@ -5134,257 +5735,388 @@ function TabUsuarios() {
 
       {/* ── Dialog Crear / Editar Usuario ──────────────────────────────────── */}
       <Dialog open={userModal} onOpenChange={setUserModal}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[92vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>{editingUserId ? "Editar usuario" : "Nuevo usuario"}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Users2 className="w-5 h-5 text-primary" />
+              {editingUserId ? "Editar usuario" : "Nuevo usuario"}
+            </DialogTitle>
             <DialogDescription>
               {editingUserId
-                ? "Modifica los datos del usuario. Deja la contraseña vacía para mantener la actual."
-                : "Completa los datos para crear un nuevo usuario."}
+                ? "Modifica los datos del usuario. Los cambios se aplicarán inmediatamente."
+                : "Completa la información para crear un nuevo acceso al sistema."}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
-            {/* Nombre */}
-            <div className="space-y-1.5">
-              <Label htmlFor="usr-nombre" className="text-xs font-medium">
-                Nombre completo <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="usr-nombre"
-                value={formNombre}
-                onChange={e => setFormNombre(e.target.value)}
-                placeholder="Ej: Juan Pérez"
-              />
-            </div>
+          <div className="flex-1 overflow-y-auto py-2">
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
 
-            {/* Email */}
-            <div className="space-y-1.5">
-              <Label htmlFor="usr-email" className="text-xs font-medium">
-                Email <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="usr-email"
-                type="email"
-                value={formEmail}
-                onChange={e => setFormEmail(e.target.value)}
-                placeholder="usuario@empresa.com"
-              />
-            </div>
+              {/* ── Columna izquierda: formulario ─────────────────────── */}
+              <div className="space-y-5">
 
-            {/* Password */}
-            <div className="space-y-1.5">
-              <Label htmlFor="usr-pass" className="text-xs font-medium">
-                Contraseña {!editingUserId && <span className="text-destructive">*</span>}
-              </Label>
-              <Input
-                id="usr-pass"
-                type="password"
-                value={formPassword}
-                onChange={e => setFormPassword(e.target.value)}
-                placeholder={editingUserId ? "Dejar vacío para mantener" : "Contraseña"}
-              />
-            </div>
-
-            {/* Rol */}
-            <div className="space-y-1.5">
-              <Label htmlFor="usr-role" className="text-xs font-medium">
-                Rol <span className="text-destructive">*</span>
-              </Label>
-              <select
-                id="usr-role"
-                value={formRole}
-                onChange={e => {
-                  const r = e.target.value as UserRoleT;
-                  setFormRole(r);
-                  if (r !== "productor") setFormProductorId("");
-                  // Resetear módulos activos al cambiar de rol
-                  setFormModulosActivos(new Set(
-                    ALL_MODULES.filter(m => getRoleBasePermissions(r, m.value).length > 0).map(m => m.value)
-                  ));
-                }}
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-              >
-                {assignableRoles.map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* ── Acciones del rol (uniformes en todos los módulos) ────── */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium flex items-center gap-1.5">
-                <ShieldCheck className="w-3 h-3 text-primary" />
-                Acciones del rol
-                <span className="text-[10px] text-muted-foreground font-normal">(iguales en todos los módulos)</span>
-              </Label>
-              <div className="flex flex-wrap gap-1.5 px-1">
-                {ALL_ACTIONS.map(a => {
-                  const has = ACTIONS_BY_ROLE[formRole]?.includes(a.value) ?? false;
-                  return (
-                    <span
-                      key={a.value}
-                      className={cn(
-                        "inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md border",
-                        has
-                          ? "bg-success/10 text-success border-success/25"
-                          : "bg-muted/40 text-muted-foreground/30 border-border/40 line-through",
-                      )}
-                    >
-                      {has ? <Check className="w-2.5 h-2.5" /> : <X className="w-2.5 h-2.5" />}
-                      {a.label}
-                    </span>
-                  );
-                })}
-              </div>
-              <p className="text-[9px] text-muted-foreground/60 px-1 flex items-center gap-1">
-                <Zap className="w-2.5 h-2.5 shrink-0" />
-                Para excepciones en un módulo específico, edita el usuario y usa la <strong>matriz de permisos</strong>.
-              </p>
-            </div>
-
-            {/* ── Módulos habilitados — selecciona dónde trabaja el usuario ── */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium flex items-center gap-1.5">
-                <Shield className="w-3 h-3" />
-                Módulos habilitados
-                <span className="text-muted-foreground font-normal ml-auto text-[10px]">
-                  {formModulosActivos.size} de {formRoleModulos.length} seleccionados
-                </span>
-              </Label>
-              <div className="border border-border rounded-lg bg-muted/20 max-h-48 overflow-y-auto divide-y divide-border/50">
-                {formRoleModulos.map(mod => {
-                  const isActive = formModulosActivos.has(mod.value);
-                  return (
-                    <label
-                      key={mod.value}
-                      className={cn(
-                        "flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none transition-colors",
-                        isActive ? "hover:bg-muted/30" : "opacity-45 hover:opacity-65",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isActive}
-                        onChange={() => {
-                          setFormModulosActivos(prev => {
-                            const next = new Set(prev);
-                            if (next.has(mod.value)) next.delete(mod.value);
-                            else next.add(mod.value);
-                            return next;
-                          });
-                        }}
-                        className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 shrink-0"
+                {/* Sección 1: Datos personales */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 pb-2 border-b">
+                    <div className="w-7 h-7 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                      <Users2 className="w-4 h-4 text-blue-700 dark:text-blue-400" />
+                    </div>
+                    <h3 className="text-sm font-semibold">Datos personales</h3>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="usr-nombre" className="text-xs font-medium">
+                        Nombre completo <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="usr-nombre"
+                        value={formNombre}
+                        onChange={e => setFormNombre(e.target.value)}
+                        placeholder="Juan Pérez"
+                        className="h-9"
                       />
-                      <span className={cn(
-                        "text-[11px] font-medium flex-1 truncate",
-                        isActive ? "text-foreground" : "text-muted-foreground line-through",
-                      )}>
-                        {mod.label}
-                      </span>
-                      {isActive && (
-                        <span className="text-[9px] text-success/70 font-medium shrink-0">habilitado</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="usr-email" className="text-xs font-medium">
+                        Email <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="usr-email"
+                        type="email"
+                        value={formEmail}
+                        onChange={e => setFormEmail(e.target.value)}
+                        placeholder="usuario@empresa.com"
+                        className="h-9"
+                      />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label htmlFor="usr-pass" className="text-xs font-medium">
+                        Contraseña {!editingUserId && <span className="text-destructive">*</span>}
+                      </Label>
+                      <Input
+                        id="usr-pass"
+                        type="password"
+                        value={formPassword}
+                        onChange={e => setFormPassword(e.target.value)}
+                        placeholder={editingUserId ? "Dejar vacío para mantener" : "Mínimo 6 caracteres"}
+                        className="h-9"
+                      />
+                      {editingUserId && (
+                        <p className="text-[10px] text-muted-foreground">Dejar vacío para mantener la contraseña actual</p>
                       )}
-                    </label>
-                  );
-                })}
-                {formRoleModulos.length === 0 && (
-                  <p className="text-[10px] text-muted-foreground italic py-3 text-center">
-                    Este rol no tiene acceso a ningún módulo.
-                  </p>
-                )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sección 2: Rol y permisos */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 pb-2 border-b">
+                    <div className="w-7 h-7 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
+                      <ShieldCheck className="w-4 h-4 text-violet-700 dark:text-violet-400" />
+                    </div>
+                    <h3 className="text-sm font-semibold">Rol y permisos</h3>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="usr-role" className="text-xs font-medium">
+                      Rol <span className="text-destructive">*</span>
+                    </Label>
+                    <select
+                      id="usr-role"
+                      value={formRole}
+                      onChange={e => {
+                        const r = e.target.value as UserRoleT;
+                        setFormRole(r);
+                        if (r !== "productor") setFormProductorId("");
+                        setFormModulosActivos(new Set(
+                          ALL_MODULES.filter(m => getRoleBasePermissions(r, m.value).length > 0).map(m => m.value)
+                        ));
+                      }}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      {assignableRoles.map(([key, label]) => (
+                        <option key={key} value={key}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Acciones del rol */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium text-muted-foreground">Acciones incluidas</Label>
+                    <div className="flex flex-wrap gap-1">
+                      {ALL_ACTIONS.map(a => {
+                        const has = ACTIONS_BY_ROLE[formRole]?.includes(a.value) ?? false;
+                        return (
+                          <span
+                            key={a.value}
+                            className={cn(
+                              "inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded",
+                              has
+                                ? "bg-success/10 text-success"
+                                : "bg-muted/40 text-muted-foreground/30 line-through",
+                            )}
+                          >
+                            {has ? <Check className="w-2.5 h-2.5" /> : <X className="w-2.5 h-2.5" />}
+                            {a.label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[9px] text-muted-foreground/60 flex items-center gap-1">
+                      <Zap className="w-2.5 h-2.5 shrink-0" />
+                      Para excepciones usa la <strong>matriz de permisos</strong> tras crear el usuario.
+                    </p>
+                  </div>
+
+                  {/* Módulos habilitados */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium flex items-center gap-1.5">
+                      Módulos habilitados
+                      <span className="text-muted-foreground font-normal ml-auto text-[10px]">
+                        {formModulosActivos.size}/{formRoleModulos.length}
+                      </span>
+                    </Label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {formRoleModulos.map(mod => {
+                        const isActive = formModulosActivos.has(mod.value);
+                        return (
+                          <label
+                            key={mod.value}
+                            className={cn(
+                              "flex items-center gap-2 px-2.5 py-1.5 rounded-md border cursor-pointer select-none transition-all",
+                              isActive
+                                ? "border-primary/40 bg-primary/5 hover:bg-primary/10"
+                                : "border-border bg-muted/20 opacity-50 hover:opacity-70",
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isActive}
+                              onChange={() => {
+                                setFormModulosActivos(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(mod.value)) next.delete(mod.value);
+                                  else next.add(mod.value);
+                                  return next;
+                                });
+                              }}
+                              className="rounded border-border text-primary focus:ring-primary h-3 w-3 shrink-0"
+                            />
+                            <span className={cn("text-[11px] font-medium flex-1 truncate", isActive ? "text-foreground" : "text-muted-foreground")}>
+                              {mod.label}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {formModulosActivos.size === 0 && formRoleModulos.length > 0 && (
+                      <p className="text-[10px] text-destructive">Debes habilitar al menos un módulo.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Sección 3: Empresa y área */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 pb-2 border-b">
+                    <div className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                      <Building2 className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+                    </div>
+                    <h3 className="text-sm font-semibold">Empresa y área</h3>
+                  </div>
+
+                  {/* Cliente (empresa) */}
+                  {isSuperAdmin ? (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="usr-cliente" className="text-xs font-medium">
+                        Empresa <span className="text-destructive">*</span>
+                      </Label>
+                      <select
+                        id="usr-cliente"
+                        value={formClienteId}
+                        onChange={e => {
+                          const val = e.target.value ? Number(e.target.value) : "";
+                          setFormClienteId(val);
+                          setFormProductorId("");
+                        }}
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                      >
+                        <option value="">— Sin asignar (Plataforma) —</option>
+                        {clientes.map(c => (
+                          <option key={c.id} value={c.id}>{c.nombre}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : isClienteAdmin ? (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Empresa</Label>
+                      <div className="h-9 bg-muted/40 rounded-md px-3 py-2 flex items-center text-sm text-muted-foreground">
+                        {clientes.find(c => c.id === currentClienteId)?.nombre ?? "—"}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Productor */}
+                  {formProductores.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="usr-productor" className="text-xs font-medium">
+                        Productor {formRole === "productor" && <span className="text-destructive">*</span>}
+                      </Label>
+                      <select
+                        id="usr-productor"
+                        value={formProductorId}
+                        onChange={e => setFormProductorId(e.target.value ? Number(e.target.value) : "")}
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                      >
+                        <option value="">— Sin productor —</option>
+                        {formProductores.map(p => (
+                          <option key={p.id} value={p.id}>{p.nombre}</option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-muted-foreground">
+                        Limita la visibilidad de datos a un productor específico.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Área asignada */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="usr-area" className="text-xs font-medium">Área asignada</Label>
+                    <Input
+                      id="usr-area"
+                      value={formAreaAsignada}
+                      onChange={e => setFormAreaAsignada(e.target.value)}
+                      placeholder="Ej: Cosecha, Laboratorio, Campo"
+                      className="h-9"
+                    />
+                    <p className="text-[10px] text-muted-foreground">Opcional: departamento o sección de trabajo</p>
+                  </div>
+
+                  {/* Estado activo */}
+                  {editingUserId && (
+                    <div className="flex items-center justify-between pt-2 border-t">
+                      <Label htmlFor="usr-activo" className="text-xs font-medium">Usuario activo</Label>
+                      <Switch
+                        id="usr-activo"
+                        checked={formActivo}
+                        onCheckedChange={setFormActivo}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
-              {formModulosActivos.size === 0 && formRoleModulos.length > 0 && (
-                <p className="text-[10px] text-destructive">
-                  Debes habilitar al menos un módulo.
-                </p>
-              )}
-              <p className="text-[10px] text-muted-foreground">
-                V=Ver · C=Crear · E=Editar · X=Eliminar · P=Exportar · G=Configurar
-              </p>
+
+              {/* ── Columna derecha: vista previa ─────────────────────── */}
+              <div className="hidden lg:block space-y-3">
+                <div className="sticky top-0 space-y-3">
+                  <div className="flex items-center gap-2 pb-2 border-b">
+                    <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Vista previa</span>
+                  </div>
+
+                  {/* Card de usuario */}
+                  <div className="rounded-xl border bg-card overflow-hidden">
+                    {/* Avatar y nombre */}
+                    <div className="px-4 pt-4 pb-3 flex flex-col items-center gap-2">
+                      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 border-2 border-border flex items-center justify-center">
+                        <Users2 className="w-6 h-6 text-primary" />
+                      </div>
+                      <div className="text-center">
+                        <p className={cn("text-sm font-semibold truncate", !formNombre.trim() && "text-muted-foreground italic")}>
+                          {formNombre.trim() || "Nombre del usuario"}
+                        </p>
+                        <p className={cn("text-xs truncate", formEmail.trim() ? "text-muted-foreground" : "text-muted-foreground/50 italic")}>
+                          {formEmail.trim() || "email@ejemplo.com"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Info */}
+                    <div className="px-4 pb-3 space-y-2.5 border-t bg-muted/10 pt-3">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Rol</span>
+                        <span className="ml-auto text-xs font-semibold text-primary">
+                          {assignableRoles.find(([k]) => k === formRole)?.[1] ?? formRole}
+                        </span>
+                      </div>
+
+                      {(formClienteId || currentClienteId) && (
+                        <div className="flex items-center gap-2">
+                          <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Empresa</span>
+                          <span className="ml-auto text-xs font-medium truncate">
+                            {clientes.find(c => c.id === (isSuperAdmin ? formClienteId : currentClienteId))?.nombre ?? "—"}
+                          </span>
+                        </div>
+                      )}
+
+                      {formProductorId && formProductores.length > 0 && (
+                        <div className="flex items-center gap-2">
+                          <Tractor className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Productor</span>
+                          <span className="ml-auto text-xs font-medium truncate">
+                            {formProductores.find(p => p.id === formProductorId)?.nombre ?? "—"}
+                          </span>
+                        </div>
+                      )}
+
+                      {formAreaAsignada.trim() && (
+                        <div className="flex items-center gap-2">
+                          <Briefcase className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Área</span>
+                          <span className="ml-auto text-xs font-medium truncate">
+                            {formAreaAsignada}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Módulos */}
+                    {formModulosActivos.size > 0 && (
+                      <div className="px-4 pb-3 border-t pt-2.5">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                          Módulos ({formModulosActivos.size})
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {Array.from(formModulosActivos).map(modKey => {
+                            const mod = formRoleModulos.find(m => m.value === modKey);
+                            return mod ? (
+                              <span key={modKey} className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                                {mod.label}
+                              </span>
+                            ) : null;
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Validación visual */}
+                  <div className="space-y-1.5 px-1">
+                    {[
+                      { ok: formNombre.trim(), label: "Nombre completo" },
+                      { ok: formEmail.trim() && formEmail.includes("@"), label: "Email válido" },
+                      { ok: editingUserId || formPassword.trim().length >= 6, label: "Contraseña (mín. 6 caracteres)" },
+                      { ok: formModulosActivos.size > 0 || formRoleModulos.length === 0, label: "Al menos 1 módulo activo" },
+                      { ok: formRole !== "productor" || !formProductores.length || formProductorId, label: "Productor asignado" },
+                    ].map((item, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        {item.ok ? (
+                          <Check className="w-3 h-3 text-success shrink-0" />
+                        ) : (
+                          <X className="w-3 h-3 text-muted-foreground/40 shrink-0" />
+                        )}
+                        <span className={cn("text-[10px]", item.ok ? "text-success" : "text-muted-foreground/60")}>
+                          {item.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
             </div>
-
-            {/* Cliente (solo super_admin ve selector, cliente_admin auto-asigna) */}
-            {isSuperAdmin && (
-              <div className="space-y-1.5">
-                <Label htmlFor="usr-cliente" className="text-xs font-medium">
-                  Empresa (Cliente) <span className="text-destructive">*</span>
-                </Label>
-                <select
-                  id="usr-cliente"
-                  value={formClienteId}
-                  onChange={e => {
-                    const val = e.target.value ? Number(e.target.value) : "";
-                    setFormClienteId(val);
-                    setFormProductorId("");
-                  }}
-                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  <option value="">— Sin asignar (Plataforma) —</option>
-                  {clientes.map(c => (
-                    <option key={c.id} value={c.id}>{c.nombre}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {isClienteAdmin && (
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Empresa</Label>
-                <p className="text-sm text-muted-foreground bg-muted/40 rounded-md px-3 py-2">
-                  {clientes.find(c => c.id === currentClienteId)?.nombre ?? "—"}
-                </p>
-              </div>
-            )}
-
-            {/* Productor (condicional: solo si hay productores para el cliente seleccionado) */}
-            {formProductores.length > 0 && (
-              <div className="space-y-1.5">
-                <Label htmlFor="usr-productor" className="text-xs font-medium">
-                  Productor {formRole === "productor" && <span className="text-destructive">*</span>}
-                </Label>
-                <select
-                  id="usr-productor"
-                  value={formProductorId}
-                  onChange={e => setFormProductorId(e.target.value ? Number(e.target.value) : "")}
-                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  <option value="">— Sin productor —</option>
-                  {formProductores.map(p => (
-                    <option key={p.id} value={p.id}>{p.nombre}</option>
-                  ))}
-                </select>
-                <p className="text-[10px] text-muted-foreground">
-                  Asociar a un productor limita la visibilidad de datos a ese productor.
-                </p>
-              </div>
-            )}
-
-            {/* Área asignada */}
-            <div className="space-y-1.5">
-              <Label htmlFor="usr-area" className="text-xs font-medium">Área asignada</Label>
-              <Input
-                id="usr-area"
-                value={formAreaAsignada}
-                onChange={e => setFormAreaAsignada(e.target.value)}
-                placeholder="Ej: Cosecha, Laboratorio"
-              />
-            </div>
-
-            {/* Estado activo */}
-            {editingUserId && (
-              <div className="flex items-center justify-between">
-                <Label htmlFor="usr-activo" className="text-xs font-medium">Usuario activo</Label>
-                <Switch
-                  id="usr-activo"
-                  checked={formActivo}
-                  onCheckedChange={setFormActivo}
-                />
-              </div>
-            )}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="border-t pt-3">
             <Button variant="outline" size="sm" onClick={() => setUserModal(false)}>Cancelar</Button>
             <Button
               size="sm"

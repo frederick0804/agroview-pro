@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useRole, ROLE_LEVELS } from "@/contexts/RoleContext";
+import { useConfig } from "@/contexts/ConfigContext";
 import {
   BarChart2,
   FileText,
@@ -2558,7 +2559,8 @@ const moduleToCategorias: Record<string, CategoriaInforme[]> = {
 };
 
 const Informes = () => {
-  const { role, hasPermission, currentUser } = useRole();
+  const { role, hasPermission, currentUser, productores, clientes } = useRole();
+  const { cultivos, variedades } = useConfig();
   const userLevel = ROLE_LEVELS[role];
   const canExport = hasPermission("informes", "exportar");
 
@@ -3329,71 +3331,200 @@ const Informes = () => {
                 <X className="w-4 h-4" />
               </button>
             </div>
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4">
-              {previewInforme.builderConfig ? (
-                <>
-                  <div className="grid grid-cols-3 gap-3 text-center">
-                    <div className="rounded-lg bg-muted/40 border border-border p-3">
-                      <p className="text-lg font-bold">{previewInforme.builderConfig.bloques.length}</p>
-                      <p className="text-[11px] text-muted-foreground">Bloques</p>
-                    </div>
-                    <div className="rounded-lg bg-muted/40 border border-border p-3">
-                      <p className="text-lg font-bold">
-                        {[...new Set(previewInforme.builderConfig.bloques.flatMap((b) => b.fuentesSeleccionadas))].length}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">Fuentes</p>
-                    </div>
-                    <div className="rounded-lg bg-muted/40 border border-border p-3">
-                      <p className="text-lg font-bold">{previewInforme.versiones?.length ?? 0}</p>
-                      <p className="text-[11px] text-muted-foreground">Versiones</p>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                      Bloques del informe
-                    </p>
-                    {previewInforme.builderConfig.bloques.map((bloque, i) => (
-                      <div
-                        key={bloque.id}
-                        className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/20"
-                      >
-                        <span className="text-[10px] text-muted-foreground w-5 text-center font-mono">
-                          #{i + 1}
-                        </span>
-                        {bloque.tipo === "grafico" ? (
-                          <BarChart2 className="w-4 h-4 text-blue-500 shrink-0" />
-                        ) : (
-                          <Table2 className="w-4 h-4 text-purple-500 shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold truncate">
-                            {bloque.titulo || (bloque.tipo === "grafico" ? "Gráfico" : "Tabla")}
-                          </p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {bloque.fuentesSeleccionadas.length} fuente
-                            {bloque.fuentesSeleccionadas.length !== 1 ? "s" : ""}
-                            {bloque.tipo === "grafico"
-                              ? ` · ${(bloque as { tipoGrafico: string }).tipoGrafico}`
-                              : ""}
-                          </p>
-                        </div>
-                        {bloque.tipo === "grafico" && (
-                          <span className="text-[9px] text-muted-foreground border border-border rounded px-1.5 py-0.5 shrink-0 capitalize">
-                            {(bloque as { tipoGrafico: string }).tipoGrafico?.replace("_", " ")}
-                          </span>
-                        )}
+            {/* Body — Document preview */}
+            <div className="flex-1 overflow-y-auto bg-zinc-100 dark:bg-zinc-900">
+              {previewInforme.builderConfig ? (() => {
+                // ── Auto-fill data from system ──
+                const productor = productores.find(p => p.id === currentUser?.productorId);
+                const cliente   = clientes.find(c => c.id === currentUser?.clienteId);
+                const finca     = productor?.nombre ?? cliente?.nombre ?? "—";
+                const ubicacion = productor ? `${productor.pais}` : (cliente?.pais ?? "—");
+                const primerCultivo = cultivos[0];
+                const cultivoNombre = primerCultivo?.nombre ?? "—";
+                const primeraVariedad = primerCultivo
+                  ? variedades.find(v => v.cultivo_id === primerCultivo.id)?.nombre ?? "—"
+                  : "—";
+                const fechaInicio = previewInforme.created_at
+                  ? new Date(previewInforme.created_at).toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" })
+                  : new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" });
+                const revision   = previewInforme.versiones?.length ?? 1;
+                const codigo     = previewInforme.codigo;
+                const docTitle   = (previewInforme.builderConfig.titulo || previewInforme.nombre).toUpperCase();
+
+                return (
+                  <div className="p-4 min-h-full">
+                    {/* A4-like paper */}
+                    <div className="bg-white dark:bg-zinc-800 shadow-xl border border-zinc-300 dark:border-zinc-600 max-w-3xl mx-auto text-zinc-900 dark:text-zinc-100" style={{ fontFamily: "Arial, sans-serif" }}>
+
+                      {/* ── Document header (like the image) ── */}
+                      <table className="w-full border-collapse text-[10px]" style={{ borderBottom: "2px solid #c00" }}>
+                        <tbody>
+                          <tr>
+                            {/* Logo cell */}
+                            <td className="border border-zinc-400 dark:border-zinc-500 p-2 align-middle" style={{ width: 90 }} rowSpan={3}>
+                              <div className="flex flex-col items-center gap-1">
+                                <div className="w-14 h-10 bg-primary/10 border border-primary/30 rounded flex items-center justify-center">
+                                  <span className="text-primary font-bold text-xs">{(cliente?.nombre ?? "AW").slice(0, 3).toUpperCase()}</span>
+                                </div>
+                                <p className="text-[9px] font-semibold text-center leading-tight text-zinc-600 dark:text-zinc-400">
+                                  {cliente?.nombre ?? "AgroView Pro"}
+                                </p>
+                              </div>
+                            </td>
+                            {/* Title cell */}
+                            <td className="border border-zinc-400 dark:border-zinc-500 text-center font-bold text-[13px] py-2 px-3 uppercase tracking-wide" colSpan={5}>
+                              {docTitle}
+                            </td>
+                            {/* Revision meta box */}
+                            <td className="border border-zinc-400 dark:border-zinc-500 p-0 align-top" style={{ width: 140 }} rowSpan={3}>
+                              <table className="w-full border-collapse text-[9px]">
+                                <tbody>
+                                  <tr>
+                                    <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1 font-semibold uppercase text-zinc-500">REVISIÓN:</td>
+                                    <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1 font-bold">{revision}</td>
+                                  </tr>
+                                  <tr>
+                                    <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1 font-semibold uppercase text-zinc-500">FECHA DE INICIO:</td>
+                                    <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1">{fechaInicio}</td>
+                                  </tr>
+                                  <tr>
+                                    <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1 font-semibold uppercase text-zinc-500">CÓDIGO:</td>
+                                    <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1 font-mono font-bold">{codigo}</td>
+                                  </tr>
+                                  <tr>
+                                    <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1 font-semibold uppercase text-zinc-500">SUPERFICIE:</td>
+                                    <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1">{primerCultivo?.marco_plantacion ? `${(primerCultivo.marco_plantacion / 10000).toFixed(1)} ha` : "—"}</td>
+                                  </tr>
+                                  <tr>
+                                    <td className="px-1.5 py-1 font-semibold uppercase text-zinc-500">PRODUCTOR:</td>
+                                    <td className="px-1.5 py-1 truncate">{productor?.nombre ?? "—"}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="border border-zinc-400 dark:border-zinc-500 text-center text-[10px] py-1 text-zinc-500 uppercase tracking-widest" colSpan={5}>
+                              Registro del Productor
+                            </td>
+                          </tr>
+                          {/* Meta row: FINCA, CULTIVO, UBICACIÓN, VARIEDAD */}
+                          <tr>
+                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
+                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Finca</span>
+                              <span className="font-semibold text-[10px]">{finca}</span>
+                            </td>
+                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
+                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Cultivo</span>
+                              <span className="font-semibold text-[10px]">{cultivoNombre}</span>
+                            </td>
+                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
+                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Variedad</span>
+                              <span className="font-semibold text-[10px]">{primeraVariedad}</span>
+                            </td>
+                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
+                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Ubicación</span>
+                              <span className="font-semibold text-[10px]">{ubicacion}</span>
+                            </td>
+                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
+                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Categoría</span>
+                              <span className="font-semibold text-[10px] capitalize">{previewInforme.categoria}</span>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+
+                      {/* ── Blocks ── */}
+                      <div className="p-4 space-y-6">
+                        {previewInforme.builderConfig.bloques.length === 0 ? (
+                          <p className="text-xs text-zinc-400 italic text-center py-8">Sin bloques configurados</p>
+                        ) : previewInforme.builderConfig.bloques.map((bloque, idx) => {
+                          const isGrafico = bloque.tipo === "grafico";
+                          const gb = bloque as { tipoGrafico: string; metricas?: string[] };
+                          return (
+                            <div key={bloque.id}>
+                              {/* Block title */}
+                              <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-600 dark:text-zinc-400 border-b border-zinc-300 dark:border-zinc-600 pb-1 mb-2">
+                                {idx + 1}. {bloque.titulo || (isGrafico ? "Gráfico" : "Tabla")}
+                                <span className="ml-2 normal-case font-normal text-zinc-400 text-[9px]">({bloque.fuentesSeleccionadas.join(", ")})</span>
+                              </p>
+
+                              {isGrafico ? (
+                                /* Chart placeholder */
+                                <div className="border border-zinc-300 dark:border-zinc-600 rounded bg-zinc-50 dark:bg-zinc-700/30" style={{ height: 120 }}>
+                                  <div className="h-full flex flex-col">
+                                    {/* Y-axis lines */}
+                                    <div className="flex-1 relative px-8 pt-3 pb-2">
+                                      {[75, 50, 25].map(pct => (
+                                        <div key={pct} className="absolute left-0 right-0 border-t border-dashed border-zinc-200 dark:border-zinc-600" style={{ top: `${100 - pct}%` }}>
+                                          <span className="absolute -left-0.5 -top-2 text-[8px] text-zinc-400 pl-1">{pct}%</span>
+                                        </div>
+                                      ))}
+                                      {/* Bars */}
+                                      <div className="absolute bottom-2 left-8 right-4 flex items-end gap-1 h-[80px]">
+                                        {[68, 42, 87, 54, 73, 39, 91, 61, 45, 78].slice(0, 8).map((h, i) => (
+                                          <div key={i} className="flex-1 rounded-t-sm" style={{ height: `${h}%`, backgroundColor: `hsl(${160 + i * 15}, 60%, ${45 + i % 2 * 10}%)`, opacity: 0.7 }} />
+                                        ))}
+                                      </div>
+                                    </div>
+                                    {/* X-axis label */}
+                                    <div className="px-8 pb-1 flex justify-between">
+                                      {["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago"].map(m => (
+                                        <span key={m} className="text-[8px] text-zinc-400">{m}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <p className="text-center text-[9px] text-zinc-400 pb-1 -mt-1 capitalize">
+                                    {gb.tipoGrafico?.replace("_", " ")} — datos simulados
+                                  </p>
+                                </div>
+                              ) : (
+                                /* Table placeholder */
+                                <table className="w-full border-collapse text-[9px]">
+                                  <thead>
+                                    <tr className="bg-zinc-100 dark:bg-zinc-700">
+                                      {(bloque.fuentesSeleccionadas.length > 0
+                                        ? ["Fecha", "Variedad", "Bloque", "Valor A", "Valor B", "% Resultado"]
+                                        : ["Col. A", "Col. B", "Col. C", "Col. D", "Col. E", "Col. F"]
+                                      ).map(col => (
+                                        <th key={col} className="border border-zinc-300 dark:border-zinc-600 px-2 py-1 text-left font-bold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
+                                          {col}
+                                        </th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {[...Array(4)].map((_, ri) => (
+                                      <tr key={ri} className={ri % 2 === 0 ? "" : "bg-zinc-50 dark:bg-zinc-700/20"}>
+                                        {[...Array(6)].map((_, ci) => (
+                                          <td key={ci} className="border border-zinc-200 dark:border-zinc-600 px-2 py-1.5">
+                                            <div className="h-2 rounded-full bg-zinc-200 dark:bg-zinc-600" style={{ width: `${40 + (ri * 3 + ci * 7) % 55}%` }} />
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
+
+                      {/* Document footer */}
+                      <div className="px-4 py-2 border-t border-zinc-300 dark:border-zinc-600 flex items-center justify-between bg-zinc-50 dark:bg-zinc-700/30">
+                        <span className="text-[8px] text-zinc-400">
+                          {cliente?.nombre ?? "AgroView Pro"} · {previewInforme.nombre} · {previewInforme.codigo}
+                        </span>
+                        <span className="text-[8px] text-zinc-400">
+                          Revisión {revision} · {fechaInicio} · Página 1 de 1
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  {previewInforme.builderConfig.subtitulo && (
-                    <p className="text-xs text-muted-foreground italic">
-                      {previewInforme.builderConfig.subtitulo}
-                    </p>
-                  )}
-                </>
-              ) : (
-                <div className="flex flex-col items-center gap-3 py-10 text-center">
+                );
+              })() : (
+                <div className="flex flex-col items-center gap-3 py-10 text-center p-5">
                   <div className="p-3 rounded-full bg-muted/50">
                     <Eye className="w-6 h-6 text-muted-foreground" />
                   </div>
