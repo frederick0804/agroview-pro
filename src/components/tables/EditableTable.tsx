@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
-import { Check, X, Trash2, Plus, Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertTriangle } from "lucide-react";
+import { Check, X, Trash2, Plus, Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertTriangle, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,8 +20,16 @@ export interface Column<T> {
   render?: (value: any, row: T, rowIndex: number) => React.ReactNode;
   /** Called when user clicks "Crear parámetro" in autocomplete dropdown. Receives the typed query. */
   onCreateOption?: (query: string) => void;
-  /** Show a dropdown filter for this column. Auto-detects unique values if no filterOptions provided. */
+  /** Show a filter control for this column. Auto-detects unique values if filterType is "dropdown". */
   filterable?: boolean;
+  /**
+   * "dropdown" (default) — lista de valores únicos
+   * "range"    — entradas min/máx para campos Número
+   * "search"   — búsqueda de texto libre
+   */
+  filterType?: "dropdown" | "range" | "search";
+  /** Allow ascending/descending sort by clicking the column header */
+  sortable?: boolean;
 }
 
 interface EditableTableProps<T extends { id: string | number }> {
@@ -485,16 +493,36 @@ export function EditableTable<T extends { id: string | number }>({
   const [newRowId, setNewRowId] = useState<string | number | null>(null);
   const [deleteConfirmIdx, setDeleteConfirmIdx] = useState<number | null>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [rangeFilters, setRangeFilters] = useState<Record<string, { min: string; max: string }>>({});
   const [openFilter, setOpenFilter] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const filterRef = useRef<HTMLDivElement>(null);
+  const filterBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [filterPortalPos, setFilterPortalPos] = useState({ top: 0, left: 0 });
   const newRowRef = useRef<HTMLTableRowElement>(null);
   const prevDataLen = useRef(data.length);
+
+  // Calculate portal position when a filter opens
+  const openFilterAt = useCallback((colKey: string) => {
+    const btn = filterBtnRefs.current[colKey];
+    if (btn) {
+      const r = btn.getBoundingClientRect();
+      setFilterPortalPos({ top: r.bottom + 4, left: r.left });
+    }
+    setOpenFilter(colKey);
+  }, []);
 
   // Close filter dropdown on outside click
   useEffect(() => {
     if (!openFilter) return;
     const handler = (e: MouseEvent) => {
-      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setOpenFilter(null);
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        // Also check if the click is on a filter button (toggling)
+        const btn = filterBtnRefs.current[openFilter];
+        if (btn && btn.contains(e.target as Node)) return;
+        setOpenFilter(null);
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -503,7 +531,14 @@ export function EditableTable<T extends { id: string | number }>({
   // Filterable columns
   const filterableCols = columns.filter(c => c.filterable);
   const hasFilters = filterableCols.length > 0;
-  const activeFilterCount = Object.values(columnFilters).filter(Boolean).length;
+  const activeFilterCount =
+    Object.values(columnFilters).filter(Boolean).length +
+    Object.values(rangeFilters).filter(r => r.min || r.max).length;
+
+  const clearAllFilters = () => {
+    setColumnFilters({});
+    setRangeFilters({});
+  };
 
   // Required columns
   const requiredKeys = columns.filter(c => c.required).map(c => c.key);
@@ -530,16 +565,34 @@ export function EditableTable<T extends { id: string | number }>({
 
   const filteredData = (() => {
     let result = data;
-    // Apply column filters
+    // Apply column filters (dropdown + search types)
     for (const [key, filterVal] of Object.entries(columnFilters)) {
       if (!filterVal) continue;
+      const col = columns.find(c => String(c.key) === key);
+      const ft = col?.filterType ?? "dropdown";
       result = result.filter(row => {
         const cellVal = row[key as keyof T];
+        if (ft === "search") {
+          return String(cellVal ?? "").toLowerCase().includes(filterVal.toLowerCase());
+        }
+        // dropdown
         if (typeof cellVal === "boolean") return String(cellVal) === filterVal;
         return String(cellVal ?? "").toLowerCase() === filterVal.toLowerCase();
       });
     }
-    // Apply search
+    // Apply range filters
+    for (const [key, range] of Object.entries(rangeFilters)) {
+      const { min, max } = range;
+      if (!min && !max) continue;
+      result = result.filter(row => {
+        const val = parseFloat(String(row[key as keyof T] ?? ""));
+        if (isNaN(val)) return true;
+        if (min && val < parseFloat(min)) return false;
+        if (max && val > parseFloat(max)) return false;
+        return true;
+      });
+    }
+    // Apply global search
     if (searchable && searchTerm) {
       result = result.filter(row =>
         columns.some(col => {
@@ -547,6 +600,22 @@ export function EditableTable<T extends { id: string | number }>({
           return value?.toString().toLowerCase().includes(searchTerm.toLowerCase());
         }),
       );
+    }
+    // Apply sort
+    if (sortKey) {
+      result = [...result].sort((a, b) => {
+        const av = a[sortKey as keyof T];
+        const bv = b[sortKey as keyof T];
+        const an = parseFloat(String(av ?? ""));
+        const bn = parseFloat(String(bv ?? ""));
+        let cmp: number;
+        if (!isNaN(an) && !isNaN(bn)) {
+          cmp = an - bn;
+        } else {
+          cmp = String(av ?? "").localeCompare(String(bv ?? ""), undefined, { sensitivity: "base" });
+        }
+        return sortDir === "asc" ? cmp : -cmp;
+      });
     }
     return result;
   })();
@@ -593,7 +662,7 @@ export function EditableTable<T extends { id: string | number }>({
   const dataIdx = (row: T) => data.findIndex(d => d.id === row.id);
 
   return (
-    <div className={cn("bg-card rounded-xl border border-border overflow-hidden", className)}>
+    <div className={cn("bg-card rounded-xl border border-border", className)}>
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border flex-wrap gap-2">
         {title && <h3 className="font-semibold text-foreground">{title}</h3>}
@@ -615,7 +684,7 @@ export function EditableTable<T extends { id: string | number }>({
               variant="ghost"
               size="sm"
               className="text-xs text-muted-foreground"
-              onClick={() => setColumnFilters({})}
+              onClick={clearAllFilters}
             >
               <X className="w-3.5 h-3.5 mr-1" />
               Limpiar filtros ({activeFilterCount})
@@ -638,11 +707,15 @@ export function EditableTable<T extends { id: string | number }>({
               {columns.map(col => {
                 const colKey = String(col.key);
                 const isFilterable = col.filterable;
+                const ft = col.filterType ?? "dropdown";
                 const isFilterOpen = openFilter === colKey;
-                const hasActiveFilter = !!columnFilters[colKey];
+                const hasActiveDropdown = !!columnFilters[colKey];
+                const rangeState = rangeFilters[colKey] ?? { min: "", max: "" };
+                const hasActiveRange = !!(rangeState.min || rangeState.max);
+                const hasActiveFilter = ft === "range" ? hasActiveRange : hasActiveDropdown;
 
-                // Compute unique values for filter dropdown
-                const uniqueValues = isFilterable
+                // Unique values — only needed for dropdown type
+                const uniqueValues = isFilterable && ft === "dropdown"
                   ? Array.from(new Set(
                       data
                         .map(row => {
@@ -653,62 +726,66 @@ export function EditableTable<T extends { id: string | number }>({
                     )).sort()
                   : [];
 
-                // Resolve display labels from options
                 const getLabel = (val: string) => {
                   if (col.type === "checkbox") return val === "true" ? "Sí" : "No";
                   const opt = col.options?.find(o => o.value === val);
                   return opt ? opt.label : val;
                 };
 
+                // Show filter button: always for range/search; for dropdown only if >1 unique val
+                const showFilterBtn = isFilterable && (ft !== "dropdown" || uniqueValues.length > 1);
+
+                const isSorted = sortKey === colKey;
+                const handleSort = () => {
+                  if (!col.sortable) return;
+                  if (isSorted) {
+                    setSortDir(d => d === "asc" ? "desc" : "asc");
+                  } else {
+                    setSortKey(colKey);
+                    setSortDir("asc");
+                  }
+                };
+
                 return (
                   <th key={colKey} style={{ width: col.width }} className="relative">
                     <div className="flex items-center gap-1">
-                      <span>
+                      <span
+                        onClick={col.sortable ? handleSort : undefined}
+                        className={cn(col.sortable && "cursor-pointer select-none hover:text-foreground transition-colors")}
+                      >
                         {col.header}
                         {col.required && <span className="text-white ml-0.5">*</span>}
                       </span>
-                      {isFilterable && uniqueValues.length > 1 && (
+                      {col.sortable && (
                         <button
-                          onClick={() => setOpenFilter(isFilterOpen ? null : colKey)}
+                          onClick={handleSort}
+                          className={cn(
+                            "p-0.5 rounded transition-colors",
+                            isSorted ? "text-primary" : "text-muted-foreground/40 hover:text-muted-foreground",
+                          )}
+                          title={isSorted ? (sortDir === "asc" ? "Orden ascendente — clic para descendente" : "Orden descendente — clic para ascendente") : "Ordenar columna"}
+                        >
+                          {isSorted
+                            ? sortDir === "asc"
+                              ? <ArrowUp className="w-3 h-3" />
+                              : <ArrowDown className="w-3 h-3" />
+                            : <ArrowUpDown className="w-3 h-3" />}
+                        </button>
+                      )}
+                      {showFilterBtn && (
+                        <button
+                          ref={el => { filterBtnRefs.current[colKey] = el; }}
+                          onClick={() => openFilter === colKey ? setOpenFilter(null) : openFilterAt(colKey)}
                           className={cn(
                             "p-0.5 rounded hover:bg-muted transition-colors",
                             hasActiveFilter ? "text-primary" : "text-muted-foreground/50 hover:text-muted-foreground",
                           )}
-                          title="Filtrar columna"
+                          title={ft === "range" ? "Filtrar por rango" : ft === "search" ? "Buscar en columna" : "Filtrar columna"}
                         >
-                          <Filter className="w-3 h-3" />
+                          {ft === "search" ? <Search className="w-3 h-3" /> : <Filter className="w-3 h-3" />}
                         </button>
                       )}
                     </div>
-                    {isFilterOpen && (
-                      <div
-                        ref={filterRef}
-                        className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg min-w-[160px] py-1"
-                      >
-                        <button
-                          onClick={() => { setColumnFilters(prev => { const n = { ...prev }; delete n[colKey]; return n; }); setOpenFilter(null); }}
-                          className={cn(
-                            "w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors",
-                            !hasActiveFilter && "font-semibold text-primary",
-                          )}
-                        >
-                          Todos
-                        </button>
-                        {uniqueValues.map(val => (
-                          <button
-                            key={val}
-                            onClick={() => { setColumnFilters(prev => ({ ...prev, [colKey]: val })); setOpenFilter(null); setPage(1); }}
-                            className={cn(
-                              "w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors flex items-center gap-2",
-                              columnFilters[colKey] === val && "font-semibold text-primary",
-                            )}
-                          >
-                            {columnFilters[colKey] === val && <Check className="w-3 h-3" />}
-                            <span className={columnFilters[colKey] === val ? "" : "ml-5"}>{getLabel(val)}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
                   </th>
                 );
               })}
@@ -799,6 +876,142 @@ export function EditableTable<T extends { id: string | number }>({
           </tbody>
         </table>
       </div>
+
+      {/* ── Filter dropdowns (rendered via portal to avoid overflow clipping) ── */}
+      {openFilter && (() => {
+        const col = columns.find(c => String(c.key) === openFilter);
+        if (!col) return null;
+        const colKey = openFilter;
+        const ft = col.filterType ?? "dropdown";
+        const hasActiveDropdown = !!columnFilters[colKey];
+        const rangeState = rangeFilters[colKey] ?? { min: "", max: "" };
+        const hasActiveRange = !!(rangeState.min || rangeState.max);
+
+        const uniqueValues = col.filterable && ft === "dropdown"
+          ? Array.from(new Set(
+              data
+                .map(row => {
+                  const v = row[col.key];
+                  return v === undefined || v === null || v === "" ? null : String(v);
+                })
+                .filter((v): v is string => v !== null),
+            )).sort()
+          : [];
+
+        const getLabel = (val: string) => {
+          if (col.type === "checkbox") return val === "true" ? "Sí" : "No";
+          const opt = col.options?.find(o => o.value === val);
+          return opt ? opt.label : val;
+        };
+
+        const portalContent = (
+          <div
+            ref={filterRef}
+            style={{
+              position: "fixed",
+              top: filterPortalPos.top,
+              left: filterPortalPos.left,
+              zIndex: 9999,
+            }}
+          >
+            {ft === "dropdown" && (
+              <div className="bg-popover border border-border rounded-lg shadow-xl min-w-[160px] py-1">
+                <button
+                  onClick={() => { setColumnFilters(prev => { const n = { ...prev }; delete n[colKey]; return n; }); setOpenFilter(null); }}
+                  className={cn(
+                    "w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors",
+                    !hasActiveDropdown && "font-semibold text-primary",
+                  )}
+                >
+                  Todos
+                </button>
+                {uniqueValues.map(val => (
+                  <button
+                    key={val}
+                    onClick={() => { setColumnFilters(prev => ({ ...prev, [colKey]: val })); setOpenFilter(null); setPage(1); }}
+                    className={cn(
+                      "w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors flex items-center gap-2",
+                      columnFilters[colKey] === val && "font-semibold text-primary",
+                    )}
+                  >
+                    {columnFilters[colKey] === val && <Check className="w-3 h-3" />}
+                    <span className={columnFilters[colKey] === val ? "" : "ml-5"}>{getLabel(val)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {ft === "range" && (
+              <div className="bg-popover border border-border rounded-lg shadow-xl w-52 p-3 space-y-2">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Filtrar por rango</p>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[10px] text-muted-foreground">Mínimo</label>
+                    <input
+                      type="number"
+                      placeholder="—"
+                      value={rangeState.min}
+                      onChange={e => {
+                        setRangeFilters(prev => ({ ...prev, [colKey]: { ...rangeState, min: e.target.value } }));
+                        setPage(1);
+                      }}
+                      className="w-full h-7 text-xs rounded-md border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[10px] text-muted-foreground">Máximo</label>
+                    <input
+                      type="number"
+                      placeholder="—"
+                      value={rangeState.max}
+                      onChange={e => {
+                        setRangeFilters(prev => ({ ...prev, [colKey]: { ...rangeState, max: e.target.value } }));
+                        setPage(1);
+                      }}
+                      className="w-full h-7 text-xs rounded-md border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+                {hasActiveRange && (
+                  <button
+                    onClick={() => { setRangeFilters(prev => { const n = { ...prev }; delete n[colKey]; return n; }); setOpenFilter(null); }}
+                    className="w-full text-[10px] text-destructive hover:text-destructive/80 text-center pt-1"
+                  >
+                    Quitar filtro
+                  </button>
+                )}
+              </div>
+            )}
+
+            {ft === "search" && (
+              <div className="bg-popover border border-border rounded-lg shadow-xl w-52 p-3 space-y-2">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Buscar en columna</p>
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Escribir..."
+                    autoFocus
+                    value={columnFilters[colKey] ?? ""}
+                    onChange={e => { setColumnFilters(prev => ({ ...prev, [colKey]: e.target.value })); setPage(1); }}
+                    className="w-full h-7 text-xs rounded-md border border-input bg-background pl-6 pr-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                {columnFilters[colKey] && (
+                  <button
+                    onClick={() => { setColumnFilters(prev => { const n = { ...prev }; delete n[colKey]; return n; }); setOpenFilter(null); }}
+                    className="w-full text-[10px] text-destructive hover:text-destructive/80 text-center"
+                  >
+                    Quitar filtro
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+
+        return createPortal(portalContent, document.body);
+      })()}
 
       {/* Footer — paginación */}
       <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground flex-wrap gap-2">

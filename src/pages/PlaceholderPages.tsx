@@ -5,11 +5,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useRole } from "@/contexts/RoleContext";
 import { useConfig } from "@/contexts/ConfigContext";
-import { Settings, Download, Upload, SlidersHorizontal, Leaf } from "lucide-react";
+import { Settings, Download, Upload, SlidersHorizontal, Leaf, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { parseValores, type TipoDato, type ModDato, type ModParam } from "@/config/moduleDefinitions";
+import { IaAnalysisPanel } from "@/components/dashboard/IaAnalysisPanel";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ const tipoDatoToColType = (t: TipoDato): Column<DynRow>["type"] => {
   if (t === "Número") return "number";
   if (t === "Fecha")  return "date";
   if (t === "Sí/No")  return "select";
+  if (t === "Foto" || t === "Archivo") return undefined; // render as text (filename)
   return undefined;
 };
 
@@ -59,11 +61,16 @@ function DynamicDefTable({
   const { hasPermission } = useRole();
   const { definiciones, parametros, datos, addDato, updDato, delDato, setHasPendingChanges } = useConfig();
   const navigate = useNavigate();
+  const [showIaPanel, setShowIaPanel] = useState(false);
 
   const def    = definiciones.find(d => d.id === defId);
   const params = parametros
     .filter(p => p.definicion_id === defId)
     .sort((a, b) => a.orden - b.orden);
+
+  // Campos configurados con IA
+  const iaParams = params.filter(p => p.fuente_datos === "ia" || p.fuente_datos === "ia_editable");
+  const hasIaFields = iaParams.length > 0;
 
   const canCreate = hasPermission(moduloKey, "crear");
   const canEdit   = hasPermission(moduloKey, "editar");
@@ -118,6 +125,17 @@ function DynamicDefTable({
           col.options = p.opciones;
           col.filterable = true;
         }
+        if (p.filtrable_rango) {
+          col.filterable = true;
+          col.filterType = "range";
+        }
+        if (p.filtrable_busqueda) {
+          col.filterable = true;
+          col.filterType = "search";
+        }
+        if (p.ordenable) {
+          col.sortable = true;
+        }
         if (hasFormula) {
           col.header = `${col.header} ƒ`;
           col.render = (_value, row) => {
@@ -171,10 +189,54 @@ function DynamicDefTable({
     ? () => { addDato(defId, !def.cultivo_id ? filterCultivoId : undefined); }
     : undefined;
 
+  // IA confirm: crea una fila nueva con los valores detectados por IA
+  const handleIaConfirm = (values: Record<string, string>) => {
+    // Crear registro con los valores detectados
+    const cultivoForRecord = !def.cultivo_id ? filterCultivoId : undefined;
+    const newId = `ia-${Date.now()}`;
+    const fecha = new Date().toISOString().slice(0, 10);
+    // Merge IA values con referencia
+    const ref = Object.values(values)[0] ?? "Registro IA";
+    const allVals: Record<string, string> = {};
+    // Incluir valores de todos los campos (vacío para los no-IA)
+    for (const p of params) {
+      allVals[p.nombre] = values[p.nombre] ?? "";
+    }
+    addDato(defId, cultivoForRecord);
+    // Actualizar el último dato agregado con los valores IA
+    // (addDato crea un registro vacío; actualizamos con los valores detectados)
+    setTimeout(() => {
+      const newDatos = datos.filter(d => d.definicion_id === defId);
+      const last = newDatos[newDatos.length - 1];
+      if (last) {
+        const currentVals = parseValores(last.valores);
+        const merged = { ...currentVals, ...values };
+        updDato(last.id, { ...last, valores: JSON.stringify(merged) });
+      }
+    }, 50);
+    setShowIaPanel(false);
+  };
+
   return (
     <div className="space-y-3">
       {/* Botón editar campos de esta definición */}
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-2">
+        {hasIaFields && canCreate && canAddRecord && (
+          <Button
+            variant={showIaPanel ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowIaPanel(prev => !prev)}
+            className={cn(
+              "text-xs gap-1.5 transition-all",
+              showIaPanel
+                ? "bg-violet-600 hover:bg-violet-700 text-white shadow-md shadow-violet-500/20"
+                : "border-violet-400 text-violet-600 hover:bg-violet-500/10 hover:border-violet-500",
+            )}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            {showIaPanel ? "Ocultar panel IA" : "Llenar con IA"}
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"
@@ -185,6 +247,16 @@ function DynamicDefTable({
           Editar campos del formulario
         </Button>
       </div>
+
+      {/* Panel lateral de análisis IA */}
+      {hasIaFields && (
+        <IaAnalysisPanel
+          open={showIaPanel}
+          iaParams={iaParams}
+          onConfirm={handleIaConfirm}
+          onClose={() => setShowIaPanel(false)}
+        />
+      )}
 
       {/* Aviso cuando formulario global sin cultivo seleccionado */}
       {!def.cultivo_id && !filterCultivoId && canCreate && (
@@ -211,12 +283,15 @@ function DynamicDefTable({
 // Sus tabs se generan automáticamente desde las CONFIG_DEFINICIONES
 // asignadas a este módulo en Configuración.
 
-function DynamicModulePage({ title, moduloKey }: { title: string; moduloKey: string }) {
+function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: string; moduloKey: string; extraModuloKeys?: string[] }) {
   const { role, roleName, hierarchyLevel, hasPermission, currentUser } = useRole();
   const { definiciones, cultivos, datos, getUserDefAcceso } = useConfig();
   const navigate = useNavigate();
   const canExport = hasPermission(moduloKey, "exportar");
   const userId = currentUser?.id ?? null;
+
+  // All module keys this page covers (primary + any merged sub-modules)
+  const allModuloKeys = [moduloKey, ...extraModuloKeys];
 
   // Definiciones visibles para este usuario en este módulo.
   // Prioridad de reglas (de mayor a menor):
@@ -225,15 +300,20 @@ function DynamicModulePage({ title, moduloKey }: { title: string; moduloKey: str
   //      → habilitado:false = acceso bloqueado  (ignora nivel/roles)
   //   B. Reglas de rol: nivel_minimo + roles_excluidos
   const defs = definiciones.filter(d => {
-    if (d.modulo !== moduloKey || d.estado !== "activo") return false;
+    if (!allModuloKeys.includes(d.modulo) || d.estado !== "activo") return false;
     // A: override por usuario
     if (userId != null) {
       const acceso = getUserDefAcceso(d.id, userId);
       if (acceso !== undefined) return acceso.habilitado;
     }
     // B: reglas de rol
-    return hierarchyLevel >= d.nivel_minimo &&
-           !(d.roles_excluidos ?? []).includes(role);
+    if (hierarchyLevel < d.nivel_minimo) return false;
+    if ((d.roles_excluidos ?? []).includes(role)) return false;
+    // C: supervisor — solo definiciones asignadas (si tiene restricción)
+    if (role === "supervisor" && currentUser?.definiciones_asignadas?.length) {
+      return currentUser.definiciones_asignadas.includes(d.id);
+    }
+    return true;
   });
 
   // Cultivos que tienen alguna def específica O algún registro en defs globales
@@ -419,8 +499,8 @@ function DynamicModulePage({ title, moduloKey }: { title: string; moduloKey: str
 
 export const Laboratorio    = () => <DynamicModulePage title="Laboratorio"      moduloKey="laboratorio"      />;
 export const Vivero         = () => <DynamicModulePage title="Vivero"           moduloKey="vivero"           />;
-export const Cultivo        = () => <DynamicModulePage title="Cultivo"          moduloKey="cultivo"          />;
+export const Cultivo        = () => <DynamicModulePage title="Cultivo"          moduloKey="cultivo"          extraModuloKeys={["cosecha"]} />;
 export const Cosecha        = () => <DynamicModulePage title="Cosecha"          moduloKey="cosecha"          />;
-export const PostCosecha    = () => <DynamicModulePage title="Post-cosecha"     moduloKey="post-cosecha"     />;
+export const PostCosecha    = () => <DynamicModulePage title="Post-cosecha"     moduloKey="post-cosecha"     extraModuloKeys={["produccion"]} />;
 export const Produccion     = () => <DynamicModulePage title="Producción"       moduloKey="produccion"       />;
 export const RecursosHumanos= () => <DynamicModulePage title="Recursos Humanos" moduloKey="recursos-humanos" />;

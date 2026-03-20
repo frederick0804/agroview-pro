@@ -7,7 +7,7 @@ import { Label }    from "@/components/ui/label";
 import { Button }   from "@/components/ui/button";
 import { Switch }   from "@/components/ui/switch";
 import { Badge }    from "@/components/ui/badge";
-import { Settings2, Plus, X, Trash2, Link2, Calculator } from "lucide-react";
+import { Settings2, Plus, X, Trash2, Link2, Calculator, Table2, SlidersHorizontal, Search, ArrowUpDown, Sparkles, Camera, Info } from "lucide-react";
 import type {
   ModParam, CampoValidaciones, CampoDependencia, CampoOpcion,
 } from "@/config/moduleDefinitions";
@@ -36,6 +36,11 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
   const [dependencia, setDependencia]   = useState<CampoDependencia | null>(null);
   const [formula, setFormula]           = useState<string>("");
   const [formulaEnabled, setFormulaEnabled] = useState(false);
+  const [filtrableRango,    setFiltrableRango]    = useState(false);
+  const [filtrableBusqueda, setFiltrableBusqueda] = useState(false);
+  const [ordenable,         setOrdenable]         = useState(false);
+  const [fuenteDatos,       setFuenteDatos]       = useState<"manual" | "ia" | "ia_editable">("manual");
+  const [iaInstruccion,     setIaInstruccion]     = useState("");
 
   useEffect(() => {
     if (!campo) return;
@@ -49,6 +54,11 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
     setDependencia(campo.dependencias ?? null);
     setFormula(campo.formula ?? "");
     setFormulaEnabled(!!campo.formula);
+    setFiltrableRango(campo.filtrable_rango ?? false);
+    setFiltrableBusqueda(campo.filtrable_busqueda ?? false);
+    setOrdenable(campo.ordenable ?? false);
+    setFuenteDatos(campo.fuente_datos ?? "manual");
+    setIaInstruccion(campo.ia_instruccion ?? "");
   }, [campo]);
 
   if (!campo) return null;
@@ -58,6 +68,8 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
   const showTextValidations = tipo === "Texto";
   const showOpciones = tipo === "Lista";
   const showFormula = tipo === "Número";
+  const showFiltrableRango    = tipo === "Número";
+  const showFiltrableBusqueda = tipo === "Texto" || tipo === "Lista" || tipo === "Fecha";
 
   // Parse formula into tokens for visual display
   const formulaTokens = formula
@@ -91,11 +103,12 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
 
   const handleSave = () => {
     const hasFormula = formulaEnabled && formula.trim();
+    const isIa = fuenteDatos !== "manual";
     onSave(campo.id, {
       etiqueta_personalizada: etiqueta || undefined,
       valor_default: valorDefault || undefined,
       visible,
-      editable_campo: hasFormula ? false : editable,
+      editable_campo: hasFormula ? false : isIa && fuenteDatos === "ia" ? false : editable,
       obligatorio,
       validaciones_adicionales: (showNumValidations || showTextValidations)
         ? Object.keys(validaciones).length > 0 ? validaciones : null
@@ -103,6 +116,11 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
       opciones: showOpciones && opciones.length > 0 ? opciones : null,
       dependencias: dependencia,
       formula: hasFormula ? formula.trim() : null,
+      filtrable_rango: showFiltrableRango ? filtrableRango || undefined : undefined,
+      filtrable_busqueda: showFiltrableBusqueda ? filtrableBusqueda || undefined : undefined,
+      ordenable: ordenable || undefined,
+      fuente_datos: fuenteDatos !== "manual" ? fuenteDatos : undefined,
+      ia_instruccion: isIa && iaInstruccion.trim() ? iaInstruccion.trim() : undefined,
     });
     onClose();
   };
@@ -428,6 +446,127 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
               )}
             </section>
           )}
+
+          {/* ── Tabla ── */}
+          {(showFiltrableRango || showFiltrableBusqueda || true) && (
+            <section className="space-y-4">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                <Table2 className="w-3.5 h-3.5" /> Comportamiento en tabla
+              </h4>
+              <p className="text-[10px] text-muted-foreground leading-relaxed -mt-2">
+                Controles que aparecerán en el encabezado de esta columna.
+              </p>
+
+              {showFiltrableRango && (
+                <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Filtrar por rango</p>
+                      <p className="text-[10px] text-muted-foreground">Botón ≥ / ≤ para filtrar por valor mínimo y máximo</p>
+                    </div>
+                  </div>
+                  <Switch checked={filtrableRango} onCheckedChange={setFiltrableRango} />
+                </div>
+              )}
+
+              {showFiltrableBusqueda && (
+                <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <Search className="w-3.5 h-3.5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Activar búsqueda</p>
+                      <p className="text-[10px] text-muted-foreground">Barra de búsqueda de texto libre en la columna</p>
+                    </div>
+                  </div>
+                  <Switch checked={filtrableBusqueda} onCheckedChange={setFiltrableBusqueda} />
+                </div>
+              )}
+
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">Ordenable</p>
+                    <p className="text-[10px] text-muted-foreground">Permite ordenar ↑ asc / ↓ desc al hacer clic en el encabezado</p>
+                  </div>
+                </div>
+                <Switch checked={ordenable} onCheckedChange={setOrdenable} />
+              </div>
+            </section>
+          )}
+
+          {/* ── Fuente de datos (IA) ── */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5 text-violet-500" /> Fuente de datos
+              </h4>
+              <Switch
+                checked={fuenteDatos !== "manual"}
+                onCheckedChange={v => setFuenteDatos(v ? "ia_editable" : "manual")}
+              />
+            </div>
+
+            {fuenteDatos !== "manual" && (
+              <div className="space-y-3 bg-violet-500/5 rounded-lg p-3 border border-violet-500/20">
+                {/* Info */}
+                <div className="flex items-start gap-2 text-[11px] text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20 rounded-md px-2.5 py-2 border border-violet-200 dark:border-violet-800">
+                  <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    Al activar IA, este campo se llenará automáticamente cuando se suba contenido (foto, documento, etc.) al registro.
+                    Ejemplo: en MIPE, al subir una foto la IA puede identificar plagas y enfermedades.
+                  </span>
+                </div>
+
+                {/* Modo */}
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] text-muted-foreground">Modo de llenado</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setFuenteDatos("ia")}
+                      className={`flex flex-col items-center gap-1 px-3 py-2.5 rounded-lg border text-xs font-medium transition-colors ${
+                        fuenteDatos === "ia"
+                          ? "border-violet-500 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+                          : "border-border hover:border-violet-500/40 text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      <span>Solo IA</span>
+                      <span className="text-[9px] font-normal text-muted-foreground">Campo de solo lectura</span>
+                    </button>
+                    <button
+                      onClick={() => setFuenteDatos("ia_editable")}
+                      className={`flex flex-col items-center gap-1 px-3 py-2.5 rounded-lg border text-xs font-medium transition-colors ${
+                        fuenteDatos === "ia_editable"
+                          ? "border-violet-500 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+                          : "border-border hover:border-violet-500/40 text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span>IA + Editable</span>
+                      <span className="text-[9px] font-normal text-muted-foreground">Usuario puede corregir</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Instrucción IA */}
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] text-muted-foreground">Instrucción para la IA</Label>
+                  <textarea
+                    value={iaInstruccion}
+                    onChange={e => setIaInstruccion(e.target.value)}
+                    placeholder="Ej: Identificar plagas y enfermedades visibles en la foto del cultivo…"
+                    rows={3}
+                    className="w-full text-xs rounded-md border border-input bg-background px-3 py-2 focus:outline-none focus:ring-1 focus:ring-violet-500 resize-none placeholder:text-muted-foreground/60"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Describe qué información debe extraer la IA del contenido subido.
+                  </p>
+                </div>
+              </div>
+            )}
+          </section>
 
           {/* ── Dependencia ── */}
           <section className="space-y-4">

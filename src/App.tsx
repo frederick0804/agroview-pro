@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { RoleProvider, useRole } from "@/contexts/RoleContext";
 import { ConfigProvider } from "@/contexts/ConfigContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Configuracion from "./pages/Configuracion";
@@ -30,8 +31,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Guard que redirige a / si el usuario no tiene acceso al módulo
+function ModuleGuard({ modulo, children }: { modulo: string; children: React.ReactNode }) {
+  const { canAccessModule } = useRole();
+  if (!canAccessModule(modulo)) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
 const App = () => {
   return (
+    <ThemeProvider>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <RoleProvider>
@@ -42,16 +51,16 @@ const App = () => {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-              <Route path="/laboratorio" element={<ProtectedRoute><Laboratorio /></ProtectedRoute>} />
-              <Route path="/vivero" element={<ProtectedRoute><Vivero /></ProtectedRoute>} />
-              <Route path="/cultivo" element={<ProtectedRoute><Cultivo /></ProtectedRoute>} />
-              <Route path="/cosecha" element={<ProtectedRoute><Cosecha /></ProtectedRoute>} />
-              <Route path="/post-cosecha" element={<ProtectedRoute><PostCosecha /></ProtectedRoute>} />
-              <Route path="/produccion" element={<ProtectedRoute><Produccion /></ProtectedRoute>} />
-              <Route path="/recursos-humanos" element={<ProtectedRoute><RecursosHumanos /></ProtectedRoute>} />
-              <Route path="/comercial" element={<ProtectedRoute><Comercial /></ProtectedRoute>} />
-              <Route path="/informes" element={<ProtectedRoute><Informes /></ProtectedRoute>} />
-              <Route path="/configuracion" element={<ProtectedRoute><Configuracion /></ProtectedRoute>} />
+              <Route path="/laboratorio" element={<ProtectedRoute><ModuleGuard modulo="laboratorio"><Laboratorio /></ModuleGuard></ProtectedRoute>} />
+              <Route path="/vivero" element={<ProtectedRoute><ModuleGuard modulo="vivero"><Vivero /></ModuleGuard></ProtectedRoute>} />
+              <Route path="/cultivo" element={<ProtectedRoute><ModuleGuard modulo="cultivo"><Cultivo /></ModuleGuard></ProtectedRoute>} />
+              <Route path="/cosecha" element={<Navigate to="/cultivo" replace />} />
+              <Route path="/post-cosecha" element={<ProtectedRoute><ModuleGuard modulo="post-cosecha"><PostCosecha /></ModuleGuard></ProtectedRoute>} />
+              <Route path="/produccion" element={<Navigate to="/post-cosecha" replace />} />
+              <Route path="/recursos-humanos" element={<ProtectedRoute><ModuleGuard modulo="recursos-humanos"><RecursosHumanos /></ModuleGuard></ProtectedRoute>} />
+              <Route path="/comercial" element={<ProtectedRoute><ModuleGuard modulo="comercial"><Comercial /></ModuleGuard></ProtectedRoute>} />
+              <Route path="/informes" element={<ProtectedRoute><ModuleGuard modulo="informes"><Informes /></ModuleGuard></ProtectedRoute>} />
+              <Route path="/configuracion" element={<ProtectedRoute><ModuleGuard modulo="configuracion"><Configuracion /></ModuleGuard></ProtectedRoute>} />
               <Route path="/gestion-usuarios" element={<Navigate to="/configuracion?tab=usuarios" replace />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
@@ -60,6 +69,7 @@ const App = () => {
         </RoleProvider>
       </TooltipProvider>
     </QueryClientProvider>
+    </ThemeProvider>
   );
 };
 

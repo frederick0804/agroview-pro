@@ -5,7 +5,6 @@ import {
   FlaskConical,
   Sprout,
   Leaf,
-  Factory,
   Users,
   ShoppingCart,
   Settings,
@@ -13,7 +12,6 @@ import {
   ChevronRight,
   LogOut,
   User,
-  Scissors,
   Package,
   BarChart2,
 } from "lucide-react";
@@ -28,26 +26,25 @@ interface NavItem {
   icon: React.ElementType;
   path: string;
   modulo: string;
+  iconColor?: string;
   excludedRoles?: UserRole[];
 }
 
 // ─── Items de navegación ──────────────────────────────────────────────────────
 
 const navItems: NavItem[] = [
-  { label: "Dashboard",           icon: LayoutDashboard, path: "/",                 modulo: "dashboard" },
-  { label: "Laboratorio",         icon: FlaskConical,    path: "/laboratorio",      modulo: "laboratorio" },
-  { label: "Vivero",              icon: Sprout,          path: "/vivero",           modulo: "vivero" },
-  { label: "Cultivo",             icon: Leaf,            path: "/cultivo",          modulo: "cultivo" },
-  { label: "Cosecha",             icon: Scissors,        path: "/cosecha",          modulo: "cosecha" },
-  { label: "Post-cosecha",        icon: Package,         path: "/post-cosecha",     modulo: "post-cosecha" },
-  { label: "Producción",          icon: Factory,         path: "/produccion",       modulo: "produccion" },
-  { label: "Recursos Humanos",    icon: Users,           path: "/recursos-humanos", modulo: "recursos-humanos" },
-  { label: "Comercial",           icon: ShoppingCart,    path: "/comercial",        modulo: "comercial" },
-  { label: "Informes",            icon: BarChart2,       path: "/informes",         modulo: "informes" },
+  { label: "Dashboard",           icon: LayoutDashboard, path: "/",                 modulo: "dashboard",         iconColor: "text-sky-400" },
+  { label: "Laboratorio",         icon: FlaskConical,    path: "/laboratorio",      modulo: "laboratorio",       iconColor: "text-violet-400" },
+  { label: "Vivero",              icon: Sprout,          path: "/vivero",           modulo: "vivero",            iconColor: "text-emerald-400" },
+  { label: "Cultivo",             icon: Leaf,            path: "/cultivo",          modulo: "cultivo",           iconColor: "text-green-400" },
+  { label: "Post-cosecha",        icon: Package,         path: "/post-cosecha",     modulo: "post-cosecha",      iconColor: "text-orange-400" },
+  { label: "Recursos Humanos",    icon: Users,           path: "/recursos-humanos", modulo: "recursos-humanos",  iconColor: "text-cyan-400" },
+  { label: "Comercial",           icon: ShoppingCart,    path: "/comercial",        modulo: "comercial",         iconColor: "text-pink-400" },
+  { label: "Informes",            icon: BarChart2,       path: "/informes",         modulo: "informes",          iconColor: "text-indigo-400" },
 ];
 
 const bottomNavItems: NavItem[] = [
-  { label: "Configuración", icon: Settings, path: "/configuracion", modulo: "configuracion" },
+  { label: "Configuración", icon: Settings, path: "/configuracion", modulo: "configuracion", iconColor: "text-slate-400" },
 ];
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -127,7 +124,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
             title={collapsed ? item.label : undefined}
             onClick={e => { if (hasPendingChanges) e.preventDefault(); }}
           >
-            <item.icon className="w-5 h-5 shrink-0" />
+            <item.icon className={cn("w-5 h-5 shrink-0", item.iconColor)} />
             {!collapsed && <span className="truncate">{item.label}</span>}
           </NavLink>
         ))}
@@ -147,7 +144,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
             title={collapsed ? item.label : undefined}
             onClick={e => { if (hasPendingChanges) e.preventDefault(); }}
           >
-            <item.icon className="w-5 h-5 shrink-0" />
+            <item.icon className={cn("w-5 h-5 shrink-0", item.iconColor)} />
             {!collapsed && <span>{item.label}</span>}
           </NavLink>
         ))}
