@@ -204,6 +204,33 @@ const OVERRIDES_DEMO: UserPermissionOverride[] = [
     justificacion: "Permiso temporal para auditoría Q1 2025",
     createdAt: "2025-01-15",
   },
+  {
+    id: "ov-2",
+    userId: 5,       // Juan Pérez (Supervisor)
+    modulo: "informes",
+    accion: "exportar",
+    habilitado: true,
+    justificacion: "Permiso para exportar informes de su área asignada",
+    createdAt: "2025-01-15",
+  },
+  {
+    id: "ov-3",
+    userId: 5,       // Juan Pérez (Supervisor de cultivo)
+    modulo: "informes",
+    accion: "editar",
+    habilitado: true,
+    justificacion: "Permiso para gestionar plantillas del área de cultivo",
+    createdAt: "2025-02-01",
+  },
+  {
+    id: "ov-4",
+    userId: 5,       // Juan Pérez (Supervisor de cultivo)
+    modulo: "informes",
+    accion: "eliminar",
+    habilitado: true,
+    justificacion: "Permiso para eliminar plantillas del área de cultivo",
+    createdAt: "2025-02-01",
+  },
 ];
 
 // Módulos disponibles para la UI
