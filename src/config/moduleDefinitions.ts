@@ -451,6 +451,24 @@ export interface NivelEstructura {
   activo: boolean;  // si este nivel aplica a este cultivo
 }
 
+// ─── BloqueLayout — Instancias de bloques para el mapa visual ─────────────────
+// Representa la posición y configuración de cada bloque en el mapa del campo.
+// Los hijos[] anidan recursivamente la siguiente capa de la estructura.
+
+export interface BloqueLayout {
+  id:               string;       // uid del bloque
+  nombre:           string;       // ej: "Bloque 1", "Hilera A"
+  nivelIdx:         number;       // índice en estructura[] (0 = primer nivel activo)
+  x:                number;       // posición X en el mapa (px)
+  y:                number;       // posición Y en el mapa (px)
+  width:            number;       // ancho en px
+  height:           number;       // alto en px
+  color?:           string;       // color de relleno opcional
+  opacity?:         number;       // opacidad 20-100 (porcentaje)
+  elementosPorFila?: number;      // cuántos hijos mostrar por fila (para grid layout)
+  hijos?:           BloqueLayout[]; // sub-estructuras (hileras dentro de bloque, etc.)
+}
+
 // ─── Cultivo ──────────────────────────────────────────────────────────────────
 // Equivale a la tabla `Cultivos` del ERD.
 
@@ -473,6 +491,8 @@ export interface Cultivo {
   calibres?: Calibre[];
   // Configuración de campo
   estructura?: NivelEstructura[];
+  // Mapa visual — instancias de bloques posicionadas en el campo
+  layout_mapa?: BloqueLayout[];
 }
 
 // ─── Variedad — CAT_VARIEDADES ────────────────────────────────────────────────
@@ -510,6 +530,42 @@ export const CULTIVOS: Cultivo[] = [
       { nivel: 2, label: "Hilera",    abrev: "HL", activo: true  },
       { nivel: 3, label: "Cuadrante", abrev: "CU", activo: true  },
       { nivel: 4, label: "Planta",    abrev: "PL", activo: false },
+    ],
+    layout_mapa: [
+      {
+        id: "blk-01", nombre: "Bloque 1", nivelIdx: 0, x: 20, y: 20, width: 180, height: 120,
+        hijos: [
+          { id: "hl-01", nombre: "HL1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "hl-02", nombre: "HL2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "hl-03", nombre: "HL3", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+        ],
+      },
+      {
+        id: "blk-02", nombre: "Bloque 2", nivelIdx: 0, x: 220, y: 20, width: 180, height: 120,
+        hijos: [
+          { id: "hl-04", nombre: "HL1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "hl-05", nombre: "HL2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "hl-06", nombre: "HL3", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "hl-07", nombre: "HL4", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "hl-08", nombre: "HL5", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+        ],
+      },
+      {
+        id: "blk-03", nombre: "Bloque 3", nivelIdx: 0, x: 420, y: 20, width: 140, height: 200,
+        hijos: [
+          { id: "hl-09", nombre: "HL1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "hl-10", nombre: "HL2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+        ],
+      },
+      {
+        id: "blk-04", nombre: "Bloque 4", nivelIdx: 0, x: 20, y: 160, width: 380, height: 100,
+        hijos: [
+          { id: "hl-11", nombre: "HL1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "hl-12", nombre: "HL2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "hl-13", nombre: "HL3", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "hl-14", nombre: "HL4", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+        ],
+      },
     ],
   },
   // Arándanos → solo cliente 1; productor 1

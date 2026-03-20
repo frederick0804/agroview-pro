@@ -49,7 +49,8 @@
       "Bash(python -c \":*)",
       "Bash(pip install:*)",
       "Bash(pdftotext C:UsersFrederickDownloadsINFORME_SISTEMA_V2.pdf -)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(grep -r 'Cliente Admin' /c/Users/Frederick/Documents/blue-data/agroview-pro/.claude/worktrees/recursing-golick/src --include=*.tsx --include=*.ts)"
     ]
   }
 }

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 
 // 6 roles según informe PDF - jerarquía del nivel 1 al 6
 export type UserRole =
@@ -50,6 +50,7 @@ export interface DemoCliente {
   nombre: string;
   ruc: string;
   pais: string;
+  direccion?: string;
 }
 
 export interface DemoProductor {
@@ -58,17 +59,18 @@ export interface DemoProductor {
   nombre: string;
   ruc: string;
   pais: string;
+  direccion?: string;
 }
 
 export const CLIENTES_DEMO: DemoCliente[] = [
-  { id: 1, nombre: "AgroPro Chile",    ruc: "76.123.456-7", pais: "Chile" },
-  { id: 2, nombre: "Frutas del Valle", ruc: "80.654.321-K", pais: "Chile" },
+  { id: 1, nombre: "AgroPro Chile",    ruc: "76.123.456-7", pais: "Chile", direccion: "Av. Apoquindo 4501, Las Condes, Santiago" },
+  { id: 2, nombre: "Frutas del Valle", ruc: "80.654.321-K", pais: "Chile", direccion: "Km 12 Ruta 5 Norte, Curicó" },
 ];
 
 export const PRODUCTORES_DEMO: DemoProductor[] = [
-  { id: 1, clienteId: 1, nombre: "Fundo Los Andes", ruc: "76.111.222-3", pais: "Chile" },
-  { id: 2, clienteId: 1, nombre: "Hacienda El Sol",  ruc: "76.333.444-5", pais: "Chile" },
-  { id: 3, clienteId: 2, nombre: "Campo Florido",    ruc: "77.555.666-7", pais: "Chile" },
+  { id: 1, clienteId: 1, nombre: "Fundo Los Andes", ruc: "76.111.222-3", pais: "Chile", direccion: "Camino Los Andes s/n, Colina" },
+  { id: 2, clienteId: 1, nombre: "Hacienda El Sol",  ruc: "76.333.444-5", pais: "Chile", direccion: "Ruta 68 Km 45, Casablanca" },
+  { id: 3, clienteId: 2, nombre: "Campo Florido",    ruc: "77.555.666-7", pais: "Chile", direccion: "Camino Rural Km 3, Curicó" },
 ];
 
 // Permiso personalizado por usuario (§6 del informe)
@@ -283,6 +285,9 @@ interface RoleContextType {
   // Multi-tenant
   currentClienteId: number | undefined;
   currentClienteName: string;
+  // Empresa context (super_admin puede filtrar por empresa)
+  empresaCtxId: number | null;
+  setEmpresaCtxId: (id: number | null) => void;
   // Usuarios CRUD
   users: HardcodedUser[];
   addUser: (u: Omit<HardcodedUser, "id">) => HardcodedUser;
@@ -311,14 +316,98 @@ const roleNames: Record<UserRole, string> = {
 
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
 
+// ─── LocalStorage helpers ─────────────────────────────────────────────────────
+const STORAGE_KEYS = {
+  AUTH: "agroview_auth",
+  USERS: "agroview_users",
+  CLIENTES: "agroview_clientes",
+  PRODUCTORES: "agroview_productores",
+  OVERRIDES: "agroview_overrides",
+  EMPRESA_CTX: "agroview_empresa_ctx",
+};
+
+function loadFromStorage<T>(key: string, fallback: T): T {
+  try {
+    const item = localStorage.getItem(key);
+    return item ? JSON.parse(item) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveToStorage(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Silent fail
+  }
+}
+
 export function RoleProvider({ children }: { children: ReactNode }) {
-  const [role, setRole] = useState<UserRole>("cliente_admin");
-  const [currentUser, setCurrentUser] = useState<HardcodedUser | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [permissionOverrides, setPermissionOverrides] = useState<UserPermissionOverride[]>(OVERRIDES_DEMO);
-  const [users, setUsers] = useState<HardcodedUser[]>(INITIAL_USERS);
-  const [clientes, setClientes] = useState<DemoCliente[]>(CLIENTES_DEMO);
-  const [productores, setProductores] = useState<DemoProductor[]>(PRODUCTORES_DEMO);
+  // ── Lazy initialization: cargar desde localStorage ──
+  const [isAuthenticated, setIsAuthenticated] = useState(() =>
+    loadFromStorage(STORAGE_KEYS.AUTH, { isAuth: false, role: "cliente_admin" as UserRole, user: null as HardcodedUser | null }).isAuth
+  );
+  const [role, setRole] = useState<UserRole>(() =>
+    loadFromStorage(STORAGE_KEYS.AUTH, { isAuth: false, role: "cliente_admin" as UserRole, user: null as HardcodedUser | null }).role
+  );
+  const [currentUser, setCurrentUser] = useState<HardcodedUser | null>(() =>
+    loadFromStorage(STORAGE_KEYS.AUTH, { isAuth: false, role: "cliente_admin" as UserRole, user: null as HardcodedUser | null }).user
+  );
+  const [permissionOverrides, setPermissionOverrides] = useState<UserPermissionOverride[]>(() =>
+    loadFromStorage(STORAGE_KEYS.OVERRIDES, OVERRIDES_DEMO)
+  );
+  const [users, setUsers] = useState<HardcodedUser[]>(() =>
+    loadFromStorage(STORAGE_KEYS.USERS, INITIAL_USERS)
+  );
+  const [empresaCtxId, setEmpresaCtxId] = useState<number | null>(() =>
+    loadFromStorage(STORAGE_KEYS.EMPRESA_CTX, null)
+  );
+  const [clientes, setClientes] = useState<DemoCliente[]>(() =>
+    loadFromStorage(STORAGE_KEYS.CLIENTES, CLIENTES_DEMO)
+  );
+  const [productores, setProductores] = useState<DemoProductor[]>(() =>
+    loadFromStorage(STORAGE_KEYS.PRODUCTORES, PRODUCTORES_DEMO)
+  );
+
+  // ── Persistir sesión en localStorage cuando cambie ──
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.AUTH, { isAuth: isAuthenticated, role, user: currentUser });
+  }, [isAuthenticated, role, currentUser]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.USERS, users);
+  }, [users]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.CLIENTES, clientes);
+  }, [clientes]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.PRODUCTORES, productores);
+  }, [productores]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.OVERRIDES, permissionOverrides);
+  }, [permissionOverrides]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.EMPRESA_CTX, empresaCtxId);
+  }, [empresaCtxId]);
+
+  // ── Validar que currentUser sigue existiendo en users ──
+  useEffect(() => {
+    if (isAuthenticated && currentUser) {
+      const userStillExists = users.find(u => u.id === currentUser.id && u.activo !== false);
+      if (!userStillExists) {
+        // Usuario eliminado o desactivado → cerrar sesión
+        setCurrentUser(null);
+        setIsAuthenticated(false);
+        setRole("cliente_admin");
+        localStorage.removeItem(STORAGE_KEYS.AUTH);
+      }
+    }
+  }, [users, currentUser, isAuthenticated]);
 
   const login = (email: string, password: string): HardcodedUser | null => {
     const user = users.find(
@@ -337,6 +426,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     setCurrentUser(null);
     setIsAuthenticated(false);
     setRole("cliente_admin");
+    localStorage.removeItem(STORAGE_KEYS.AUTH);
   };
 
   const handleSetRole = (newRole: UserRole) => {
@@ -510,6 +600,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         getRoleBasePermissions,
         currentClienteId,
         currentClienteName,
+        empresaCtxId,
+        setEmpresaCtxId,
         users,
         addUser,
         updUser,
