@@ -58,8 +58,9 @@ import {
   Eye,
   Pencil,
   GitBranch,
-  RotateCcw,
   Trash2,
+  FilePlus,
+  RotateCcw,
   ArrowLeftRight,
   Copy,
 } from "lucide-react";
@@ -118,6 +119,8 @@ interface InformeSnapshot {
 interface InformeGeneracion {
   id: string;
   informe_id: string;
+  informe_nombre: string;
+  categoria: CategoriaInforme;
   usuario: string;
   fecha: string;
   parametros: Record<string, unknown>;
@@ -504,6 +507,8 @@ const GENERACIONES_DEMO: InformeGeneracion[] = [
   {
     id: "gen-01",
     informe_id: "inf-01",
+    informe_nombre: "Análisis de resultados de laboratorio",
+    categoria: "laboratorio",
     usuario: "Ana García",
     fecha: "2025-03-12T09:14:00",
     parametros: { fecha_desde: "2025-01-01", fecha_hasta: "2025-03-12", cultivo: "Arándanos" },
@@ -515,6 +520,8 @@ const GENERACIONES_DEMO: InformeGeneracion[] = [
   {
     id: "gen-02",
     informe_id: "inf-01",
+    informe_nombre: "Análisis de resultados de laboratorio",
+    categoria: "laboratorio",
     usuario: "Roberto Silva",
     fecha: "2025-03-05T14:30:00",
     parametros: { fecha_desde: "2025-02-01", fecha_hasta: "2025-03-05" },
@@ -526,6 +533,8 @@ const GENERACIONES_DEMO: InformeGeneracion[] = [
   {
     id: "gen-03",
     informe_id: "inf-01",
+    informe_nombre: "Análisis de resultados de laboratorio",
+    categoria: "laboratorio",
     usuario: "María López",
     fecha: "2025-02-28T08:55:00",
     parametros: { fecha_desde: "2025-02-01", fecha_hasta: "2025-02-28" },
@@ -537,6 +546,8 @@ const GENERACIONES_DEMO: InformeGeneracion[] = [
   {
     id: "gen-04",
     informe_id: "inf-06",
+    informe_nombre: "Rendimiento por hectárea",
+    categoria: "siembra",
     usuario: "Ana García",
     fecha: "2025-03-01T07:00:00",
     parametros: { periodo: "Febrero 2025", cultivo: "Todos" },
@@ -548,6 +559,8 @@ const GENERACIONES_DEMO: InformeGeneracion[] = [
   {
     id: "gen-05",
     informe_id: "inf-12",
+    informe_nombre: "Control de temperatura en cámaras",
+    categoria: "poscosecha",
     usuario: "Sistema (programado)",
     fecha: "2025-03-14T06:00:00",
     parametros: { fecha: "2025-03-14", camara: "Todas" },
@@ -559,6 +572,8 @@ const GENERACIONES_DEMO: InformeGeneracion[] = [
   {
     id: "gen-06",
     informe_id: "inf-12",
+    informe_nombre: "Control de temperatura en cámaras",
+    categoria: "poscosecha",
     usuario: "Sistema (programado)",
     fecha: "2025-03-13T06:00:00",
     parametros: { fecha: "2025-03-13", camara: "Todas" },
@@ -570,6 +585,8 @@ const GENERACIONES_DEMO: InformeGeneracion[] = [
   {
     id: "gen-07",
     informe_id: "inf-15",
+    informe_nombre: "Resumen ejecutivo mensual",
+    categoria: "general",
     usuario: "Carlos Mendoza",
     fecha: "2025-03-01T08:00:00",
     parametros: { periodo: "Febrero 2025" },
@@ -581,6 +598,8 @@ const GENERACIONES_DEMO: InformeGeneracion[] = [
   {
     id: "gen-08",
     informe_id: "inf-10",
+    informe_nombre: "Inventario de plantas por lote",
+    categoria: "vivero",
     usuario: "Juan Pérez",
     fecha: "2025-03-11T17:45:00",
     parametros: { fecha_desde: "2025-03-01", fecha_hasta: "2025-03-11" },
@@ -592,6 +611,8 @@ const GENERACIONES_DEMO: InformeGeneracion[] = [
   {
     id: "gen-09",
     informe_id: "inf-13",
+    informe_nombre: "Seguimiento de siembra por variedad",
+    categoria: "siembra",
     usuario: "Ana García",
     fecha: "2025-03-12T10:00:00",
     parametros: { lote: "Todos", variedad: "Biloxi" },
@@ -599,6 +620,60 @@ const GENERACIONES_DEMO: InformeGeneracion[] = [
     estado: "error",
     registros_procesados: 0,
     tiempo_ms: 320,
+  },
+  // ── Generaciones de Juan Pérez (supervisor cultivo → categoría siembra) ──
+  {
+    id: "gen-10",
+    informe_id: "inf-06",
+    informe_nombre: "Rendimiento por hectárea",
+    categoria: "siembra",
+    usuario: "Juan Pérez",
+    fecha: "2025-03-15T08:30:00",
+    parametros: { fecha_desde: "2025-03-01", fecha_hasta: "2025-03-15", lote: "Lote A" },
+    formato: "excel",
+    estado: "completado",
+    registros_procesados: 92,
+    tiempo_ms: 1340,
+  },
+  {
+    id: "gen-11",
+    informe_id: "inf-13",
+    informe_nombre: "Seguimiento de siembra por variedad",
+    categoria: "siembra",
+    usuario: "Juan Pérez",
+    fecha: "2025-03-10T14:00:00",
+    parametros: { lote: "Lote B", variedad: "Biloxi" },
+    formato: "pdf",
+    estado: "completado",
+    registros_procesados: 48,
+    tiempo_ms: 890,
+  },
+  {
+    id: "gen-12",
+    informe_id: "inf-06",
+    informe_nombre: "Rendimiento por hectárea",
+    categoria: "siembra",
+    usuario: "Juan Pérez",
+    fecha: "2025-03-01T09:00:00",
+    parametros: { fecha_desde: "2025-02-01", fecha_hasta: "2025-02-28", lote: "Todos" },
+    formato: "excel",
+    estado: "completado",
+    registros_procesados: 115,
+    tiempo_ms: 1620,
+  },
+  // ── María López (jefe_area cultivo) ──
+  {
+    id: "gen-13",
+    informe_id: "inf-06",
+    informe_nombre: "Rendimiento por hectárea",
+    categoria: "siembra",
+    usuario: "María López",
+    fecha: "2025-03-18T07:00:00",
+    parametros: { fecha_desde: "2025-03-01", fecha_hasta: "2025-03-18", cultivo: "Arándanos" },
+    formato: "pdf",
+    estado: "completado",
+    registros_procesados: 204,
+    tiempo_ms: 2800,
   },
 ];
 
@@ -765,10 +840,12 @@ interface InformeRowProps {
   canAccess: boolean;
   selected: boolean;
   canCreate?: boolean;
+  canDelete?: boolean;
   onClick: () => void;
   onToggleFavorite: () => void;
   onPreview?: () => void;
   onEditBuilder?: () => void;
+  onDelete?: () => void;
 }
 
 function InformeRow({
@@ -776,10 +853,12 @@ function InformeRow({
   canAccess,
   selected,
   canCreate,
+  canDelete,
   onClick,
   onToggleFavorite,
   onPreview,
   onEditBuilder,
+  onDelete,
 }: InformeRowProps) {
   const cat = CATEGORIA_CONFIG[informe.categoria];
   const tipo = TIPO_CONFIG[informe.tipo_informe];
@@ -789,10 +868,13 @@ function InformeRow({
   const EstadoIcon = estado.icon;
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick(); }}
       className={cn(
-        "group w-full text-left flex items-center gap-3 px-4 py-3",
+        "group w-full text-left flex items-center gap-3 px-4 py-3 cursor-pointer",
         "border-b border-border last:border-b-0 transition-colors duration-100",
         selected
           ? "bg-primary/5 border-l-[3px] border-l-primary"
@@ -912,7 +994,138 @@ function InformeRow({
           )}
         />
       </button>
-    </button>
+
+      {/* Delete */}
+      {canDelete && onDelete && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="p-1.5 rounded-md hover:bg-destructive/10 transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
+          title="Eliminar informe"
+        >
+          <Trash2 className="w-3.5 h-3.5 text-muted-foreground/25 group-hover:text-destructive" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── ConfirmDeleteModal ──────────────────────────────────────────────────────
+
+function ConfirmDeleteModal({
+  nombre,
+  onConfirm,
+  onCancel,
+}: {
+  nombre: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onCancel}>
+      <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-sm p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-full bg-destructive/10">
+            <AlertTriangle className="w-5 h-5 text-destructive" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold">¿Eliminar informe?</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Esta acción no se puede deshacer.</p>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Se eliminará <span className="font-semibold text-foreground">«{nombre}»</span> y todas sus versiones e historial de generaciones.
+        </p>
+        <div className="flex items-center gap-2 justify-end">
+          <Button size="sm" variant="outline" onClick={onCancel} className="h-8 text-xs">
+            Cancelar
+          </Button>
+          <Button size="sm" variant="destructive" onClick={onConfirm} className="h-8 text-xs gap-1">
+            <Trash2 className="w-3.5 h-3.5" /> Eliminar
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── GeneracionRow ───────────────────────────────────────────────────────────
+
+function GeneracionRow({
+  gen,
+  informeNombre,
+  categoriaCfg,
+  onClick,
+}: {
+  gen: InformeGeneracion;
+  informeNombre: string;
+  categoriaCfg: (typeof CATEGORIA_CONFIG)[CategoriaInforme];
+  onClick?: () => void;
+}) {
+  const CatIcon = categoriaCfg.icon;
+  const estadoCfg: Record<EstadoGeneracion, { label: string; color: string; icon: React.ElementType }> = {
+    completado: { label: "Completado", color: "text-emerald-600 bg-emerald-50 border-emerald-200", icon: CheckCircle2 },
+    error: { label: "Error", color: "text-red-600 bg-red-50 border-red-200", icon: AlertTriangle },
+    procesando: { label: "Procesando", color: "text-blue-600 bg-blue-50 border-blue-200", icon: Loader2 },
+  };
+  const est = estadoCfg[gen.estado];
+  const EstIcon = est.icon;
+  const formatoCfg: Record<FormatoExport, { label: string; icon: React.ElementType }> = {
+    pdf: { label: "PDF", icon: FileBarChart },
+    excel: { label: "Excel", icon: FileSpreadsheet },
+    csv: { label: "CSV", icon: FileType },
+    word: { label: "Word", icon: FileText },
+  };
+  const fmt = formatoCfg[gen.formato];
+  const FmtIcon = fmt.icon;
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick?.(); }}
+      className="group w-full text-left flex items-center gap-3 px-4 py-3 cursor-pointer border-b border-border last:border-b-0 hover:bg-muted/40 transition-colors"
+    >
+      {/* Category icon */}
+      <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border", categoriaCfg.bg, categoriaCfg.border)}>
+        <CatIcon className={cn("w-4 h-4", categoriaCfg.color)} />
+      </div>
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-medium truncate">{informeNombre}</span>
+        </div>
+        <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+          {gen.usuario} · {new Date(gen.fecha).toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+        </p>
+      </div>
+
+      {/* Badges */}
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <span className={cn("inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full border", est.color)}>
+          <EstIcon className={cn("w-2.5 h-2.5", gen.estado === "procesando" && "animate-spin")} />
+          {est.label}
+        </span>
+        <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full bg-muted border border-border text-muted-foreground">
+          <FmtIcon className="w-2.5 h-2.5" />
+          {fmt.label}
+        </span>
+      </div>
+
+      {/* Stats */}
+      <div className="hidden lg:flex flex-col items-end gap-0.5 flex-shrink-0 w-20 text-[10px] text-muted-foreground">
+        {gen.registros_procesados !== undefined && (
+          <span>{gen.registros_procesados} registros</span>
+        )}
+        {gen.tiempo_ms !== undefined && (
+          <span>{(gen.tiempo_ms / 1000).toFixed(1)}s</span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1281,7 +1494,6 @@ interface DetailPanelProps {
   onConfigure: () => void;
   onUpdateSchedule?: (changes: Partial<Pick<Informe, "es_programado" | "frecuencia_programacion" | "hora_envio" | "destinatarios_programados" | "formato_preferido">>) => void;
   onDeleteTemplate?: () => void;
-  onDeleteInforme?: () => void;
   onRestoreVersion?: (snap: InformeSnapshot) => void;
   onCopyVersionAsNew?: (snap: InformeSnapshot) => void;
   onArchiveVersion?: (snapId: string) => void;
@@ -1299,7 +1511,6 @@ function DetailPanel({
   onConfigure,
   onUpdateSchedule,
   onDeleteTemplate,
-  onDeleteInforme,
   onRestoreVersion,
   onCopyVersionAsNew,
   onArchiveVersion,
@@ -1307,7 +1518,6 @@ function DetailPanel({
 }: DetailPanelProps) {
   const [tab, setTab] = useState("info");
   const [showVersionDialog, setShowVersionDialog] = useState(false);
-  const [confirmDeleteInforme, setConfirmDeleteInforme] = useState(false);
   const [formato, setFormato] = useState<FormatoExport>("excel");
   const [fechaDesde, setFechaDesde] = useState(
     new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
@@ -1494,16 +1704,6 @@ function DetailPanel({
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               )}
-              {onDeleteInforme && (
-                <button
-                  onClick={() => setConfirmDeleteInforme(true)}
-                  title="Eliminar informe completo"
-                  className="h-8 px-2 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/10 hover:border-destructive/60 transition-all flex items-center gap-1 text-xs font-medium"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span className="text-[10px]">Eliminar</span>
-                </button>
-              )}
             </div>
           )}
         </div>
@@ -1513,28 +1713,6 @@ function DetailPanel({
           value="info"
           className="flex-1 overflow-y-auto px-5 py-4 space-y-4 mt-0"
         >
-          {/* Confirm delete informe */}
-          {confirmDeleteInforme && (
-            <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-3 animate-in fade-in">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-destructive" />
-                <p className="text-xs font-semibold">¿Eliminar este informe por completo?</p>
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                Se eliminará «{informe.nombre}» y todas sus versiones. Esta acción no se puede deshacer.
-              </p>
-              <div className="flex items-center gap-2 justify-end">
-                <button onClick={() => setConfirmDeleteInforme(false)} className="px-3 py-1.5 text-[10px] rounded-md border border-border hover:bg-muted font-medium">Cancelar</button>
-                <button
-                  onClick={() => { onDeleteInforme?.(); setConfirmDeleteInforme(false); }}
-                  className="px-3 py-1.5 text-[10px] rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 font-medium flex items-center gap-1"
-                >
-                  <Trash2 className="w-3 h-3" /> Eliminar informe
-                </button>
-              </div>
-            </div>
-          )}
-
           <div>
             <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
               Descripción
@@ -2370,19 +2548,70 @@ const CATEGORIES: CategoriaInforme[] = [
   "general",
 ];
 
+// ─── Module → Informe category mapping ───────────────────────────────────────
+
+const moduleToCategorias: Record<string, CategoriaInforme[]> = {
+  laboratorio: ["laboratorio"],
+  vivero: ["vivero"],
+  cultivo: ["siembra"],
+  "post-cosecha": ["poscosecha", "cosecha"],
+};
+
 const Informes = () => {
-  const { role, hasPermission } = useRole();
+  const { role, hasPermission, currentUser } = useRole();
   const userLevel = ROLE_LEVELS[role];
   const canExport = hasPermission("informes", "exportar");
-  const canCreate = hasPermission("informes", "crear");
+
+  // Area restriction for area-bound roles
+  const area = currentUser?.area_asignada as string | undefined;
+  const allowedCategorias = area ? moduleToCategorias[area] ?? [] : [];
+  const isAreaRestricted = !!area && allowedCategorias.length > 0;
+
+  // ── Acceso global a informes (sin restricción de área) ──
+  // Super admin / cliente_admin / productor ven TODO.
+  // Roles de área con override "configurar" en informes también ven todo.
+  const hasGlobalInformesAccess =
+    ["super_admin", "cliente_admin", "productor"].includes(role) ||
+    hasPermission("informes", "configurar");
+
+  // ── Gestión de plantillas ──
+  // super_admin / cliente_admin / productor: CRUD completo (según sus acciones base)
+  // jefe_area: puede crear/editar plantillas de su área (tiene "editar" base)
+  // supervisor/lector: solo si tienen override especial "editar" o "configurar" en informes
+  const canManageTemplates =
+    ["super_admin", "cliente_admin", "productor"].includes(role) ||
+    role === "jefe_area" ||
+    hasPermission("informes", "editar") ||
+    hasPermission("informes", "configurar");
+
+  // ¿Puede editar ESTA plantilla específica?
+  const canEditInformeTemplate = (inf: Informe): boolean => {
+    if (!canManageTemplates) return false;
+    if (["super_admin", "cliente_admin", "productor"].includes(role)) return true;
+    // Roles de área: solo su categoría
+    if (isAreaRestricted && !allowedCategorias.includes(inf.categoria)) return false;
+    return true;
+  };
+
+  // ¿Puede eliminar ESTA plantilla específica?
+  const canDeleteInformeTemplate = (inf: Informe): boolean => {
+    if (!hasPermission("informes", "eliminar")) return false;
+    if (["super_admin", "cliente_admin"].includes(role)) return true;
+    // Roles de área: solo su categoría
+    if (isAreaRestricted && !allowedCategorias.includes(inf.categoria)) return false;
+    return true;
+  };
 
   const [informes, setInformes] = useState<Informe[]>(INFORMES_DEMO);
+  const [generaciones] = useState<InformeGeneracion[]>(GENERACIONES_DEMO);
+  const [mainView, setMainView] = useState<"plantillas" | "generados">("plantillas");
   const [search, setSearch] = useState("");
   const [filterTipo, setFilterTipo] = useState<string>("all");
   const [filterEstado, setFilterEstado] = useState<string>("all");
   const [activeNav, setActiveNav] = useState<string>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Informe | null>(null);
 
   // Builder state
   const [builderOpen, setBuilderOpen] = useState(false);
@@ -2556,22 +2785,31 @@ const Informes = () => {
   const selectedInforme = informes.find((i) => i.id === selectedId) ?? null;
   const previewInforme = informes.find((i) => i.id === previewId) ?? null;
 
-  // Nav counts
+  // Nav counts (aplica misma restricción de área que filtered)
   const navCounts = useMemo(() => {
+    let base = informes;
+    if (isAreaRestricted && !hasGlobalInformesAccess) {
+      base = base.filter((i) => allowedCategorias.includes(i.categoria) || i.categoria === "general");
+    }
     const result: Record<string, number> = {
-      all: informes.length,
-      favoritos: informes.filter((i) => i.es_favorito).length,
-      programados: informes.filter((i) => i.es_programado).length,
+      all: base.length,
+      favoritos: base.filter((i) => i.es_favorito).length,
+      programados: base.filter((i) => i.es_programado).length,
     };
     CATEGORIES.forEach((cat) => {
-      result[cat] = informes.filter((i) => i.categoria === cat).length;
+      result[cat] = base.filter((i) => i.categoria === cat).length;
     });
     return result;
-  }, [informes]);
+  }, [informes, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias]);
 
-  // Filtered list
+  // Filtered list (plantillas)
   const filtered = useMemo(() => {
     let list = informes;
+
+    // Restricción por área: roles de área solo ven su categoría (+ general)
+    if (isAreaRestricted && !hasGlobalInformesAccess) {
+      list = list.filter((i) => allowedCategorias.includes(i.categoria) || i.categoria === "general");
+    }
 
     if (activeNav === "favoritos") list = list.filter((i) => i.es_favorito);
     else if (activeNav === "programados") list = list.filter((i) => i.es_programado);
@@ -2590,7 +2828,7 @@ const Informes = () => {
     if (filterEstado !== "all") list = list.filter((i) => i.estado === filterEstado);
 
     return list;
-  }, [informes, activeNav, search, filterTipo, filterEstado]);
+  }, [informes, activeNav, search, filterTipo, filterEstado, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias]);
 
   const toggleFavorite = (id: string) => {
     setInformes((prev) =>
@@ -2612,20 +2850,144 @@ const Informes = () => {
 
   const hasActiveFilters = filterTipo !== "all" || filterEstado !== "all";
 
+  // ── Reglas para generados ──
+  // super_admin / cliente_admin / productor → ven TODOS los generados
+  // jefe_area → ve todos los generados de su área (cualquier usuario)
+  // supervisor / lector → SOLO ven SUS propias generaciones de su área
+  //   EXCEPCIÓN: si tienen override "configurar" en informes → ven todo (hasGlobalInformesAccess)
+  const isUserRestricted = ["supervisor", "lector"].includes(role) && !hasGlobalInformesAccess;
+
+  // ── Filtered generaciones (role-restricted) ──
+  const filteredGeneraciones = useMemo(() => {
+    let list = generaciones;
+
+    // Restricción global de área
+    if (isAreaRestricted && !hasGlobalInformesAccess) {
+      list = list.filter((g) => allowedCategorias.includes(g.categoria) || g.categoria === "general");
+    }
+
+    // Supervisor / lector: solo sus propias generaciones (dentro de su área)
+    if (isUserRestricted && currentUser?.nombre) {
+      list = list.filter((g) => g.usuario === currentUser.nombre);
+    }
+
+    // Nav filter
+    if (activeNav !== "all" && activeNav !== "favoritos" && activeNav !== "programados") {
+      list = list.filter((g) => g.categoria === activeNav);
+    }
+
+    // Search
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (g) =>
+          g.informe_nombre.toLowerCase().includes(q) ||
+          g.usuario.toLowerCase().includes(q),
+      );
+    }
+
+    return list.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+  }, [generaciones, activeNav, search, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, isUserRestricted, currentUser?.nombre]);
+
+  const genNavCounts = useMemo(() => {
+    let base = generaciones;
+    if (isAreaRestricted && !hasGlobalInformesAccess) {
+      base = base.filter((g) => allowedCategorias.includes(g.categoria) || g.categoria === "general");
+    }
+    if (isUserRestricted && currentUser?.nombre) {
+      base = base.filter((g) => g.usuario === currentUser.nombre);
+    }
+    const result: Record<string, number> = { all: base.length };
+    CATEGORIES.forEach((cat) => {
+      result[cat] = base.filter((g) => g.categoria === cat).length;
+    });
+    return result;
+  }, [generaciones, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, isUserRestricted, currentUser?.nombre]);
+
+  const handleDeleteInforme = (inf: Informe) => {
+    setInformes((prev) => prev.filter((i) => i.id !== inf.id));
+    if (selectedId === inf.id) setSelectedId(null);
+    setDeleteTarget(null);
+  };
+
   return (
     <MainLayout>
       <PageHeader
         title="Informes"
         description="Generación, consulta y programación de informes operacionales."
         actions={
-          canCreate ? (
-            <Button size="sm" className="gap-1.5" onClick={() => openBuilder()}>
-              <Plus className="w-4 h-4" />
-              Nuevo informe
-            </Button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            {/* ── Plantillas / Generados toggle ── */}
+            <div className="flex items-center rounded-lg border border-border bg-muted/40 p-0.5">
+              <button
+                onClick={() => { setMainView("plantillas"); setActiveNav("all"); setSearch(""); }}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                  mainView === "plantillas"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                Plantillas
+                <span className={cn(
+                  "text-[9px] px-1.5 py-0.5 rounded-full font-semibold",
+                  mainView === "plantillas" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+                )}>
+                  {navCounts.all}
+                </span>
+              </button>
+              <button
+                onClick={() => { setMainView("generados"); setActiveNav("all"); setSearch(""); setSelectedId(null); }}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                  mainView === "generados"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <FilePlus className="w-3.5 h-3.5" />
+                Generados
+                <span className={cn(
+                  "text-[9px] px-1.5 py-0.5 rounded-full font-semibold",
+                  mainView === "generados" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+                )}>
+                  {genNavCounts.all}
+                </span>
+              </button>
+            </div>
+
+            {/* Botón nuevo informe solo en vista plantillas y si puede gestionar */}
+            {mainView === "plantillas" && canManageTemplates && (
+              <Button size="sm" className="gap-1.5" onClick={() => openBuilder()}>
+                <Plus className="w-4 h-4" />
+                Nueva plantilla
+              </Button>
+            )}
+          </div>
         }
       />
+
+      {/* Banner informativo para roles con restricción de área */}
+      {isAreaRestricted && (
+        <div className="flex items-start gap-2 px-4 py-2.5 mb-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 dark:bg-blue-950/30 dark:border-blue-800 dark:text-blue-300">
+          <Info className="w-4 h-4 shrink-0 mt-0.5" />
+          <div className="text-xs space-y-0.5">
+            <p>
+              Estás viendo informes del área de <span className="font-semibold">{area}</span>.
+              {canManageTemplates
+                ? " Puedes gestionar plantillas y generaciones de tu área."
+                : " Solo puedes consultar y generar informes de tu módulo."}
+            </p>
+            {isUserRestricted && (
+              <p className="text-blue-600 dark:text-blue-400">
+                En «Generados» solo verás tus propias generaciones.
+                {hasPermission("informes", "configurar") === false && " Solicita acceso ampliado al administrador si necesitas ver otros módulos."}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 3-pane layout */}
       <div className="flex items-start gap-4">
@@ -2658,26 +3020,31 @@ const Informes = () => {
             <NavItem
               icon={BarChart2}
               label="Todos"
-              count={navCounts.all}
+              count={mainView === "plantillas" ? navCounts.all : genNavCounts.all}
               active={activeNav === "all"}
               onClick={() => changeNav("all")}
             />
-            <NavItem
-              icon={Star}
-              label="Favoritos"
-              count={navCounts.favoritos}
-              active={activeNav === "favoritos"}
-              onClick={() => changeNav("favoritos")}
-              iconClass="text-amber-500"
-            />
-            <NavItem
-              icon={Zap}
-              label="Programados"
-              count={navCounts.programados}
-              active={activeNav === "programados"}
-              onClick={() => changeNav("programados")}
-              iconClass="text-blue-500"
-            />
+            {/* Favoritos y Programados solo en vista plantillas */}
+            {mainView === "plantillas" && (
+              <>
+                <NavItem
+                  icon={Star}
+                  label="Favoritos"
+                  count={navCounts.favoritos}
+                  active={activeNav === "favoritos"}
+                  onClick={() => changeNav("favoritos")}
+                  iconClass="text-amber-500"
+                />
+                <NavItem
+                  icon={Zap}
+                  label="Programados"
+                  count={navCounts.programados}
+                  active={activeNav === "programados"}
+                  onClick={() => changeNav("programados")}
+                  iconClass="text-blue-500"
+                />
+              </>
+            )}
 
             <div className="pt-3 pb-1 px-2">
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -2686,13 +3053,17 @@ const Informes = () => {
             </div>
 
             {CATEGORIES.map((cat) => {
+              const counts = mainView === "plantillas" ? navCounts : genNavCounts;
+              const cnt = counts[cat] ?? 0;
+              // En vista generados, ocultar categorías sin elementos (para área restringida)
+              if (mainView === "generados" && cnt === 0) return null;
               const cfg = CATEGORIA_CONFIG[cat];
               return (
                 <NavItem
                   key={cat}
                   icon={cfg.icon}
                   label={cfg.label}
-                  count={navCounts[cat]}
+                  count={cnt}
                   active={activeNav === cat}
                   onClick={() => changeNav(cat)}
                   iconClass={cfg.color}
@@ -2711,134 +3082,179 @@ const Informes = () => {
           {/* Toolbar */}
           <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-muted/20">
             <span className="text-xs text-muted-foreground flex-1">
-              {filtered.length} informe{filtered.length !== 1 ? "s" : ""}
+              {mainView === "plantillas"
+                ? `${filtered.length} plantilla${filtered.length !== 1 ? "s" : ""}`
+                : `${filteredGeneraciones.length} generación${filteredGeneraciones.length !== 1 ? "es" : ""}`}
               {(search.trim() || hasActiveFilters) && (
                 <span className="text-muted-foreground/60"> · filtrado</span>
               )}
             </span>
 
-            <Select value={filterTipo} onValueChange={setFilterTipo}>
-              <SelectTrigger className="h-7 text-xs w-[110px] bg-background">
-                <SelectValue placeholder="Tipo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los tipos</SelectItem>
-                {(["tabla", "grafico", "mixto", "resumen"] as TipoInforme[]).map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {TIPO_CONFIG[t].label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Filtros solo en vista plantillas */}
+            {mainView === "plantillas" && (
+              <>
+                <Select value={filterTipo} onValueChange={setFilterTipo}>
+                  <SelectTrigger className="h-7 text-xs w-[110px] bg-background">
+                    <SelectValue placeholder="Tipo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los tipos</SelectItem>
+                    {(["tabla", "grafico", "mixto", "resumen"] as TipoInforme[]).map((t) => (
+                      <SelectItem key={t} value={t}>{TIPO_CONFIG[t].label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-            <Select value={filterEstado} onValueChange={setFilterEstado}>
-              <SelectTrigger className="h-7 text-xs w-[110px] bg-background">
-                <SelectValue placeholder="Estado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los estados</SelectItem>
-                {(["activo", "borrador", "archivado"] as EstadoInforme[]).map((e) => (
-                  <SelectItem key={e} value={e}>
-                    {ESTADO_CONFIG[e].label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                <Select value={filterEstado} onValueChange={setFilterEstado}>
+                  <SelectTrigger className="h-7 text-xs w-[110px] bg-background">
+                    <SelectValue placeholder="Estado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los estados</SelectItem>
+                    {(["activo", "borrador", "archivado"] as EstadoInforme[]).map((e) => (
+                      <SelectItem key={e} value={e}>{ESTADO_CONFIG[e].label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-            {hasActiveFilters && (
-              <button
-                onClick={() => {
-                  setFilterTipo("all");
-                  setFilterEstado("all");
-                }}
-                className="h-7 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground border border-border hover:border-primary/30 flex items-center gap-1 transition-colors"
-              >
-                <X className="w-3 h-3" />
-                Limpiar
-              </button>
+                {hasActiveFilters && (
+                  <button
+                    onClick={() => { setFilterTipo("all"); setFilterEstado("all"); }}
+                    className="h-7 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground border border-border hover:border-primary/30 flex items-center gap-1 transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                    Limpiar
+                  </button>
+                )}
+              </>
             )}
           </div>
 
           {/* List content */}
           <div>
-            {filtered.length === 0 ? (
-              <div className="flex flex-col items-center gap-3 py-16 text-center">
-                <BarChart2 className="w-10 h-10 text-muted-foreground/20" />
-                <div>
-                  <p className="font-medium text-sm">Sin resultados</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Ajusta los filtros para ver informes disponibles.
-                  </p>
-                </div>
-                {(search.trim() || hasActiveFilters) && (
-                  <button
-                    onClick={() => {
-                      setSearch("");
-                      setFilterTipo("all");
-                      setFilterEstado("all");
-                    }}
-                    className="text-xs text-primary hover:underline"
-                  >
-                    Limpiar todos los filtros
-                  </button>
-                )}
-              </div>
-            ) : isGroupedAll ? (
-              // ── Grouped by category ──
-              CATEGORIES.map((cat) => {
-                const catInformes = filtered.filter((i) => i.categoria === cat);
-                if (catInformes.length === 0) return null;
-                const catCfg = CATEGORIA_CONFIG[cat];
-                const CatIcon = catCfg.icon;
-                return (
-                  <div key={cat}>
-                    {/* Section header */}
-                    <div
-                      className={cn(
-                        "flex items-center gap-2 px-4 py-1.5 border-b border-border",
-                        catCfg.bg,
-                      )}
-                    >
-                      <CatIcon className={cn("w-3.5 h-3.5", catCfg.color)} />
-                      <span className={cn("text-xs font-semibold", catCfg.color)}>
-                        {catCfg.label}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {catInformes.length}
-                      </span>
-                    </div>
-                    {/* Rows */}
-                    {catInformes.map((inf) => (
-                      <InformeRow
-                        key={inf.id}
-                        informe={inf}
-                        canAccess={canAccessInforme(inf)}
-                        selected={inf.id === selectedId}
-                        canCreate={canCreate}
-                        onClick={() => setSelectedId(inf.id === selectedId ? null : inf.id)}
-                        onToggleFavorite={() => toggleFavorite(inf.id)}
-                        onPreview={() => setPreviewId(inf.id)}
-                        onEditBuilder={() => openBuilder(inf)}
-                      />
-                    ))}
+            {mainView === "plantillas" ? (
+              // ════════════════ VISTA PLANTILLAS ════════════════
+              filtered.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 py-16 text-center">
+                  <BarChart2 className="w-10 h-10 text-muted-foreground/20" />
+                  <div>
+                    <p className="font-medium text-sm">Sin resultados</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Ajusta los filtros para ver plantillas disponibles.
+                    </p>
                   </div>
-                );
-              })
+                  {(search.trim() || hasActiveFilters) && (
+                    <button
+                      onClick={() => { setSearch(""); setFilterTipo("all"); setFilterEstado("all"); }}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      Limpiar todos los filtros
+                    </button>
+                  )}
+                </div>
+              ) : isGroupedAll ? (
+                // ── Agrupado por categoría ──
+                CATEGORIES.map((cat) => {
+                  const catInformes = filtered.filter((i) => i.categoria === cat);
+                  if (catInformes.length === 0) return null;
+                  const catCfg = CATEGORIA_CONFIG[cat];
+                  const CatIcon = catCfg.icon;
+                  return (
+                    <div key={cat}>
+                      <div className={cn("flex items-center gap-2 px-4 py-1.5 border-b border-border", catCfg.bg)}>
+                        <CatIcon className={cn("w-3.5 h-3.5", catCfg.color)} />
+                        <span className={cn("text-xs font-semibold", catCfg.color)}>{catCfg.label}</span>
+                        <span className="text-[10px] text-muted-foreground">{catInformes.length}</span>
+                      </div>
+                      {catInformes.map((inf) => (
+                        <InformeRow
+                          key={inf.id}
+                          informe={inf}
+                          canAccess={canAccessInforme(inf)}
+                          selected={inf.id === selectedId}
+                          canCreate={canEditInformeTemplate(inf)}
+                          canDelete={canDeleteInformeTemplate(inf)}
+                          onClick={() => setSelectedId(inf.id === selectedId ? null : inf.id)}
+                          onToggleFavorite={() => toggleFavorite(inf.id)}
+                          onPreview={() => setPreviewId(inf.id)}
+                          onEditBuilder={canEditInformeTemplate(inf) ? () => openBuilder(inf) : undefined}
+                          onDelete={canDeleteInformeTemplate(inf) ? () => setDeleteTarget(inf) : undefined}
+                        />
+                      ))}
+                    </div>
+                  );
+                })
+              ) : (
+                // ── Lista plana ──
+                filtered.map((inf) => (
+                  <InformeRow
+                    key={inf.id}
+                    informe={inf}
+                    canAccess={canAccessInforme(inf)}
+                    selected={inf.id === selectedId}
+                    canCreate={canEditInformeTemplate(inf)}
+                    canDelete={canDeleteInformeTemplate(inf)}
+                    onClick={() => setSelectedId(inf.id === selectedId ? null : inf.id)}
+                    onToggleFavorite={() => toggleFavorite(inf.id)}
+                    onPreview={() => setPreviewId(inf.id)}
+                    onEditBuilder={canEditInformeTemplate(inf) ? () => openBuilder(inf) : undefined}
+                    onDelete={canDeleteInformeTemplate(inf) ? () => setDeleteTarget(inf) : undefined}
+                  />
+                ))
+              )
             ) : (
-              // ── Flat list ──
-              filtered.map((inf) => (
-                <InformeRow
-                  key={inf.id}
-                  informe={inf}
-                  canAccess={canAccessInforme(inf)}
-                  selected={inf.id === selectedId}
-                  canCreate={canCreate}
-                  onClick={() => setSelectedId(inf.id === selectedId ? null : inf.id)}
-                  onToggleFavorite={() => toggleFavorite(inf.id)}
-                  onPreview={() => setPreviewId(inf.id)}
-                  onEditBuilder={() => openBuilder(inf)}
-                />
-              ))
+              // ════════════════ VISTA GENERADOS ════════════════
+              filteredGeneraciones.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 py-16 text-center">
+                  <FilePlus className="w-10 h-10 text-muted-foreground/20" />
+                  <div>
+                    <p className="font-medium text-sm">Sin informes generados</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {isUserRestricted
+                        ? "Aún no has generado ningún informe."
+                        : isAreaRestricted
+                          ? "No hay informes generados para tu área."
+                          : "Todavía no se han generado informes."}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                // ── Agrupado por categoría o plano según nav ──
+                activeNav === "all" && !search.trim() ? (
+                  CATEGORIES.map((cat) => {
+                    const catGens = filteredGeneraciones.filter((g) => g.categoria === cat);
+                    if (catGens.length === 0) return null;
+                    const catCfg = CATEGORIA_CONFIG[cat];
+                    const CatIcon = catCfg.icon;
+                    return (
+                      <div key={cat}>
+                        <div className={cn("flex items-center gap-2 px-4 py-1.5 border-b border-border", catCfg.bg)}>
+                          <CatIcon className={cn("w-3.5 h-3.5", catCfg.color)} />
+                          <span className={cn("text-xs font-semibold", catCfg.color)}>{catCfg.label}</span>
+                          <span className="text-[10px] text-muted-foreground">{catGens.length}</span>
+                        </div>
+                        {catGens.map((gen) => (
+                          <GeneracionRow
+                            key={gen.id}
+                            gen={gen}
+                            informeNombre={gen.informe_nombre}
+                            categoriaCfg={catCfg}
+                          />
+                        ))}
+                      </div>
+                    );
+                  })
+                ) : (
+                  filteredGeneraciones.map((gen) => (
+                    <GeneracionRow
+                      key={gen.id}
+                      gen={gen}
+                      informeNombre={gen.informe_nombre}
+                      categoriaCfg={CATEGORIA_CONFIG[gen.categoria]}
+                    />
+                  ))
+                )
+              )
             )}
           </div>
         </div>
@@ -2849,10 +3265,10 @@ const Informes = () => {
             <DetailPanel
               key={selectedInforme.id}
               informe={selectedInforme}
-              generaciones={GENERACIONES_DEMO}
+              generaciones={filteredGeneraciones}
               canAccess={canAccessInforme(selectedInforme)}
               canExport={canExport}
-              canCreate={canCreate}
+              canCreate={canEditInformeTemplate(selectedInforme)}
               onToggleFavorite={() => toggleFavorite(selectedInforme.id)}
               onClose={() => setSelectedId(null)}
               onConfigure={() => openBuilder(selectedInforme)}
@@ -2867,10 +3283,6 @@ const Informes = () => {
                     i.id === selectedInforme?.id ? { ...i, builderConfig: undefined } : i,
                   ),
                 );
-              }}
-              onDeleteInforme={() => {
-                setInformes((prev) => prev.filter((i) => i.id !== selectedInforme?.id));
-                setSelectedId(null);
               }}
               onRestoreVersion={restoreVersion}
               onCopyVersionAsNew={copyVersionAsNew}
@@ -3064,6 +3476,15 @@ const Informes = () => {
           existingConfig={builderTarget.builderConfig}
           onClose={() => setBuilderOpen(false)}
           onSave={handleBuilderSave}
+        />
+      )}
+
+      {/* Modal de confirmación de eliminación */}
+      {deleteTarget && (
+        <ConfirmDeleteModal
+          nombre={deleteTarget.nombre}
+          onConfirm={() => handleDeleteInforme(deleteTarget)}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
     </MainLayout>

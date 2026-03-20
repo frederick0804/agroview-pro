@@ -43,7 +43,7 @@ import { CampoConfigDrawer } from "@/components/dashboard/CampoConfigDrawer";
 import {
   Shield, ShieldCheck, Sprout as SproutIcon, Briefcase, Eye,
   BookOpen as BookOpenAlt, Mail, Calendar,
-  ShieldAlert, AlertTriangle, Users2, Building2, Tractor, Pencil, Globe,
+  ShieldAlert, AlertTriangle, Users2, Building2, Tractor, Pencil, Globe, FileText,
 } from "lucide-react";
 
 // ─── InfoBanner (dismissible) ─────────────────────────────────────────────────
@@ -77,6 +77,7 @@ const MODULO_OPTIONS = [
   { value: "produccion",       label: "Producción" },
   { value: "recursos-humanos", label: "Recursos Humanos" },
   { value: "comercial",        label: "Comercial" },
+  { value: "informes",         label: "Informes" },
 ];
 
 const TIPO_OPTIONS = [
@@ -3885,6 +3886,16 @@ const avatarColors = [
 const initials = (nombre: string) =>
   nombre.split(" ").slice(0, 2).map(n => n[0]).join("").toUpperCase();
 
+// Guía contextual de permisos para el módulo Informes
+const INFORMES_ACCION_INFO: Record<ActionPermission, { desc: string; importante?: boolean }> = {
+  ver:        { desc: "Ver las plantillas de informes disponibles" },
+  crear:      { desc: "Ejecutar informes y descargar los resultados", importante: true },
+  editar:     { desc: "Editar plantillas del área asignada al supervisor", importante: true },
+  eliminar:   { desc: "Eliminar plantillas del área asignada al supervisor", importante: true },
+  exportar:   { desc: "Exportar informes generados a PDF / Excel" },
+  configurar: { desc: "Ver informes de todos los módulos sin restricción de área", importante: true },
+};
+
 function TabUsuarios() {
   const {
     addOverride, removeOverride, getUserOverrides, getRoleBasePermissions,
@@ -4678,7 +4689,9 @@ function TabUsuarios() {
                     const modMatchesSearch = !q || mod.label.toLowerCase().includes(q);
                     const filteredDefs = modDefs.filter(d => !q || d.nombre.toLowerCase().includes(q) || modMatchesSearch);
                     if (!modMatchesSearch && filteredDefs.length === 0) return null;
-                    if (modDefs.length === 0) return null;
+                    // Hide modules with no formularios UNLESS they already have overrides for this user
+                    const hasModOverrides = userOverrides.some(o => o.modulo === mod.value);
+                    if (modDefs.length === 0 && !hasModOverrides) return null;
 
                     return (
                       <div key={mod.value}>
@@ -4895,6 +4908,45 @@ function TabUsuarios() {
                     <span>
                       Redundante: el rol <strong>{selectedUser.rol}</strong> ya {baseHas ? "tiene" : "no tiene"} ese permiso base.
                     </span>
+                  </div>
+                );
+              })()}
+
+              {/* Informes — guía rápida de permisos (solo cuando módulo = informes) */}
+              {matrixModal?.modulo === "informes" && (() => {
+                const info = INFORMES_ACCION_INFO[matrixModal.accion];
+                if (!info) return null;
+                return (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50/60 dark:border-blue-700/40 dark:bg-blue-900/10 p-3 space-y-1.5">
+                    <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-400 flex items-center gap-1.5 uppercase tracking-wide">
+                      <FileText className="w-3 h-3" /> Informes — qué hace esta acción
+                    </p>
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-800/40 text-blue-700 dark:text-blue-300 text-[9px] font-bold flex items-center justify-center shrink-0 mt-0.5">
+                        {matrixModal.accion[0].toUpperCase()}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[11px] font-medium text-blue-800 dark:text-blue-200 capitalize">{matrixModal.accion}</span>
+                        {info.importante && (
+                          <span className="ml-1.5 text-[8px] font-semibold px-1 py-px rounded bg-blue-200/70 dark:bg-blue-700/40 text-blue-700 dark:text-blue-300 uppercase">clave</span>
+                        )}
+                        <p className="text-[10px] text-blue-600/80 dark:text-blue-400/80 mt-0.5">{info.desc}</p>
+                      </div>
+                    </div>
+                    {/* All actions quick overview */}
+                    <div className="pt-1.5 border-t border-blue-200/60 dark:border-blue-700/30 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                      {(Object.entries(INFORMES_ACCION_INFO) as [ActionPermission, typeof info][]).map(([accion, i]) => (
+                        <div key={accion} className={cn(
+                          "flex items-center gap-1 text-[9px] rounded px-1 py-0.5",
+                          accion === matrixModal.accion
+                            ? "bg-blue-200/60 dark:bg-blue-800/40 text-blue-800 dark:text-blue-200 font-semibold"
+                            : "text-blue-500/70 dark:text-blue-400/50",
+                        )}>
+                          <span className="font-mono capitalize w-12 shrink-0">{accion}</span>
+                          <span className="truncate">{i.desc}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 );
               })()}
