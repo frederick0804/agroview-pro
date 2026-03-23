@@ -42,7 +42,7 @@ interface ConfigContextType {
 
   // ── Datos (Datos_registro) ──
   datos: ModDato[];
-  addDato: (defId: string, cultivoId?: string) => ModDato;
+  addDato: (defId: string, cultivoId?: string, registroPadreDatoId?: string) => ModDato;
   updDato: (id: string, updated: ModDato) => void;
   delDato: (id: string) => void;
 
@@ -351,7 +351,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   // ── Datos ─────────────────────────────────────────────────────────────────
 
-  const addDato = (defId: string, cultivoId?: string): ModDato => {
+  const addDato = (defId: string, cultivoId?: string, registroPadreDatoId?: string): ModDato => {
     const params = parametros.filter(p => p.definicion_id === defId);
     const emptyVals: Record<string, string> = {};
     params.forEach(p => { emptyVals[p.nombre] = ""; });
@@ -359,6 +359,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       id: String(Date.now()),
       definicion_id: defId,
       cultivo_id: cultivoId,
+      registro_padre_dato_id: registroPadreDatoId,
       referencia: "",
       fecha: new Date().toISOString().split("T")[0],
       valores: JSON.stringify(emptyVals),

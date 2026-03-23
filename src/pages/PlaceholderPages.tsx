@@ -3,11 +3,17 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { EditableTable, Column } from "@/components/tables/EditableTable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useRole } from "@/contexts/RoleContext";
 import { useConfig } from "@/contexts/ConfigContext";
 import {
-  Settings, Download, Upload, SlidersHorizontal, Leaf, Sparkles,
-  BarChart3, ChevronDown,
+  Settings, Download, Upload, SlidersHorizontal, Leaf, Sparkles, Brain,
+  BarChart3, ChevronDown, ChevronUp, Calendar, Plus, Eye, Clock, CheckCircle2, AlertCircle, X, Trash2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
@@ -214,21 +220,56 @@ function DynamicDefTable({
   const { definiciones, parametros, datos, addDato, updDato, delDato, setHasPendingChanges } = useConfig();
   const navigate = useNavigate();
   const [showIaPanel, setShowIaPanel] = useState(false);
+  const [showMlPanel, setShowMlPanel] = useState(false);
+
+  // Estados para gestión de eventos (Sheet unificado — 3 vistas)
+  const [selectedEventoRegistro, setSelectedEventoRegistro] = useState<string | null>(null);
+  const [showEventosSheet, setShowEventosSheet]             = useState(false);
+  const [activeEventoTab, setActiveEventoTab]               = useState<string>("");
+  const [sheetView, setSheetView]                           = useState<"list" | "form" | "detail">("list");
+  const [selectedEventoDetalle, setSelectedEventoDetalle]   = useState<string | null>(null);
+  const [newEventoForm, setNewEventoForm]                   = useState<Record<string, string>>({});
 
   const def    = definiciones.find(d => d.id === defId);
   const params = parametros
     .filter(p => p.definicion_id === defId)
     .sort((a, b) => a.orden - b.orden);
 
-  // Campos configurados con IA
+  // Campos configurados con IA o ML
   const iaParams = params.filter(p => p.fuente_datos === "ia" || p.fuente_datos === "ia_editable");
+  const mlParams = params.filter(p => p.fuente_datos === "ml" || p.fuente_datos === "ml_editable");
   const hasIaFields = iaParams.length > 0;
+  const hasMlFields = mlParams.length > 0;
+  const hasAutoFields = hasIaFields || hasMlFields;
 
   const canCreate = hasPermission(moduloKey, "crear");
   const canEdit   = hasPermission(moduloKey, "editar");
   const canDelete = hasPermission(moduloKey, "eliminar");
 
   if (!def) return null;
+
+  // Definiciones de eventos relacionadas a esta definición (registro padre)
+  const eventoDefs = definiciones.filter(d =>
+    d.tipo_formulario === "evento" &&
+    d.registro_padre_id === defId &&
+    d.estado === "activo"
+  );
+  const hasEventos = eventoDefs.length > 0;
+
+  // Helper para obtener eventos de un registro específico
+  const getEventosForRegistro = (registroId: string) => {
+    return eventoDefs.map(eventoDef => {
+      // Filtrar solo los eventos que están asociados a este registro padre específico
+      const eventoDatos = datos.filter(d =>
+        d.definicion_id === eventoDef.id &&
+        d.registro_padre_dato_id === registroId
+      );
+      return {
+        def: eventoDef,
+        datos: eventoDatos,
+      };
+    });
+  };
 
   // Para formularios globales: filtrar registros por cultivo seleccionado.
   // Para formularios específicos: mostrar todos (el cultivo ya está en la def).
@@ -277,6 +318,23 @@ function DynamicDefTable({
           col.options = p.opciones;
           col.filterable = true;
         }
+        // ── Relación: dropdown con registros de otra definición ────────────────
+        if (p.tipo_dato === "Relación" && p.relacion_def_id) {
+          const fuenteDatos = datos.filter(d => d.definicion_id === p.relacion_def_id);
+          const campoLabel  = p.relacion_campo_label ?? "nombre";
+          const campoValor  = p.relacion_campo_valor ?? campoLabel;
+          col.type = "select";
+          col.filterable = true;
+          col.options = [
+            { value: "", label: "— Sin asignar —" },
+            ...fuenteDatos.map(d => {
+              const vals = parseValores(d.valores);
+              const label = vals[campoLabel] || d.referencia || d.id;
+              const valor = vals[campoValor] || label;
+              return { value: valor, label };
+            }),
+          ];
+        }
         if (p.filtrable_rango) {
           col.filterable = true;
           col.filterType = "range";
@@ -306,6 +364,8 @@ function DynamicDefTable({
         return col;
       }),
   ];
+
+  // NO agregar columna separada de eventos - se integra en acciones
 
   // Actualizar un campo — escribe de vuelta al contexto + recalcular fórmulas
   const handleUpdate = (rowIndex: number, key: keyof DynRow, value: unknown) => {
@@ -356,6 +416,70 @@ function DynamicDefTable({
     setShowIaPanel(false);
   };
 
+  const handleMlConfirm = (rows: Record<string, string>[]) => {
+    const cultivoId = !def.cultivo_id ? filterCultivoId : undefined;
+    rows.forEach(row => {
+      const values = row;
+      const fecha = new Date().toISOString().slice(0, 10);
+      addDato(defId, fecha, values, cultivoId);
+      const newDatos = datos.filter(d => d.definicion_id === defId).sort((a, b) => b.id.localeCompare(a.id));
+      const newDato = newDatos[0];
+      const merged = { ...values };
+      updDato(newDato.id, { ...newDato, valores: JSON.stringify(merged) });
+    });
+    setShowMlPanel(false);
+  };
+
+  // ── Handlers para eventos ─────────────────────────────────────────────────
+  const openEventosSheet = (registroId: string) => {
+    setSelectedEventoRegistro(registroId);
+    if (eventoDefs.length > 0) setActiveEventoTab(eventoDefs[0].id);
+    setSheetView("list");
+    setSelectedEventoDetalle(null);
+    setNewEventoForm({});
+    setShowEventosSheet(true);
+  };
+
+  const closeEventosSheet = () => {
+    setShowEventosSheet(false);
+    setSelectedEventoRegistro(null);
+    setSheetView("list");
+    setSelectedEventoDetalle(null);
+    setNewEventoForm({});
+  };
+
+  const openDetalle = (eventoId: string) => {
+    setSelectedEventoDetalle(eventoId);
+    setSheetView("detail");
+  };
+
+  const handleOpenForm = () => {
+    const eventoParams = parametros.filter(p => p.definicion_id === activeEventoTab);
+    const initialForm: Record<string, string> = {};
+    eventoParams.forEach(p => { initialForm[p.nombre] = ""; });
+    setNewEventoForm(initialForm);
+    setSheetView("form");
+  };
+
+  const handleSaveEvento = () => {
+    if (!selectedEventoRegistro || !activeEventoTab) return;
+    const registroDato = defDatos.find(d => d.id === selectedEventoRegistro);
+    if (!registroDato) return;
+
+    const cultivoId = registroDato.cultivo_id || filterCultivoId;
+    const newDato = addDato(activeEventoTab, cultivoId, selectedEventoRegistro);
+    updDato(newDato.id, { ...newDato, valores: JSON.stringify(newEventoForm) });
+
+    setSheetView("list");
+    setNewEventoForm({});
+  };
+
+  const handleDeleteEvento = (eventoId: string) => {
+    if (canDelete && window.confirm("¿Confirmas eliminar este evento?")) {
+      delDato(eventoId);
+    }
+  };
+
   return (
     <div className="space-y-3">
       {/* Botón editar campos de esta definición */}
@@ -376,6 +500,22 @@ function DynamicDefTable({
             {showIaPanel ? "Ocultar panel IA" : "Llenar con IA"}
           </Button>
         )}
+        {hasMlFields && canCreate && canAddRecord && (
+          <Button
+            variant={showMlPanel ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowMlPanel(prev => !prev)}
+            className={cn(
+              "text-xs gap-1.5 transition-all",
+              showMlPanel
+                ? "bg-cyan-600 hover:bg-cyan-700 text-white shadow-md shadow-cyan-500/20"
+                : "border-cyan-400 text-cyan-600 hover:bg-cyan-500/10 hover:border-cyan-500",
+            )}
+          >
+            <Brain className="w-3.5 h-3.5" />
+            {showMlPanel ? "Ocultar panel ML" : "Analizar con ML"}
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"
@@ -391,9 +531,21 @@ function DynamicDefTable({
       {hasIaFields && (
         <IaAnalysisPanel
           open={showIaPanel}
-          iaParams={iaParams}
+          params={iaParams}
+          tipo="ia"
           onConfirm={handleIaConfirm}
           onClose={() => setShowIaPanel(false)}
+        />
+      )}
+
+      {/* Panel lateral de análisis ML */}
+      {hasMlFields && (
+        <IaAnalysisPanel
+          open={showMlPanel}
+          params={mlParams}
+          tipo="ml"
+          onConfirm={handleMlConfirm}
+          onClose={() => setShowMlPanel(false)}
         />
       )}
 
@@ -413,7 +565,465 @@ function DynamicDefTable({
         onDelete={handleDelete}
         onAdd={handleAdd}
         onPendingChange={setHasPendingChanges}
+        rowActions={(row, rowIndex) => {
+          if (!hasEventos) return null;
+
+          const registro = defDatos[rowIndex];
+          if (!registro) return null;
+
+          // Contar eventos existentes para este registro
+          const eventCount = eventoDefs.reduce((total, eventoDef) => {
+            const eventosData = datos.filter(d =>
+              d.definicion_id === eventoDef.id &&
+              d.registro_padre_dato_id === registro.id
+            );
+            return total + eventosData.length;
+          }, 0);
+
+          return (
+            <button
+              onClick={() => openEventosSheet(registro.id)}
+              title={`Ver eventos (${eventCount})`}
+              className={cn(
+                "p-2 rounded transition-colors shrink-0 relative",
+                "text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50",
+              )}
+            >
+              <Calendar className="w-4 h-4" />
+              {eventCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                  {eventCount > 9 ? "9+" : eventCount}
+                </span>
+              )}
+            </button>
+          );
+        }}
       />
+
+      {/* ── Sheet de eventos — 2 vistas: lista / formulario ────────────────── */}
+      <Sheet open={showEventosSheet} onOpenChange={(o) => { if (!o) closeEventosSheet(); }}>
+        <SheetContent
+          side="right"
+          className="w-full sm:w-[420px] sm:max-w-[420px] flex flex-col p-0 gap-0 overflow-hidden [&>button:first-of-type]:hidden"
+        >
+          {/* ── VISTA LISTA ────────────────────────────────────────────────── */}
+          <div
+            className={cn(
+              "flex flex-col h-full transition-transform duration-300 ease-in-out absolute inset-0",
+              sheetView === "list" ? "translate-x-0" : "-translate-x-full"
+            )}
+          >
+            {/* Cabecera lista */}
+            <div className="px-5 pt-5 pb-4 border-b shrink-0">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <Calendar className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <SheetTitle className="text-sm font-semibold leading-tight">
+                      Eventos del registro
+                    </SheetTitle>
+                    <SheetDescription className="text-xs text-muted-foreground leading-tight mt-0.5">
+                      {(() => {
+                        const reg = defDatos.find(d => d.id === selectedEventoRegistro);
+                        return reg ? (reg.referencia || `ID …${reg.id.slice(-6)}`) : "";
+                      })()}
+                    </SheetDescription>
+                  </div>
+                </div>
+                <button
+                  onClick={closeEventosSheet}
+                  className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Tabs de tipos de evento (pills) */}
+              {eventoDefs.length > 1 && (
+                <div className="flex gap-1.5 mt-3 flex-wrap">
+                  {eventoDefs.map(ed => {
+                    const count = selectedEventoRegistro
+                      ? datos.filter(d => d.definicion_id === ed.id && d.registro_padre_dato_id === selectedEventoRegistro).length
+                      : 0;
+                    const active = activeEventoTab === ed.id;
+                    return (
+                      <button
+                        key={ed.id}
+                        onClick={() => setActiveEventoTab(ed.id)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border font-medium transition-all",
+                          active
+                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                            : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+                        )}
+                      >
+                        {ed.nombre}
+                        {count > 0 && (
+                          <span className={cn(
+                            "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
+                            active ? "bg-white/25 text-white" : "bg-muted text-muted-foreground"
+                          )}>
+                            {count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Cuerpo — lista de eventos, scrollable */}
+            <div className="flex-1 overflow-y-auto">
+              {eventoDefs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-center px-8 py-16">
+                  <div className="w-16 h-16 rounded-2xl bg-muted/60 flex items-center justify-center mb-4">
+                    <Calendar className="w-7 h-7 text-muted-foreground/40" />
+                  </div>
+                  <p className="text-sm font-medium text-muted-foreground">Sin tipos de eventos</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1 max-w-xs">
+                    Ve a Configuración → Formularios para definir eventos para este formulario.
+                  </p>
+                </div>
+              ) : (() => {
+                const activeDef = eventoDefs.find(d => d.id === activeEventoTab) ?? eventoDefs[0];
+                if (!activeDef) return null;
+                const eventoParams = parametros
+                  .filter(p => p.definicion_id === activeDef.id)
+                  .sort((a, b) => a.orden - b.orden);
+                const eventosData = selectedEventoRegistro
+                  ? datos
+                      .filter(d => d.definicion_id === activeDef.id && d.registro_padre_dato_id === selectedEventoRegistro)
+                      .slice()
+                      .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
+                  : [];
+
+                return (
+                  <div className="p-5 space-y-3">
+                    {/* Descripción del tipo activo cuando hay solo 1 */}
+                    {eventoDefs.length === 1 && activeDef.descripcion && (
+                      <p className="text-xs text-muted-foreground pb-1">{activeDef.descripcion}</p>
+                    )}
+
+                    {eventosData.length === 0 ? (
+                      <div className="flex flex-col items-center py-14 text-center">
+                        <div className="w-12 h-12 rounded-xl bg-muted/50 flex items-center justify-center mb-3">
+                          <Clock className="w-5 h-5 text-muted-foreground/40" />
+                        </div>
+                        <p className="text-sm font-medium text-muted-foreground">Sin eventos aún</p>
+                        <p className="text-xs text-muted-foreground/60 mt-1">
+                          Presiona «Nuevo evento» para registrar el primero.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <p className="text-xs text-muted-foreground/60 pb-1">
+                          {eventosData.length} registro{eventosData.length !== 1 ? "s" : ""}
+                        </p>
+
+                        {eventosData.map(evento => {
+                          const valores       = parseValores(evento.valores);
+                          const previewParams = eventoParams.filter(p => valores[p.nombre]).slice(0, 3);
+                          const extra         = eventoParams.length - previewParams.length;
+
+                          return (
+                            <button
+                              key={evento.id}
+                              className="group w-full relative flex items-center gap-3 pl-4 pr-3 py-3 rounded-xl bg-card border border-border hover:border-primary/40 hover:shadow-sm text-left transition-all duration-150 overflow-hidden"
+                              onClick={() => openDetalle(evento.id)}
+                            >
+                              {/* Acento izquierdo */}
+                              <div className="absolute left-0 inset-y-0 w-[3px] rounded-l-xl bg-emerald-400/70 group-hover:bg-primary transition-colors" />
+
+                              <div className="flex-1 min-w-0 pl-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-xs font-semibold text-foreground">
+                                    {new Date(evento.fecha).toLocaleDateString("es-CL", {
+                                      day: "2-digit", month: "short", year: "numeric"
+                                    })}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground/40 font-mono">
+                                    #{evento.id.slice(-5)}
+                                  </span>
+                                </div>
+                                {previewParams.length > 0 && (
+                                  <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap">
+                                    {previewParams.map(p => (
+                                      <span key={p.id} className="text-[11px] text-muted-foreground">
+                                        <span className="text-muted-foreground/50">
+                                          {p.etiqueta_personalizada || p.nombre.replace(/_/g, ' ')}:
+                                        </span>{" "}
+                                        <span className="font-medium text-foreground/70">
+                                          {String(valores[p.nombre]).length > 18
+                                            ? String(valores[p.nombre]).slice(0, 18) + "…"
+                                            : valores[p.nombre]}
+                                        </span>
+                                      </span>
+                                    ))}
+                                    {extra > 0 && (
+                                      <span className="text-[11px] text-muted-foreground/40">+{extra} más</span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Flecha de navegación */}
+                              <ChevronDown className="w-3.5 h-3.5 -rotate-90 text-muted-foreground/30 group-hover:text-primary/60 transition-colors shrink-0" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Footer fijo: botón nuevo evento */}
+            {eventoDefs.length > 0 && canCreate && (
+              <div className="px-5 py-4 border-t shrink-0 bg-background">
+                <Button className="w-full" onClick={handleOpenForm}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Nuevo{" "}
+                  {eventoDefs.find(d => d.id === activeEventoTab)?.nombre ?? "evento"}
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* ── VISTA FORMULARIO ───────────────────────────────────────────── */}
+          <div
+            className={cn(
+              "flex flex-col h-full transition-transform duration-300 ease-in-out absolute inset-0 bg-background",
+              sheetView === "form" ? "translate-x-0" : "translate-x-full"
+            )}
+            aria-hidden={sheetView !== "form"}
+          >
+            {/* Cabecera formulario — con botón volver */}
+            <div className="px-5 pt-5 pb-4 border-b shrink-0">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setSheetView("list")}
+                  className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0"
+                  title="Volver a la lista"
+                >
+                  <ChevronDown className="w-4 h-4 rotate-90" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold leading-tight">
+                    Nuevo {eventoDefs.find(d => d.id === activeEventoTab)?.nombre}
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-tight mt-0.5">
+                    {(() => {
+                      const reg = defDatos.find(d => d.id === selectedEventoRegistro);
+                      return reg ? (reg.referencia || `ID …${reg.id.slice(-6)}`) : "";
+                    })()}
+                  </p>
+                </div>
+                <button
+                  onClick={closeEventosSheet}
+                  className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Campos del formulario — scrollable */}
+            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
+              {parametros
+                .filter(p => p.definicion_id === activeEventoTab)
+                .sort((a, b) => a.orden - b.orden)
+                .map(param => (
+                  <div key={param.id} className="space-y-1.5">
+                    <Label className="text-sm flex items-center gap-1.5">
+                      {param.etiqueta_personalizada || param.nombre.replace(/_/g, ' ')}
+                      {param.obligatorio && <span className="text-red-500 text-xs">*</span>}
+                    </Label>
+
+                    {param.tipo_dato === "Texto" && (
+                      <Input
+                        value={newEventoForm[param.nombre] || ""}
+                        onChange={(e) => setNewEventoForm(prev => ({ ...prev, [param.nombre]: e.target.value }))}
+                        placeholder={param.nombre.replace(/_/g, ' ')}
+                      />
+                    )}
+                    {param.tipo_dato === "Número" && (
+                      <Input
+                        type="number"
+                        value={newEventoForm[param.nombre] || ""}
+                        onChange={(e) => setNewEventoForm(prev => ({ ...prev, [param.nombre]: e.target.value }))}
+                        placeholder="0"
+                      />
+                    )}
+                    {param.tipo_dato === "Fecha" && (
+                      <Input
+                        type="date"
+                        value={newEventoForm[param.nombre] || ""}
+                        onChange={(e) => setNewEventoForm(prev => ({ ...prev, [param.nombre]: e.target.value }))}
+                      />
+                    )}
+                    {param.tipo_dato === "Sí/No" && (
+                      <Select
+                        value={newEventoForm[param.nombre] || ""}
+                        onValueChange={(v) => setNewEventoForm(prev => ({ ...prev, [param.nombre]: v }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Sí">Sí</SelectItem>
+                          <SelectItem value="No">No</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {param.tipo_dato === "Lista" && param.opciones && (
+                      <Select
+                        value={newEventoForm[param.nombre] || ""}
+                        onValueChange={(v) => setNewEventoForm(prev => ({ ...prev, [param.nombre]: v }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {param.opciones.map(opt => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+
+                    {param.descripcion && (
+                      <p className="text-xs text-muted-foreground">{param.descripcion}</p>
+                    )}
+                  </div>
+                ))}
+            </div>
+
+            {/* Footer fijo: acciones */}
+            <div className="px-5 py-4 border-t shrink-0 bg-background">
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setSheetView("list")}
+                >
+                  Cancelar
+                </Button>
+                <Button className="flex-1" onClick={handleSaveEvento}>
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  Guardar evento
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* ── VISTA DETALLE ──────────────────────────────────────────────── */}
+          {(() => {
+            const eventoDetalle = selectedEventoDetalle
+              ? datos.find(d => d.id === selectedEventoDetalle)
+              : null;
+            const detalleDef = eventoDetalle
+              ? eventoDefs.find(d => d.id === eventoDetalle.definicion_id)
+              : null;
+            const detalleParams = detalleDef
+              ? parametros.filter(p => p.definicion_id === detalleDef.id).sort((a, b) => a.orden - b.orden)
+              : [];
+            const detalleValores = eventoDetalle ? parseValores(eventoDetalle.valores) : {};
+
+            return (
+              <div
+                className={cn(
+                  "flex flex-col h-full transition-transform duration-300 ease-in-out absolute inset-0 bg-background",
+                  sheetView === "detail" ? "translate-x-0" : "translate-x-full"
+                )}
+                aria-hidden={sheetView !== "detail"}
+              >
+                {/* Cabecera detalle */}
+                <div className="px-5 pt-5 pb-4 border-b shrink-0">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => { setSheetView("list"); setSelectedEventoDetalle(null); }}
+                      className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0"
+                      title="Volver"
+                    >
+                      <ChevronDown className="w-4 h-4 rotate-90" />
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold leading-tight">
+                        {detalleDef?.nombre ?? "Evento"}
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-tight mt-0.5">
+                        {eventoDetalle
+                          ? new Date(eventoDetalle.fecha).toLocaleDateString("es-CL", {
+                              weekday: "long", day: "numeric", month: "long", year: "numeric"
+                            })
+                          : ""}
+                      </p>
+                    </div>
+                    <button
+                      onClick={closeEventosSheet}
+                      className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Campos del detalle — scrollable, con espacio holgado */}
+                <div className="flex-1 overflow-y-auto px-5 py-5">
+                  {detalleParams.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-10">Sin campos configurados.</p>
+                  ) : (
+                    <div className="space-y-5">
+                      {detalleParams.map((param, idx) => {
+                        const val = detalleValores[param.nombre];
+                        const label = param.etiqueta_personalizada || param.nombre.replace(/_/g, ' ');
+                        return (
+                          <div key={param.id}>
+                            {/* Separador cada 5 campos para agrupar visualmente */}
+                            {idx > 0 && idx % 5 === 0 && (
+                              <div className="border-t border-dashed border-border/60 mb-5" />
+                            )}
+                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 mb-1">
+                              {label}
+                            </p>
+                            <p className={cn(
+                              "text-sm leading-relaxed break-words",
+                              val ? "text-foreground font-medium" : "text-muted-foreground/40 italic"
+                            )}>
+                              {val || "Sin valor"}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer con eliminar */}
+                {canDelete && eventoDetalle && (
+                  <div className="px-5 py-4 border-t shrink-0 bg-background">
+                    <button
+                      onClick={() => {
+                        handleDeleteEvento(eventoDetalle.id);
+                        setSheetView("list");
+                        setSelectedEventoDetalle(null);
+                      }}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 hover:border-red-300 transition-colors text-sm font-medium"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Eliminar este evento
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
@@ -440,6 +1050,10 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
   //   B. Reglas de rol: nivel_minimo + roles_excluidos
   const defs = definiciones.filter(d => {
     if (!allModuloKeys.includes(d.modulo) || d.estado !== "activo") return false;
+
+    // ✅ FILTRAR EVENTOS - no deben aparecer como tabs
+    if (d.tipo_formulario === "evento") return false;
+
     // A: override por usuario
     if (userId != null) {
       const acceso = getUserDefAcceso(d.id, userId);

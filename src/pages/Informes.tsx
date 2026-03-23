@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from "react";
-import { InformesBuilder, type BuilderConfig } from "./InformesBuilder";
+import { InformesBuilder, type BuilderConfig, type CampoEncabezado, type FuenteCampo } from "./InformesBuilder";
 import { InformeVersionDialog } from "@/components/dashboard/InformeVersionDialog";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -3334,30 +3334,53 @@ const Informes = () => {
             {/* Body — Document preview */}
             <div className="flex-1 overflow-y-auto bg-zinc-100 dark:bg-zinc-900">
               {previewInforme.builderConfig ? (() => {
-                // ── Auto-fill data from system ──
-                const productor = productores.find(p => p.id === currentUser?.productorId);
-                const cliente   = clientes.find(c => c.id === currentUser?.clienteId);
-                const finca     = productor?.nombre ?? cliente?.nombre ?? "—";
-                const ubicacion = productor ? `${productor.pais}` : (cliente?.pais ?? "—");
+                // ── Datos del sistema ──
+                const productor    = productores.find(p => p.id === currentUser?.productorId);
+                const cliente      = clientes.find(c => c.id === currentUser?.clienteId);
                 const primerCultivo = cultivos[0];
-                const cultivoNombre = primerCultivo?.nombre ?? "—";
                 const primeraVariedad = primerCultivo
                   ? variedades.find(v => v.cultivo_id === primerCultivo.id)?.nombre ?? "—"
                   : "—";
+
+                // Mapa fuente → valor del sistema
+                const SISTEMA_VALS: Record<FuenteCampo, string> = {
+                  finca:      productor?.nombre ?? cliente?.nombre ?? "—",
+                  cultivo:    primerCultivo?.nombre ?? "—",
+                  variedad:   primeraVariedad,
+                  ubicacion:  productor ? productor.pais : (cliente?.pais ?? "—"),
+                  superficie: primerCultivo?.marco_plantacion
+                                ? `${(primerCultivo.marco_plantacion / 10000).toFixed(1)} ha`
+                                : "—",
+                  productor:  productor?.nombre ?? "—",
+                  custom:     "—",
+                };
+
+                // Campos dinámicos del encabezado (con fallback a lista por defecto)
+                const encCampos: CampoEncabezado[] =
+                  (previewInforme.builderConfig.plantilla?.encabezado as { campos?: CampoEncabezado[] })?.campos ?? [
+                    { id: "finca",     label: "Finca",     fuente: "finca",     auto: true, valor: "" },
+                    { id: "cultivo",   label: "Cultivo",   fuente: "cultivo",   auto: true, valor: "" },
+                    { id: "variedad",  label: "Variedad",  fuente: "variedad",  auto: true, valor: "" },
+                    { id: "ubicacion", label: "Ubicación", fuente: "ubicacion", auto: true, valor: "" },
+                    { id: "categoria", label: "Categoría", fuente: "custom",    auto: false, valor: previewInforme.categoria },
+                  ];
+
+                const colorBorde = (previewInforme.builderConfig.plantilla?.encabezado as { colorBorde?: string })?.colorBorde ?? "#cc0000";
+
                 const fechaInicio = previewInforme.created_at
                   ? new Date(previewInforme.created_at).toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" })
                   : new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" });
-                const revision   = previewInforme.versiones?.length ?? 1;
-                const codigo     = previewInforme.codigo;
-                const docTitle   = (previewInforme.builderConfig.titulo || previewInforme.nombre).toUpperCase();
+                const revision = previewInforme.versiones?.length ?? 1;
+                const codigo   = previewInforme.codigo;
+                const docTitle = (previewInforme.builderConfig.titulo || previewInforme.nombre).toUpperCase();
 
                 return (
                   <div className="p-4 min-h-full">
                     {/* A4-like paper */}
                     <div className="bg-white dark:bg-zinc-800 shadow-xl border border-zinc-300 dark:border-zinc-600 max-w-3xl mx-auto text-zinc-900 dark:text-zinc-100" style={{ fontFamily: "Arial, sans-serif" }}>
 
-                      {/* ── Document header (like the image) ── */}
-                      <table className="w-full border-collapse text-[10px]" style={{ borderBottom: "2px solid #c00" }}>
+                      {/* ── Document header ── */}
+                      <table className="w-full border-collapse text-[10px]" style={{ borderBottom: `2px solid ${colorBorde}` }}>
                         <tbody>
                           <tr>
                             {/* Logo cell */}
@@ -3393,11 +3416,11 @@ const Informes = () => {
                                   </tr>
                                   <tr>
                                     <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1 font-semibold uppercase text-zinc-500">SUPERFICIE:</td>
-                                    <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1">{primerCultivo?.marco_plantacion ? `${(primerCultivo.marco_plantacion / 10000).toFixed(1)} ha` : "—"}</td>
+                                    <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1">{superficieVal}</td>
                                   </tr>
                                   <tr>
                                     <td className="px-1.5 py-1 font-semibold uppercase text-zinc-500">PRODUCTOR:</td>
-                                    <td className="px-1.5 py-1 truncate">{productor?.nombre ?? "—"}</td>
+                                    <td className="px-1.5 py-1 truncate">{productorNombre}</td>
                                   </tr>
                                 </tbody>
                               </table>
@@ -3408,28 +3431,22 @@ const Informes = () => {
                               Registro del Productor
                             </td>
                           </tr>
-                          {/* Meta row: FINCA, CULTIVO, UBICACIÓN, VARIEDAD */}
+                          {/* Fila dinámica de campos del encabezado */}
                           <tr>
-                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
-                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Finca</span>
-                              <span className="font-semibold text-[10px]">{finca}</span>
-                            </td>
-                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
-                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Cultivo</span>
-                              <span className="font-semibold text-[10px]">{cultivoNombre}</span>
-                            </td>
-                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
-                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Variedad</span>
-                              <span className="font-semibold text-[10px]">{primeraVariedad}</span>
-                            </td>
-                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
-                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Ubicación</span>
-                              <span className="font-semibold text-[10px]">{ubicacion}</span>
-                            </td>
-                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
-                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Categoría</span>
-                              <span className="font-semibold text-[10px] capitalize">{previewInforme.categoria}</span>
-                            </td>
+                            {encCampos.map(campo => (
+                              <td
+                                key={campo.id}
+                                className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center"
+                                style={{ width: `${Math.floor(100 / encCampos.length)}%` }}
+                              >
+                                <span className="font-bold uppercase text-zinc-500 text-[9px] block">{campo.label}</span>
+                                <span className="font-semibold text-[10px]">
+                                  {campo.auto && campo.fuente !== "custom"
+                                    ? SISTEMA_VALS[campo.fuente]
+                                    : (campo.valor || "—")}
+                                </span>
+                              </td>
+                            ))}
                           </tr>
                         </tbody>
                       </table>

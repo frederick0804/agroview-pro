@@ -1,7 +1,7 @@
 // ─── CampoMapaEditor — Mapa con configuración rápida global por nivel ─────────
 
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
-import type { BloqueLayout, NivelEstructura } from "@/config/moduleDefinitions";
+import type { BloqueLayout, NivelEstructura, ComponenteCampo } from "@/config/moduleDefinitions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,6 +37,12 @@ import {
   ChevronRight,
   Sparkles,
   Zap,
+  Droplet,
+  Activity,
+  CircleDot,
+  Filter,
+  Gauge,
+  Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -132,8 +138,21 @@ export function CampoMapaEditor({
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showEditPanel, setShowEditPanel] = useState(false);
   const [expandedHijos, setExpandedHijos] = useState<Set<string>>(new Set());
   const [opacidadGlobal, setOpacidadGlobal] = useState(75);
+
+  // Función helper para cerrar el panel y prevenir auto-apertura
+  const closeEditPanel = useCallback(() => {
+    setShowEditPanel(false);
+  }, []);
+
+  // Función helper para abrir el panel (solo desde el botón ⚙️)
+  const openEditPanelForBlock = useCallback((blockId: string) => {
+    setSelectedId(blockId);
+    setShowEditPanel(true);
+  }, []);
+
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0, panX: 0, panY: 0 });
   // ConfigRapida — estado en el padre para que persista entre renders
@@ -141,6 +160,7 @@ export function CampoMapaEditor({
   const [configPorFila, setConfigPorFila] = useState<Record<number, number>>({});
   // Confirmación de eliminación
   const [bloqueAEliminar, setBloqueAEliminar] = useState<string | null>(null);
+  const [componenteAEliminar, setComponenteAEliminar] = useState<{ bloqueId: string; componenteId: string; nombre: string } | null>(null);
   const [dragging, setDragging] = useState<{
     id: string;
     startX: number;
@@ -210,9 +230,12 @@ export function CampoMapaEditor({
   const deleteBloque = useCallback(
     (id: string) => {
       onLayoutChange(layout.filter((b) => b.id !== id));
-      if (selectedId === id) setSelectedId(null);
+      if (selectedId === id) {
+        setSelectedId(null);
+        closeEditPanel(); // Cerrar panel si se elimina el bloque seleccionado
+      }
     },
-    [layout, onLayoutChange, selectedId]
+    [layout, onLayoutChange, selectedId, closeEditPanel]
   );
 
   // ── Actualizar bloque recursivamente ────────────────────────────────────────
@@ -471,6 +494,7 @@ export function CampoMapaEditor({
       const color = hijo.color ?? getDefaultColor(hijo.nivelIdx);
       const opacity = hijo.opacity ?? opacidadGlobal;
       const tieneNietos = (hijo.hijos?.length ?? 0) > 0;
+      const tieneComponentes = (hijo.componentes?.length ?? 0) > 0;
 
       // Calcular tamaño basado en contenido
       const minSize = profundidad > 2 ? 8 : profundidad > 1 ? 12 : 16;
@@ -478,7 +502,7 @@ export function CampoMapaEditor({
       return (
         <div
           key={hijo.id}
-          className="flex-1 rounded flex flex-col border overflow-hidden"
+          className="flex-1 rounded flex flex-col border overflow-hidden relative"
           style={{
             backgroundColor: color,
             opacity: opacity / 100,
@@ -489,11 +513,89 @@ export function CampoMapaEditor({
         >
           {profundidad < 3 && (
             <div
-              className="text-[9px] font-semibold text-white text-center py-0.5 px-1 truncate"
+              className="text-[9px] font-semibold text-white text-center py-0.5 px-1 truncate flex items-center justify-center gap-1"
               style={{ textShadow: "0 1px 2px rgba(0,0,0,0.4)" }}
             >
               {hijo.nombre}
+              {/* Indicador de componentes */}
+              {tieneComponentes && (
+                <span className="flex items-center gap-1" title={`${hijo.componentes!.length} componente(s): ${hijo.componentes!.map(c => c.nombre).join(", ")}`}>
+                  {/* Mostrar hasta 3 tipos diferentes de componentes */}
+                  {Array.from(new Set(hijo.componentes!.map(c => c.tipo))).slice(0, 3).map((tipo) => {
+                    const CompIcon =
+                      tipo === "valvula" ? Droplet :
+                      tipo === "sensor" ? Activity :
+                      tipo === "bomba" ? Zap :
+                      tipo === "filtro" ? Filter :
+                      tipo === "medidor" ? Gauge :
+                      CircleDot;
+                    return (
+                      <div key={tipo} className="w-4 h-4 rounded-full bg-white/95 flex items-center justify-center shadow-sm border border-white/30">
+                        <CompIcon className="w-2.5 h-2.5 text-slate-700" />
+                      </div>
+                    );
+                  })}
+                  {/* Badge con el número total */}
+                  <div className="px-1.5 py-0.5 rounded-full bg-white/95 shadow-sm border border-white/30">
+                    <span className="text-[8px] font-bold text-slate-700">{hijo.componentes!.length}</span>
+                  </div>
+                </span>
+              )}
             </div>
+          )}
+          {/* Indicador de componentes para niveles profundos (>= 3) */}
+          {profundidad >= 3 && tieneComponentes && (
+            <>
+              {/* Para espacios grandes (>= 20px): Borde + Badge */}
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{ minHeight: "20px", minWidth: "20px" }}
+              >
+                <div
+                  className="absolute inset-0 border-2 border-dashed opacity-70"
+                  style={{
+                    borderColor: hijo.componentes!.some(c => c.tipo === "valvula") ? "#3b82f6" :
+                               hijo.componentes!.some(c => c.tipo === "bomba") ? "#f59e0b" :
+                               hijo.componentes!.some(c => c.tipo === "sensor") ? "#10b981" :
+                               hijo.componentes!.some(c => c.tipo === "medidor") ? "#8b5cf6" :
+                               hijo.componentes!.some(c => c.tipo === "filtro") ? "#ef4444" : "#6b7280",
+                  }}
+                  title={`${hijo.componentes!.length} componente(s): ${hijo.componentes!.map(c => `${c.nombre} (${c.tipo})`).join(", ")}`}
+                />
+                {/* Badge con número para espacios medianos */}
+                <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-white border border-gray-300 flex items-center justify-center shadow-sm opacity-90">
+                  <span className="text-[8px] font-bold text-gray-700">{hijo.componentes!.length}</span>
+                </div>
+              </div>
+
+              {/* Para espacios microscópicos (<20px): Solo cambio de color de fondo */}
+              <div
+                className="absolute inset-0 pointer-events-none opacity-30"
+                style={{
+                  backgroundColor: hijo.componentes!.some(c => c.tipo === "valvula") ? "#3b82f6" :
+                                 hijo.componentes!.some(c => c.tipo === "bomba") ? "#f59e0b" :
+                                 hijo.componentes!.some(c => c.tipo === "sensor") ? "#10b981" :
+                                 hijo.componentes!.some(c => c.tipo === "medidor") ? "#8b5cf6" :
+                                 hijo.componentes!.some(c => c.tipo === "filtro") ? "#ef4444" : "#6b7280",
+                  mixBlendMode: "multiply"
+                }}
+                title={`${hijo.componentes!.length} componente(s): ${hijo.componentes!.map(c => `${c.nombre} (${c.tipo})`).join(", ")}`}
+              />
+
+              {/* Punto central para espacios muy pequeños */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div
+                  className="w-1 h-1 rounded-full opacity-80"
+                  style={{
+                    backgroundColor: hijo.componentes!.some(c => c.tipo === "valvula") ? "#3b82f6" :
+                                   hijo.componentes!.some(c => c.tipo === "bomba") ? "#f59e0b" :
+                                   hijo.componentes!.some(c => c.tipo === "sensor") ? "#10b981" :
+                                   hijo.componentes!.some(c => c.tipo === "medidor") ? "#8b5cf6" :
+                                   hijo.componentes!.some(c => c.tipo === "filtro") ? "#ef4444" : "#6b7280",
+                  }}
+                />
+              </div>
+            </>
           )}
           {tieneNietos && (
             <div
@@ -603,6 +705,28 @@ export function CampoMapaEditor({
                   ))}
                 </div>
               </div>
+
+              {/* Elementos por fila individual */}
+              {tieneNietos && (
+                <div className="flex items-center gap-1">
+                  <Label className="text-[10px] text-muted-foreground w-10">⚙️ x Fila</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={20}
+                    value={hijo.elementosPorFila || 0}
+                    onChange={(e) => {
+                      const valor = Math.max(0, Math.min(20, +e.target.value));
+                      updateBloqueRecursivo(hijo.id, {
+                        elementosPorFila: valor === 0 ? undefined : valor
+                      });
+                    }}
+                    className="h-6 text-xs w-12 font-semibold"
+                    placeholder="Auto"
+                    title="Elementos por fila (0 = automático)"
+                  />
+                </div>
+              )}
             </div>
 
             {tieneNietos && hijo.hijos && hijo.hijos.length > 0 && (
@@ -696,9 +820,205 @@ export function CampoMapaEditor({
     </div>
   );
 
+  // ── Renderizar componentes por nivel de estructura ─────────────────────────
+  const renderComponentesPorNivel = () => {
+    const renderElementoConComponentes = (
+      elemento: BloqueLayout,
+      path: string = "",
+      profundidad: number = 0
+    ): JSX.Element[] => {
+      const resultados: JSX.Element[] = [];
+
+      // Nombre del elemento actual
+      const nombreCompleto = path ? `${path} → ${elemento.nombre}` : elemento.nombre;
+      const tieneComponentes = (elemento.componentes?.length ?? 0) > 0;
+
+      // Renderizar el elemento actual
+      resultados.push(
+        <div key={elemento.id} className={cn("space-y-2", profundidad > 0 && "ml-4")}>
+          <div className="flex items-center justify-between bg-muted/30 rounded-lg p-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div
+                className="w-3 h-3 rounded shrink-0"
+                style={{ backgroundColor: elemento.color ?? getDefaultColor(elemento.nivelIdx) }}
+              />
+              <span className="text-xs font-medium truncate">{nombreCompleto}</span>
+              {tieneComponentes && (
+                <span className="text-xs text-muted-foreground">({elemento.componentes!.length})</span>
+              )}
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-xs"
+              onClick={() => {
+                const nuevoComponente: ComponenteCampo = {
+                  id: `comp-${Date.now()}`,
+                  tipo: "sensor",
+                  nombre: "Nuevo componente",
+                };
+                updateBloqueRecursivo(elemento.id, {
+                  componentes: [nuevoComponente, ...(elemento.componentes || [])],
+                });
+              }}
+            >
+              <Plus className="w-3 h-3 mr-1" />
+              Añadir
+            </Button>
+          </div>
+
+          {/* Mostrar componentes del elemento actual */}
+          {tieneComponentes && (
+            <div className="space-y-1 ml-6">
+              {elemento.componentes!.map((comp) => {
+                const IconoComponente =
+                  comp.tipo === "valvula" ? Droplet :
+                  comp.tipo === "sensor" ? Activity :
+                  comp.tipo === "bomba" ? Zap :
+                  comp.tipo === "filtro" ? Filter :
+                  comp.tipo === "medidor" ? Gauge :
+                  CircleDot;
+
+                return (
+                  <Collapsible key={comp.id}>
+                    <div className="rounded border bg-card/50">
+                      <CollapsibleTrigger className="w-full px-2 py-1.5 flex items-center justify-between hover:bg-muted/30 transition-colors">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <IconoComponente className="w-3 h-3 text-primary shrink-0" />
+                          <span className="text-xs font-medium truncate">{comp.nombre}</span>
+                          <span className="text-xs text-muted-foreground capitalize">{comp.tipo}</span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {/* Botón eliminar visible siempre */}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+                            onClick={(e) => {
+                              e.stopPropagation(); // Evita que se abra/cierre el collapsible
+                              setComponenteAEliminar({
+                                bloqueId: elemento.id,
+                                componenteId: comp.id,
+                                nombre: comp.nombre,
+                              });
+                            }}
+                            title="Eliminar componente"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                          <ChevronDown className="w-2.5 h-2.5 text-muted-foreground" />
+                        </div>
+                      </CollapsibleTrigger>
+
+                      <CollapsibleContent>
+                        <div className="px-2 pb-2 space-y-2 border-t pt-2">
+                          {/* Tipo */}
+                          <div className="space-y-1">
+                            <Label className="text-[9px] font-medium">Tipo</Label>
+                            <select
+                              value={comp.tipo}
+                              onChange={(e) => {
+                                const componentes = elemento.componentes!.map((c) =>
+                                  c.id === comp.id ? { ...c, tipo: e.target.value as ComponenteCampo["tipo"] } : c
+                                );
+                                updateBloqueRecursivo(elemento.id, { componentes });
+                              }}
+                              className="w-full h-6 text-xs rounded border border-input bg-background px-1"
+                            >
+                              <option value="valvula">Válvula</option>
+                              <option value="sensor">Sensor</option>
+                              <option value="bomba">Bomba</option>
+                              <option value="filtro">Filtro</option>
+                              <option value="medidor">Medidor</option>
+                              <option value="otro">Otro</option>
+                            </select>
+                          </div>
+
+                          {/* Nombre */}
+                          <div className="space-y-1">
+                            <Label className="text-[9px] font-medium">Nombre</Label>
+                            <Input
+                              value={comp.nombre}
+                              onChange={(e) => {
+                                const componentes = elemento.componentes!.map((c) =>
+                                  c.id === comp.id ? { ...c, nombre: e.target.value } : c
+                                );
+                                updateBloqueRecursivo(elemento.id, { componentes });
+                              }}
+                              className="h-6 text-xs"
+                              placeholder="Ej: Válvula principal"
+                            />
+                          </div>
+
+                          {/* Estado */}
+                          <div className="space-y-1">
+                            <Label className="text-[9px] font-medium">Estado</Label>
+                            <select
+                              value={comp.estado || "activo"}
+                              onChange={(e) => {
+                                const componentes = elemento.componentes!.map((c) =>
+                                  c.id === comp.id ? { ...c, estado: e.target.value as ComponenteCampo["estado"] } : c
+                                );
+                                updateBloqueRecursivo(elemento.id, { componentes });
+                              }}
+                              className="w-full h-6 text-xs rounded border border-input bg-background px-1"
+                            >
+                              <option value="activo">Activo</option>
+                              <option value="mantenimiento">Mantenimiento</option>
+                              <option value="inactivo">Inactivo</option>
+                            </select>
+                          </div>
+                        </div>
+                      </CollapsibleContent>
+                    </div>
+                  </Collapsible>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+
+      // Renderizar recursivamente los hijos
+      if (elemento.hijos && elemento.hijos.length > 0) {
+        elemento.hijos.forEach(hijo => {
+          const hijosRender = renderElementoConComponentes(hijo, nombreCompleto, profundidad + 1);
+          resultados.push(...hijosRender);
+        });
+      }
+
+      return resultados;
+    };
+
+    // Comenzar con el bloque seleccionado
+    const elementos = renderElementoConComponentes(selectedBloque);
+
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs font-semibold">
+            Componentes por ubicación
+          </Label>
+        </div>
+
+        {elementos.length === 1 && !selectedBloque.componentes?.length && (!selectedBloque.hijos || selectedBloque.hijos.length === 0) ? (
+          <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground text-xs">
+            <Package className="w-8 h-8 mb-2 opacity-30" />
+            <p>Sin componentes ni estructura</p>
+            <p className="text-[10px] mt-1">Crea hileras/cuadrantes primero</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {elementos}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // ── Panel lateral ───────────────────────────────────────────────────────────
   const renderPanelEdicion = () => {
-    if (!selectedBloque || readOnly) return null;
+    if (!selectedBloque || readOnly || !showEditPanel) return null;
 
     return (
       <div className="w-[420px] border-r bg-card flex flex-col shrink-0" style={{ height: 600 }}>
@@ -707,23 +1027,36 @@ export function CampoMapaEditor({
             <Settings2 className="w-4 h-4 shrink-0" />
             <span className="truncate">{selectedBloque.nombre}</span>
           </h3>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50 shrink-0"
-            onClick={() => setBloqueAEliminar(selectedBloque.id)}
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50 shrink-0"
+              onClick={() => setBloqueAEliminar(selectedBloque.id)}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={closeEditPanel}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
 
         <Tabs defaultValue="config-rapida" className="flex-1 flex flex-col overflow-hidden">
-          <TabsList className="w-full rounded-none border-b bg-muted/30 grid grid-cols-4 shrink-0">
+          <TabsList className="w-full rounded-none border-b bg-muted/30 grid grid-cols-5 shrink-0">
             <TabsTrigger value="config-rapida" className="text-xs">
               Config. Rápida
             </TabsTrigger>
             <TabsTrigger value="estructura" className="text-xs">
               Individual
+            </TabsTrigger>
+            <TabsTrigger value="componentes" className="text-xs">
+              Componentes
             </TabsTrigger>
             <TabsTrigger value="apariencia" className="text-xs">
               Apariencia
@@ -734,55 +1067,88 @@ export function CampoMapaEditor({
           </TabsList>
 
           {/* Tab: Configuración Rápida */}
-          <TabsContent value="config-rapida" className="flex-1 overflow-y-auto p-4 m-0">
-            {renderConfigRapida()}
+          <TabsContent value="config-rapida" className="flex-1 overflow-hidden m-0 p-0">
+            <ScrollArea className="h-full">
+              <div className="p-4">
+                {renderConfigRapida()}
+              </div>
+            </ScrollArea>
           </TabsContent>
 
           {/* Tab: Configuración Individual */}
-          <TabsContent value="estructura" className="flex-1 overflow-hidden p-4 m-0">
-            {nivelesActivos[selectedBloque.nivelIdx + 1] ? (
-              <ScrollArea className="h-full pr-2">
-                <div className="space-y-3">
-                  <div className="bg-primary/5 rounded-lg p-3 border border-primary/20">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-3 h-3 rounded"
-                        style={{ backgroundColor: getDefaultColor(selectedBloque.nivelIdx + 1) }}
-                      />
-                      <Label className="text-xs font-semibold flex-1">
-                        {nivelesActivos[selectedBloque.nivelIdx + 1]?.label}s: {selectedBloque.hijos?.length ?? 0}
-                      </Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={selectedBloque.hijos?.length ?? 0}
-                        onChange={(e) => {
-                          const cantidad = Math.max(0, Math.min(100, +e.target.value));
-                          establecerCantidadHijos(selectedBloque.id, cantidad);
-                        }}
-                        className="h-7 text-xs w-14 font-semibold"
-                      />
+          <TabsContent value="estructura" className="flex-1 overflow-hidden m-0 p-0">
+            <ScrollArea className="h-full">
+              <div className="p-4">
+                {nivelesActivos[selectedBloque.nivelIdx + 1] ? (
+                  <div className="space-y-3">
+                    <div className="bg-primary/5 rounded-lg p-3 border border-primary/20">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-3 h-3 rounded"
+                          style={{ backgroundColor: getDefaultColor(selectedBloque.nivelIdx + 1) }}
+                        />
+                        <Label className="text-xs font-semibold flex-1">
+                          {nivelesActivos[selectedBloque.nivelIdx + 1]?.label}s: {selectedBloque.hijos?.length ?? 0}
+                        </Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={selectedBloque.hijos?.length ?? 0}
+                          onChange={(e) => {
+                            const cantidad = Math.max(0, Math.min(100, +e.target.value));
+                            establecerCantidadHijos(selectedBloque.id, cantidad);
+                          }}
+                          className="h-7 text-xs w-14 font-semibold"
+                        />
+                      </div>
                     </div>
-                  </div>
 
-                  {selectedBloque.hijos && selectedBloque.hijos.length > 0 && (
-                    <div className="space-y-2">
-                      {renderListaHijos(selectedBloque.hijos)}
+                    {/* Configuración de elementos por fila */}
+                    <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg p-3 border border-blue-200 dark:border-blue-900">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs font-semibold flex-1">
+                          📐 Elementos por fila (0 = automático)
+                        </Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={20}
+                          value={selectedBloque.elementosPorFila || 0}
+                          onChange={(e) => {
+                            const valor = Math.max(0, Math.min(20, +e.target.value));
+                            updateBloqueRecursivo(selectedBloque.id, {
+                              elementosPorFila: valor === 0 ? undefined : valor
+                            });
+                          }}
+                          className="h-7 text-xs w-14 font-semibold"
+                        />
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        Controla cómo se organizan los {nivelesActivos[selectedBloque.nivelIdx + 1]?.label.toLowerCase()}s en filas
+                      </p>
                     </div>
-                  )}
-                </div>
-              </ScrollArea>
-            ) : (
-              <div className="flex items-center justify-center h-full text-xs text-muted-foreground italic">
-                Último nivel
+
+                    {selectedBloque.hijos && selectedBloque.hijos.length > 0 && (
+                      <div className="space-y-2">
+                        {renderListaHijos(selectedBloque.hijos)}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center h-32 text-xs text-muted-foreground italic">
+                    Último nivel
+                  </div>
+                )}
               </div>
-            )}
+            </ScrollArea>
           </TabsContent>
 
           {/* Tab: Apariencia */}
-          <TabsContent value="apariencia" className="flex-1 overflow-y-auto p-4 space-y-4 m-0">
-            {/* Opacidad general */}
+          <TabsContent value="apariencia" className="flex-1 overflow-hidden m-0 p-0">
+            <ScrollArea className="h-full">
+              <div className="p-4 space-y-4">
+                {/* Opacidad general */}
             <div className="space-y-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-lg p-3">
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-semibold">Opacidad general</Label>
@@ -851,10 +1217,24 @@ export function CampoMapaEditor({
                 ))}
               </div>
             </div>
+              </div>
+            </ScrollArea>
+          </TabsContent>
+
+          {/* Tab: Componentes */}
+          <TabsContent value="componentes" className="flex-1 overflow-hidden m-0 p-0">
+            <ScrollArea className="h-full">
+              <div className="p-4">
+                {/* Renderizar componentes por nivel de estructura */}
+                {renderComponentesPorNivel()}
+              </div>
+            </ScrollArea>
           </TabsContent>
 
           {/* Tab: Info */}
-          <TabsContent value="propiedades" className="flex-1 overflow-y-auto p-4 space-y-3 m-0">
+          <TabsContent value="propiedades" className="flex-1 overflow-hidden m-0 p-0">
+            <ScrollArea className="h-full">
+              <div className="p-4 space-y-3">
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Nombre</Label>
               <Input
@@ -905,8 +1285,10 @@ export function CampoMapaEditor({
                 <span className="font-mono">{selectedBloque.width}×{selectedBloque.height} px</span>
               </div>
             </div>
-          </TabsContent>
-        </Tabs>
+            </div>
+          </ScrollArea>
+        </TabsContent>
+      </Tabs>
       </div>
     );
   };
@@ -967,6 +1349,7 @@ export function CampoMapaEditor({
           onMouseDown={(e) => {
             if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains("map-bg")) {
               setSelectedId(null);
+              closeEditPanel(); // Cerrar panel cuando se deselecciona
               setIsPanning(true);
               setPanStart({ x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y });
             }
@@ -1042,15 +1425,58 @@ export function CampoMapaEditor({
                         });
                       }}
                     >
-                      <div className="px-3 py-2 border-b flex items-center justify-between bg-black/10" style={{ borderColor: "rgba(255,255,255,0.3)" }}>
-                        <span className="text-sm font-bold text-white truncate drop-shadow-md">
+                      <div className="px-2 py-1.5 border-b flex items-center justify-between bg-black/10" style={{ borderColor: "rgba(255,255,255,0.3)" }}>
+                        <span className="text-sm font-bold text-white truncate drop-shadow-md flex-1">
                           {bloque.nombre}
                         </span>
-                        {hijosCount > 0 && (
-                          <span className="text-[10px] bg-white/40 px-2 py-1 rounded-full text-white font-bold">
-                            {hijosCount}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1 shrink-0">
+                          {/* Indicadores de componentes */}
+                          {bloque.componentes && bloque.componentes.length > 0 && (
+                            <div className="flex items-center gap-0.5">
+                              {bloque.componentes.slice(0, 3).map((comp, i) => {
+                                const CompIcon =
+                                  comp.tipo === "valvula" ? Droplet :
+                                  comp.tipo === "sensor" ? Activity :
+                                  comp.tipo === "bomba" ? Zap :
+                                  comp.tipo === "filtro" ? Filter :
+                                  comp.tipo === "medidor" ? Gauge :
+                                  CircleDot;
+                                return (
+                                  <div
+                                    key={comp.id}
+                                    className="w-5 h-5 rounded bg-white/30 flex items-center justify-center"
+                                    title={comp.nombre}
+                                  >
+                                    <CompIcon className="w-3 h-3 text-white" />
+                                  </div>
+                                );
+                              })}
+                              {bloque.componentes.length > 3 && (
+                                <span className="text-[9px] bg-white/30 px-1 py-0.5 rounded text-white font-bold">
+                                  +{bloque.componentes.length - 3}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {hijosCount > 0 && (
+                            <span className="text-[10px] bg-white/40 px-2 py-0.5 rounded-full text-white font-bold">
+                              {hijosCount}
+                            </span>
+                          )}
+                          {/* Botón editar */}
+                          {!readOnly && (
+                            <button
+                              className="no-drag w-6 h-6 rounded bg-white/30 hover:bg-white/50 flex items-center justify-center transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditPanelForBlock(bloque.id);
+                              }}
+                              title="Editar bloque"
+                            >
+                              <Settings2 className="w-3.5 h-3.5 text-white" />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <div
@@ -1134,6 +1560,49 @@ export function CampoMapaEditor({
                 if (bloqueAEliminar) {
                   deleteBloque(bloqueAEliminar);
                   setBloqueAEliminar(null);
+                }
+              }}
+            >
+              Sí, eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Confirmación de eliminación de componente ───────────────────────── */}
+      <AlertDialog open={!!componenteAEliminar} onOpenChange={(open) => !open && setComponenteAEliminar(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar componente?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará <strong>{componenteAEliminar?.nombre}</strong>. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={() => {
+                if (componenteAEliminar) {
+                  // Buscar y eliminar el componente del bloque correspondiente
+                  const findAndRemoveComponent = (bloques: BloqueLayout[]): BloqueLayout[] => {
+                    return bloques.map(bloque => {
+                      if (bloque.id === componenteAEliminar.bloqueId) {
+                        return {
+                          ...bloque,
+                          componentes: bloque.componentes?.filter(c => c.id !== componenteAEliminar.componenteId) || []
+                        };
+                      }
+                      if (bloque.hijos && bloque.hijos.length > 0) {
+                        return { ...bloque, hijos: findAndRemoveComponent(bloque.hijos) };
+                      }
+                      return bloque;
+                    });
+                  };
+
+                  const nuevoLayout = findAndRemoveComponent(layout);
+                  onChange(nuevoLayout);
+                  setComponenteAEliminar(null);
                 }
               }}
             >

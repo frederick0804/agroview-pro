@@ -64,6 +64,10 @@ import {
   Plus,
   Pencil,
   GripVertical,
+  Trash2,
+  ChevronUp,
+  MoveUp,
+  MoveDown,
   Calculator,
   FunctionSquare,
   Link2,
@@ -103,11 +107,25 @@ interface CampoCalculado {
   unidad?: string;
 }
 
+export type FuenteCampo =
+  | "finca" | "cultivo" | "variedad" | "ubicacion"
+  | "superficie" | "productor" | "custom";
+
+export interface CampoEncabezado {
+  id: string;
+  label: string;       // nombre del campo (editable)
+  fuente: FuenteCampo; // dato del sistema o custom
+  auto: boolean;       // true = sistema, false = valor manual
+  valor: string;       // valor manual si auto=false
+}
+
 export interface PlantillaConfig {
   encabezado: {
     mostrarEmpresa: boolean;
     mostrarFecha: boolean;
     textoPersonalizado: string;
+    campos: CampoEncabezado[];  // campos dinámicos ordenables
+    colorBorde: string;
   };
   columnas: string[];
   incluirNotas: boolean;
@@ -1135,7 +1153,18 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     titulo: informe?.nombre ?? "Nuevo informe",
     subtitulo: "",
     plantilla: {
-      encabezado: { mostrarEmpresa: true, mostrarFecha: true, textoPersonalizado: "" },
+      encabezado: {
+        mostrarEmpresa: true, mostrarFecha: true, textoPersonalizado: "",
+        colorBorde: "#cc0000",
+        campos: [
+          { id: "finca",      label: "Finca",      fuente: "finca",      auto: true, valor: "" },
+          { id: "cultivo",    label: "Cultivo",    fuente: "cultivo",    auto: true, valor: "" },
+          { id: "variedad",   label: "Variedad",   fuente: "variedad",   auto: true, valor: "" },
+          { id: "ubicacion",  label: "Ubicación",  fuente: "ubicacion",  auto: true, valor: "" },
+          { id: "superficie", label: "Superficie", fuente: "superficie", auto: true, valor: "" },
+          { id: "productor",  label: "Productor",  fuente: "productor",  auto: true, valor: "" },
+        ],
+      },
       columnas: [],
       incluirNotas: false,
       incluirConclusiones: false,
@@ -1691,27 +1720,188 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
               num={4} title="Plantilla de documento" icon={FileEdit}
               open={openSection === 4} onToggle={() => setOpenSection(openSection === 4 ? 0 : 4)}
             >
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Encabezado</Label>
-                <div className="space-y-2">
-                  {[
-                    { key: "mostrarEmpresa" as const, label: "Mostrar nombre de empresa" },
-                    { key: "mostrarFecha" as const, label: "Mostrar fecha de generación" },
-                  ].map(({ key, label }) => (
-                    <div key={key} className="flex items-center justify-between">
-                      <Label className="text-xs text-muted-foreground">{label}</Label>
-                      <Switch checked={config.plantilla?.encabezado[key] ?? true}
-                        onCheckedChange={(v) => updEncabezado(key, v)} />
+              {/* ── Editor dinámico del encabezado ── */}
+              {(() => {
+                const campos: CampoEncabezado[] = config.plantilla?.encabezado.campos ?? [];
+                const colorBorde = config.plantilla?.encabezado.colorBorde ?? "#cc0000";
+
+                const updCampos = (newCampos: CampoEncabezado[]) =>
+                  updEncabezado("campos", newCampos);
+
+                const updCampo = (id: string, patch: Partial<CampoEncabezado>) =>
+                  updCampos(campos.map(c => c.id === id ? { ...c, ...patch } : c));
+
+                const moverCampo = (idx: number, dir: -1 | 1) => {
+                  const next = [...campos];
+                  const target = idx + dir;
+                  if (target < 0 || target >= next.length) return;
+                  [next[idx], next[target]] = [next[target], next[idx]];
+                  updCampos(next);
+                };
+
+                const eliminarCampo = (id: string) =>
+                  updCampos(campos.filter(c => c.id !== id));
+
+                const agregarCampo = () =>
+                  updCampos([...campos, {
+                    id: `campo-${Date.now()}`,
+                    label: "Nuevo campo",
+                    fuente: "custom",
+                    auto: false,
+                    valor: "",
+                  }]);
+
+                const FUENTES: { value: FuenteCampo; label: string }[] = [
+                  { value: "finca",      label: "Finca (sistema)" },
+                  { value: "cultivo",    label: "Cultivo (sistema)" },
+                  { value: "variedad",   label: "Variedad (sistema)" },
+                  { value: "ubicacion",  label: "Ubicación (sistema)" },
+                  { value: "superficie", label: "Superficie (sistema)" },
+                  { value: "productor",  label: "Productor (sistema)" },
+                  { value: "custom",     label: "Personalizado" },
+                ];
+
+                return (
+                  <div className="space-y-3">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Encabezado del documento
+                    </Label>
+
+                    {/* ── Preview live ── */}
+                    <div className="rounded-lg border overflow-hidden bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-sm" style={{ borderBottom: `2px solid ${colorBorde}` }}>
+                      {/* Fila título */}
+                      <div className="flex text-[8px]">
+                        <div className="border-r border-zinc-300 dark:border-zinc-600 px-2 py-2 flex items-center justify-center w-14 bg-zinc-50 dark:bg-zinc-800">
+                          <span className="text-[7px] font-bold text-zinc-400 text-center leading-tight">LOGO</span>
+                        </div>
+                        <div className="flex-1 text-center py-2 font-bold border-r border-zinc-300 dark:border-zinc-600 uppercase tracking-wide text-[9px]">
+                          {config.titulo || config.nombre || "TÍTULO DEL DOCUMENTO"}
+                        </div>
+                        <div className="w-24 text-[7px] px-1.5 py-1 space-y-0.5">
+                          <div className="flex gap-1 border-b border-zinc-200 dark:border-zinc-700 pb-0.5">
+                            <span className="text-zinc-400 uppercase">Rev:</span>
+                            <span className="font-bold">1</span>
+                          </div>
+                          <div className="flex gap-1">
+                            <span className="text-zinc-400 uppercase">Cód:</span>
+                            <span className="font-mono text-[6px]">{config.id?.slice(0, 8) ?? "—"}</span>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Fila campos dinámicos */}
+                      {campos.length > 0 && (
+                        <div className="flex border-t border-zinc-300 dark:border-zinc-600 divide-x divide-zinc-300 dark:divide-zinc-600 text-[7px]">
+                          {campos.map(c => (
+                            <div key={c.id} className="flex-1 px-1 py-1 text-center min-w-0">
+                              <div className="text-zinc-400 uppercase truncate">{c.label}</div>
+                              <div className="font-semibold truncate text-zinc-700 dark:text-zinc-300">
+                                {c.auto ? "—auto—" : (c.valor || "—")}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ))}
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Texto personalizado</Label>
-                    <Input value={config.plantilla?.encabezado.textoPersonalizado ?? ""}
-                      onChange={(e) => updEncabezado("textoPersonalizado", e.target.value)}
-                      placeholder="Ej. Informe confidencial" className="h-8 text-sm" />
+
+                    {/* ── Lista de campos ── */}
+                    <div className="space-y-1.5">
+                      {campos.map((campo, idx) => (
+                        <div key={campo.id} className="rounded-lg border bg-muted/30 p-2.5 space-y-2">
+                          {/* Fila superior: orden + label + acciones */}
+                          <div className="flex items-center gap-1.5">
+                            {/* Botones mover */}
+                            <div className="flex flex-col gap-0.5 shrink-0">
+                              <button
+                                disabled={idx === 0}
+                                onClick={() => moverCampo(idx, -1)}
+                                className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground disabled:opacity-20 transition-colors"
+                              >
+                                <MoveUp className="w-3 h-3" />
+                              </button>
+                              <button
+                                disabled={idx === campos.length - 1}
+                                onClick={() => moverCampo(idx, 1)}
+                                className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground disabled:opacity-20 transition-colors"
+                              >
+                                <MoveDown className="w-3 h-3" />
+                              </button>
+                            </div>
+
+                            {/* Label editable */}
+                            <Input
+                              value={campo.label}
+                              onChange={e => updCampo(campo.id, { label: e.target.value })}
+                              placeholder="Nombre del campo"
+                              className="h-7 text-xs flex-1"
+                            />
+
+                            {/* Nº */}
+                            <span className="text-[10px] text-muted-foreground/50 shrink-0 w-4 text-center">{idx + 1}</span>
+
+                            {/* Eliminar */}
+                            <button
+                              onClick={() => eliminarCampo(campo.id)}
+                              className="p-1 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          {/* Fila inferior: fuente + valor */}
+                          <div className="flex items-center gap-2 pl-7">
+                            {/* Selector de fuente */}
+                            <select
+                              value={campo.fuente}
+                              onChange={e => {
+                                const f = e.target.value as FuenteCampo;
+                                updCampo(campo.id, { fuente: f, auto: f !== "custom" });
+                              }}
+                              className="h-7 text-xs rounded-md border bg-background px-2 flex-1 focus:outline-none focus:ring-1 focus:ring-ring"
+                            >
+                              {FUENTES.map(f => (
+                                <option key={f.value} value={f.value}>{f.label}</option>
+                              ))}
+                            </select>
+
+                            {/* Valor manual si es custom o auto=false */}
+                            {(!campo.auto || campo.fuente === "custom") && (
+                              <Input
+                                value={campo.valor}
+                                onChange={e => updCampo(campo.id, { valor: e.target.value })}
+                                placeholder="Valor..."
+                                className="h-7 text-xs flex-1"
+                              />
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Agregar campo */}
+                    <button
+                      onClick={agregarCampo}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition-all"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Agregar campo
+                    </button>
+
+                    {/* Color del borde */}
+                    <div className="flex items-center justify-between pt-1 border-t">
+                      <Label className="text-xs text-muted-foreground">Color del borde inferior</Label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={colorBorde}
+                          onChange={(e) => updEncabezado("colorBorde", e.target.value)}
+                          className="w-7 h-7 rounded cursor-pointer border border-border"
+                        />
+                        <span className="text-[10px] font-mono text-muted-foreground">{colorBorde}</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
+                );
+              })()}
 
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Secciones adicionales</Label>
