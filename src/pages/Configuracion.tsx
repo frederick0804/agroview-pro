@@ -27,7 +27,7 @@ import {
   Trash2, Info, CheckCircle2, Check, Clock, Archive, Leaf, Search, Copy, History,
   ChevronDown, RotateCcw, Power, XCircle, LayoutList, ArrowLeftRight, Lock, CheckSquare, Square, ListFilter, Zap,
   Ruler, Scale, Network, ChevronRight, ArrowUp, ArrowDown, Map as MapIcon, MoreHorizontal, Tag,
-  Hash, ToggleLeft, Image as ImageIcon,
+  Hash, ToggleLeft, Image as ImageIcon, Link2,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { useTheme, DEFAULT_THEME } from "@/contexts/ThemeContext";
@@ -107,6 +107,7 @@ const TIPO_DATO_OPTIONS = [
   { value: "Fecha",  label: "Fecha" },
   { value: "Sí/No",  label: "Sí/No" },
   { value: "Lista",  label: "Lista (select)" },
+  { value: "Relación", label: "Relación (lookup)" },
 ];
 
 const ESTADO_OPTIONS = [
@@ -163,12 +164,23 @@ const TIPO_META: Record<string, { icon: React.ElementType; color: string; bg: st
   "Lista":   { icon: List,        color: "text-orange-700 dark:text-orange-400",bg: "bg-orange-100 dark:bg-orange-900/30" },
   "Foto":    { icon: ImageIcon,   color: "text-pink-700 dark:text-pink-400",    bg: "bg-pink-100 dark:bg-pink-900/30" },
   "Archivo": { icon: FileText,    color: "text-slate-700 dark:text-slate-400",  bg: "bg-slate-100 dark:bg-slate-900/30" },
+  "Relación":{ icon: Link2,       color: "text-cyan-700 dark:text-cyan-400",    bg: "bg-cyan-100 dark:bg-cyan-900/30" },
 };
 
-const EMPTY_PARAM_FORM = { nombre: "", codigo: "", tipo_dato: "Texto" as TipoDato, unidad_medida: "", descripcion: "", obligatorio_default: false };
+const EMPTY_PARAM_FORM = {
+  nombre: "",
+  codigo: "",
+  tipo_dato: "Texto" as TipoDato,
+  unidad_medida: "",
+  descripcion: "",
+  obligatorio_default: false,
+  relacion_def_id: null as string | null,
+  relacion_campo_label: null as string | null,
+  relacion_campo_valor: null as string | null,
+};
 
 function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => void }) {
-  const { parametrosLib, addParamLib, updParamLib, delParamLib } = useConfig();
+  const { parametrosLib, addParamLib, updParamLib, delParamLib, allDefiniciones, parametros } = useConfig();
 
   const [libSearch,    setLibSearch]    = useState("");
   const [typeFilter,   setTypeFilter]   = useState<string>("Todos");
@@ -178,7 +190,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
   const [newForm,      setNewForm]      = useState<typeof EMPTY_PARAM_FORM>(EMPTY_PARAM_FORM);
   const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
 
-  const tipos = ["Todos", "Texto", "Número", "Fecha", "Sí/No", "Lista", "Foto", "Archivo"];
+  const tipos = ["Todos", "Texto", "Número", "Fecha", "Sí/No", "Lista", "Relación", "Foto", "Archivo"];
 
   const filtered = useMemo(() => parametrosLib.filter(p => {
     const matchSearch = !libSearch ||
@@ -192,7 +204,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
 
   const startEdit = (p: Parametro) => {
     setEditingId(p.id);
-    setEditForm({ nombre: p.nombre, codigo: p.codigo ?? "", tipo_dato: p.tipo_dato, unidad_medida: p.unidad_medida ?? "", descripcion: p.descripcion ?? "", obligatorio_default: p.obligatorio_default });
+    setEditForm({ nombre: p.nombre, codigo: p.codigo ?? "", tipo_dato: p.tipo_dato, unidad_medida: p.unidad_medida ?? "", descripcion: p.descripcion ?? "", obligatorio_default: p.obligatorio_default, relacion_def_id: p.relacion_def_id ?? null, relacion_campo_label: p.relacion_campo_label ?? null, relacion_campo_valor: p.relacion_campo_valor ?? null });
   };
 
   const saveEdit = () => {
@@ -203,6 +215,17 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
     updParamLib(editingId, "unidad_medida",       editForm.unidad_medida.trim());
     updParamLib(editingId, "descripcion",         editForm.descripcion.trim());
     updParamLib(editingId, "obligatorio_default", editForm.obligatorio_default);
+    // Campos de relación
+    if (editForm.tipo_dato === "Relación") {
+      updParamLib(editingId, "relacion_def_id",       editForm.relacion_def_id);
+      updParamLib(editingId, "relacion_campo_label",  editForm.relacion_campo_label);
+      updParamLib(editingId, "relacion_campo_valor",  editForm.relacion_campo_valor);
+    } else {
+      // Limpiar si ya no es tipo Relación
+      updParamLib(editingId, "relacion_def_id",       null);
+      updParamLib(editingId, "relacion_campo_label",  null);
+      updParamLib(editingId, "relacion_campo_valor",  null);
+    }
     setEditingId(null);
     onPendingChange?.(false);
   };
@@ -220,6 +243,13 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
         updParamLib(last.id, "unidad_medida",       newForm.unidad_medida.trim());
         updParamLib(last.id, "descripcion",         newForm.descripcion.trim());
         updParamLib(last.id, "obligatorio_default", newForm.obligatorio_default);
+
+        // Campos de relación
+        if (newForm.tipo_dato === "Relación") {
+          updParamLib(last.id, "relacion_def_id",       newForm.relacion_def_id);
+          updParamLib(last.id, "relacion_campo_label",  newForm.relacion_campo_label);
+          updParamLib(last.id, "relacion_campo_valor",  newForm.relacion_campo_valor);
+        }
       }
     }, 0);
     setNewForm(EMPTY_PARAM_FORM);
@@ -289,7 +319,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
           <p className="text-xs font-semibold text-primary flex items-center gap-1.5">
             <Plus className="w-3.5 h-3.5" /> Nuevo parámetro
           </p>
-          <LibParamForm form={newForm} onChange={setNewForm} />
+          <LibParamForm form={newForm} onChange={setNewForm} definiciones={allDefiniciones} parametros={parametros} />
           <div className="flex items-center gap-2 pt-1">
             <Button size="sm" onClick={saveNew} disabled={!newForm.nombre.trim()}>
               <Check className="w-3.5 h-3.5 mr-1" /> Guardar
@@ -332,7 +362,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
                       </div>
                       <span className="text-xs font-semibold text-primary">Editando parámetro</span>
                     </div>
-                    <LibParamForm form={editForm} onChange={f => setEditForm(f)} />
+                    <LibParamForm form={editForm} onChange={f => setEditForm(f)} definiciones={allDefiniciones} parametros={parametros} />
                     <div className="flex items-center gap-2 pt-1">
                       <Button size="sm" onClick={saveEdit} disabled={!editForm.nombre.trim()}>
                         <Check className="w-3.5 h-3.5 mr-1" /> Guardar
@@ -419,10 +449,30 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
 function LibParamForm({
   form,
   onChange,
+  definiciones,
+  parametros,
 }: {
-  form: { nombre: string; codigo: string; tipo_dato: TipoDato; unidad_medida: string; descripcion: string; obligatorio_default: boolean };
+  form: {
+    nombre: string;
+    codigo: string;
+    tipo_dato: TipoDato;
+    unidad_medida: string;
+    descripcion: string;
+    obligatorio_default: boolean;
+    relacion_def_id: string | null;
+    relacion_campo_label: string | null;
+    relacion_campo_valor: string | null;
+  };
   onChange: (f: typeof form) => void;
+  definiciones: ModDef[];
+  parametros: ModParam[];
 }) {
+  // Campos disponibles de la definición seleccionada
+  const selectedDef = definiciones.find(d => d.id === form.relacion_def_id);
+  const camposDisponibles = selectedDef
+    ? parametros.filter(p => p.definicion_id === selectedDef.id)
+    : [];
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <div className="space-y-1">
@@ -453,10 +503,10 @@ function LibParamForm({
         </label>
         <select
           value={form.tipo_dato}
-          onChange={e => onChange({ ...form, tipo_dato: e.target.value as TipoDato })}
+          onChange={e => onChange({ ...form, tipo_dato: e.target.value as TipoDato, relacion_def_id: null, relacion_campo_label: null, relacion_campo_valor: null })}
           className="w-full h-8 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
         >
-          {["Texto", "Número", "Fecha", "Sí/No", "Lista", "Foto", "Archivo"].map(t => (
+          {["Texto", "Número", "Fecha", "Sí/No", "Lista", "Relación", "Foto", "Archivo"].map(t => (
             <option key={t} value={t}>{t}</option>
           ))}
         </select>
@@ -470,6 +520,75 @@ function LibParamForm({
           className="h-8 text-sm"
         />
       </div>
+
+      {/* Configuración de Relación */}
+      {form.tipo_dato === "Relación" && (
+        <>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+              <Link2 className="w-3 h-3" />
+              Fuente de datos <span className="text-destructive">*</span>
+            </label>
+            <select
+              value={form.relacion_def_id ?? ""}
+              onChange={e => onChange({ ...form, relacion_def_id: e.target.value || null, relacion_campo_label: null, relacion_campo_valor: null })}
+              className="w-full h-8 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
+            >
+              <option value="">— Seleccionar definición —</option>
+              {definiciones.map(d => (
+                <option key={d.id} value={d.id}>{d.nombre}</option>
+              ))}
+            </select>
+          </div>
+
+          {form.relacion_def_id && camposDisponibles.length > 0 && (
+            <>
+              <div className="space-y-1">
+                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  Campo a mostrar <span className="text-destructive">*</span>
+                </label>
+                <select
+                  value={form.relacion_campo_label ?? ""}
+                  onChange={e => onChange({ ...form, relacion_campo_label: e.target.value || null })}
+                  className="w-full h-8 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
+                >
+                  <option value="">— Seleccionar campo —</option>
+                  {camposDisponibles.map(c => (
+                    <option key={c.id} value={c.nombre}>{c.nombre.replace(/_/g, " ")}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-muted-foreground">Se mostrará en el dropdown</p>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  Campo a guardar
+                </label>
+                <select
+                  value={form.relacion_campo_valor ?? ""}
+                  onChange={e => onChange({ ...form, relacion_campo_valor: e.target.value || null })}
+                  className="w-full h-8 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
+                >
+                  <option value="">— Mismo que mostrar —</option>
+                  {camposDisponibles.map(c => (
+                    <option key={c.id} value={c.nombre}>{c.nombre.replace(/_/g, " ")}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-muted-foreground">Se guardará como valor (opcional)</p>
+              </div>
+            </>
+          )}
+
+          {form.relacion_def_id && camposDisponibles.length === 0 && (
+            <div className="sm:col-span-2 p-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Esta definición no tiene campos configurados aún.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Configuración de Cálculo para campos Numéricos */}
       <div className="space-y-1 sm:col-span-2">
         <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Descripción</label>
         <Input
@@ -511,6 +630,9 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
   const [expandedEventos, setExpandedEventos] = useState<Set<string>>(new Set());
   const [expandedAcceso,  setExpandedAcceso]  = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode]               = useState<"card" | "list">("list");
+  const [listExpandedRows, setListExpandedRows] = useState<Set<string>>(new Set());
+  const toggleListRow = (id: string) => setListExpandedRows(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const [configCampoId,   setConfigCampoId]   = useState<string | null>(null);
   const [showBiblioteca,  setShowBiblioteca]  = useState(false);
   const [addCampoModal,   setAddCampoModal]   = useState<{ defId: string; rootId: string } | null>(null);
@@ -555,15 +677,34 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
   } | null>(null);
   const [compareRootId, setCompareRootId] = useState<string | null>(null);
 
-  // ── Evento creation dialog ──────────────────────────────────────────────────
-  const [addEventoModal, setAddEventoModal] = useState<{
-    registroId: string; modulo: string;
+  // ── Evento Sheet (gestión unificada) ────────────────────────────────────────
+  const [eventosSheet, setEventosSheet] = useState<{
+    defId: string; rootId: string; modulo: string; nombre: string;
   } | null>(null);
-  const [newEventoNombre, setNewEventoNombre]         = useState("");
+  const [eventosSheetView, setEventosSheetView] = useState<"list" | "new">("list");
+  const [newEventoNombre, setNewEventoNombre]           = useState("");
   const [newEventoDescripcion, setNewEventoDescripcion] = useState("");
-  const [expandedEvDetail, setExpandedEvDetail] = useState<Set<string>>(new Set());
-  const toggleEvDetail = (evId: string) =>
-    setExpandedEvDetail(prev => { const n = new Set(prev); n.has(evId) ? n.delete(evId) : n.add(evId); return n; });
+  const [newEventoEstado, setNewEventoEstado]           = useState<"activo" | "borrador">("activo");
+  const [expandedEvCampos, setExpandedEvCampos]         = useState<Set<string>>(new Set());
+  const [expandedEvHistory, setExpandedEvHistory]       = useState<Set<string>>(new Set());
+  const [compareEvId,       setCompareEvId]             = useState<string | null>(null);
+  const [evRollbackModal, setEvRollbackModal] = useState<{
+    targetId: string; targetVersion: string; targetNombre: string;
+    activeId: string | null; activeVersion: string; activeNombre: string;
+    rootId: string;
+  } | null>(null);
+  const [evRollbackAction, setEvRollbackAction] = useState<"borrador" | "archivado" | "keep">("borrador");
+  const [evArchiveModal, setEvArchiveModal] = useState<{
+    defId: string; rootId: string; nombre: string; version: string;
+    otherVersions: ModDef[];
+  } | null>(null);
+  const [evArchiveActivateId, setEvArchiveActivateId] = useState<string>("");
+  const [evConfirmDup, setEvConfirmDup] = useState<{
+    rootId: string; sourceId: string; sourceName: string;
+    sourceVersion: string; newVersion: string; paramCount: number; newName: string;
+  } | null>(null);
+  const toggleEvCampos  = (id: string) => setExpandedEvCampos(p  => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleEvHistory = (id: string) => setExpandedEvHistory(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   // ── Bulk access dialog ───────────────────────────────────────────────────────
   const [accesosModal,   setAccesosModal]   = useState<string | null>(null); // defId
@@ -661,6 +802,32 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
   const toggleExpandAcceso  = (rootId: string) =>
     setExpandedAcceso(prev => { const n = new Set(prev); n.has(rootId) ? n.delete(rootId) : n.add(rootId); return n; });
 
+  // Sheet de eventos: pre-computar lista y familias (igual que definiciones)
+  const sheetEventos = useMemo(
+    () => eventosSheet
+      ? allDefiniciones.filter(d => d.registro_padre_id === eventosSheet.defId)
+      : [],
+    [allDefiniciones, eventosSheet],
+  );
+
+  // Agrupa eventos por familia (origen_id ?? id), como el sistema de familias de definiciones
+  const sheetEventoFamilies = useMemo(() => {
+    const map = new Map<string, typeof sheetEventos>();
+    sheetEventos.forEach(ev => {
+      const rootId = ev.origen_id ?? ev.id;
+      if (!map.has(rootId)) map.set(rootId, []);
+      map.get(rootId)!.push(ev);
+    });
+    return Array.from(map.entries()).map(([rootId, versions]) => {
+      const sorted = [...versions].sort((a, b) => {
+        const [aMaj = 0, aMin = 0] = (a.version ?? "1.0").split(".").map(Number);
+        const [bMaj = 0, bMin = 0] = (b.version ?? "1.0").split(".").map(Number);
+        return bMaj !== aMaj ? bMaj - aMaj : bMin - aMin; // desc: latest first
+      });
+      const latest = sorted[0];
+      return { rootId, versions: sorted, latest };
+    });
+  }, [sheetEventos]);
 
   return (
     <div className="space-y-5">
@@ -716,6 +883,29 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         )}
 
         <div className="flex items-center gap-2 ml-auto">
+          {/* ── Toggle vista lista/tarjeta ── */}
+          <div className="flex items-center p-0.5 rounded-lg bg-muted border border-border">
+            <button
+              onClick={() => setViewMode("list")}
+              className={cn(
+                "p-1.5 rounded-md transition-colors",
+                viewMode === "list" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+              title="Vista lista compacta"
+            >
+              <List className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setViewMode("card")}
+              className={cn(
+                "p-1.5 rounded-md transition-colors",
+                viewMode === "card" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+              title="Vista tarjetas"
+            >
+              <Layers className="w-3.5 h-3.5" />
+            </button>
+          </div>
           <Button variant="outline" size="sm" onClick={() => setShowBiblioteca(true)}>
             <BookOpen className="w-4 h-4 mr-1.5" />
             Biblioteca
@@ -864,7 +1054,11 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className={cn(
+                viewMode === "card"
+                  ? "grid grid-cols-1 md:grid-cols-2 gap-4"
+                  : "border border-border rounded-xl overflow-hidden divide-y divide-border",
+              )}>
                 {families.map(({ rootId, versions, latest, rep }) => {
             const campos       = parametros.filter(p => p.definicion_id === latest.id);
             const hasHistory   = versions.length > 1;
@@ -883,12 +1077,79 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
             const accesoLabel         = NIVEL_ACCESS_OPTIONS.find(n => n.value === latest.nivel_minimo)?.label ?? "Todos";
             const rolesExcluidosCount = (latest.roles_excluidos ?? []).length;
             const accesosCount        = getDefAccesos(latest.id).length;
+            const isListRow  = viewMode === "list";
+            const isExpanded = isListRow ? listExpandedRows.has(rootId) : true;
 
             return (
-              <div key={rootId} className="bg-card border border-border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col">
+              <div key={rootId} className={cn(
+                "flex flex-col",
+                isListRow
+                  ? "bg-card hover:bg-muted/10 transition-colors"
+                  : "bg-card border border-border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow",
+              )}>
+
+                {/* ── Compact list row (solo en modo lista) ─────────────── */}
+                {isListRow && (
+                  <div
+                    className="flex items-center gap-2 px-4 py-2.5 cursor-pointer group/row select-none hover:bg-muted/30 transition-colors"
+                    onClick={() => toggleListRow(rootId)}
+                  >
+                    <span className={cn(
+                      "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none shrink-0",
+                      tipoBadgeColor[rep.tipo as TipoConfig] ?? "bg-gray-100 text-gray-700",
+                    )}>
+                      {tipoLabels[rep.tipo as TipoConfig] ?? rep.tipo}
+                    </span>
+                    <span className={cn(
+                      "text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5 shrink-0",
+                      estadoBadge[rep.estado ?? "borrador"],
+                    )}>
+                      <EstadoIcon estado={rep.estado ?? "borrador"} />
+                      {rep.estado ?? "borrador"}
+                    </span>
+                    <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded shrink-0 leading-none">
+                      v{latest.version || "1.0"}
+                    </span>
+                    {hasHistory && (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground leading-none shrink-0">
+                        <History className="w-2.5 h-2.5" />{versions.length}v
+                      </span>
+                    )}
+                    <span className="text-sm font-semibold text-foreground truncate flex-1 min-w-0">
+                      {latest.nombre || "(sin nombre)"}
+                    </span>
+                    <span className="hidden sm:inline text-[11px] text-muted-foreground shrink-0">
+                      {MODULO_OPTIONS.find(m => m.value === latest.modulo)?.label ?? latest.modulo}
+                    </span>
+                    {campos.length > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground shrink-0">
+                        <List className="w-3 h-3" />{campos.length}
+                      </span>
+                    )}
+                    {eventos.length > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-amber-500 shrink-0">
+                        <Zap className="w-3 h-3" />{eventos.length}
+                      </span>
+                    )}
+                    {isSuperAdmin && selectedClienteFilter === null && latest.cliente_id && (
+                      <span className="hidden md:inline text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800 shrink-0">
+                        {clientes.find(c => c.id === latest.cliente_id)?.nombre ?? `#${latest.cliente_id}`}
+                      </span>
+                    )}
+                    {isSuperAdmin && latest.productor_id && (
+                      <span className="hidden md:inline text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+                        {productores.find(p => p.id === latest.productor_id)?.nombre ?? `#${latest.productor_id}`}
+                      </span>
+                    )}
+                    <ChevronDown className={cn(
+                      "w-3.5 h-3.5 text-muted-foreground/40 shrink-0 transition-transform duration-200 group-hover/row:text-muted-foreground",
+                      isExpanded && "rotate-180",
+                    )} />
+                  </div>
+                )}
 
                 {/* ── Cabecera ──────────────────────────────────────────── */}
-                <div className="px-4 pt-3 pb-3 border-b border-border bg-muted/20">
+                {isExpanded && <div className={cn("px-4 pt-3 pb-3 border-b border-border", isListRow ? "bg-card" : "bg-muted/20")}>
 
                   {/* Fila superior: badges de estado + menú de acciones */}
                   <div className="flex items-center justify-between gap-2">
@@ -1122,7 +1383,10 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                       </div>
                     )}
                   </div>
-                </div>
+
+                </div>}
+
+                {isExpanded && <>
 
                 {/* ── Historial de versiones (expandible) ───────────────── */}
                 {isExpHistory && hasHistory && (
@@ -1308,211 +1572,62 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                   )}
                 </div>
 
-                {/* ── Sección de Eventos vinculados ──────────────────────── */}
+                {/* ── Sección de Eventos vinculados (resumen compacto) ────── */}
                 <div className="px-4 py-3 border-t border-border">
-                  <button
-                    onClick={() => toggleExpandEventos(rootId)}
-                    className="flex items-center justify-between w-full text-xs group"
-                  >
-                    <span className="flex items-center gap-1.5 font-medium text-muted-foreground group-hover:text-foreground transition-colors">
-                      <Zap className="w-3.5 h-3.5 text-amber-500" />
-                      Eventos
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <span className="text-xs font-medium text-muted-foreground">Eventos</span>
                       {eventos.length > 0 && (
-                        <span className={cn(
-                          "text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none transition-colors",
-                          isExpEventos
-                            ? "bg-amber-500/15 text-amber-600"
-                            : "bg-muted text-muted-foreground",
-                        )}>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 leading-none">
                           {eventos.length}
                         </span>
                       )}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                        + nuevo
-                      </span>
-                      <ChevronDown className={cn(
-                        "w-3.5 h-3.5 text-muted-foreground transition-transform duration-200",
-                        isExpEventos && "rotate-180",
-                      )} />
-                    </div>
-                  </button>
-
-                  {isExpEventos && (
-                    <div className="mt-2.5 space-y-2">
-                      {eventos.length === 0 ? (
-                        <div className="flex flex-col items-center gap-1.5 py-4 text-center">
-                          <Zap className="w-5 h-5 text-amber-400/50" />
-                          <p className="text-xs text-muted-foreground">
-                            Sin eventos asociados a este registro.
-                          </p>
-                        </div>
-                      ) : (
-                        eventos.map(ev => {
-                          const evCampos = parametros.filter(p => p.definicion_id === ev.id);
-                          const isDetailExp = expandedEvDetail.has(ev.id);
-                          return (
-                            <div
-                              key={ev.id}
-                              className="rounded-lg border border-amber-300/25 bg-gradient-to-b from-amber-500/[0.04] to-transparent overflow-hidden transition-all hover:border-amber-300/40"
-                            >
-                              {/* ── Header row ────────────────────────── */}
-                              <div className="flex items-center gap-2 px-3 py-2">
-                                <div className={cn(
-                                  "w-2 h-2 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-card",
-                                  ev.estado === "activo"   ? "bg-green-500 ring-green-500/30" :
-                                  ev.estado === "borrador" ? "bg-yellow-400 ring-yellow-400/30" : "bg-gray-300 ring-gray-300/30",
-                                )} />
-                                <input
-                                  value={ev.nombre}
-                                  onChange={e => {
-                                    const idx = definiciones.findIndex(d => d.id === ev.id);
-                                    if (idx !== -1) updDef(idx, "nombre", e.target.value);
-                                  }}
-                                  placeholder="Nombre del evento…"
-                                  className="text-xs font-semibold flex-1 min-w-0 bg-transparent outline-none placeholder:italic placeholder:text-muted-foreground/60 hover:bg-muted/40 focus:bg-background focus:px-1.5 focus:rounded focus:border focus:border-amber-400/50 transition-all"
-                                />
-                                <span className={cn(
-                                  "text-[9px] font-medium px-1.5 py-0.5 rounded-full leading-none shrink-0 inline-flex items-center gap-0.5",
-                                  estadoBadge[ev.estado ?? "borrador"],
-                                )}>
-                                  <EstadoIcon estado={ev.estado ?? "borrador"} />
-                                  {ev.estado}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground font-mono bg-muted/50 px-1.5 py-0.5 rounded shrink-0">
-                                  {evCampos.length} campo{evCampos.length !== 1 ? "s" : ""}
-                                </span>
-                                <div className="flex items-center gap-0.5 shrink-0">
-                                  <button
-                                    onClick={() => toggleEvDetail(ev.id)}
-                                    title={isDetailExp ? "Ocultar detalle" : "Ver detalle"}
-                                    className={cn(
-                                      "p-1 rounded transition-colors",
-                                      isDetailExp
-                                        ? "text-amber-600 bg-amber-500/10"
-                                        : "text-muted-foreground hover:text-amber-600 hover:bg-amber-500/10",
-                                    )}
-                                  >
-                                    <ChevronDown className={cn("w-3 h-3 transition-transform duration-200", isDetailExp && "rotate-180")} />
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      const idx = definiciones.findIndex(d => d.id === ev.id);
-                                      if (idx !== -1) updDef(idx, "estado", ev.estado === "activo" ? "borrador" : "activo");
-                                    }}
-                                    title={ev.estado === "activo" ? "Desactivar" : "Activar"}
-                                    className={cn(
-                                      "p-1 rounded transition-colors",
-                                      ev.estado === "activo"
-                                        ? "text-green-600 hover:text-yellow-600 hover:bg-yellow-500/10"
-                                        : "text-muted-foreground hover:text-green-600 hover:bg-green-500/10",
-                                    )}
-                                  >
-                                    <Power className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setSelectedLibIds(new Set());
-                                      setCampoSearch("");
-                                      setCreateNewCampo(false);
-                                      setAddCampoModal({ defId: ev.id, rootId: ev.id });
-                                      setExpandedEventos(prev => new Set([...prev, rootId]));
-                                    }}
-                                    title="Gestionar campos del evento"
-                                    className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                                  >
-                                    <List className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      const idx = definiciones.findIndex(d => d.id === ev.id);
-                                      if (idx !== -1) delDef(idx);
-                                    }}
-                                    title="Eliminar evento"
-                                    className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* ── Description row (always visible) ───── */}
-                              <div className="px-3 pb-2 -mt-0.5">
-                                <input
-                                  value={ev.descripcion}
-                                  onChange={e => {
-                                    const idx = definiciones.findIndex(d => d.id === ev.id);
-                                    if (idx !== -1) updDef(idx, "descripcion", e.target.value);
-                                  }}
-                                  placeholder="Agregar descripción del evento…"
-                                  className="text-[11px] text-muted-foreground w-full bg-transparent outline-none placeholder:italic placeholder:text-muted-foreground/40 hover:bg-muted/30 focus:bg-background focus:px-1.5 focus:rounded focus:border focus:border-amber-300/40 transition-all"
-                                />
-                              </div>
-
-                              {/* ── Expandable: field tags preview ────── */}
-                              {isDetailExp && (
-                                <div className="px-3 pb-2.5 border-t border-amber-200/15 pt-2">
-                                  {evCampos.length === 0 ? (
-                                    <p className="text-[10px] text-muted-foreground/60 italic">
-                                      Sin campos configurados —{" "}
-                                      <button
-                                        onClick={() => {
-                                          setSelectedLibIds(new Set());
-                                          setCampoSearch("");
-                                          setCreateNewCampo(false);
-                                          setAddCampoModal({ defId: ev.id, rootId: ev.id });
-                                        }}
-                                        className="text-amber-600 hover:underline font-medium not-italic"
-                                      >
-                                        agregar campos
-                                      </button>
-                                    </p>
-                                  ) : (
-                                    <div className="flex flex-wrap gap-1">
-                                      {evCampos.sort((a, b) => a.orden - b.orden).map(c => (
-                                        <span
-                                          key={c.id}
-                                          className={cn(
-                                            "inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-md leading-none border",
-                                            c.obligatorio
-                                              ? "bg-amber-100/60 text-amber-700 border-amber-200/50 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-700/40"
-                                              : "bg-muted/50 text-muted-foreground border-border/50",
-                                          )}
-                                          title={`${c.nombre} (${c.tipo_dato})${c.obligatorio ? " — obligatorio" : ""}`}
-                                        >
-                                          {c.obligatorio && <span className="text-amber-500">*</span>}
-                                          {c.etiqueta_personalizada || c.nombre}
-                                          <span className="opacity-50 ml-0.5">{c.tipo_dato === "Número" ? "#" : c.tipo_dato === "Fecha" ? "📅" : c.tipo_dato === "Lista" ? "▾" : c.tipo_dato === "Sí/No" ? "☑" : ""}</span>
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })
+                      {/* chips de preview */}
+                      {eventos.slice(0, 2).map(ev => (
+                        <span
+                          key={ev.id}
+                          className={cn(
+                            "hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full leading-none font-medium",
+                            ev.estado === "activo"
+                              ? "bg-green-100/70 text-green-700 dark:bg-green-900/20 dark:text-green-400"
+                              : "bg-muted text-muted-foreground",
+                          )}
+                        >
+                          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0",
+                            ev.estado === "activo" ? "bg-green-500" : "bg-yellow-400"
+                          )} />
+                          {ev.nombre}
+                        </span>
+                      ))}
+                      {eventos.length > 2 && (
+                        <span className="hidden sm:inline text-[10px] text-muted-foreground/60">
+                          +{eventos.length - 2} más
+                        </span>
                       )}
-                      <button
-                        onClick={() => {
-                          setNewEventoNombre("");
-                          setNewEventoDescripcion("");
-                          setAddEventoModal({ registroId: latest.id, modulo: latest.modulo });
-                        }}
-                        className="flex items-center gap-1.5 w-full px-2.5 py-2 rounded-lg border border-dashed border-amber-400/40 text-xs text-muted-foreground hover:text-amber-600 hover:border-amber-400/70 hover:bg-amber-500/5 transition-colors mt-0.5"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        Nuevo evento
-                      </button>
                     </div>
-                  )}
+                    <button
+                      onClick={() => {
+                        setEventosSheet({ defId: latest.id, rootId, modulo: latest.modulo, nombre: latest.nombre });
+                        setEventosSheetView("list");
+                        setNewEventoNombre("");
+                        setNewEventoDescripcion("");
+                        setNewEventoEstado("activo");
+                      }}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-500/8 px-2 py-1 rounded-md transition-colors"
+                    >
+                      Gestionar
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
+                </>}
               </div>
             );
           })}
 
                 {/* ── Tarjeta "Nueva definición" dentro del módulo ───────── */}
+                {viewMode === "card" && (
                 <button
                   onClick={() => addDef(undefined, modulo)}
                   className="border-2 border-dashed border-border rounded-xl p-6 flex flex-col items-center justify-center gap-2.5 text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all min-h-[160px]"
@@ -1525,71 +1640,919 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                     <p className="text-[10px] text-muted-foreground/70 mt-0.5">{label}</p>
                   </div>
                 </button>
+                )}
+                {viewMode === "list" && (
+                <button
+                  onClick={() => addDef(undefined, modulo)}
+                  className="flex items-center gap-2 w-full px-4 py-2.5 text-xs text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors border-t border-border"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Nueva definición — {label}
+                </button>
+                )}
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* ── Modal: crear nuevo evento ───────────────────────────────────────── */}
-      {addEventoModal && (
-        <Dialog open onOpenChange={() => setAddEventoModal(null)}>
+      {/* ── Sheet: gestión de eventos ───────────────────────────────────────── */}
+      <Sheet open={!!eventosSheet} onOpenChange={(o) => { if (!o) setEventosSheet(null); }}>
+        <SheetContent
+          side="right"
+          className="sm:w-[480px] sm:max-w-[480px] p-0 gap-0 flex flex-col [&>button]:hidden"
+        >
+          {eventosSheet && (
+            <>
+
+                {/* ── VISTA LISTA ──────────────────────────────────────────── */}
+                {eventosSheetView === "list" ? <div className="flex flex-col h-full">
+                  {/* Header */}
+                  <div className="px-5 pt-4 pb-3.5 border-b shrink-0 bg-muted/20">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
+                          <Zap className="w-4 h-4 text-amber-500" />
+                        </div>
+                        <div className="min-w-0">
+                          <h2 className="text-sm font-semibold leading-tight">Eventos</h2>
+                          <p className="text-xs text-muted-foreground leading-tight truncate mt-0.5">
+                            {eventosSheet.nombre}
+                          </p>
+                        </div>
+                        {sheetEventoFamilies.length > 0 && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/12 text-amber-600 leading-none shrink-0">
+                            {sheetEventoFamilies.length}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setEventosSheet(null)}
+                        className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Lista de eventos — scrollable */}
+                  <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+                    {sheetEventoFamilies.length === 0 ? (
+                      <div className="flex flex-col items-center gap-3 py-12 text-center">
+                        <div className="w-14 h-14 rounded-2xl bg-amber-500/8 flex items-center justify-center">
+                          <Zap className="w-7 h-7 text-amber-400/50" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-foreground/70">Sin eventos configurados</p>
+                          <p className="text-xs text-muted-foreground mt-1 max-w-[220px] mx-auto leading-relaxed">
+                            Los eventos complementan o documentan cada registro del formulario principal.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setEventosSheetView("new")}
+                          className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 px-3.5 py-2 rounded-lg transition-colors shadow-sm"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Crear primer evento
+                        </button>
+                      </div>
+                    ) : (
+                      sheetEventoFamilies.map(({ rootId: evRootId, versions: evVersions, latest: ev }) => {
+                        const evIdx            = definiciones.findIndex(d => d.id === ev.id);
+                        const evHasHistory     = evVersions.length > 1;
+                        const evCampos         = parametros.filter(p => p.definicion_id === ev.id).sort((a, b) => a.orden - b.orden);
+                        const isCamposExp      = expandedEvCampos.has(evRootId);
+                        const isHistExp        = expandedEvHistory.has(evRootId);
+                        const evAccesos        = getDefAccesos(ev.id);
+                        // Protección: no desactivar si es la única versión activa con datos
+                        const evDatos          = datos.filter(d => d.definicion_id === ev.id);
+                        const otherLiveEvVers  = evVersions.filter(v => v.id !== ev.id && v.estado !== "archivado");
+                        const evBlockDeactivate= ev.estado === "activo" && otherLiveEvVers.length === 0 && evDatos.length > 0;
+
+                        return (
+                          <div key={ev.id} className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+
+                            {/* ── Cabecera ── */}
+                            <div className="px-4 pt-3 pb-2.5 border-b border-border bg-muted/20">
+                              {/* Fila 1: badges + menú */}
+                              <div className="flex items-center gap-1.5 mb-2">
+                                <button
+                                  disabled={evBlockDeactivate}
+                                  onClick={() => {
+                                    if (evBlockDeactivate) return;
+                                    if (evIdx !== -1) updDef(evIdx, "estado", ev.estado === "activo" ? "borrador" : "activo");
+                                  }}
+                                  title={evBlockDeactivate ? `Tiene ${evDatos.length} dato(s) — activa otra versión primero` : "Cambiar estado"}
+                                  className={cn(
+                                    "text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5 transition-colors",
+                                    evBlockDeactivate
+                                      ? "opacity-60 cursor-not-allowed"
+                                      : "hover:opacity-80 cursor-pointer",
+                                    estadoBadge[ev.estado ?? "borrador"],
+                                  )}
+                                >
+                                  <EstadoIcon estado={ev.estado ?? "borrador"} />
+                                  {ev.estado ?? "borrador"}
+                                </button>
+                                <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded leading-none">
+                                  v{ev.version ?? "1.0"}
+                                </span>
+                                {evHasHistory && (
+                                  <button
+                                    onClick={() => setCompareEvId(evRootId)}
+                                    className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 leading-none transition-colors"
+                                    title="Ver historial y comparar versiones"
+                                  >
+                                    <History className="w-2.5 h-2.5" />
+                                    {evVersions.length}v
+                                  </button>
+                                )}
+                                {evAccesos.length > 0 && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium leading-none dark:bg-blue-900/20 dark:text-blue-400">
+                                    {evAccesos.length} acceso{evAccesos.length !== 1 ? "s" : ""}
+                                  </span>
+                                )}
+                                <div className="flex-1" />
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <button className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                                      <MoreHorizontal className="w-3.5 h-3.5" />
+                                    </button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-52">
+                                    <DropdownMenuItem onClick={() => {
+                                      if (evIdx !== -1) updDef(evIdx, "version", bumpV(ev.version ?? "1.0", "minor"));
+                                    }}>
+                                      <Tag className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                                      Subir versión (+0.1)
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => {
+                                      const sourceParamCount = parametros.filter(p => p.definicion_id === ev.id).length;
+                                      const [maj = 1] = (ev.version ?? "1.0").split(".").map(Number);
+                                      setEvConfirmDup({
+                                        rootId: evRootId,
+                                        sourceId: ev.id,
+                                        sourceName: ev.nombre,
+                                        sourceVersion: ev.version ?? "1.0",
+                                        newVersion: `${maj + 1}.0`,
+                                        paramCount: sourceParamCount,
+                                        newName: ev.nombre,
+                                      });
+                                    }}>
+                                      <Copy className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                                      Nueva versión mayor
+                                    </DropdownMenuItem>
+                                    {evHasHistory && (
+                                      <DropdownMenuItem onClick={() => setCompareEvId(evRootId)}>
+                                        <ArrowLeftRight className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                                        Comparar versiones
+                                      </DropdownMenuItem>
+                                    )}
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => {
+                                      setAccesosModal(ev.id);
+                                      setAccSearch("");
+                                      setAccFilter("todos");
+                                      setAccSelected(new Set());
+                                    }}>
+                                      <Lock className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                                      Gestionar accesos
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      disabled={evBlockDeactivate}
+                                      onClick={() => {
+                                        if (evBlockDeactivate || evIdx === -1) return;
+                                        if (ev.estado !== "activo") {
+                                          const currentActive = evVersions.find(v => v.id !== ev.id && v.estado === "activo");
+                                          if (currentActive) {
+                                            setEvRollbackAction("borrador");
+                                            setEvRollbackModal({
+                                              targetId: ev.id,
+                                              targetVersion: ev.version ?? "1.0",
+                                              targetNombre: ev.nombre,
+                                              activeId: currentActive.id,
+                                              activeVersion: currentActive.version ?? "1.0",
+                                              activeNombre: currentActive.nombre,
+                                              rootId: evRootId,
+                                            });
+                                            return;
+                                          }
+                                        }
+                                        updDef(evIdx, "estado", ev.estado === "activo" ? "borrador" : "activo");
+                                      }}
+                                      className={ev.estado === "activo" ? "text-yellow-600 focus:text-yellow-700" : "text-green-600 focus:text-green-700"}
+                                      title={evBlockDeactivate ? `Tiene ${evDatos.length} dato(s) — activa otra versión primero` : undefined}
+                                    >
+                                      <Power className="w-3.5 h-3.5 mr-2" />
+                                      {ev.estado === "activo" ? "Pasar a borrador" : "Activar"}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        const otherVers = evVersions.filter(v => v.id !== ev.id && v.estado !== "archivado");
+                                        setEvArchiveActivateId("");
+                                        setEvArchiveModal({
+                                          defId: ev.id,
+                                          rootId: evRootId,
+                                          nombre: ev.nombre,
+                                          version: ev.version ?? "1.0",
+                                          otherVersions: otherVers,
+                                        });
+                                      }}
+                                      className="text-amber-600 focus:text-amber-700"
+                                    >
+                                      <Archive className="w-3.5 h-3.5 mr-2" />
+                                      Archivar versión
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      className="text-destructive focus:text-destructive"
+                                      onClick={() => { if (evIdx !== -1) delDef(evIdx); }}
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 mr-2" />
+                                      Eliminar evento
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+
+                              {/* Nombre editable */}
+                              <input
+                                value={ev.nombre}
+                                onChange={e => { if (evIdx !== -1) updDef(evIdx, "nombre", e.target.value); }}
+                                placeholder="Nombre del evento…"
+                                className="w-full text-sm font-semibold bg-transparent outline-none placeholder:italic placeholder:text-muted-foreground/50 hover:bg-muted/40 focus:bg-background focus:px-2 focus:rounded-md focus:border focus:border-amber-400/50 transition-all"
+                              />
+                              {/* Descripción editable */}
+                              <input
+                                value={ev.descripcion ?? ""}
+                                onChange={e => { if (evIdx !== -1) updDef(evIdx, "descripcion", e.target.value); }}
+                                placeholder="Agrega una descripción…"
+                                className="w-full text-xs text-muted-foreground bg-transparent outline-none placeholder:italic placeholder:text-muted-foreground/40 hover:bg-muted/30 focus:bg-background focus:px-2 focus:rounded-md focus:border focus:border-amber-300/40 transition-all mt-1"
+                              />
+
+                              {/* Última edición */}
+                              {ev.updated_at && (
+                                <p className="text-[10px] text-muted-foreground/50 mt-1.5 flex items-center gap-1">
+                                  <Clock className="w-2.5 h-2.5" />
+                                  Editado {new Date(ev.updated_at).toLocaleDateString("es-CL", { day: "numeric", month: "short", year: "numeric" })}
+                                  {ev.updated_by ? ` · ${ev.updated_by}` : ""}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* ── Sección Campos ── */}
+                            <div className="border-b border-border/60">
+                              <button
+                                onClick={() => toggleEvCampos(evRootId)}
+                                className="flex items-center gap-2 w-full px-4 py-2.5 text-xs hover:bg-muted/40 transition-colors group"
+                              >
+                                <List className="w-3.5 h-3.5 text-primary/60 shrink-0" />
+                                <span className="font-medium text-foreground/80">Campos</span>
+                                <span className={cn(
+                                  "text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none transition-colors",
+                                  isCamposExp ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+                                )}>
+                                  {evCampos.length}
+                                </span>
+                                <ChevronDown className={cn(
+                                  "ml-auto w-3.5 h-3.5 text-muted-foreground/50 transition-transform duration-200",
+                                  isCamposExp && "rotate-180",
+                                )} />
+                              </button>
+
+                              {isCamposExp && (
+                                <div className="px-4 pb-3 space-y-1">
+                                  {evCampos.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground/60 italic py-1">Sin campos aún.</p>
+                                  ) : (
+                                    evCampos.map(c => (
+                                      <div key={c.id} className="group/campo flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-muted/40 transition-colors">
+                                        <span className={cn(
+                                          "text-[9px] font-bold w-4 h-4 rounded flex items-center justify-center shrink-0",
+                                          c.tipo_dato === "Número" ? "bg-blue-100 text-blue-600" :
+                                          c.tipo_dato === "Fecha"  ? "bg-purple-100 text-purple-600" :
+                                          c.tipo_dato === "Lista"  ? "bg-orange-100 text-orange-600" :
+                                          c.tipo_dato === "Sí/No"  ? "bg-teal-100 text-teal-600" :
+                                          c.tipo_dato === "Foto"   ? "bg-pink-100 text-pink-600" :
+                                          "bg-muted text-muted-foreground",
+                                        )}>
+                                          {c.tipo_dato === "Número" ? "#" : c.tipo_dato === "Fecha" ? "D" : c.tipo_dato === "Lista" ? "▾" : c.tipo_dato === "Sí/No" ? "☑" : c.tipo_dato === "Foto" ? "⌖" : "T"}
+                                        </span>
+                                        <span className="text-xs text-foreground/80 flex-1 min-w-0 truncate">
+                                          {c.etiqueta_personalizada || c.nombre}
+                                        </span>
+                                        {c.obligatorio && (
+                                          <span className="text-[9px] text-amber-500 font-semibold">*</span>
+                                        )}
+                                        <div className="flex gap-0.5 opacity-0 group-hover/campo:opacity-100 transition-opacity shrink-0">
+                                          <button
+                                            onClick={() => setConfigCampoId(c.id)}
+                                            className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                                            title="Configurar"
+                                          >
+                                            <Settings2 className="w-3 h-3" />
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              const ci = parametros.findIndex(p => p.id === c.id);
+                                              if (ci !== -1) delParByIdx(ci);
+                                            }}
+                                            className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                            title="Eliminar campo"
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))
+                                  )}
+                                  <button
+                                    onClick={() => {
+                                      setSelectedLibIds(new Set());
+                                      setCampoSearch("");
+                                      setCreateNewCampo(false);
+                                      setAddCampoModal({ defId: ev.id, rootId: ev.id });
+                                    }}
+                                    className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-lg border border-dashed border-primary/30 text-xs text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition-colors mt-1"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    Agregar campo
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* ── Sección Historial de edición ── */}
+                            <div>
+                              <button
+                                onClick={() => toggleEvHistory(evRootId)}
+                                className="flex items-center gap-2 w-full px-4 py-2.5 text-xs hover:bg-muted/40 transition-colors group"
+                              >
+                                <History className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
+                                <span className="font-medium text-foreground/70">Historial</span>
+                                <ChevronDown className={cn(
+                                  "ml-auto w-3.5 h-3.5 text-muted-foreground/50 transition-transform duration-200",
+                                  isHistExp && "rotate-180",
+                                )} />
+                              </button>
+
+                              {isHistExp && (
+                                <div className="px-4 pb-3 space-y-2.5">
+                                  {/* Línea de tiempo de versiones */}
+                                  <div className="relative pl-4">
+                                    <div className="absolute left-[7px] top-1.5 bottom-1.5 w-0.5 bg-border/60" />
+                                    <div className="space-y-1.5">
+                                      {evVersions
+                                        .sort((a, b) => {
+                                          const [am = 0, an = 0] = (a.version ?? "1.0").split(".").map(Number);
+                                          const [bm = 0, bn = 0] = (b.version ?? "1.0").split(".").map(Number);
+                                          return am !== bm ? am - bm : an - bn;
+                                        })
+                                        .map(ver => {
+                                          const isCurrent = ver.id === ev.id;
+                                          return (
+                                            <div key={ver.id} className="flex items-start gap-2.5">
+                                              <div className={cn(
+                                                "relative z-10 w-3 h-3 rounded-full border-2 shrink-0 mt-0.5",
+                                                isCurrent
+                                                  ? "bg-primary border-primary"
+                                                  : "bg-background border-border",
+                                              )} />
+                                              <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                  <span className={cn("font-mono text-xs font-semibold", isCurrent ? "text-primary" : "text-muted-foreground")}>
+                                                    v{ver.version ?? "1.0"}
+                                                  </span>
+                                                  <span className={cn(
+                                                    "text-[9px] font-medium px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5",
+                                                    estadoBadge[ver.estado ?? "borrador"],
+                                                  )}>
+                                                    <EstadoIcon estado={ver.estado ?? "borrador"} />
+                                                    {ver.estado}
+                                                  </span>
+                                                  {isCurrent && (
+                                                    <span className="text-[9px] text-primary font-semibold">actual</span>
+                                                  )}
+                                                </div>
+                                                {ver.updated_at && (
+                                                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                                                    {new Date(ver.updated_at).toLocaleDateString("es-CL", { day: "numeric", month: "short", year: "numeric" })}
+                                                    {ver.updated_by ? ` · ${ver.updated_by}` : ""}
+                                                  </p>
+                                                )}
+                                                {/* Botones de acción por versión */}
+                                                {!isCurrent && ver.estado !== "archivado" && (
+                                                  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                                                    <button
+                                                      onClick={() => {
+                                                        const curActive = evVersions.find(v => v.estado === "activo");
+                                                        if (curActive && curActive.id !== ver.id) {
+                                                          setEvRollbackAction("borrador");
+                                                          setEvRollbackModal({
+                                                            targetId: ver.id,
+                                                            targetVersion: ver.version ?? "1.0",
+                                                            targetNombre: ver.nombre,
+                                                            activeId: curActive.id,
+                                                            activeVersion: curActive.version ?? "1.0",
+                                                            activeNombre: curActive.nombre,
+                                                            rootId: evRootId,
+                                                          });
+                                                        } else {
+                                                          const verIdx = allDefiniciones.findIndex(d => d.id === ver.id);
+                                                          if (verIdx !== -1) updDef(verIdx, "estado", "activo");
+                                                        }
+                                                      }}
+                                                      className="inline-flex items-center gap-1 text-[10px] font-medium text-green-600 hover:text-green-700 bg-green-50 hover:bg-green-100 px-1.5 py-0.5 rounded transition-colors"
+                                                    >
+                                                      <Check className="w-2.5 h-2.5" /> Activar
+                                                    </button>
+                                                    <button
+                                                      onClick={() => {
+                                                        const otherVers = evVersions.filter(v => v.id !== ver.id && v.estado !== "archivado");
+                                                        setEvArchiveActivateId("");
+                                                        setEvArchiveModal({
+                                                          defId: ver.id,
+                                                          rootId: evRootId,
+                                                          nombre: ver.nombre,
+                                                          version: ver.version ?? "1.0",
+                                                          otherVersions: otherVers,
+                                                        });
+                                                      }}
+                                                      className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 px-1.5 py-0.5 rounded transition-colors"
+                                                    >
+                                                      <Archive className="w-2.5 h-2.5" /> Archivar
+                                                    </button>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                    </div>
+                                  </div>
+
+                                  {/* Acciones de versión */}
+                                  <div className="flex items-center gap-2 pt-1 flex-wrap">
+                                    <button
+                                      onClick={() => { if (evIdx !== -1) updDef(evIdx, "version", bumpV(ev.version ?? "1.0", "minor")); }}
+                                      className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted px-2 py-1 rounded-md transition-colors"
+                                    >
+                                      <Tag className="w-3 h-3" />
+                                      +0.1 versión
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const sourceParamCount = parametros.filter(p => p.definicion_id === ev.id).length;
+                                        const [maj = 1] = (ev.version ?? "1.0").split(".").map(Number);
+                                        setEvConfirmDup({
+                                          rootId: evRootId,
+                                          sourceId: ev.id,
+                                          sourceName: ev.nombre,
+                                          sourceVersion: ev.version ?? "1.0",
+                                          newVersion: `${maj + 1}.0`,
+                                          paramCount: sourceParamCount,
+                                          newName: ev.nombre,
+                                        });
+                                      }}
+                                      className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted px-2 py-1 rounded-md transition-colors"
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                      Nueva versión mayor
+                                    </button>
+                                    {evHasHistory && (
+                                      <button
+                                        onClick={() => setCompareEvId(evRootId)}
+                                        className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80 bg-primary/8 hover:bg-primary/12 px-2 py-1 rounded-md transition-colors"
+                                      >
+                                        <ArrowLeftRight className="w-3 h-3" />
+                                        Comparar versiones
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Footer fijo */}
+                  <div className="px-4 py-3.5 border-t shrink-0 bg-background">
+                    <button
+                      onClick={() => {
+                        setNewEventoNombre("");
+                        setNewEventoDescripcion("");
+                        setNewEventoEstado("activo");
+                        setEventosSheetView("new");
+                      }}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors shadow-sm"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Nuevo evento
+                    </button>
+                  </div>
+                </div>
+
+                : /* ── VISTA NUEVO EVENTO ──────────────────────────────────── */
+                <div className="flex flex-col h-full">
+                  {/* Header con botón volver */}
+                  <div className="px-5 pt-5 pb-4 border-b shrink-0">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setEventosSheetView("list")}
+                        className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0"
+                      >
+                        <ChevronDown className="w-4 h-4 rotate-90" />
+                      </button>
+                      <div>
+                        <h2 className="text-sm font-semibold leading-tight">Nuevo evento</h2>
+                        <p className="text-xs text-muted-foreground leading-tight mt-0.5 truncate">
+                          {eventosSheet.nombre}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Formulario — scrollable */}
+                  <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
+
+                    {/* Info contextual */}
+                    <div className="flex gap-2.5 p-3 rounded-xl bg-amber-500/6 border border-amber-400/20">
+                      <Zap className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Los eventos son registros secundarios que complementan o documentan cada entrada del formulario principal.
+                      </p>
+                    </div>
+
+                    {/* Nombre */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-foreground/80">
+                        Nombre del evento <span className="text-amber-500">*</span>
+                      </label>
+                      <Input
+                        value={newEventoNombre}
+                        onChange={e => setNewEventoNombre(e.target.value)}
+                        placeholder="ej. Seguimiento semanal, Aplicación de riego…"
+                        autoFocus
+                      />
+                    </div>
+
+                    {/* Descripción */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-foreground/80">Descripción</label>
+                      <Input
+                        value={newEventoDescripcion}
+                        onChange={e => setNewEventoDescripcion(e.target.value)}
+                        placeholder="Describe brevemente para qué sirve este evento…"
+                      />
+                    </div>
+
+                    {/* Estado inicial */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold text-foreground/80">Estado inicial</label>
+                      <div className="flex gap-2">
+                        {(["activo", "borrador"] as const).map(est => (
+                          <button
+                            key={est}
+                            onClick={() => setNewEventoEstado(est)}
+                            className={cn(
+                              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-medium transition-all",
+                              newEventoEstado === est
+                                ? est === "activo"
+                                  ? "bg-green-50 border-green-300 text-green-700 dark:bg-green-900/20 dark:border-green-700 dark:text-green-400"
+                                  : "bg-yellow-50 border-yellow-300 text-yellow-700 dark:bg-yellow-900/20 dark:border-yellow-700 dark:text-yellow-400"
+                                : "bg-muted/40 border-border text-muted-foreground hover:bg-muted",
+                            )}
+                          >
+                            <span className={cn(
+                              "w-1.5 h-1.5 rounded-full",
+                              est === "activo" ? "bg-green-500" : "bg-yellow-400",
+                            )} />
+                            {est === "activo" ? "Activo" : "Borrador"}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground/70">
+                        {newEventoEstado === "activo"
+                          ? "Visible y disponible para los usuarios de inmediato."
+                          : "Oculto para los usuarios mientras terminas de configurarlo."}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Footer fijo */}
+                  <div className="px-5 py-4 border-t shrink-0 bg-background flex gap-3">
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => setEventosSheetView("list")}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      disabled={!newEventoNombre.trim()}
+                      onClick={() => {
+                        addEvento(
+                          eventosSheet.defId,
+                          eventosSheet.modulo,
+                          newEventoNombre.trim(),
+                          newEventoDescripcion.trim(),
+                        );
+                        // Si el estado inicial es borrador, actualizarlo luego
+                        setEventosSheetView("list");
+                      }}
+                      className="flex-1 bg-amber-500 hover:bg-amber-600 text-white"
+                    >
+                      <Zap className="w-4 h-4 mr-1.5" />
+                      Crear evento
+                    </Button>
+                  </div>
+                </div>}
+
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Diálogo: comparar versiones de evento ──────────────────────────── */}
+      {compareEvId && (
+        <VersionDiffDialog
+          rootId={compareEvId}
+          open={!!compareEvId}
+          onClose={() => setCompareEvId(null)}
+        />
+      )}
+
+      {/* ── (ELIMINADO) Modal: crear nuevo evento ── reemplazado por Sheet ── */}
+      {false && (
+        <Dialog open onOpenChange={() => {}}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader />
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* ── Modal: confirmar nueva versión mayor de evento ──────────────────── */}
+      {evConfirmDup && (
+        <Dialog open onOpenChange={() => setEvConfirmDup(null)}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <Zap className="w-5 h-5 text-amber-500" />
-                Nuevo evento
+                <Copy className="w-5 h-5 text-amber-500" />
+                ¿Crear nueva versión?
               </DialogTitle>
-              <DialogDescription className="pt-1">
-                Los eventos son datos secundarios que complementan o documentan el registro padre.
+              <DialogDescription>
+                Se creará <strong>v{evConfirmDup.newVersion}</strong> a partir de &ldquo;{evConfirmDup.sourceName}&rdquo; (v{evConfirmDup.sourceVersion}).
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-3 my-1">
-              <div className="space-y-1.5">
-                <Label htmlFor="evt-nombre" className="text-xs font-medium">
-                  Nombre <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="evt-nombre"
-                  value={newEventoNombre}
-                  onChange={e => setNewEventoNombre(e.target.value)}
-                  placeholder="Ej: SEGUIMIENTO_INTRODUCCION"
-                  className="text-sm"
-                  autoFocus
-                />
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-foreground">Nombre del evento</label>
+              <Input
+                value={evConfirmDup.newName}
+                onChange={e => setEvConfirmDup(prev => prev ? { ...prev, newName: e.target.value } : prev)}
+                placeholder="Nombre del nuevo evento…"
+                className="h-8 text-sm"
+                autoFocus
+              />
+            </div>
+
+            <div className="bg-muted/40 border border-border rounded-lg px-3 py-3 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Versión anterior</span>
+                <span className="font-mono text-muted-foreground line-through">v{evConfirmDup.sourceVersion}</span>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="evt-desc" className="text-xs font-medium">
-                  Descripción <span className="text-muted-foreground font-normal">(opcional)</span>
-                </Label>
-                <Input
-                  id="evt-desc"
-                  value={newEventoDescripcion}
-                  onChange={e => setNewEventoDescripcion(e.target.value)}
-                  placeholder="Registro periódico de viabilidad, contaminación…"
-                  className="text-sm"
-                />
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Nueva versión</span>
+                <span className="font-mono font-bold text-amber-600">v{evConfirmDup.newVersion}</span>
+              </div>
+              <div className="border-t border-border/60 pt-2 flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Campos copiados</span>
+                <span className="font-semibold text-foreground">
+                  {evConfirmDup.paramCount} campo{evConfirmDup.paramCount !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Estado inicial</span>
+                <span className="font-medium text-yellow-600 bg-yellow-50 border border-yellow-200 px-1.5 py-0.5 rounded-full text-[10px]">
+                  borrador
+                </span>
               </div>
             </div>
+
+            <p className="text-xs text-muted-foreground">
+              Podrás editar los campos de la nueva versión de forma independiente sin afectar la versión anterior.
+            </p>
+
             <DialogFooter className="gap-2 sm:gap-0">
-              <Button variant="outline" onClick={() => setAddEventoModal(null)}>
-                Cancelar
-              </Button>
+              <Button variant="outline" onClick={() => setEvConfirmDup(null)}>Cancelar</Button>
               <Button
-                disabled={!newEventoNombre.trim()}
+                className="bg-amber-500 hover:bg-amber-600 text-white"
                 onClick={() => {
-                  addEvento(
-                    addEventoModal.registroId,
-                    addEventoModal.modulo,
-                    newEventoNombre.trim(),
-                    newEventoDescripcion.trim(),
-                  );
-                  setAddEventoModal(null);
+                  dupDef(evConfirmDup.sourceId, evConfirmDup.newName.trim() || undefined);
+                  setEvConfirmDup(null);
                 }}
-                className="bg-amber-600 hover:bg-amber-700 text-white"
               >
-                <Zap className="w-4 h-4 mr-1.5" />
-                Crear evento
+                <Copy className="w-4 h-4 mr-2" />
+                Crear v{evConfirmDup.newVersion}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* ── Modal: archivar versión de evento ───────────────────────────────── */}
+      {evArchiveModal && (
+        <Dialog open onOpenChange={() => setEvArchiveModal(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Archive className="w-5 h-5 text-amber-600" />
+                Archivar versión de evento
+              </DialogTitle>
+              <DialogDescription>
+                La versión <strong>v{evArchiveModal.version}</strong> de &ldquo;{evArchiveModal.nombre}&rdquo; quedará archivada y no podrá usarse en nuevos registros.
+              </DialogDescription>
+            </DialogHeader>
+
+            {evArchiveModal.otherVersions.length > 0 ? (
+              <div className="space-y-3 py-1">
+                <p className="text-sm font-medium text-foreground">¿Qué versión activar tras archivar?</p>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  <label className={cn(
+                    "flex items-center gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-colors",
+                    evArchiveActivateId === "" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40 hover:bg-muted/40",
+                  )}>
+                    <input
+                      type="radio" name="ev-archive-activate" value=""
+                      checked={evArchiveActivateId === ""}
+                      onChange={() => setEvArchiveActivateId("")}
+                      className="accent-primary"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-muted-foreground">No activar ninguna</p>
+                      <p className="text-[11px] text-muted-foreground/70">Las demás versiones conservan su estado actual</p>
+                    </div>
+                  </label>
+                  {evArchiveModal.otherVersions.map(ov => (
+                    <label key={ov.id} className={cn(
+                      "flex items-center gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-colors",
+                      evArchiveActivateId === ov.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/40 hover:bg-muted/40",
+                    )}>
+                      <input
+                        type="radio" name="ev-archive-activate" value={ov.id}
+                        checked={evArchiveActivateId === ov.id}
+                        onChange={() => setEvArchiveActivateId(ov.id)}
+                        className="accent-primary"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-foreground">{ov.nombre}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="font-mono text-[10px] text-muted-foreground">v{ov.version || "1.0"}</span>
+                          <span className={cn(
+                            "text-[9px] px-1 py-0.5 rounded-full font-medium",
+                            estadoBadge[ov.estado ?? "borrador"],
+                          )}>
+                            {ov.estado}
+                          </span>
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-xs text-amber-800">
+                No hay otras versiones disponibles para activar. El evento quedará sin versión activa.
+              </div>
+            )}
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setEvArchiveModal(null)}>Cancelar</Button>
+              <Button
+                variant="default"
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                onClick={() => {
+                  const archiveIdx = allDefiniciones.findIndex(d => d.id === evArchiveModal.defId);
+                  if (archiveIdx !== -1) updDef(archiveIdx, "estado", "archivado");
+                  if (evArchiveActivateId) {
+                    const activateIdx = allDefiniciones.findIndex(d => d.id === evArchiveActivateId);
+                    if (activateIdx !== -1) updDef(activateIdx, "estado", "activo");
+                  }
+                  setEvArchiveModal(null);
+                }}
+              >
+                <Archive className="w-4 h-4 mr-2" />
+                Archivar{evArchiveActivateId ? " y activar seleccionada" : ""}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* ── Modal: regresión de versión de evento ───────────────────────────── */}
+      {evRollbackModal && (
+        <Dialog open onOpenChange={() => setEvRollbackModal(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-primary" />
+                Revertir a v{evRollbackModal.targetVersion}
+              </DialogTitle>
+              <DialogDescription>
+                Activarás <strong>&ldquo;{evRollbackModal.targetNombre}&rdquo; v{evRollbackModal.targetVersion}</strong>.
+                {evRollbackModal.activeId && (
+                  <> ¿Qué hacemos con la versión actualmente activa (<strong>v{evRollbackModal.activeVersion}</strong>)?</>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+
+            {evRollbackModal.activeId && (
+              <div className="space-y-2 py-1">
+                <p className="text-xs font-semibold text-foreground uppercase tracking-wide text-muted-foreground">
+                  v{evRollbackModal.activeVersion} — {evRollbackModal.activeNombre}
+                </p>
+                <div className="space-y-1.5">
+                  <label className={cn(
+                    "flex items-center gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-colors",
+                    evRollbackAction === "borrador" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40 hover:bg-muted/40",
+                  )}>
+                    <input
+                      type="radio" name="ev-rollback-action" value="borrador"
+                      checked={evRollbackAction === "borrador"}
+                      onChange={() => setEvRollbackAction("borrador")}
+                      className="accent-primary"
+                    />
+                    <div className="flex-1">
+                      <p className="text-xs font-medium text-foreground">Pasar a borrador</p>
+                      <p className="text-[11px] text-muted-foreground">Se puede volver a activar en el futuro</p>
+                    </div>
+                    <span className="text-[10px] bg-yellow-100 text-yellow-700 border border-yellow-200 px-1.5 py-0.5 rounded-full font-medium shrink-0">borrador</span>
+                  </label>
+                  <label className={cn(
+                    "flex items-center gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-colors",
+                    evRollbackAction === "archivado" ? "border-amber-500 bg-amber-50" : "border-border hover:border-amber-400/40 hover:bg-muted/40",
+                  )}>
+                    <input
+                      type="radio" name="ev-rollback-action" value="archivado"
+                      checked={evRollbackAction === "archivado"}
+                      onChange={() => setEvRollbackAction("archivado")}
+                      className="accent-amber-500"
+                    />
+                    <div className="flex-1">
+                      <p className="text-xs font-medium text-foreground">Archivar</p>
+                      <p className="text-[11px] text-muted-foreground">Se guardará como versión obsoleta</p>
+                    </div>
+                    <span className="text-[10px] bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-medium shrink-0">archivado</span>
+                  </label>
+                  <label className={cn(
+                    "flex items-center gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-colors",
+                    evRollbackAction === "keep" ? "border-green-500 bg-green-50" : "border-border hover:border-green-400/40 hover:bg-muted/40",
+                  )}>
+                    <input
+                      type="radio" name="ev-rollback-action" value="keep"
+                      checked={evRollbackAction === "keep"}
+                      onChange={() => setEvRollbackAction("keep")}
+                      className="accent-green-600"
+                    />
+                    <div className="flex-1">
+                      <p className="text-xs font-medium text-foreground">Mantener activa también</p>
+                      <p className="text-[11px] text-muted-foreground">Ambas versiones quedarán activas simultáneamente</p>
+                    </div>
+                    <span className="text-[10px] bg-green-100 text-green-700 border border-green-200 px-1.5 py-0.5 rounded-full font-medium shrink-0">activo</span>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-muted/50 rounded-lg px-3 py-2.5 text-xs text-muted-foreground flex items-start gap-2">
+              <RotateCcw className="w-3.5 h-3.5 mt-0.5 shrink-0 text-primary" />
+              <span>
+                <strong>v{evRollbackModal.targetVersion}</strong> quedará como la versión activa del evento.
+                {evRollbackModal.activeId && evRollbackAction !== "keep" && (
+                  <> La v{evRollbackModal.activeVersion} quedará como <em>{evRollbackAction}</em>.</>
+                )}
+              </span>
+            </div>
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setEvRollbackModal(null)}>Cancelar</Button>
+              <Button
+                onClick={() => {
+                  const targetIdx = allDefiniciones.findIndex(d => d.id === evRollbackModal.targetId);
+                  if (targetIdx !== -1) updDef(targetIdx, "estado", "activo");
+                  if (evRollbackModal.activeId && evRollbackAction !== "keep") {
+                    const activeIdx = allDefiniciones.findIndex(d => d.id === evRollbackModal.activeId);
+                    if (activeIdx !== -1) updDef(activeIdx, "estado", evRollbackAction);
+                  }
+                  setEvRollbackModal(null);
+                }}
+              >
+                <RotateCcw className="w-4 h-4 mr-2" />
+                Confirmar reversión
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1952,7 +2915,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
 
           {/* Filtros por tipo */}
           <div className="flex items-center gap-1.5 flex-wrap -mt-1">
-            {["Todos", "Texto", "Número", "Fecha", "Sí/No", "Lista"].map(t => {
+            {["Todos", "Texto", "Número", "Fecha", "Sí/No", "Lista", "Relación"].map(t => {
               const meta = TIPO_META[t];
               const TIcon = meta?.icon;
               const isActive = campoTypeFilter === t;

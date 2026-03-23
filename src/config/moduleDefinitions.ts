@@ -18,7 +18,7 @@ export type TipoConfig =
   | "trazabilidad"
   | "inventario"
   | "personalizado";
-export type TipoDato   = "Texto" | "Número" | "Fecha" | "Sí/No" | "Lista" | "Foto" | "Archivo";
+export type TipoDato   = "Texto" | "Número" | "Fecha" | "Sí/No" | "Lista" | "Foto" | "Archivo" | "Relación";
 export type EstadoDef  = "activo" | "borrador" | "archivado";
 
 // ─── Parametro — Biblioteca Global ────────────────────────────────────────────
@@ -34,6 +34,13 @@ export interface Parametro {
   descripcion:         string;
   obligatorio_default: boolean;
   activo:              boolean;
+  // ── Tipo "Relación": lookup a registros de otra definición ──────────────────
+  /** ID de la ModDef fuente de donde se traen los registros */
+  relacion_def_id?:       string | null;
+  /** Nombre del campo que se muestra como label en el dropdown */
+  relacion_campo_label?:  string | null;
+  /** Nombre del campo que se guarda como valor */
+  relacion_campo_valor?:  string | null;
 }
 
 // ─── ModDef — Definicion_registro ─────────────────────────────────────────────
@@ -155,21 +162,45 @@ export interface ModParam {
   filtrable_busqueda?:       boolean;
   /** Permite ordenar la columna ascendente / descendente al hacer clic en el header */
   ordenable?:                boolean;
-  /** Fuente de datos del campo. "manual" = entrada del usuario (default), "ia" = llenado automático por IA, "ia_editable" = IA sugiere pero el usuario puede corregir */
-  fuente_datos?:             "manual" | "ia" | "ia_editable";
+  /** Fuente de datos del campo. "manual" = entrada del usuario (default), "ia" = IA genera, "ia_editable" = IA sugiere, "ml" = Machine Learning, "ml_editable" = ML sugiere */
+  fuente_datos?:             "manual" | "ia" | "ia_editable" | "ml" | "ml_editable";
   /** Instrucción para la IA: qué dato debe extraer del input (foto, texto, etc.). Ej: "Identificar plagas visibles en la imagen" */
   ia_instruccion?:           string;
+  // ── Machine Learning / Visión Computacional ─────────────────────────────────
+  /** Modelo ML a usar: "color_detection", "fruit_counter", "quality_classifier", "defect_detector", "size_estimator", "ripeness_detector", "custom" */
+  ml_modelo?:                string | null;
+  /** Instrucción personalizada para el modelo ML (usado con modelo "custom" o para ajustar otros) */
+  ml_instruccion?:           string | null;
+  /** ID del campo de tipo Foto del que se tomará la imagen para analizar */
+  ml_campo_imagen?:          string | null;
+  // ── Tipo "Relación": lookup a registros de otra definición ──────────────────
+  /** ID de la ModDef fuente de donde se traen los registros */
+  relacion_def_id?:          string | null;
+  /** Nombre del campo de los registros fuente que se muestra como label en el dropdown */
+  relacion_campo_label?:     string | null;
+  /** Nombre del campo de los registros fuente que se guarda como valor (default: mismo que label) */
+  relacion_campo_valor?:     string | null;
+  // ── Tipo "Número" calculado: operaciones sobre otros campos ─────────────────
+  /** Si es true, este campo se calcula automáticamente desde otros campos */
+  es_calculado?:             boolean;
+  /** Tipo de cálculo: suma, promedio, etc. */
+  calculo_tipo?:             "suma" | "promedio" | "maximo" | "minimo" | "formula_personalizada";
+  /** Campos de otros formularios que participan en el cálculo */
+  calculo_campos?:           { definicion_id: string; campo_nombre: string; }[];
+  /** Fórmula personalizada (solo si calculo_tipo = "formula_personalizada") */
+  calculo_formula?:          string;
 }
 
 // ─── ModDato — Datos_registro ─────────────────────────────────────────────────
 
 export interface ModDato {
-  id:            string;
-  definicion_id: string;
-  cultivo_id?:   string; // qué cultivo generó este registro (obligatorio en formas globales)
-  referencia:    string;
-  fecha:         string;
-  valores:       string; // JSONB: { [campo]: valor }
+  id:                     string;
+  definicion_id:          string;
+  cultivo_id?:            string; // qué cultivo generó este registro (obligatorio en formas globales)
+  registro_padre_dato_id?: string; // para eventos: ID específico del dato del registro padre
+  referencia:             string;
+  fecha:                  string;
+  valores:                string; // JSONB: { [campo]: valor }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -190,6 +221,10 @@ export const PARAMETROS_LIBRARY: Parametro[] = [
   { id: "p-07", nombre: "mm_minimo",         codigo: "MM_MIN",   tipo_dato: "Número", unidad_medida: "mm",     descripcion: "Milímetros mínimos de calibre",              obligatorio_default: true,  activo: true },
   { id: "p-08", nombre: "mm_maximo",         codigo: "MM_MAX",   tipo_dato: "Número", unidad_medida: "mm",     descripcion: "Milímetros máximos de calibre",              obligatorio_default: true,  activo: true },
   { id: "p-09", nombre: "peso_g_minimo",     codigo: "PES_MIN",  tipo_dato: "Número", unidad_medida: "gr",     descripcion: "Peso mínimo en gramos",                      obligatorio_default: false, activo: true },
+  // Relaciones (lookup a otras definiciones)
+  { id: "p-rel-01", nombre: "personal_siembra",    codigo: "PER_SIE",  tipo_dato: "Relación", unidad_medida: "", descripcion: "Personal que realizó la siembra (lookup a registro de Personal)", obligatorio_default: false, activo: true },
+  { id: "p-rel-02", nombre: "personal_cosecha",     codigo: "PER_COS",  tipo_dato: "Relación", unidad_medida: "", descripcion: "Personal que realizó la cosecha (lookup a registro de Personal)", obligatorio_default: false, activo: true },
+  { id: "p-rel-03", nombre: "personal_aplicacion",  codigo: "PER_APL",  tipo_dato: "Relación", unidad_medida: "", descripcion: "Personal que realizó la aplicación (lookup a registro de Personal)", obligatorio_default: false, activo: true },
   // Personal
   { id: "p-10", nombre: "rut",               codigo: "RUT",      tipo_dato: "Texto",  unidad_medida: "",       descripcion: "RUT o DNI del trabajador",                   obligatorio_default: true,  activo: true },
   { id: "p-11", nombre: "nombre_completo",   codigo: "NOM_COMP", tipo_dato: "Texto",  unidad_medida: "",       descripcion: "Nombre completo del trabajador",             obligatorio_default: true,  activo: true },
@@ -427,6 +462,21 @@ export const DATOS_DEMO: ModDato[] = [
   // def 7 — estructura fundo valle (cliente 2)
   { id: "d16", definicion_id: "7", referencia: "Parcela Norte", fecha: "2025-02-15", valores: '{"nombre":"Parcela Norte","bloque":"Sector A"}' },
   { id: "d17", definicion_id: "7", referencia: "Parcela Sur",   fecha: "2025-02-15", valores: '{"nombre":"Parcela Sur","bloque":"Sector B"}' },
+
+  // ── Eventos demo — asociados a registros padre específicos ──
+
+  // evt-1: seguimiento semanal del bloque "Bloque A-1" (d1)
+  { id: "e1-d1-1", definicion_id: "evt-1", cultivo_id: "c-01", registro_padre_dato_id: "d1", referencia: "Seguimiento sem 1", fecha: "2025-01-17", valores: '{"temperatura":"22.5","humedad":"65","observaciones":"Crecimiento normal, sin plagas detectadas"}' },
+  { id: "e1-d1-2", definicion_id: "evt-1", cultivo_id: "c-01", registro_padre_dato_id: "d1", referencia: "Seguimiento sem 2", fecha: "2025-01-24", valores: '{"temperatura":"24.1","humedad":"62","observaciones":"Leve aumento de temperatura, plantas se ven saludables"}' },
+
+  // evt-1: seguimiento semanal del "Macrotúnel Arándano" (d2)
+  { id: "e1-d2-1", definicion_id: "evt-1", cultivo_id: "c-02", registro_padre_dato_id: "d2", referencia: "Seguimiento sem 1", fecha: "2025-01-18", valores: '{"temperatura":"18.8","humedad":"70","observaciones":"Condiciones óptimas para desarrollo de frutos"}' },
+
+  // evt-2: registro de anomalía en "Bloque A-1" (d1)
+  { id: "e2-d1-1", definicion_id: "evt-2", cultivo_id: "c-01", registro_padre_dato_id: "d1", referencia: "Anomalía riego", fecha: "2025-01-20", valores: '{"tipo_anomalia":"Riego irregular","descripcion":"Goteros bloqueados en fila 3, se procedió a limpieza"}' },
+
+  // evt-3: resultado complementario para laboratorio LAB-0112 (d9)
+  { id: "e3-d9-1", definicion_id: "evt-3", cultivo_id: "c-01", registro_padre_dato_id: "d9", referencia: "Análisis adicional", fecha: "2025-01-29", valores: '{"tipo_prueba":"Acidez titulable","resultado":"0.8% ácido málico","observaciones":"Dentro del rango esperado para la variedad"}' },
 ];
 
 // ─── Calibre ──────────────────────────────────────────────────────────────────
@@ -451,6 +501,19 @@ export interface NivelEstructura {
   activo: boolean;  // si este nivel aplica a este cultivo
 }
 
+// ─── ComponenteCampo — Elementos adicionales (válvulas, sensores, etc.) ───────
+
+export interface ComponenteCampo {
+  id:           string;
+  tipo:         "valvula" | "sensor" | "bomba" | "filtro" | "medidor" | "otro";
+  nombre:       string;       // ej: "Válvula principal", "Sensor pH"
+  descripcion?: string;       // info adicional
+  estado?:      "activo" | "mantenimiento" | "inactivo";
+  ubicacion?:   string;       // descripción de ubicación específica
+  modelo?:      string;       // marca/modelo del componente
+  notas?:       string;       // notas adicionales
+}
+
 // ─── BloqueLayout — Instancias de bloques para el mapa visual ─────────────────
 // Representa la posición y configuración de cada bloque en el mapa del campo.
 // Los hijos[] anidan recursivamente la siguiente capa de la estructura.
@@ -467,6 +530,7 @@ export interface BloqueLayout {
   opacity?:         number;       // opacidad 20-100 (porcentaje)
   elementosPorFila?: number;      // cuántos hijos mostrar por fila (para grid layout)
   hijos?:           BloqueLayout[]; // sub-estructuras (hileras dentro de bloque, etc.)
+  componentes?:     ComponenteCampo[]; // válvulas, sensores, etc.
 }
 
 // ─── Cultivo ──────────────────────────────────────────────────────────────────

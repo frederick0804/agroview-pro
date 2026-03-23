@@ -7,7 +7,7 @@ import {
 import {
   Camera, Sparkles, Upload, CheckCircle2, Loader2,
   AlertTriangle, Pencil, X, Plus, Trash2,
-  ArrowRight, RotateCcw, ImageIcon,
+  ArrowRight, RotateCcw, ImageIcon, Brain,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ModParam } from "@/config/moduleDefinitions";
@@ -18,7 +18,7 @@ interface DetectedField {
   nombre: string;
   valor: string;
   confianza: number;
-  modo: "ia" | "ia_editable";
+  modo: "ia" | "ia_editable" | "ml" | "ml_editable";
 }
 
 interface DetectedRow {
@@ -28,10 +28,11 @@ interface DetectedRow {
 }
 
 type Fase = "upload" | "analyzing" | "results";
+type Tipo = "ia" | "ml";
 
-// ─── Resultados simulados ────────────────────────────────────────────────────
+// ─── Resultados simulados IA ─────────────────────────────────────────────────
 
-const DEMO_ROWS: DetectedField[][] = [
+const DEMO_IA_ROWS: DetectedField[][] = [
   [
     { nombre: "plaga_identificada",   valor: "Trips (Frankliniella)", confianza: 94, modo: "ia" },
     { nombre: "enfermedad_detectada", valor: "Ninguna",               confianza: 98, modo: "ia_editable" },
@@ -39,50 +40,104 @@ const DEMO_ROWS: DetectedField[][] = [
     { nombre: "zona_afectada",        valor: "Cuadrante NE",          confianza: 85, modo: "ia_editable" },
     { nombre: "recomendacion",        valor: "Control biológico",     confianza: 82, modo: "ia_editable" },
   ],
-  [
-    { nombre: "plaga_identificada",   valor: "Pulgón verde",          confianza: 89, modo: "ia" },
-    { nombre: "enfermedad_detectada", valor: "Ninguna",               confianza: 95, modo: "ia_editable" },
-    { nombre: "nivel_severidad",      valor: "Leve",                  confianza: 87, modo: "ia" },
-    { nombre: "zona_afectada",        valor: "Cuadrante SE",          confianza: 79, modo: "ia_editable" },
-    { nombre: "recomendacion",        valor: "Monitoreo",             confianza: 76, modo: "ia_editable" },
-  ],
-  [
-    { nombre: "plaga_identificada",   valor: "Ninguna",               confianza: 96, modo: "ia" },
-    { nombre: "enfermedad_detectada", valor: "Botrytis cinerea",      confianza: 91, modo: "ia_editable" },
-    { nombre: "nivel_severidad",      valor: "Alto",                  confianza: 88, modo: "ia" },
-    { nombre: "zona_afectada",        valor: "Cuadrante NO",          confianza: 83, modo: "ia_editable" },
-    { nombre: "recomendacion",        valor: "Fungicida urgente",     confianza: 85, modo: "ia_editable" },
-  ],
 ];
 
-function generateResults(iaParams: ModParam[]): DetectedRow[] {
-  const numRows = 1 + Math.floor(Math.random() * 3);
-  const rows: DetectedRow[] = [];
+// ─── Resultados simulados ML ─────────────────────────────────────────────────
 
-  for (let r = 0; r < numRows; r++) {
-    const demoRow = DEMO_ROWS[r % DEMO_ROWS.length];
-    const campos: DetectedField[] = iaParams.map(p => {
-      const demo = demoRow.find(d => d.nombre === p.nombre);
-      if (demo) return { ...demo, modo: p.fuente_datos === "ia" ? "ia" : "ia_editable" };
+const DEMO_ML_RESULTS: Record<string, Record<string, string>> = {
+  color_detection: {
+    color_predominante: "Azul oscuro",
+    colores_secundarios: "Verde, Rojo",
+    porcentaje_maduro: "85%",
+    categoria_madurez: "Óptima cosecha",
+  },
+  fruit_counter: {
+    frutas_totales: "127",
+    frutas_maduras: "108",
+    frutas_verdes: "19",
+    densidad_estimada: "45 frutas/m²",
+  },
+  quality_classifier: {
+    clasificacion: "Premium",
+    calibre_promedio: "16-18mm",
+    uniformidad: "Alta",
+    defectos_visibles: "Mínimos (2%)",
+  },
+  defect_detector: {
+    tipo_defecto: "Manchas leves",
+    severidad: "Baja",
+    porcentaje_afectado: "5%",
+    accion_recomendada: "Clasificar y empacar por separado",
+  },
+  size_estimator: {
+    calibre_promedio: "17mm",
+    rango_calibres: "15-19mm",
+    categoria: "Jumbo",
+    peso_estimado: "3.2g/unidad",
+  },
+  ripeness_detector: {
+    nivel_madurez: "Óptimo (85%)",
+    dias_cosecha: "0-2 días",
+    color_indice: "Azul profundo",
+    firmeza_estimada: "Alta",
+  },
+};
+
+function generateResults(params: ModParam[], tipo: Tipo): DetectedRow[] {
+  const rows: DetectedRow[] = [];
+  const isMl = tipo === "ml";
+
+  if (isMl) {
+    // Para ML, generar una fila por campo con resultados simulados
+    const campos: DetectedField[] = params.map(p => {
+      const modelo = p.ml_modelo || "custom";
+      const demoData = DEMO_ML_RESULTS[modelo] || {};
+      const demoKeys = Object.keys(demoData);
+      const randomKey = demoKeys[Math.floor(Math.random() * demoKeys.length)] || "";
+      const valor = demoData[randomKey] || (
+        p.tipo_dato === "Número" ? String(Math.floor(Math.random() * 100))
+        : p.tipo_dato === "Fecha" ? new Date().toISOString().slice(0, 10)
+        : `Resultado ML`
+      );
+
       return {
         nombre: p.nombre,
-        valor: p.tipo_dato === "Número" ? String(Math.floor(Math.random() * 100))
-          : p.tipo_dato === "Fecha" ? new Date().toISOString().slice(0, 10)
-          : p.tipo_dato === "Sí/No" ? "Sí"
-          : `Valor ${r + 1}`,
-        confianza: 70 + Math.floor(Math.random() * 25),
-        modo: p.fuente_datos === "ia" ? "ia" : "ia_editable",
+        valor,
+        confianza: 85 + Math.floor(Math.random() * 15),
+        modo: p.fuente_datos === "ml" ? "ml" : "ml_editable",
       };
     });
-    rows.push({ id: `row-${Date.now()}-${r}`, campos, selected: true });
+    rows.push({ id: `row-ml-${Date.now()}`, campos, selected: true });
+  } else {
+    // Para IA, generar 1-3 filas como antes
+    const numRows = 1 + Math.floor(Math.random() * 3);
+    for (let r = 0; r < numRows; r++) {
+      const demoRow = DEMO_IA_ROWS[r % DEMO_IA_ROWS.length];
+      const campos: DetectedField[] = params.map(p => {
+        const demo = demoRow.find(d => d.nombre === p.nombre);
+        if (demo) return { ...demo, modo: p.fuente_datos === "ia" ? "ia" : "ia_editable" };
+        return {
+          nombre: p.nombre,
+          valor: p.tipo_dato === "Número" ? String(Math.floor(Math.random() * 100))
+            : p.tipo_dato === "Fecha" ? new Date().toISOString().slice(0, 10)
+            : p.tipo_dato === "Sí/No" ? "Sí"
+            : `Valor ${r + 1}`,
+          confianza: 70 + Math.floor(Math.random() * 25),
+          modo: p.fuente_datos === "ia" ? "ia" : "ia_editable",
+        };
+      });
+      rows.push({ id: `row-ia-${Date.now()}-${r}`, campos, selected: true });
+    }
   }
+
   return rows;
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface IaAnalysisPanelProps {
-  iaParams: ModParam[];
+  params: ModParam[];
+  tipo: Tipo;
   onConfirm: (rows: Record<string, string>[]) => void;
   onClose: () => void;
   open: boolean;
@@ -90,13 +145,18 @@ interface IaAnalysisPanelProps {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function IaAnalysisPanel({ iaParams, onConfirm, onClose, open }: IaAnalysisPanelProps) {
+export function IaAnalysisPanel({ params, tipo, onConfirm, onClose, open }: IaAnalysisPanelProps) {
   const [fase, setFase] = useState<Fase>("upload");
   const [progreso, setProgreso] = useState(0);
   const [rows, setRows] = useState<DetectedRow[]>([]);
   const [editingCell, setEditingCell] = useState<{ rowId: string; campo: string } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isMl = tipo === "ml";
+  const Icon = isMl ? Brain : Sparkles;
+  const color = isMl ? "cyan" : "violet";
+  const title = isMl ? "Análisis ML" : "Análisis IA";
 
   const iniciarAnalisis = useCallback(() => {
     setFase("analyzing");
@@ -112,9 +172,9 @@ export function IaAnalysisPanel({ iaParams, onConfirm, onClose, open }: IaAnalys
     setTimeout(() => {
       clearInterval(interval);
       setFase("results");
-      setRows(generateResults(iaParams));
+      setRows(generateResults(params, tipo));
     }, 2000);
-  }, [iaParams]);
+  }, [params, tipo]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) iniciarAnalisis();
@@ -159,11 +219,14 @@ export function IaAnalysisPanel({ iaParams, onConfirm, onClose, open }: IaAnalys
   const addEmptyRow = () => {
     setRows(prev => [...prev, {
       id: `row-${Date.now()}`,
-      campos: iaParams.map(p => ({
+      campos: params.map(p => ({
         nombre: p.nombre,
         valor: "",
         confianza: 100,
-        modo: p.fuente_datos === "ia" ? "ia" : "ia_editable",
+        modo: (isMl
+          ? (p.fuente_datos === "ml" ? "ml" : "ml_editable")
+          : (p.fuente_datos === "ia" ? "ia" : "ia_editable")
+        ) as DetectedField["modo"],
       })),
       selected: true,
     }]);
@@ -179,9 +242,9 @@ export function IaAnalysisPanel({ iaParams, onConfirm, onClose, open }: IaAnalys
       )}>
         {/* Header */}
         <DialogHeader className="px-5 py-4 border-b bg-muted/30">
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <Sparkles className="w-4 h-4 text-primary" />
-            Llenar con IA
+          <DialogTitle className={cn("flex items-center gap-2 text-base")}>
+            <Icon className={cn("w-4 h-4", `text-${color}-600`)} />
+            {title}
           </DialogTitle>
         </DialogHeader>
 
@@ -225,7 +288,7 @@ export function IaAnalysisPanel({ iaParams, onConfirm, onClose, open }: IaAnalys
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">Campos a llenar:</p>
               <div className="flex flex-wrap gap-1.5">
-                {iaParams.map(p => (
+                {params.map(p => (
                   <Badge key={p.id} variant="secondary" className="text-[11px]">
                     {p.etiqueta_personalizada || p.nombre.replace(/_/g, " ")}
                   </Badge>
@@ -248,12 +311,14 @@ export function IaAnalysisPanel({ iaParams, onConfirm, onClose, open }: IaAnalys
           <div className="p-5 space-y-4">
             <div className="flex flex-col items-center gap-3 py-6">
               <div className="relative">
-                <Loader2 className="w-10 h-10 text-primary animate-spin" />
+                <Loader2 className={cn("w-10 h-10 animate-spin", `text-${color}-600`)} />
               </div>
               <div className="text-center">
-                <p className="text-sm font-medium">Analizando imagen...</p>
+                <p className="text-sm font-medium">
+                  {isMl ? "Procesando imagen con ML..." : "Analizando imagen..."}
+                </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Detectando registros automáticamente
+                  {isMl ? "Ejecutando modelo de visión computacional" : "Detectando registros automáticamente"}
                 </p>
               </div>
             </div>
@@ -311,7 +376,7 @@ export function IaAnalysisPanel({ iaParams, onConfirm, onClose, open }: IaAnalys
                   <thead className="bg-muted/40 sticky top-0">
                     <tr>
                       <th className="w-10 px-3 py-2 text-center text-xs font-medium text-muted-foreground">#</th>
-                      {iaParams.map(p => (
+                      {params.map(p => (
                         <th key={p.id} className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">
                           {(p.etiqueta_personalizada || p.nombre).replace(/_/g, " ")}
                         </th>
@@ -341,12 +406,12 @@ export function IaAnalysisPanel({ iaParams, onConfirm, onClose, open }: IaAnalys
                           </button>
                         </td>
 
-                        {iaParams.map(p => {
+                        {params.map(p => {
                           const campo = row.campos.find(c => c.nombre === p.nombre);
                           if (!campo) return <td key={p.id} className="px-3 py-2">—</td>;
 
                           const isEditing = editingCell?.rowId === row.id && editingCell?.campo === campo.nombre;
-                          const canEdit = campo.modo === "ia_editable" || !campo.valor;
+                          const canEdit = campo.modo === "ia_editable" || campo.modo === "ml_editable" || !campo.valor;
                           const lowConf = campo.confianza < 80;
 
                           return (
