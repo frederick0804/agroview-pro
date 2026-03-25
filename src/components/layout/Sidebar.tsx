@@ -150,14 +150,21 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         ))}
 
         {/* User Profile */}
-        <div
+        <button
+          onClick={() => navigate("/perfil")}
+          title={collapsed ? (currentUser?.nombre ?? "Mi perfil") : "Ver mi perfil"}
           className={cn(
-            "flex items-center gap-3 px-3 py-2.5 rounded-lg mt-4",
-            "bg-sidebar-accent/50",
+            "flex items-center gap-3 px-3 py-2.5 rounded-lg mt-4 w-full text-left",
+            "bg-sidebar-accent/50 hover:bg-sidebar-accent transition-colors group/profile",
+            location.pathname === "/perfil" && "ring-1 ring-sidebar-primary/40",
           )}
         >
-          <div className="w-8 h-8 rounded-full bg-sidebar-muted flex items-center justify-center shrink-0">
-            <User className="w-4 h-4 text-sidebar-foreground" />
+          {/* Avatar con iniciales */}
+          <div className="w-8 h-8 rounded-full bg-sidebar-primary/80 flex items-center justify-center shrink-0 text-[11px] font-bold text-white select-none">
+            {currentUser?.nombre
+              ? currentUser.nombre.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase()
+              : <User className="w-4 h-4" />
+            }
           </div>
           {!collapsed && (
             <div className="flex-1 min-w-0">
@@ -170,14 +177,14 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           )}
           {!collapsed && (
             <button
-              onClick={handleLogout}
-              className="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors"
+              onClick={e => { e.stopPropagation(); handleLogout(); }}
+              className="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground/60 hover:text-destructive transition-colors shrink-0"
               title="Cerrar sesión"
             >
               <LogOut className="w-4 h-4" />
             </button>
           )}
-        </div>
+        </button>
       </div>
     </aside>
   );

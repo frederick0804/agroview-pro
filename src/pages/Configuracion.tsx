@@ -27,7 +27,7 @@ import {
   Trash2, Info, CheckCircle2, Check, Clock, Archive, Leaf, Search, Copy, History,
   ChevronDown, RotateCcw, Power, XCircle, LayoutList, ArrowLeftRight, Lock, CheckSquare, Square, ListFilter, Zap,
   Ruler, Scale, Network, ChevronRight, ArrowUp, ArrowDown, Map as MapIcon, MoreHorizontal, Tag,
-  Hash, ToggleLeft, Image as ImageIcon, Link2,
+  Hash, ToggleLeft, Image as ImageIcon, Link2, UserX, UserCheck,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { useTheme, DEFAULT_THEME } from "@/contexts/ThemeContext";
@@ -1084,14 +1084,24 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               <div key={rootId} className={cn(
                 "flex flex-col",
                 isListRow
-                  ? "bg-card hover:bg-muted/10 transition-colors"
+                  ? cn(
+                      "bg-card transition-all duration-200",
+                      isExpanded
+                        ? "shadow-sm border border-border/60 rounded-lg mb-2" // Contenedor expandido con bordes redondeados y sombra
+                        : "hover:bg-muted/10 border-b border-border/20" // Fila compacta con hover sutil
+                    )
                   : "bg-card border border-border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow",
               )}>
 
                 {/* ── Compact list row (solo en modo lista) ─────────────── */}
                 {isListRow && (
                   <div
-                    className="flex items-center gap-2 px-4 py-2.5 cursor-pointer group/row select-none hover:bg-muted/30 transition-colors"
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2.5 cursor-pointer group/row select-none transition-colors",
+                      isExpanded
+                        ? "bg-primary/5 border-b border-primary/20 rounded-t-lg" // Header expandido con fondo especial
+                        : "hover:bg-muted/30" // Hover normal para items colapsados
+                    )}
                     onClick={() => toggleListRow(rootId)}
                   >
                     <span className={cn(
@@ -1149,7 +1159,12 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                 )}
 
                 {/* ── Cabecera ──────────────────────────────────────────── */}
-                {isExpanded && <div className={cn("px-4 pt-3 pb-3 border-b border-border", isListRow ? "bg-card" : "bg-muted/20")}>
+                {isExpanded && <div className={cn(
+                  "border-b border-border",
+                  isListRow
+                    ? "px-6 pt-3 pb-3 bg-muted/30 border-l-4 border-l-primary/40" // Contenido expandido con indentación y barra lateral
+                    : "px-4 pt-3 pb-3 bg-muted/20"
+                )}>
 
                   {/* Fila superior: badges de estado + menú de acciones */}
                   <div className="flex items-center justify-between gap-2">
@@ -1324,7 +1339,10 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
 
                     {/* Controles expandidos */}
                     {isExpAcceso && (
-                      <div className="mt-2 space-y-2 pt-2 border-t border-border/30">
+                      <div className={cn(
+                        "mt-2 space-y-2 pt-2 border-t border-border/30",
+                        isListRow && "ml-4 border-l-2 border-l-blue-300/50 pl-3 bg-blue-50/20 rounded-r-md" // Indentación especial para acceso en lista
+                      )}>
                         {/* Nivel mínimo + roles excluidos */}
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <select
@@ -1390,7 +1408,12 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
 
                 {/* ── Historial de versiones (expandible) ───────────────── */}
                 {isExpHistory && hasHistory && (
-                  <div className="px-4 py-3 border-b border-border bg-muted/10">
+                  <div className={cn(
+                    "border-b border-border bg-muted/10",
+                    isListRow
+                      ? "px-6 py-3 border-l-4 border-l-blue-400/40 bg-blue-50/30" // Indentación especial para lista
+                      : "px-4 py-3"
+                  )}>
                     <div className="flex items-center justify-between mb-2.5">
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
                         <History className="w-3 h-3" /> Versiones
@@ -1504,7 +1527,10 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                   </button>
 
                   {isExpCampos && (
-                    <div className="mt-2.5 space-y-1">
+                    <div className={cn(
+                      "mt-2.5 space-y-1",
+                      isListRow && "ml-4 border-l-2 border-l-green-300/50 pl-3 bg-green-50/20 rounded-r-md" // Indentación especial para campo en modo lista
+                    )}>
                       {campos.length === 0 ? (
                         <p className="text-xs text-muted-foreground italic py-2 px-1">Sin campos configurados.</p>
                       ) : (
@@ -1573,7 +1599,12 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                 </div>
 
                 {/* ── Sección de Eventos vinculados (resumen compacto) ────── */}
-                <div className="px-4 py-3 border-t border-border">
+                <div className={cn(
+                  "border-t border-border",
+                  isListRow
+                    ? "px-6 py-3 border-l-4 border-l-amber-400/40 bg-amber-50/20" // Indentación especial para eventos en lista
+                    : "px-4 py-3"
+                )}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
@@ -3582,12 +3613,16 @@ function TabCultivos() {
   const cultivo      = cultivosList.find(c => c.id === selectedId);
   const cultivoVars  = variedades.filter(v => v.cultivo_id === selectedId);
 
+  // Tab interno para simplificar la UI de configuración
+  const [cultivoTab, setCultivoTab] = useState<"general" | "medidas" | "calibres" | "estructura">("general");
+
   const filteredCultivos = cultivosList.filter(c =>
     !searchCultivo || c.nombre.toLowerCase().includes(searchCultivo.toLowerCase()) ||
     c.codigo.toLowerCase().includes(searchCultivo.toLowerCase())
   );
 
   return (
+    <>
     <div className="space-y-4">
       <InfoBanner storageKey="cultivos">
         <strong>Cultivos</strong> — gestiona cultivos activos, sus variedades y qué formularios aplican sólo a ese cultivo o a todos.
@@ -3716,13 +3751,17 @@ function TabCultivos() {
           </div>
         ) : (
           <div className="space-y-4">
-
-            {/* ── Sección 1: Propiedades del cultivo ──────────────────── */}
+            {/* ── Header del cultivo con tabs ──────────────────────────────── */}
             <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
                   <Leaf className="w-4 h-4 text-primary" />
-                  Información del cultivo
+                  {cultivo.nombre || "Cultivo"}
+                  {cultivo.codigo && (
+                    <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                      {cultivo.codigo}
+                    </span>
+                  )}
                 </h3>
                 <div className="flex items-center gap-2">
                   {isSuperAdmin && (
@@ -3738,7 +3777,45 @@ function TabCultivos() {
                 </div>
               </div>
 
-              <div className="px-4 py-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Tabs internos simplificados */}
+              <Tabs value={cultivoTab} onValueChange={(v: any) => setCultivoTab(v)} className="w-full">
+                <TabsList className="w-full justify-start rounded-none border-b bg-muted/30 h-10 px-4">
+                  <TabsTrigger value="general" className="text-xs">
+                    <FileText className="w-3.5 h-3.5 mr-1.5" />
+                    General
+                  </TabsTrigger>
+                  <TabsTrigger value="medidas" className="text-xs">
+                    <Ruler className="w-3.5 h-3.5 mr-1.5" />
+                    Medidas
+                  </TabsTrigger>
+                  <TabsTrigger value="calibres" className="text-xs">
+                    <Scale className="w-3.5 h-3.5 mr-1.5" />
+                    Calibres
+                    {(cultivo.calibres ?? []).length > 0 && (
+                      <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                        {cultivo.calibres.length}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="estructura" className="text-xs">
+                    <Network className="w-3.5 h-3.5 mr-1.5" />
+                    Estructura
+                    {(cultivo.estructura ?? []).filter(e => e.activo).length > 0 && (
+                      <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded-full bg-sky-100 text-sky-700">
+                        {cultivo.estructura.filter(e => e.activo).length}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* TAB: General */}
+                <TabsContent value="general" className="p-4 space-y-4 m-0">
+                  {/* Info básica */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      Información básica
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1">
                   <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Nombre</label>
                   <Input
@@ -3879,7 +3956,10 @@ function TabCultivos() {
                 )}
               </div>
             </div>
+                </TabsContent>
 
+                {/* TAB: Medidas */}
+                <TabsContent value="medidas" className="p-4 space-y-4 m-0">
             {/* ── Sección 3: Medidas y Unidades ───────────────────────────── */}
             <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border bg-muted/20">
@@ -3979,7 +4059,10 @@ function TabCultivos() {
                 </div>
               </div>
             </div>
+                </TabsContent>
 
+                {/* TAB: Calibres */}
+                <TabsContent value="calibres" className="p-4 space-y-4 m-0">
             {/* ── Sección 4: Calibres ──────────────────────────────────────── */}
             <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
@@ -4168,7 +4251,10 @@ function TabCultivos() {
                 </div>
               )}
             </div>
+                </TabsContent>
 
+                {/* TAB: Estructura */}
+                <TabsContent value="estructura" className="p-4 space-y-4 m-0">
             {/* ── Sección 5: Estructura de Campo ──────────────────────────── */}
             <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between">
@@ -4401,7 +4487,9 @@ function TabCultivos() {
                 </div>
               </div>
             )}
-
+                </TabsContent>
+              </Tabs>
+            </div>
           </div>
         )}
       </div>
@@ -4468,6 +4556,7 @@ function TabCultivos() {
         </DialogContent>
       </Dialog>
     </div>
+    </>
   );
 }
 
@@ -5447,7 +5536,7 @@ const INFORMES_ACCION_INFO: Record<ActionPermission, { desc: string; importante?
 function TabUsuarios() {
   const {
     addOverride, removeOverride, getUserOverrides, getRoleBasePermissions,
-    clientes, productores, users: contextUsers, addUser, updUser, delUser,
+    clientes, productores, users: contextUsers, addUser, updUser, toggleUserActive,
     currentUser, role: currentRole_ctx, currentClienteId, empresaCtxId,
   } = useRole();
   const { definiciones, getDefAccesos, addDefAcceso, removeDefAcceso } = useConfig();
@@ -5637,8 +5726,8 @@ function TabUsuarios() {
     setUserModal(false);
   };
 
-  const handleDeleteUser = (id: number) => {
-    delUser(id);
+  const handleToggleUserActive = (id: number) => {
+    toggleUserActive(id);
     setDeleteConfirm(null);
     if (selectedUserId === id) setSelectedUserId(null);
     setCheckedIds(prev => { const n = new Set(prev); n.delete(id); return n; });
@@ -5963,6 +6052,7 @@ function TabUsuarios() {
                       "border-b border-border/60 last:border-0 hover:bg-muted/30 transition-colors cursor-pointer",
                       isSelected && "bg-primary/5",
                       isChecked && "bg-primary/[0.03]",
+                      user.activo === false && "opacity-60 bg-muted/20" // Usuarios inactivos con opacidad reducida
                     )}
                   >
                     {/* Checkbox */}
@@ -5993,8 +6083,15 @@ function TabUsuarios() {
                         )}>
                           {initials(user.nombre)}
                         </div>
-                        <div className="min-w-0">
-                          <p className="font-medium text-foreground text-[13px] truncate leading-snug">{user.nombre}</p>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-medium text-foreground text-[13px] truncate leading-snug">{user.nombre}</p>
+                            {user.activo === false && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200 font-semibold leading-none">
+                                INACTIVO
+                              </span>
+                            )}
+                          </div>
                           <p className="text-[11px] text-muted-foreground truncate leading-snug">{user.email}</p>
                         </div>
                       </div>
@@ -6069,10 +6166,19 @@ function TabUsuarios() {
                           </button>
                           <button
                             onClick={() => setDeleteConfirm(user.id)}
-                            className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                            title="Eliminar usuario"
+                            className={cn(
+                              "p-1 rounded transition-colors",
+                              user.activo === false
+                                ? "hover:bg-green-100 text-muted-foreground hover:text-green-600"
+                                : "hover:bg-amber-100 text-muted-foreground hover:text-amber-600"
+                            )}
+                            title={user.activo === false ? "Activar usuario" : "Desactivar usuario"}
                           >
-                            <Trash2 className="w-3 h-3" />
+                            {user.activo === false ? (
+                              <UserCheck className="w-3 h-3" />
+                            ) : (
+                              <UserX className="w-3 h-3" />
+                            )}
                           </button>
                         </div>
                       </td>
@@ -7099,19 +7205,36 @@ function TabUsuarios() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Dialog Confirmar Eliminación ───────────────────────────────────── */}
+      {/* ── Dialog Confirmar Activación/Desactivación ───────────────────────── */}
       <Dialog open={deleteConfirm !== null} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-destructive" />
-              Eliminar usuario
+              {(() => {
+                const u = contextUsers.find(x => x.id === deleteConfirm);
+                const isActive = u?.activo !== false;
+                return (
+                  <>
+                    {isActive ? (
+                      <UserX className="w-5 h-5 text-amber-500" />
+                    ) : (
+                      <UserCheck className="w-5 h-5 text-green-500" />
+                    )}
+                    {isActive ? "Desactivar usuario" : "Activar usuario"}
+                  </>
+                );
+              })()}
             </DialogTitle>
             <DialogDescription>
               {(() => {
                 const u = contextUsers.find(x => x.id === deleteConfirm);
+                const isActive = u?.activo !== false;
                 return u
-                  ? <>¿Estás seguro de eliminar a <strong>{u.nombre}</strong> ({u.email})? Esta acción no se puede deshacer.</>
+                  ? (
+                      isActive
+                        ? <>¿Desactivar a <strong>{u.nombre}</strong> ({u.email})? No podrá iniciar sesión hasta que se reactive.</>
+                        : <>¿Activar a <strong>{u.nombre}</strong> ({u.email})? Podrá iniciar sesión nuevamente.</>
+                    )
                   : "¿Estás seguro?";
               })()}
             </DialogDescription>
@@ -7119,12 +7242,28 @@ function TabUsuarios() {
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setDeleteConfirm(null)}>Cancelar</Button>
             <Button
-              variant="destructive"
+              variant={(() => {
+                const u = contextUsers.find(x => x.id === deleteConfirm);
+                const isActive = u?.activo !== false;
+                return isActive ? "secondary" : "default";
+              })()}
               size="sm"
-              onClick={() => deleteConfirm !== null && handleDeleteUser(deleteConfirm)}
+              onClick={() => deleteConfirm !== null && handleToggleUserActive(deleteConfirm)}
             >
-              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-              Eliminar
+              {(() => {
+                const u = contextUsers.find(x => x.id === deleteConfirm);
+                const isActive = u?.activo !== false;
+                return (
+                  <>
+                    {isActive ? (
+                      <UserX className="w-3.5 h-3.5 mr-1.5" />
+                    ) : (
+                      <UserCheck className="w-3.5 h-3.5 mr-1.5" />
+                    )}
+                    {isActive ? "Desactivar" : "Activar"}
+                  </>
+                );
+              })()}
             </Button>
           </DialogFooter>
         </DialogContent>

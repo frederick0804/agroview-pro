@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { InformesBuilder, type BuilderConfig, type CampoEncabezado, type FuenteCampo } from "./InformesBuilder";
 import { InformeVersionDialog } from "@/components/dashboard/InformeVersionDialog";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -33,6 +33,7 @@ import {
   Package,
   Globe,
   Loader2,
+  Check,
   CheckCircle2,
   Clock,
   Archive,
@@ -49,6 +50,7 @@ import {
   RefreshCw,
   Layers,
   Settings2,
+  Sliders,
   Calendar,
   Mail,
   X,
@@ -1527,6 +1529,30 @@ function DetailPanel({
   const [generando, setGenerando] = useState(false);
   const [generacionOk, setGeneracionOk] = useState(false);
 
+  // ── Filtros avanzados ──────────────────────────────────────────────────────
+  const [granularidad, setGranularidad] = useState<"dia" | "semana" | "mes" | "trimestre" | "año">("mes");
+  const [clienteSeleccionado, setClienteSeleccionado] = useState<string>("todos");
+  const [productorSeleccionado, setProductorSeleccionado] = useState<string>("todos");
+  const [cultivoSeleccionado, setCultivoSeleccionado] = useState<string>("todos");
+  const [definicionesSeleccionadas, setDefinicionesSeleccionadas] = useState<string[]>([]);
+
+  // ── Filtros jerárquicos del cultivo seleccionado ──────────────────────────────
+  // Selección EXCLUSIVA: solo UN nivel a la vez puede filtrarse
+  const [nivelEstructuraActivo, setNivelEstructuraActivo] = useState<string | null>(null);
+  const [valorEstructuraActivo, setValorEstructuraActivo] = useState<string>("todos");
+  // Derivado: estructuraFiltros solo contiene el nivel activo si tiene valor real
+  const estructuraFiltros: Record<string, string> = useMemo(() => {
+    if (!nivelEstructuraActivo || valorEstructuraActivo === "todos") return {};
+    return { [nivelEstructuraActivo]: valorEstructuraActivo };
+  }, [nivelEstructuraActivo, valorEstructuraActivo]);
+
+  // ── Estados para granularidades específicas ───────────────────────────────────
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+  const [añoSeleccionado, setAñoSeleccionado] = useState(currentYear);
+  const [mesSeleccionado, setMesSeleccionado] = useState(currentMonth);
+  const [trimestreSeleccionado, setTrimestreSeleccionado] = useState(Math.ceil(currentMonth / 3));
+
   // Scheduling state
   const [schedEnabled, setSchedEnabled] = useState(informe.es_programado);
   const [schedFrecuencia, setSchedFrecuencia] = useState<"diaria" | "semanal" | "mensual">(
@@ -1539,9 +1565,128 @@ function DetailPanel({
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [showUserSearch, setShowUserSearch] = useState(false);
   const userSearchRef = useRef<HTMLDivElement>(null);
-  const { users, currentUser } = useRole();
+  const { users, currentUser, clientes, productores } = useRole();
+  const { cultivos, definiciones } = useConfig();
   const [schedFormato, setSchedFormato] = useState<FormatoExport>(informe.formato_preferido ?? "pdf");
   const [schedSaved, setSchedSaved] = useState(false);
+
+  // ── Lógica de filtrado jerárquico contextual por roles ────────────────────
+
+  // Auto-configurar filtros según el rol del usuario
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Para cliente_admin: auto-seleccionar su cliente
+    if (currentUser.role === "cliente_admin" && clienteSeleccionado === "todos") {
+      setClienteSeleccionado(String(currentUser.clienteId));
+    }
+
+    // Para productor: auto-seleccionar su cliente y productor
+    if (currentUser.role === "productor") {
+      if (clienteSeleccionado === "todos") {
+        setClienteSeleccionado(String(currentUser.clienteId));
+      }
+      if (productorSeleccionado === "todos" && currentUser.productorId) {
+        setProductorSeleccionado(currentUser.productorId);
+      }
+    }
+  }, [currentUser, clienteSeleccionado, productorSeleccionado]);
+
+  const productoresFiltrados = useMemo(() => {
+    if (clienteSeleccionado === "todos") return productores;
+    return productores.filter(p => p.cliente_id === parseInt(clienteSeleccionado));
+  }, [clienteSeleccionado, productores]);
+
+  // Productores disponibles según el rol
+  const productoresDisponibles = useMemo(() => {
+    if (!currentUser) return [];
+
+    // Super admin ve todos los productores filtrados por cliente seleccionado
+    if (currentUser.role === "super_admin") {
+      return productoresFiltrados;
+    }
+
+    // Cliente admin ve solo productores de su empresa
+    if (currentUser.role === "cliente_admin") {
+      return productores.filter(p => p.cliente_id === currentUser.clienteId);
+    }
+
+    // Productor no ve selector de productores (solo el suyo)
+    return [];
+  }, [currentUser, productoresFiltrados, productores]);
+
+  // Cultivos disponibles según permisos del usuario
+  const cultivosDisponibles = useMemo(() => {
+    if (!currentUser) return [];
+
+    // Super admin y cliente_admin ven todos los cultivos
+    if (currentUser.role === "super_admin" || currentUser.role === "cliente_admin") {
+      return cultivos;
+    }
+
+    // Productor ve solo cultivos de su área/permisos
+    // TODO: filtrar por cultivos habilitados para el productor
+    return cultivos; // Por ahora todos, pero aquí se debería filtrar por permisos
+  }, [currentUser, cultivos]);
+
+  // Obtener estructura jerárquica del cultivo seleccionado
+  const estructuraCultivoSeleccionado = useMemo(() => {
+    if (cultivoSeleccionado === "todos") return [];
+    const cultivo = cultivosDisponibles.find(c => c.id === cultivoSeleccionado);
+    return cultivo?.estructura?.filter(e => e.activo) ?? [];
+  }, [cultivoSeleccionado, cultivosDisponibles]);
+
+  // Resetear filtros de estructura cuando cambia el cultivo
+  useEffect(() => {
+    setNivelEstructuraActivo(null);
+    setValorEstructuraActivo("todos");
+  }, [cultivoSeleccionado]);
+
+  // Resetear productor si cambia cliente
+  useEffect(() => {
+    if (clienteSeleccionado !== "todos") {
+      const productoExists = productoresDisponibles.some(p => p.id === productorSeleccionado);
+      if (!productoExists) setProductorSeleccionado("todos");
+    }
+  }, [clienteSeleccionado, productoresDisponibles, productorSeleccionado]);
+
+  // Definiciones relacionadas con la categoría del informe
+  const definicionesDisponibles = useMemo(() => {
+    // Mapeo de categoría de informe a módulo
+    const categoriaAModulo: Record<CategoriaInforme, string> = {
+      laboratorio: "laboratorio",
+      vivero: "vivero",
+      siembra: "siembra",
+      cosecha: "cosecha",
+      poscosecha: "poscosecha",
+      general: "general",
+    };
+    const moduloKey = categoriaAModulo[informe.categoria];
+    return definiciones.filter(d =>
+      d.modulo === moduloKey &&
+      d.estado === "activo" &&
+      d.tipo_formulario !== "evento"
+    );
+  }, [definiciones, informe.categoria]);
+
+  // Indicador de filtros activos (diferentes a los valores por defecto)
+  const hayFiltrosActivos = useMemo(() => {
+    // Para roles restringidos, no considerar como "activo" si están auto-configurados
+    const clienteEsActivo = currentUser?.role === "super_admin" && clienteSeleccionado !== "todos";
+    const productorEsActivo = (currentUser?.role === "super_admin" || currentUser?.role === "cliente_admin") && productorSeleccionado !== "todos";
+
+    // Verificar si hay filtros de estructura jerárquica activos
+    const hayEstructuraActiva = Object.values(estructuraFiltros).some(valor => valor !== "todos" && valor !== "");
+
+    return (
+      granularidad !== "mes" ||
+      clienteEsActivo ||
+      productorEsActivo ||
+      cultivoSeleccionado !== "todos" ||
+      definicionesSeleccionadas.length > 0 ||
+      hayEstructuraActiva
+    );
+  }, [granularidad, clienteSeleccionado, productorSeleccionado, cultivoSeleccionado, definicionesSeleccionadas, estructuraFiltros, currentUser]);
 
   const cat = CATEGORIA_CONFIG[informe.categoria];
   const tipo = TIPO_CONFIG[informe.tipo_informe];
@@ -1554,6 +1699,41 @@ function DetailPanel({
 
   const handleGenerar = () => {
     if (!canExport) return;
+
+    // Construir período adaptativo según granularidad
+    let periodo: any = { granularidad };
+    if (granularidad === "dia" || granularidad === "semana") {
+      periodo.desde = fechaDesde;
+      periodo.hasta = fechaHasta;
+    } else if (granularidad === "mes") {
+      periodo.mes = mesSeleccionado;
+      periodo.año = añoSeleccionado;
+    } else if (granularidad === "trimestre") {
+      periodo.trimestre = trimestreSeleccionado;
+      periodo.año = añoSeleccionado;
+    } else {
+      periodo.año = añoSeleccionado;
+    }
+
+    // Construir objeto de filtros aplicados
+    const filtrosAplicados = {
+      formato,
+      periodo,
+      organizacion: {
+        clienteId: clienteSeleccionado !== "todos" ? clienteSeleccionado : null,
+        productorId: productorSeleccionado !== "todos" ? productorSeleccionado : null,
+      },
+      cultivoId: cultivoSeleccionado !== "todos" ? cultivoSeleccionado : null,
+      definiciones: definicionesSeleccionadas.length > 0 ? definicionesSeleccionadas : null,
+      // Incluir filtros jerárquicos del cultivo
+      estructuraJerarquica: Object.keys(estructuraFiltros).length > 0 ? estructuraFiltros : null,
+    };
+
+    console.log("📊 Generando informe con filtros:", filtrosAplicados);
+
+    // TODO: Aquí se debería llamar al servicio real de generación de informes
+    // Ejemplo: await generarInforme(informe.id, filtrosAplicados);
+
     setGenerando(true);
     setGeneracionOk(false);
     setTimeout(() => {
@@ -1564,13 +1744,57 @@ function DetailPanel({
   };
 
   const handleGuardarSchedule = () => {
+    // Construir filtros para el envío automático (mismos que se usan en generar)
+    let filtrosAutomaticos = undefined;
+    if (schedEnabled) {
+      // Construir período adaptativo según granularidad
+      let periodo: any = { granularidad };
+      if (granularidad === "dia" || granularidad === "semana") {
+        periodo.desde = fechaDesde;
+        periodo.hasta = fechaHasta;
+      } else if (granularidad === "mes") {
+        periodo.mes = mesSeleccionado;
+        periodo.año = añoSeleccionado;
+      } else if (granularidad === "trimestre") {
+        periodo.trimestre = trimestreSeleccionado;
+        periodo.año = añoSeleccionado;
+      } else {
+        periodo.año = añoSeleccionado;
+      }
+
+      filtrosAutomaticos = {
+        periodo,
+        organizacion: {
+          clienteId: clienteSeleccionado !== "todos" ? clienteSeleccionado : null,
+          productorId: productorSeleccionado !== "todos" ? productorSeleccionado : null,
+        },
+        cultivoId: cultivoSeleccionado !== "todos" ? cultivoSeleccionado : null,
+        definiciones: definicionesSeleccionadas.length > 0 ? definicionesSeleccionadas : null,
+        // Incluir filtros jerárquicos del cultivo
+        estructuraJerarquica: Object.keys(estructuraFiltros).length > 0 ? estructuraFiltros : null,
+      };
+    }
+
     onUpdateSchedule?.({
       es_programado: schedEnabled,
       frecuencia_programacion: schedEnabled ? schedFrecuencia : undefined,
       hora_envio: schedEnabled ? schedHora : undefined,
       destinatarios_programados: schedEnabled ? schedDestinatarios : [],
       formato_preferido: schedEnabled ? schedFormato : undefined,
+      // Incluir filtros configurados
+      filtros_automaticos: filtrosAutomaticos,
     });
+
+    if (schedEnabled) {
+      console.log("🤖 Configuración de envío automático guardada:", {
+        frecuencia: schedFrecuencia,
+        hora: schedHora,
+        formato: schedFormato,
+        destinatarios: schedDestinatarios.length,
+        filtros: filtrosAutomaticos,
+      });
+    }
+
     setSchedSaved(true);
     setTimeout(() => setSchedSaved(false), 2500);
   };
@@ -1652,6 +1876,12 @@ function DetailPanel({
           <TabsList className="bg-muted h-8 p-0.5 rounded-lg shrink-0">
             <TabsTrigger value="info" className="text-xs gap-1.5 h-7 rounded-md">
               <Info className="w-3 h-3" /> Info
+            </TabsTrigger>
+            <TabsTrigger value="config" className="text-xs gap-1.5 h-7 rounded-md relative">
+              <Sliders className="w-3 h-3" /> Config
+              {hayFiltrosActivos && (
+                <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
+              )}
             </TabsTrigger>
             <TabsTrigger
               value="generar"
@@ -1784,6 +2014,508 @@ function DetailPanel({
           </div>
         </TabsContent>
 
+        {/* CONFIG */}
+        <TabsContent
+          value="config"
+          className="flex-1 overflow-y-auto px-5 py-4 space-y-4 mt-0"
+        >
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50/50 border border-blue-200">
+            <Sliders className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-blue-900">Configuración de filtros</p>
+              <p className="text-[10px] text-blue-700 mt-0.5">
+                Estos filtros se aplicarán tanto para la generación manual como para los envíos automáticos programados.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {/* Período - adaptativo según granularidad */}
+            <div>
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">
+                Período
+                <span className="ml-1 text-[9px] normal-case text-primary font-normal">
+                  ({granularidad})
+                </span>
+              </Label>
+
+              {granularidad === "dia" || granularidad === "semana" ? (
+                // Fechas específicas para día y semana
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-muted-foreground mb-1 block">Desde</label>
+                    <input
+                      type="date"
+                      value={fechaDesde}
+                      onChange={(e) => setFechaDesde(e.target.value)}
+                      className="w-full h-8 text-xs px-2 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground mb-1 block">Hasta</label>
+                    <input
+                      type="date"
+                      value={fechaHasta}
+                      onChange={(e) => setFechaHasta(e.target.value)}
+                      className="w-full h-8 text-xs px-2 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+              ) : granularidad === "mes" ? (
+                // Selector de mes/año
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-muted-foreground mb-1 block">Mes</label>
+                    <Select value={String(mesSeleccionado)} onValueChange={(v) => setMesSeleccionado(parseInt(v))}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">Enero</SelectItem>
+                        <SelectItem value="2">Febrero</SelectItem>
+                        <SelectItem value="3">Marzo</SelectItem>
+                        <SelectItem value="4">Abril</SelectItem>
+                        <SelectItem value="5">Mayo</SelectItem>
+                        <SelectItem value="6">Junio</SelectItem>
+                        <SelectItem value="7">Julio</SelectItem>
+                        <SelectItem value="8">Agosto</SelectItem>
+                        <SelectItem value="9">Septiembre</SelectItem>
+                        <SelectItem value="10">Octubre</SelectItem>
+                        <SelectItem value="11">Noviembre</SelectItem>
+                        <SelectItem value="12">Diciembre</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground mb-1 block">Año</label>
+                    <Select value={String(añoSeleccionado)} onValueChange={(v) => setAñoSeleccionado(parseInt(v))}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 10 }, (_, i) => currentYear - 5 + i).map(year => (
+                          <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              ) : granularidad === "trimestre" ? (
+                // Selector de trimestre/año
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-muted-foreground mb-1 block">Trimestre</label>
+                    <Select value={String(trimestreSeleccionado)} onValueChange={(v) => setTrimestreSeleccionado(parseInt(v))}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">Q1 (Ene-Mar)</SelectItem>
+                        <SelectItem value="2">Q2 (Abr-Jun)</SelectItem>
+                        <SelectItem value="3">Q3 (Jul-Sep)</SelectItem>
+                        <SelectItem value="4">Q4 (Oct-Dic)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground mb-1 block">Año</label>
+                    <Select value={String(añoSeleccionado)} onValueChange={(v) => setAñoSeleccionado(parseInt(v))}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 10 }, (_, i) => currentYear - 5 + i).map(year => (
+                          <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              ) : (
+                // Solo selector de año
+                <div className="w-1/2">
+                  <label className="text-[10px] text-muted-foreground mb-1 block">Año</label>
+                  <Select value={String(añoSeleccionado)} onValueChange={(v) => setAñoSeleccionado(parseInt(v))}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 10 }, (_, i) => currentYear - 5 + i).map(year => (
+                        <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+
+            {/* Granularidad temporal */}
+            <div>
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">
+                Granularidad
+              </Label>
+              <div className="grid grid-cols-5 gap-1.5">
+                {(["dia", "semana", "mes", "trimestre", "año"] as const).map((g) => (
+                  <button
+                    key={g}
+                    onClick={() => setGranularidad(g)}
+                    className={cn(
+                      "py-2 px-1 rounded-md border text-[10px] font-medium transition-all",
+                      granularidad === g
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary/30"
+                    )}
+                  >
+                    {g.charAt(0).toUpperCase() + g.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Estructura jerárquica - contextual por rol */}
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Filtros de organización
+                <span className="ml-1 text-[9px] normal-case text-primary font-normal">
+                  ({currentUser?.role === "super_admin" ? "completo" :
+                    currentUser?.role === "cliente_admin" ? "empresa" : "personal"})
+                </span>
+              </Label>
+
+              {/* Cliente - Solo para super_admin */}
+              {currentUser?.role === "super_admin" && (
+                <div>
+                  <label className="text-[10px] text-muted-foreground mb-1 block">Cliente</label>
+                  <Select value={clienteSeleccionado} onValueChange={setClienteSeleccionado}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Todos los clientes" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos los clientes</SelectItem>
+                      {clientes.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.nombre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Info para cliente_admin */}
+              {currentUser?.role === "cliente_admin" && (
+                <div className="p-2 rounded-md bg-blue-50 border border-blue-200">
+                  <p className="text-[10px] font-medium text-blue-800">
+                    📊 Datos filtrados por tu empresa: {clientes.find(c => c.id === currentUser.clienteId)?.nombre}
+                  </p>
+                </div>
+              )}
+
+              {/* Productor - Para super_admin y cliente_admin */}
+              {(currentUser?.role === "super_admin" || currentUser?.role === "cliente_admin") && (
+                <div>
+                  <label className="text-[10px] text-muted-foreground mb-1 block">
+                    Productor
+                    {currentUser?.role === "super_admin" && clienteSeleccionado !== "todos" && (
+                      <span className="ml-1 text-[9px] text-primary">(filtrado por cliente)</span>
+                    )}
+                    {currentUser?.role === "cliente_admin" && (
+                      <span className="ml-1 text-[9px] text-blue-600">(tu empresa)</span>
+                    )}
+                  </label>
+                  <Select
+                    value={productorSeleccionado}
+                    onValueChange={setProductorSeleccionado}
+                    disabled={productoresDisponibles.length === 0}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Todos los productores" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos los productores</SelectItem>
+                      {productoresDisponibles.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nombre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Info para productor */}
+              {currentUser?.role === "productor" && (
+                <div className="p-2 rounded-md bg-green-50 border border-green-200">
+                  <p className="text-[10px] font-medium text-green-800">
+                    🌱 Datos filtrados por tu área: {productores.find(p => p.id === currentUser.productorId)?.nombre}
+                  </p>
+                </div>
+              )}
+
+              {/* Cultivo - Para todos, pero filtrado según permisos */}
+              <div>
+                <label className="text-[10px] text-muted-foreground mb-1 block">
+                  Cultivo
+                  {currentUser?.role === "productor" && (
+                    <span className="ml-1 text-[9px] text-green-600">(habilitados)</span>
+                  )}
+                </label>
+                <Select value={cultivoSeleccionado} onValueChange={setCultivoSeleccionado}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Todos los cultivos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos los cultivos</SelectItem>
+                    {cultivosDisponibles.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Estructura jerárquica del cultivo seleccionado — selección exclusiva por nivel */}
+            {estructuraCultivoSeleccionado.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Estructura del cultivo
+                    <span className="ml-1 text-[9px] normal-case text-green-600 font-normal">
+                      ({cultivosDisponibles.find(c => c.id === cultivoSeleccionado)?.nombre})
+                    </span>
+                  </Label>
+                  {nivelEstructuraActivo && (
+                    <button
+                      onClick={() => { setNivelEstructuraActivo(null); setValorEstructuraActivo("todos"); }}
+                      className="text-[10px] text-muted-foreground hover:text-destructive transition-colors flex items-center gap-0.5"
+                    >
+                      <X className="w-2.5 h-2.5" /> Quitar
+                    </button>
+                  )}
+                </div>
+
+                {/* Pills exclusivos — uno solo a la vez */}
+                <div className="flex gap-1.5 flex-wrap">
+                  {estructuraCultivoSeleccionado
+                    .sort((a, b) => a.nivel - b.nivel)
+                    .filter(e => e && e.label)
+                    .map((nivelEstructura) => {
+                      const nivelKey = `nivel_${nivelEstructura.nivel}`;
+                      const isActive = nivelEstructuraActivo === nivelKey;
+                      return (
+                        <button
+                          key={nivelKey}
+                          onClick={() => {
+                            if (isActive) {
+                              setNivelEstructuraActivo(null);
+                              setValorEstructuraActivo("todos");
+                            } else {
+                              setNivelEstructuraActivo(nivelKey);
+                              setValorEstructuraActivo("todos");
+                            }
+                          }}
+                          className={cn(
+                            "flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full border font-medium transition-colors",
+                            isActive
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-muted/30 border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                          )}
+                        >
+                          {nivelEstructura.label}
+                          <span className={cn("text-[9px]", isActive ? "opacity-70" : "opacity-40")}>
+                            niv.{nivelEstructura.nivel}
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+
+                {/* Dropdown del nivel activo */}
+                {nivelEstructuraActivo && (() => {
+                  const nivelNumero = nivelEstructuraActivo.replace("nivel_", "");
+                  const nivelEstructura = estructuraCultivoSeleccionado.find(e => String(e.nivel) === nivelNumero);
+                  if (!nivelEstructura) return null;
+                  const nombreNivel = nivelEstructura.label.toLowerCase();
+                  return (
+                    <Select value={valorEstructuraActivo} onValueChange={setValorEstructuraActivo}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder={`Filtrar por ${nombreNivel}…`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos los {nombreNivel}s</SelectItem>
+                        {/* TODO: cargar opciones reales del cultivo */}
+                        <SelectItem value="ejemplo_1">Ejemplo 1</SelectItem>
+                        <SelectItem value="ejemplo_2">Ejemplo 2</SelectItem>
+                        <SelectItem value="ejemplo_3">Ejemplo 3</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  );
+                })()}
+
+                {/* Jerarquía configurada */}
+                <div className="p-2 rounded-md bg-green-50 border border-green-200">
+                  <p className="text-[10px] font-medium text-green-800 mb-1">
+                    🏗️ Jerarquía configurada:
+                  </p>
+                  <p className="text-[9px] text-green-700">
+                    {estructuraCultivoSeleccionado
+                      .sort((a, b) => a.nivel - b.nivel)
+                      .filter(e => e && e.label)
+                      .map(e => e.label)
+                      .join(" → ")}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Formularios/Definiciones específicas */}
+            {definicionesDisponibles.length > 0 && (
+              <div>
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">
+                  Formularios incluidos
+                  <span className="ml-1 text-[9px] normal-case text-primary font-normal">
+                    ({informe.categoria})
+                  </span>
+                </Label>
+                <div className="space-y-1 max-h-32 overflow-y-auto p-2 rounded-md border border-border bg-muted/20">
+                  <button
+                    onClick={() => setDefinicionesSeleccionadas([])}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-2 py-1.5 rounded text-[10px] text-left transition-colors",
+                      definicionesSeleccionadas.length === 0
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "hover:bg-muted text-muted-foreground"
+                    )}
+                  >
+                    <div className={cn(
+                      "w-3 h-3 rounded border flex items-center justify-center shrink-0",
+                      definicionesSeleccionadas.length === 0
+                        ? "border-primary bg-primary"
+                        : "border-border"
+                    )}>
+                      {definicionesSeleccionadas.length === 0 && (
+                        <Check className="w-2 h-2 text-white" />
+                      )}
+                    </div>
+                    Todos los formularios
+                  </button>
+                  {definicionesDisponibles.map((def) => {
+                    const isSelected = definicionesSeleccionadas.includes(def.id);
+                    return (
+                      <button
+                        key={def.id}
+                        onClick={() => {
+                          setDefinicionesSeleccionadas(prev => {
+                            // Si hay selección múltiple, toggle
+                            if (prev.length > 0) {
+                              if (isSelected) {
+                                return prev.filter(id => id !== def.id);
+                              } else {
+                                return [...prev, def.id];
+                              }
+                            }
+                            // Si no hay selección (todos), crear selección excluyendo este
+                            return definicionesDisponibles
+                              .filter(d => d.id !== def.id)
+                              .map(d => d.id);
+                          });
+                        }}
+                        className={cn(
+                          "w-full flex items-center gap-2 px-2 py-1.5 rounded text-[10px] text-left transition-colors",
+                          isSelected || definicionesSeleccionadas.length === 0
+                            ? "bg-primary/10 text-primary font-medium"
+                            : "hover:bg-muted text-muted-foreground"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-3 h-3 rounded border flex items-center justify-center shrink-0",
+                          isSelected || definicionesSeleccionadas.length === 0
+                            ? "border-primary bg-primary"
+                            : "border-border"
+                        )}>
+                          {(isSelected || definicionesSeleccionadas.length === 0) && (
+                            <Check className="w-2 h-2 text-white" />
+                          )}
+                        </div>
+                        {def.nombre}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Summary de filtros activos - contextual por rol */}
+          {hayFiltrosActivos && (
+            <div className="p-3 rounded-lg border border-primary/20 bg-primary/5">
+              <p className="text-[10px] font-semibold text-primary mb-1.5">Filtros activos:</p>
+              <div className="flex flex-wrap gap-1">
+                {/* Mostrar período según granularidad */}
+                {granularidad === "dia" || granularidad === "semana" ? (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    📅 {granularidad}: {fechaDesde} → {fechaHasta}
+                  </span>
+                ) : granularidad === "mes" ? (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    📅 {["", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"][mesSeleccionado]} {añoSeleccionado}
+                  </span>
+                ) : granularidad === "trimestre" ? (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    📅 Q{trimestreSeleccionado} {añoSeleccionado}
+                  </span>
+                ) : (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    📅 {añoSeleccionado}
+                  </span>
+                )}
+                {/* Solo mostrar cliente si es super_admin y tiene selección */}
+                {currentUser?.role === "super_admin" && clienteSeleccionado !== "todos" && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    🏢 {clientes.find(c => String(c.id) === clienteSeleccionado)?.nombre}
+                  </span>
+                )}
+                {/* Solo mostrar productor si puede seleccionarlo y tiene selección */}
+                {(currentUser?.role === "super_admin" || currentUser?.role === "cliente_admin") &&
+                 productorSeleccionado !== "todos" && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    👤 {productoresDisponibles.find(p => p.id === productorSeleccionado)?.nombre}
+                  </span>
+                )}
+                {cultivoSeleccionado !== "todos" && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    🌱 {cultivosDisponibles.find(c => c.id === cultivoSeleccionado)?.nombre}
+                  </span>
+                )}
+                {definicionesSeleccionadas.length > 0 && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    📋 {definicionesSeleccionadas.length} formulario(s)
+                  </span>
+                )}
+                {/* Mostrar filtros de estructura jerárquica activos */}
+                {Object.entries(estructuraFiltros).map(([nivelKey, valor]) => {
+                  if (valor === "todos" || valor === "") return null;
+
+                  const nivelNumero = nivelKey.replace("nivel_", "");
+                  const nivelEstructura = estructuraCultivoSeleccionado.find(e => String(e.nivel) === nivelNumero);
+                  const nombreNivel = nivelEstructura?.label || `Nivel ${nivelNumero}`;
+
+                  return (
+                    <span
+                      key={nivelKey}
+                      className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20"
+                    >
+                      🏗️ {nombreNivel}: {valor}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </TabsContent>
+
         {/* GENERAR */}
         <TabsContent
           value="generar"
@@ -1816,6 +2548,25 @@ function DetailPanel({
             </div>
           ) : (
             <>
+              {/* Referencia a configuración de filtros */}
+              {hayFiltrosActivos && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200">
+                  <Sliders className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-blue-900">Filtros configurados</p>
+                    <p className="text-[10px] text-blue-700">
+                      Se aplicarán los filtros definidos en la pestaña Config.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setTab("config")}
+                    className="text-[10px] px-2 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors font-medium"
+                  >
+                    Ver config
+                  </button>
+                </div>
+              )}
+
               <div className="space-y-3">
                 <div>
                   <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">
@@ -1843,33 +2594,25 @@ function DetailPanel({
                     })}
                   </div>
                 </div>
-
-                <div>
-                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">
-                    Período
-                  </Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[10px] text-muted-foreground mb-1 block">Desde</label>
-                      <input
-                        type="date"
-                        value={fechaDesde}
-                        onChange={(e) => setFechaDesde(e.target.value)}
-                        className="w-full h-8 text-xs px-2 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-muted-foreground mb-1 block">Hasta</label>
-                      <input
-                        type="date"
-                        value={fechaHasta}
-                        onChange={(e) => setFechaHasta(e.target.value)}
-                        className="w-full h-8 text-xs px-2 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-                    </div>
-                  </div>
-                </div>
               </div>
+
+              {!hayFiltrosActivos && (
+                <div className="p-3 rounded-lg border border-dashed border-border bg-muted/20">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Sliders className="w-3.5 h-3.5 text-muted-foreground" />
+                    <p className="text-xs font-semibold text-muted-foreground">Sin filtros configurados</p>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mb-2">
+                    El informe incluirá todos los datos disponibles. Configura filtros específicos para acotar los resultados.
+                  </p>
+                  <button
+                    onClick={() => setTab("config")}
+                    className="text-[10px] px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium"
+                  >
+                    Configurar filtros
+                  </button>
+                </div>
+              )}
 
               <div className="pt-2">
                 <Button
@@ -2023,6 +2766,41 @@ function DetailPanel({
                 </div>
                 <Switch checked={schedEnabled} onCheckedChange={setSchedEnabled} />
               </div>
+
+              {/* Filtros aplicados */}
+              {hayFiltrosActivos ? (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200">
+                  <Sliders className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-blue-900">Filtros configurados</p>
+                    <p className="text-[10px] text-blue-700">
+                      Los envíos automáticos usarán los filtros de la pestaña Config.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setTab("config")}
+                    className="text-[10px] px-2 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors font-medium"
+                  >
+                    Ver config
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 p-3 rounded-lg border border-dashed border-border bg-muted/20">
+                  <Sliders className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-muted-foreground">Sin filtros configurados</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Los envíos automáticos incluirán todos los datos disponibles.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setTab("config")}
+                    className="text-[10px] px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium"
+                  >
+                    Configurar
+                  </button>
+                </div>
+              )}
 
               {/* Config fields */}
               <div className={cn("space-y-3 transition-opacity", !schedEnabled && "opacity-40 pointer-events-none")}>
@@ -3334,53 +4112,30 @@ const Informes = () => {
             {/* Body — Document preview */}
             <div className="flex-1 overflow-y-auto bg-zinc-100 dark:bg-zinc-900">
               {previewInforme.builderConfig ? (() => {
-                // ── Datos del sistema ──
-                const productor    = productores.find(p => p.id === currentUser?.productorId);
-                const cliente      = clientes.find(c => c.id === currentUser?.clienteId);
+                // ── Auto-fill data from system ──
+                const productor = productores.find(p => p.id === currentUser?.productorId);
+                const cliente   = clientes.find(c => c.id === currentUser?.clienteId);
+                const finca     = productor?.nombre ?? cliente?.nombre ?? "—";
+                const ubicacion = productor ? `${productor.pais}` : (cliente?.pais ?? "—");
                 const primerCultivo = cultivos[0];
+                const cultivoNombre = primerCultivo?.nombre ?? "—";
                 const primeraVariedad = primerCultivo
                   ? variedades.find(v => v.cultivo_id === primerCultivo.id)?.nombre ?? "—"
                   : "—";
-
-                // Mapa fuente → valor del sistema
-                const SISTEMA_VALS: Record<FuenteCampo, string> = {
-                  finca:      productor?.nombre ?? cliente?.nombre ?? "—",
-                  cultivo:    primerCultivo?.nombre ?? "—",
-                  variedad:   primeraVariedad,
-                  ubicacion:  productor ? productor.pais : (cliente?.pais ?? "—"),
-                  superficie: primerCultivo?.marco_plantacion
-                                ? `${(primerCultivo.marco_plantacion / 10000).toFixed(1)} ha`
-                                : "—",
-                  productor:  productor?.nombre ?? "—",
-                  custom:     "—",
-                };
-
-                // Campos dinámicos del encabezado (con fallback a lista por defecto)
-                const encCampos: CampoEncabezado[] =
-                  (previewInforme.builderConfig.plantilla?.encabezado as { campos?: CampoEncabezado[] })?.campos ?? [
-                    { id: "finca",     label: "Finca",     fuente: "finca",     auto: true, valor: "" },
-                    { id: "cultivo",   label: "Cultivo",   fuente: "cultivo",   auto: true, valor: "" },
-                    { id: "variedad",  label: "Variedad",  fuente: "variedad",  auto: true, valor: "" },
-                    { id: "ubicacion", label: "Ubicación", fuente: "ubicacion", auto: true, valor: "" },
-                    { id: "categoria", label: "Categoría", fuente: "custom",    auto: false, valor: previewInforme.categoria },
-                  ];
-
-                const colorBorde = (previewInforme.builderConfig.plantilla?.encabezado as { colorBorde?: string })?.colorBorde ?? "#cc0000";
-
                 const fechaInicio = previewInforme.created_at
                   ? new Date(previewInforme.created_at).toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" })
                   : new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" });
-                const revision = previewInforme.versiones?.length ?? 1;
-                const codigo   = previewInforme.codigo;
-                const docTitle = (previewInforme.builderConfig.titulo || previewInforme.nombre).toUpperCase();
+                const revision   = previewInforme.versiones?.length ?? 1;
+                const codigo     = previewInforme.codigo;
+                const docTitle   = (previewInforme.builderConfig.titulo || previewInforme.nombre).toUpperCase();
 
                 return (
                   <div className="p-4 min-h-full">
                     {/* A4-like paper */}
                     <div className="bg-white dark:bg-zinc-800 shadow-xl border border-zinc-300 dark:border-zinc-600 max-w-3xl mx-auto text-zinc-900 dark:text-zinc-100" style={{ fontFamily: "Arial, sans-serif" }}>
 
-                      {/* ── Document header ── */}
-                      <table className="w-full border-collapse text-[10px]" style={{ borderBottom: `2px solid ${colorBorde}` }}>
+                      {/* ── Document header (like the image) ── */}
+                      <table className="w-full border-collapse text-[10px]" style={{ borderBottom: "2px solid #c00" }}>
                         <tbody>
                           <tr>
                             {/* Logo cell */}
@@ -3416,11 +4171,11 @@ const Informes = () => {
                                   </tr>
                                   <tr>
                                     <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1 font-semibold uppercase text-zinc-500">SUPERFICIE:</td>
-                                    <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1">{superficieVal}</td>
+                                    <td className="border-b border-zinc-300 dark:border-zinc-600 px-1.5 py-1">{primerCultivo?.marco_plantacion ? `${(primerCultivo.marco_plantacion / 10000).toFixed(1)} ha` : "—"}</td>
                                   </tr>
                                   <tr>
                                     <td className="px-1.5 py-1 font-semibold uppercase text-zinc-500">PRODUCTOR:</td>
-                                    <td className="px-1.5 py-1 truncate">{productorNombre}</td>
+                                    <td className="px-1.5 py-1 truncate">{productor?.nombre ?? "—"}</td>
                                   </tr>
                                 </tbody>
                               </table>
@@ -3431,22 +4186,28 @@ const Informes = () => {
                               Registro del Productor
                             </td>
                           </tr>
-                          {/* Fila dinámica de campos del encabezado */}
+                          {/* Meta row: FINCA, CULTIVO, UBICACIÓN, VARIEDAD */}
                           <tr>
-                            {encCampos.map(campo => (
-                              <td
-                                key={campo.id}
-                                className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center"
-                                style={{ width: `${Math.floor(100 / encCampos.length)}%` }}
-                              >
-                                <span className="font-bold uppercase text-zinc-500 text-[9px] block">{campo.label}</span>
-                                <span className="font-semibold text-[10px]">
-                                  {campo.auto && campo.fuente !== "custom"
-                                    ? SISTEMA_VALS[campo.fuente]
-                                    : (campo.valor || "—")}
-                                </span>
-                              </td>
-                            ))}
+                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
+                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Finca</span>
+                              <span className="font-semibold text-[10px]">{finca}</span>
+                            </td>
+                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
+                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Cultivo</span>
+                              <span className="font-semibold text-[10px]">{cultivoNombre}</span>
+                            </td>
+                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
+                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Variedad</span>
+                              <span className="font-semibold text-[10px]">{primeraVariedad}</span>
+                            </td>
+                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
+                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Ubicación</span>
+                              <span className="font-semibold text-[10px]">{ubicacion}</span>
+                            </td>
+                            <td className="border border-zinc-400 dark:border-zinc-500 px-2 py-1.5 text-center" style={{ width: "20%" }}>
+                              <span className="font-bold uppercase text-zinc-500 text-[9px] block">Categoría</span>
+                              <span className="font-semibold text-[10px] capitalize">{previewInforme.categoria}</span>
+                            </td>
                           </tr>
                         </tbody>
                       </table>
