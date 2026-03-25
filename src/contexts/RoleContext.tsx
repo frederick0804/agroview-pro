@@ -292,7 +292,7 @@ interface RoleContextType {
   users: HardcodedUser[];
   addUser: (u: Omit<HardcodedUser, "id">) => HardcodedUser;
   updUser: (id: number, changes: Partial<Omit<HardcodedUser, "id">>) => void;
-  delUser: (id: number) => void;
+  toggleUserActive: (id: number) => void;
   // Clientes CRUD
   clientes: DemoCliente[];
   addCliente: (c: Omit<DemoCliente, "id">) => DemoCliente;
@@ -545,9 +545,18 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   const updUser = (id: number, changes: Partial<Omit<HardcodedUser, "id">>) => {
     setUsers(prev => prev.map(u => u.id === id ? { ...u, ...changes } : u));
   };
-  const delUser = (id: number) => {
-    setUsers(prev => prev.filter(u => u.id !== id));
-    setPermissionOverrides(prev => prev.filter(o => o.userId !== id));
+  const toggleUserActive = (id: number) => {
+    setUsers(prev => prev.map(u =>
+      u.id === id
+        ? { ...u, activo: !(u.activo ?? true) }
+        : u
+    ));
+    // Si se desactiva el usuario actual, cerrar sesión
+    if (currentUser?.id === id) {
+      setCurrentUser(null);
+      setIsAuthenticated(false);
+      setRole("cliente_admin");
+    }
   };
 
   // Clientes CRUD
@@ -605,7 +614,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         users,
         addUser,
         updUser,
-        delUser,
+        toggleUserActive,
         clientes,
         addCliente,
         updCliente,

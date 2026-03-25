@@ -1,4 +1,4 @@
-// ─── Informe Builder — Editor visual con soporte de múltiples bloques ─────────
+// --------- Informe Builder - Editor visual con soporte de múltiples bloques ---------------------------
 // Permite agregar múltiples gráficos y tablas al mismo informe con live preview.
 
 import { useState, useMemo, useCallback } from "react";
@@ -8,7 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useInlineEdit } from "@/hooks/useInlineEdit";
 import {
   BarChart,
   Bar,
@@ -72,9 +74,131 @@ import {
   FunctionSquare,
   Link2,
   Sigma,
+  Image,
+  FileText,
+  Ruler,
+  Layout,
+  AlignCenter,
+  AlignRight,
+  Grid3x3,
+  Upload,
+  LayoutTemplate,
+  Filter,
+  TreePine,
 } from "lucide-react";
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
+// --------- Template constants for better performance ---------------------------------------------------------------------------------------------
+
+const TEMPLATE_DEFINITIONS = {
+  rendimiento_semanal: {
+    config: {
+      nombre: "Rendimiento Semanal",
+      descripcion: "Análisis del rendimiento de cosecha por semanas con métricas clave de producción",
+      categoria: "cosecha" as const,
+      createBloques: () => [{
+        id: `grafico_${Date.now()}`,
+        tipo: "grafico" as const,
+        titulo: "Tendencia de Rendimiento",
+        moduloActivo: "cosecha",
+        fuentesSeleccionadas: ["cosecha_kg", "cosecha_calidad"],
+        dimension: "semana",
+        metricas: ["peso_kg", "calidad_promedio"],
+        tipoGrafico: "line" as TipoGrafico,
+        apilado: false,
+        mostrarLeyenda: true,
+        mostrarGrid: true,
+        mostrarTooltip: true,
+      }],
+    },
+  },
+  comparativo_productores: {
+    config: {
+      nombre: "Comparativo por Productores",
+      descripcion: "Comparación de métricas clave entre diferentes productores",
+      categoria: "general" as const,
+      createBloques: () => [{
+        id: `grafico_${Date.now()}`,
+        tipo: "grafico" as const,
+        titulo: "Rendimiento por Productor",
+        moduloActivo: "cosecha",
+        fuentesSeleccionadas: ["cosecha_kg"],
+        dimension: "productor",
+        metricas: ["peso_kg"],
+        tipoGrafico: "bar_v" as TipoGrafico,
+        apilado: false,
+        mostrarLeyenda: false,
+        mostrarGrid: true,
+        mostrarTooltip: true,
+      }],
+    },
+  },
+  analisis_laboratorio: {
+    config: {
+      nombre: "Análisis de Laboratorio",
+      descripcion: "Resultados detallados de análisis químicos y de calidad",
+      categoria: "laboratorio" as const,
+      createBloques: () => [{
+        id: `tabla_${Date.now()}`,
+        tipo: "tabla" as const,
+        titulo: "Resultados de Análisis",
+        moduloActivo: "laboratorio",
+        fuentesSeleccionadas: ["suelo_ph", "nutrientes"],
+        columnas: ["muestra", "ph", "nitrogeno", "fosforo", "potasio"],
+        estilos: { mostrarBordes: true, alternarFilas: true, tamañoFuente: "sm" as const, alineacion: "left" as const, compacta: false },
+      }],
+    },
+  },
+  dashboard_completo: {
+    config: {
+      nombre: "Dashboard Completo",
+      descripcion: "Vista integral con múltiples gráficos y tablas para análisis completo",
+      categoria: "general" as const,
+      createBloques: () => [
+        {
+          id: `grafico_${Date.now()}_1`,
+          tipo: "grafico" as const,
+          titulo: "Rendimiento por Semana",
+          moduloActivo: "cosecha",
+          fuentesSeleccionadas: ["cosecha_kg"],
+          dimension: "semana",
+          metricas: ["peso_kg"],
+          tipoGrafico: "area" as TipoGrafico,
+          apilado: false,
+          mostrarLeyenda: true,
+          mostrarGrid: true,
+          mostrarTooltip: true,
+        },
+        {
+          id: `grafico_${Date.now()}_2`,
+          tipo: "grafico" as const,
+          titulo: "Distribución por Variedad",
+          moduloActivo: "siembra",
+          fuentesSeleccionadas: ["variedad_plantada"],
+          dimension: "variedad",
+          metricas: ["superficie_m2"],
+          tipoGrafico: "pie" as TipoGrafico,
+          apilado: false,
+          mostrarLeyenda: true,
+          mostrarGrid: false,
+          mostrarTooltip: true,
+        },
+        {
+          id: `tabla_${Date.now()}`,
+          tipo: "tabla" as const,
+          titulo: "Resumen por Productor",
+          moduloActivo: "general",
+          fuentesSeleccionadas: ["productor_info", "cosecha_kg"],
+          columnas: ["productor", "superficie_total", "peso_kg", "rendimiento_kg_m2"],
+          estilos: { mostrarBordes: true, alternarFilas: true, tamañoFuente: "sm" as const, alineacion: "left" as const, compacta: false },
+        },
+      ],
+    },
+  },
+} as const;
+
+type TemplateId = keyof typeof TEMPLATE_DEFINITIONS;
+
+// --------- Tipos ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 export type TipoGrafico =
   | "bar_v"
@@ -101,9 +225,15 @@ interface FuenteInfo {
 interface CampoCalculado {
   id: string;
   label: string;
+  tipo: "formula" | "agregacion";
+  // Formula mode (A op B)
   operacion: "/" | "+" | "-" | "*" | "pct";
   campoA: string;  // "FUENTE_ID:campo_id"
   campoB: string;  // "FUENTE_ID:campo_id"
+  // Aggregation mode (group by dim, aggregate metric)
+  agruparPor?: string[];         // Array de "FUENTE_ID:campo_id" de tipo dimension (permite múltiples agrupaciones)
+  campoAgregado?: string;        // "FUENTE_ID:campo_id" de tipo metrica
+  operacionAgrupacion?: "suma" | "promedio" | "mediana" | "minimo" | "maximo" | "conteo" | "desviacion";
   unidad?: string;
 }
 
@@ -126,13 +256,39 @@ export interface PlantillaConfig {
     textoPersonalizado: string;
     campos: CampoEncabezado[];  // campos dinámicos ordenables
     colorBorde: string;
+    // Configuración avanzada de encabezado
+    altura: "sm" | "md" | "lg";
+    logoPersonalizado?: string; // URL o base64 de imagen
+    posicionLogo: "left" | "center" | "right";
+    mostrarLinea: boolean;
   };
   columnas: string[];
   incluirNotas: boolean;
   incluirConclusiones: boolean;
   incluirFirma: boolean;
   piePagina: string;
+  // Configuraciones avanzadas
+  imagenes?: {
+    logoEmpresa?: string;
+    imagenFondo?: string;
+    marcaAgua?: string;
+    opacidadMarcaAgua: number;
+  };
+  margenes: {
+    superior: number;
+    inferior: number;
+    izquierdo: number;
+    derecho: number;
+  };
+  formato: {
+    tamañoPagina: "A4" | "Letter" | "A3";
+    orientacion: "portrait" | "landscape";
+    numeracionPaginas: boolean;
+    posicionNumeracion: "header" | "footer" | "none";
+  };
 }
+
+export type AgregacionTipo = "suma" | "promedio" | "mediana";
 
 export interface GraficoBloque {
   id: string;
@@ -142,12 +298,14 @@ export interface GraficoBloque {
   fuentesSeleccionadas: string[];
   dimension: string;
   metricas: string[];
+  agregaciones?: Record<string, AgregacionTipo>;
   tipoGrafico: TipoGrafico;
   apilado: boolean;
   mostrarLeyenda: boolean;
   mostrarGrid: boolean;
   mostrarTooltip: boolean;
   camposCalculados?: CampoCalculado[];
+  filtrosJerarquia?: Record<string, string[]>;
 }
 
 export interface TablaBloque {
@@ -157,7 +315,23 @@ export interface TablaBloque {
   moduloActivo: string;
   fuentesSeleccionadas: string[];
   columnas: string[];
+  groupBy?: string[];
+  agregaciones?: Record<string, AgregacionTipo>;
+  filtrosJerarquia?: Record<string, string[]>;
   camposCalculados?: CampoCalculado[];
+  // Configuración avanzada de tabla
+  estilos?: {
+    mostrarBordes: boolean;
+    alternarFilas: boolean;
+    tamañoFuente: "xs" | "sm" | "base" | "lg";
+    alineacion: "left" | "center" | "right";
+    compacta: boolean;
+  };
+  paginacion?: {
+    habilitada: boolean;
+    filasPorPagina: number;
+    mostrarControles: boolean;
+  };
 }
 
 export type ReporteBloque = GraficoBloque | TablaBloque;
@@ -184,7 +358,7 @@ export interface InformesBuilderProps {
   onSave: (config: BuilderConfig) => void;
 }
 
-// ─── Datos de fuentes disponibles ────────────────────────────────────────────
+// --------- Datos de fuentes disponibles ------------------------------------------------------------------------------------------------------------------------------------
 
 const MODULOS_FUENTES: Record<string, { icon: React.ElementType; color: string; fuentes: FuenteInfo[] }> = {
   "Laboratorio / Vivero": {
@@ -388,7 +562,59 @@ const MODULOS_FUENTES: Record<string, { icon: React.ElementType; color: string; 
   },
 };
 
-// ─── Paletas de color ─────────────────────────────────────────────────────────
+// ─── Estructura jerárquica del cultivo ───────────────────────────────────────
+
+interface NivelJerarquia {
+  nivel: string;
+  label: string;
+  values: Array<{ id: string; label: string; parentId: string | null }>;
+}
+
+const ESTRUCTURA_CULTIVO: NivelJerarquia[] = [
+  {
+    nivel: "finca", label: "Finca",
+    values: [
+      { id: "finca_norte",   label: "Finca Norte",   parentId: null },
+      { id: "finca_sur",     label: "Finca Sur",     parentId: null },
+      { id: "finca_central", label: "Finca Central", parentId: null },
+    ],
+  },
+  {
+    nivel: "bloque", label: "Bloque",
+    values: [
+      { id: "bloque_a", label: "Bloque A", parentId: "finca_norte" },
+      { id: "bloque_b", label: "Bloque B", parentId: "finca_norte" },
+      { id: "bloque_c", label: "Bloque C", parentId: "finca_sur" },
+      { id: "bloque_d", label: "Bloque D", parentId: "finca_sur" },
+      { id: "bloque_e", label: "Bloque E", parentId: "finca_central" },
+    ],
+  },
+  {
+    nivel: "parcela", label: "Parcela",
+    values: [
+      { id: "parcela_1", label: "Parcela 1", parentId: "bloque_a" },
+      { id: "parcela_2", label: "Parcela 2", parentId: "bloque_a" },
+      { id: "parcela_3", label: "Parcela 3", parentId: "bloque_b" },
+      { id: "parcela_4", label: "Parcela 4", parentId: "bloque_c" },
+      { id: "parcela_5", label: "Parcela 5", parentId: "bloque_d" },
+      { id: "parcela_6", label: "Parcela 6", parentId: "bloque_e" },
+    ],
+  },
+  {
+    nivel: "sector", label: "Sector",
+    values: [
+      { id: "sector_1a", label: "Sector 1A", parentId: "parcela_1" },
+      { id: "sector_1b", label: "Sector 1B", parentId: "parcela_1" },
+      { id: "sector_2a", label: "Sector 2A", parentId: "parcela_2" },
+      { id: "sector_3a", label: "Sector 3A", parentId: "parcela_3" },
+      { id: "sector_4a", label: "Sector 4A", parentId: "parcela_4" },
+      { id: "sector_5a", label: "Sector 5A", parentId: "parcela_5" },
+      { id: "sector_6a", label: "Sector 6A", parentId: "parcela_6" },
+    ],
+  },
+];
+
+// --------- Paletas de color ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 const PALETAS = [
   { id: "ocean",      nombre: "Océano",     colors: ["#3b82f6", "#8b5cf6", "#06b6d4", "#10b981", "#f59e0b"] },
@@ -399,7 +625,7 @@ const PALETAS = [
   { id: "mono",       nombre: "Gris",       colors: ["#1e293b", "#475569", "#64748b", "#94a3b8", "#cbd5e1"] },
 ];
 
-// ─── Tipos de gráfico ─────────────────────────────────────────────────────────
+// --------- Tipos de gráfico ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 const TIPOS_GRAFICO: { id: TipoGrafico; label: string; icon: React.ElementType; desc: string }[] = [
   { id: "bar_v",    label: "Barras",    icon: BarChart2,          desc: "Vertical" },
@@ -411,7 +637,7 @@ const TIPOS_GRAFICO: { id: TipoGrafico; label: string; icon: React.ElementType; 
   { id: "composed", label: "Compuesto", icon: Layers,             desc: "Barra+Línea" },
 ];
 
-// ─── Mock data helpers ────────────────────────────────────────────────────────
+// --------- Mock data helpers ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 function stableVal(seed: string, min: number, max: number): number {
   let h = 0;
@@ -500,7 +726,7 @@ function generateMockData(
   });
 }
 
-// ─── Helper factories ─────────────────────────────────────────────────────────
+// --------- Helper factories ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 let _bCounter = 0;
 function nextId(prefix: string) { return `${prefix}-${Date.now()}-${++_bCounter}`; }
@@ -568,7 +794,7 @@ function migrateConfig(cfg: unknown): BuilderConfig {
   };
 }
 
-// ─── Section accordion component ─────────────────────────────────────────────
+// --------- Section accordion component ---------------------------------------------------------------------------------------------------------------------------------------
 
 interface SectionProps {
   num: number;
@@ -613,7 +839,7 @@ function Section({ num, title, icon: Icon, open, onToggle, children, badge }: Se
   );
 }
 
-// ─── LiveChart (accepts direct props, no BuilderConfig) ───────────────────────
+// --------- LiveChart (accepts direct props, no BuilderConfig) ---------------------------------------------------------------------
 
 interface LiveChartProps {
   tipo: TipoGrafico;
@@ -625,12 +851,14 @@ interface LiveChartProps {
   metricas: string[];
   colors: string[];
   uid: string; // for unique gradient IDs when multiple charts on page
+  labelOverrides?: Record<string, string>; // extra labels for calculated fields
 }
 
 function LiveChart({
   tipo, apilado, mostrarLeyenda, mostrarGrid, mostrarTooltip,
-  data, metricas, colors, uid,
+  data, metricas, colors, uid, labelOverrides,
 }: LiveChartProps) {
+  const label = (id: string) => labelOverrides?.[id] ?? LABEL_MAP[id] ?? id;
   if (data.length === 0 || metricas.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground/40">
@@ -677,7 +905,7 @@ function LiveChart({
           <PolarAngleAxis dataKey="name" tick={{ fontSize: 10, fill: "#6b7280" }} />
           <PolarRadiusAxis tick={{ fontSize: 9, fill: "#9ca3af" }} />
           {metricas.map((m, i) => (
-            <Radar key={m} name={LABEL_MAP[m] ?? m} dataKey={m}
+            <Radar key={m} name={label(m)} dataKey={m}
               stroke={colors[i % colors.length]} fill={colors[i % colors.length]} fillOpacity={0.2} />
           ))}
           {mostrarTooltip && <Tooltip />}
@@ -697,7 +925,7 @@ function LiveChart({
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
           {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
           {metricas.map((m, i) => (
-            <Bar key={m} dataKey={m} name={LABEL_MAP[m] ?? m} fill={colors[i % colors.length]}
+            <Bar key={m} dataKey={m} name={label(m)} fill={colors[i % colors.length]}
               stackId={apilado ? "stack" : undefined} radius={[0, 3, 3, 0]} />
           ))}
         </BarChart>
@@ -715,7 +943,7 @@ function LiveChart({
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
           {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
           {metricas.map((m, i) => (
-            <Bar key={m} dataKey={m} name={LABEL_MAP[m] ?? m} fill={colors[i % colors.length]}
+            <Bar key={m} dataKey={m} name={label(m)} fill={colors[i % colors.length]}
               stackId={apilado ? "stack" : undefined} radius={[3, 3, 0, 0]} />
           ))}
         </BarChart>
@@ -733,7 +961,7 @@ function LiveChart({
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
           {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
           {metricas.map((m, i) => (
-            <Line key={m} type={curveType} dataKey={m} name={LABEL_MAP[m] ?? m}
+            <Line key={m} type={curveType} dataKey={m} name={label(m)}
               stroke={colors[i % colors.length]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
           ))}
         </LineChart>
@@ -759,7 +987,7 @@ function LiveChart({
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
           {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
           {metricas.map((m, i) => (
-            <Area key={m} type={curveType} dataKey={m} name={LABEL_MAP[m] ?? m}
+            <Area key={m} type={curveType} dataKey={m} name={label(m)}
               stroke={colors[i % colors.length]} strokeWidth={2}
               fill={`url(#${uid}-grad-${i})`}
               stackId={apilado ? "stack" : undefined} />
@@ -781,11 +1009,11 @@ function LiveChart({
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
           {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
           {barMetric && (
-            <Bar yAxisId="left" dataKey={barMetric} name={LABEL_MAP[barMetric] ?? barMetric}
+            <Bar yAxisId="left" dataKey={barMetric} name={label(barMetric)}
               fill={colors[0]} radius={[3, 3, 0, 0]} />
           )}
           {lineMetrics.map((m, i) => (
-            <Line key={m} yAxisId="right" type={curveType} dataKey={m} name={LABEL_MAP[m] ?? m}
+            <Line key={m} yAxisId="right" type={curveType} dataKey={m} name={label(m)}
               stroke={colors[(i + 1) % colors.length]} strokeWidth={2} dot={{ r: 3 }} />
           ))}
         </ComposedChart>
@@ -796,7 +1024,7 @@ function LiveChart({
   return null;
 }
 
-// ─── GraficoBloqueView — chart preview for a single GraficoBloque ─────────────
+// --------- GraficoBloqueView - chart preview for a single GraficoBloque ---------------------------------------
 
 function GraficoBloqueView({ bloque, colors }: { bloque: GraficoBloque; colors: string[] }) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes), []);
@@ -837,6 +1065,12 @@ function GraficoBloqueView({ bloque, colors }: { bloque: GraficoBloque; colors: 
     [mockMetricas.join(","), mockDim],
   );
 
+  // Build label overrides so calculated fields show their user-defined name
+  const calcLabelOverrides = useMemo(
+    () => Object.fromEntries((bloque.camposCalculados ?? []).map((cc) => [cc.id, cc.label || "Cálculo"])),
+    [bloque.camposCalculados],
+  );
+
   return (
     <LiveChart
       tipo={bloque.tipoGrafico}
@@ -848,14 +1082,22 @@ function GraficoBloqueView({ bloque, colors }: { bloque: GraficoBloque; colors: 
       metricas={mockMetricas}
       colors={colors}
       uid={bloque.id}
+      labelOverrides={calcLabelOverrides}
     />
   );
 }
 
-// ─── TablaBloqueView — table preview for a single TablaBloque ─────────────────
+// ─── Module band colors ────────────────────────────────────────────────────────
+const MODULE_BAND_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  "Laboratorio / Vivero": { bg: "bg-violet-50",  text: "text-violet-800",  border: "border-b-violet-400" },
+  "Siembra":              { bg: "bg-emerald-50", text: "text-emerald-800", border: "border-b-emerald-400" },
+  "Cosecha":              { bg: "bg-amber-50",   text: "text-amber-800",   border: "border-b-amber-400" },
+  "Poscosecha":           { bg: "bg-blue-50",    text: "text-blue-800",    border: "border-b-blue-400" },
+};
 
 function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: string[] }) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes), []);
+  const groupByKeys = bloque.groupBy ?? [];
 
   const camposDisponibles = useMemo((): CampoInfo[] => {
     const selected = allFuentes.filter((f) => bloque.fuentesSeleccionadas.includes(f.id));
@@ -872,16 +1114,63 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
   }, [bloque.fuentesSeleccionadas, bloque.camposCalculados, allFuentes]);
 
   const cols = useMemo(() => {
+    let base: string[];
     if (bloque.columnas.length > 0) {
-      return bloque.columnas.filter((id) => camposDisponibles.some((c) => c.id === id));
+      base = bloque.columnas.filter((id) => camposDisponibles.some((c) => c.id === id));
+    } else {
+      base = camposDisponibles.slice(0, 5).map((c) => c.id);
     }
-    return camposDisponibles.slice(0, 4).map((c) => c.id);
-  }, [bloque.columnas, camposDisponibles]);
+    // Pin all groupBy keys as first columns
+    if (groupByKeys.length > 0) {
+      const validKeys = groupByKeys.filter(id => camposDisponibles.some(c => c.id === id));
+      base = [...validKeys, ...base.filter((id) => !groupByKeys.includes(id))];
+    }
+    return base;
+  }, [bloque.columnas, groupByKeys, camposDisponibles]);
+
+  // Map each column to its parent module name (for the color band header)
+  const colModuleKey = useMemo((): Record<string, string> => {
+    const result: Record<string, string> = {};
+    for (const [modKey, modDef] of Object.entries(MODULOS_FUENTES)) {
+      for (const fuente of modDef.fuentes) {
+        if (!bloque.fuentesSeleccionadas.includes(fuente.id)) continue;
+        for (const campo of fuente.campos) {
+          if (!result[campo.id]) result[campo.id] = modKey;
+        }
+      }
+    }
+    return result;
+  }, [bloque.fuentesSeleccionadas]);
+
+  // Build colspan bands for the super-header row
+  type ModuleBand = { key: string; label: string; span: number; isDim: boolean };
+  const moduleBands = useMemo((): ModuleBand[] => {
+    const bands: ModuleBand[] = [];
+    for (const id of cols) {
+      const isDim = groupByKeys.includes(id) || camposDisponibles.find(c => c.id === id)?.tipo === "dimension";
+      const label = isDim ? "__dim__" : (colModuleKey[id] ?? "__unknown__");
+      if (bands.length > 0 && bands[bands.length - 1].label === label) {
+        bands[bands.length - 1].span++;
+      } else {
+        bands.push({ key: label + bands.length, label, span: 1, isDim });
+      }
+    }
+    return bands;
+  }, [cols, colModuleKey, groupByKeys, camposDisponibles]);
+
+  const hasMultipleModules = useMemo(() => {
+    const moduleSet = new Set(
+      cols
+        .filter(id => !groupByKeys.includes(id) && camposDisponibles.find(c => c.id === id)?.tipo !== "dimension")
+        .map(id => colModuleKey[id])
+        .filter(Boolean),
+    );
+    return moduleSet.size > 1;
+  }, [cols, colModuleKey, groupByKeys, camposDisponibles]);
 
   const mockRows = useMemo(() => {
     if (cols.length === 0) return [];
-    const dimCols = cols.filter((id) => camposDisponibles.find((c) => c.id === id)?.tipo === "dimension");
-    const dimForRows = dimCols[0] || "semana";
+    const dimForRows = groupByKeys[0] || cols.find(id => camposDisponibles.find(c => c.id === id)?.tipo === "dimension") || "semana";
     const labels = (DIM_VALUES[dimForRows] ?? ["Item 1","Item 2","Item 3","Item 4","Item 5","Item 6"]).slice(0, 6);
     return labels.map((rowLabel) => {
       const row: Record<string, string | number> = {};
@@ -897,15 +1186,27 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
         } else {
           const [lo, hi] = METRIC_RANGES[id] ?? [100, 1000];
           let val = stableVal(`${rowLabel}-${id}`, lo, hi);
+          // Apply aggregation simulation when groupBy is active
+          if (groupByKeys.length > 0) {
+            const agr = (bloque.agregaciones?.[id] ?? "suma") as AgregacionTipo;
+            if (agr === "suma") {
+              const count = 3 + Math.abs(stableVal(`${rowLabel}-count`, 0, 5));
+              val = val * count;
+            } else if (agr === "mediana") {
+              val = Math.round((val + stableVal(`${rowLabel}-${id}-med`, lo, hi)) / 2);
+            }
+            // promedio: keep val as-is (represents average)
+          }
           if (id === "ph") val = +(val / 10).toFixed(1);
           else if (id === "conductividad_electrica") val = +(val / 10).toFixed(2);
+          else if (["temp_min","temp_max","temp_media"].includes(id)) val = +(val).toFixed(1);
           row[id] = val;
         }
       }
       return row;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cols.join(","), camposDisponibles]);
+  }, [cols.join(","), groupByKeys.join(","), bloque.agregaciones, camposDisponibles]);
 
   if (cols.length === 0) {
     return (
@@ -920,16 +1221,54 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
     <div className="overflow-auto h-full">
       <table className="w-full text-xs border-collapse">
         <thead>
+          {/* ── Module band row (only when 2+ modules) ── */}
+          {hasMultipleModules && (
+            <tr>
+              {moduleBands.map((band) => {
+                const mc = MODULE_BAND_COLORS[band.label];
+                return (
+                  <th
+                    key={band.key}
+                    colSpan={band.span}
+                    className={cn(
+                      "px-3 py-1 text-[10px] font-bold text-center uppercase tracking-wide border-b-2 whitespace-nowrap",
+                      band.isDim
+                        ? "bg-muted/20 border-b-border text-transparent select-none"
+                        : mc
+                          ? `${mc.bg} ${mc.text} ${mc.border}`
+                          : "bg-muted/40 text-muted-foreground border-b-border",
+                    )}
+                  >
+                    {band.isDim ? "" : band.label}
+                  </th>
+                );
+              })}
+            </tr>
+          )}
+          {/* ── Column header row ── */}
           <tr>
-            {cols.map((id, i) => (
-              <th
-                key={id}
-                className="px-3 py-2 text-left font-semibold bg-muted/50 border-b border-border whitespace-nowrap"
-                style={i > 0 ? { color: colors[i % colors.length] } : {}}
-              >
-                {LABEL_MAP[id] ?? id}
-              </th>
-            ))}
+            {cols.map((id, i) => {
+              const campo = camposDisponibles.find((c) => c.id === id);
+              const displayLabel = campo?.label ?? LABEL_MAP[id] ?? id;
+              const isMetric = campo?.tipo === "metrica";
+              const agr = (bloque.agregaciones?.[id] ?? "suma") as AgregacionTipo;
+              const agrSymbol = agr === "suma" ? "Σ" : agr === "promedio" ? "⌀" : "~";
+              const isGroupKey = groupByKeys.includes(id);
+              // Color the header by module for metric columns
+              const mc = !isGroupKey && isMetric ? MODULE_BAND_COLORS[colModuleKey[id] ?? ""] : undefined;
+              return (
+                <th
+                  key={id}
+                  className={cn(
+                    "px-3 py-2 text-left font-semibold border-b border-border whitespace-nowrap",
+                    mc ? `${mc.bg} ${mc.text}` : "bg-muted/50",
+                  )}
+                  style={!mc && i > 0 && !isGroupKey ? { color: colors[i % colors.length] } : {}}
+                >
+                  {groupByKeys.length > 0 && isMetric ? `${agrSymbol} ${displayLabel}` : displayLabel}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -939,7 +1278,7 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
                 <td key={id} className="px-3 py-1.5 text-foreground whitespace-nowrap">
                   {typeof row[id] === "number"
                     ? (row[id] as number).toLocaleString("es-CL")
-                    : (row[id] ?? "—")}
+                    : (row[id] ?? "-")}
                 </td>
               ))}
             </tr>
@@ -950,7 +1289,7 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
   );
 }
 
-// ─── FuenteSelector — shared module/fuente picker for block editor ────────────
+// --------- FuenteSelector - shared module/fuente picker for block editor ------------------------------------
 
 interface FuenteSelectorProps {
   fuentesSeleccionadas: string[];
@@ -1011,24 +1350,34 @@ function FuenteSelector({ fuentesSeleccionadas, onFuenteToggle }: FuenteSelector
   );
 }
 
-// ─── CamposCalculadosEditor — define cross-module calculated fields ────────────
+// --------- CamposCalculadosEditor - define cross-module calculated fields ------------------------------------
+
+const OP_OPTIONS: Array<{ value: CampoCalculado["operacion"]; label: string; symbol: string }> = [
+  { value: "/",   label: "Ratio (A ÷ B)",        symbol: "÷" },
+  { value: "+",   label: "Suma (A + B)",          symbol: "+" },
+  { value: "-",   label: "Diferencia (A − B)",    symbol: "−" },
+  { value: "*",   label: "Producto (A × B)",      symbol: "×" },
+  { value: "pct", label: "Porcentaje (A/B × 100)", symbol: "%" },
+];
 
 // Helper: resolve "FUENTE_ID:campo_id" → label
 function resolveFieldLabel(token: string): string {
-  if (!token) return "—";
+  if (!token) return "-";
   const [fuenteId, campoId] = token.split(":");
   const allFuentes = Object.values(MODULOS_FUENTES).flatMap(m => m.fuentes);
   const fuente = allFuentes.find(f => f.id === fuenteId);
   const campo = fuente?.campos.find(c => c.id === campoId);
-  return campo ? `${fuente?.label ?? fuenteId} · ${campo.label}` : token;
+  return campo ? `${fuente?.label ?? fuenteId} - ${campo.label}` : token;
 }
 
-const OP_OPTIONS: Array<{ value: CampoCalculado["operacion"]; label: string; symbol: string }> = [
-  { value: "/",   label: "Ratio (A ÷ B)",       symbol: "÷" },
-  { value: "+",   label: "Suma (A + B)",         symbol: "+" },
-  { value: "-",   label: "Diferencia (A − B)",   symbol: "−" },
-  { value: "*",   label: "Producto (A × B)",     symbol: "×" },
-  { value: "pct", label: "Porcentaje (A/B×100)", symbol: "%" },
+const AGG_OPTIONS: Array<{ value: CampoCalculado["operacionAgrupacion"]; label: string; symbol: string }> = [
+  { value: "suma",       label: "Suma",       symbol: "Σ" },
+  { value: "promedio",   label: "Promedio",   symbol: "x̄" },
+  { value: "mediana",    label: "Mediana",    symbol: "M" },
+  { value: "minimo",     label: "Mínimo",     symbol: "↓" },
+  { value: "maximo",     label: "Máximo",     symbol: "↑" },
+  { value: "conteo",     label: "Conteo",     symbol: "#" },
+  { value: "desviacion", label: "Desv. Est.", symbol: "σ" },
 ];
 
 interface CamposCalculadosEditorProps {
@@ -1039,24 +1388,39 @@ interface CamposCalculadosEditorProps {
 function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChange }: CamposCalculadosEditorProps) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap(m => m.fuentes), []);
 
-  // Build a flat list of available field tokens from selected sources
-  const availableFields = useMemo(() => {
+  // Metric fields (for formula campoA/campoB and aggregation campoAgregado)
+  const metricFields = useMemo(() => {
     return fuentesSeleccionadas.flatMap(fId => {
       const fuente = allFuentes.find(f => f.id === fId);
       if (!fuente) return [];
       return fuente.campos
         .filter(c => c.tipo === "metrica")
-        .map(c => ({ token: `${fId}:${c.id}`, label: `${fuente.label} · ${c.label}`, unidad: c.unidad }));
+        .map(c => ({ token: `${fId}:${c.id}`, label: `${fuente.label} - ${c.label}`, unidad: c.unidad }));
     });
   }, [fuentesSeleccionadas, allFuentes]);
 
-  const addCalculo = () => {
+  // Dimension fields (for groupBy selector)
+  const dimFields = useMemo(() => {
+    return fuentesSeleccionadas.flatMap(fId => {
+      const fuente = allFuentes.find(f => f.id === fId);
+      if (!fuente) return [];
+      return fuente.campos
+        .filter(c => c.tipo === "dimension")
+        .map(c => ({ token: `${fId}:${c.id}`, label: `${fuente.label} - ${c.label}` }));
+    });
+  }, [fuentesSeleccionadas, allFuentes]);
+
+  const addCalculo = (tipo: "formula" | "agregacion") => {
     const newCalc: CampoCalculado = {
       id: `calc_${Date.now()}`,
-      label: `Cálculo ${camposCalculados.length + 1}`,
+      label: tipo === "formula" ? `Cálculo ${camposCalculados.length + 1}` : `Agrupación ${camposCalculados.length + 1}`,
+      tipo,
       operacion: "/",
-      campoA: availableFields[0]?.token ?? "",
-      campoB: availableFields[1]?.token ?? availableFields[0]?.token ?? "",
+      campoA: metricFields[0]?.token ?? "",
+      campoB: metricFields[1]?.token ?? metricFields[0]?.token ?? "",
+      agruparPor: dimFields[0] ? [dimFields[0].token] : [],
+      campoAgregado: metricFields[0]?.token ?? "",
+      operacionAgrupacion: "suma",
       unidad: "",
     };
     onChange([...camposCalculados, newCalc]);
@@ -1074,70 +1438,288 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChan
     <div className="space-y-2">
       {camposCalculados.length === 0 && (
         <p className="text-[10px] text-muted-foreground italic py-1">
-          Ningún cálculo definido. Agrega uno para combinar campos de distintas fuentes.
+          Ningún cálculo definido. Agrega una fórmula o agrupación.
         </p>
       )}
       {camposCalculados.map((calc, i) => (
         <div key={calc.id} className="rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/20 p-2.5 space-y-2">
-          <div className="flex items-center gap-2">
+          {/* Header: icon + nombre + modo + delete */}
+          <div className="flex items-center gap-1.5">
             <FunctionSquare className="w-3.5 h-3.5 text-violet-600 shrink-0" />
-            <span className="text-[10px] font-semibold text-violet-700 dark:text-violet-300">Campo #{i + 1}</span>
+            <span className="text-[10px] font-semibold text-violet-700 dark:text-violet-300">#{i + 1}</span>
             <input
               value={calc.label}
               onChange={e => updCalc(calc.id, { label: e.target.value })}
               placeholder="Nombre del campo…"
               className="flex-1 h-6 text-xs px-2 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
             />
+            {/* Mode toggle */}
+            <div className="flex rounded border border-violet-300/60 overflow-hidden shrink-0">
+              <button
+                onClick={() => updCalc(calc.id, { tipo: "formula" })}
+                className={cn("px-1.5 py-0.5 text-[9px] font-semibold transition-colors",
+                  (calc.tipo ?? "formula") === "formula"
+                    ? "bg-violet-600 text-white"
+                    : "text-violet-600 hover:bg-violet-50"
+                )}
+                title="Fórmula A op B"
+              >A÷B</button>
+              <button
+                onClick={() => updCalc(calc.id, { tipo: "agregacion" })}
+                className={cn("px-1.5 py-0.5 text-[9px] font-semibold transition-colors border-l border-violet-300/60",
+                  (calc.tipo ?? "formula") === "agregacion"
+                    ? "bg-violet-600 text-white"
+                    : "text-violet-600 hover:bg-violet-50"
+                )}
+                title="Agrupar y agregar"
+              >Σ</button>
+            </div>
             <button type="button" onClick={() => removeCalc(calc.id)}
               className="p-0.5 text-muted-foreground/50 hover:text-destructive transition-colors">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
-          {/* Formula row */}
-          <div className="grid grid-cols-[1fr_auto_1fr] gap-1.5 items-center">
-            <select value={calc.campoA} onChange={e => updCalc(calc.id, { campoA: e.target.value })}
-              className="h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary truncate">
-              <option value="">— Campo A —</option>
-              {availableFields.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
-            </select>
-            <select value={calc.operacion} onChange={e => updCalc(calc.id, { operacion: e.target.value as CampoCalculado["operacion"] })}
-              className="h-7 text-[10px] px-1.5 rounded border border-primary/40 bg-primary/5 text-primary font-bold focus:outline-none focus:ring-1 focus:ring-primary w-12 text-center">
-              {OP_OPTIONS.map(op => <option key={op.value} value={op.value}>{op.symbol}</option>)}
-            </select>
-            <select value={calc.campoB} onChange={e => updCalc(calc.id, { campoB: e.target.value })}
-              className="h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary truncate">
-              <option value="">— Campo B —</option>
-              {availableFields.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
-            </select>
-          </div>
-          {/* Preview + unit */}
-          <div className="flex items-center gap-2">
-            <div className="flex-1 text-[9px] text-muted-foreground bg-muted/40 rounded px-2 py-1 font-mono truncate">
-              {calc.label || "resultado"} = {resolveFieldLabel(calc.campoA).split(" · ")[1] ?? "A"} {OP_OPTIONS.find(o => o.value === calc.operacion)?.symbol ?? "÷"} {resolveFieldLabel(calc.campoB).split(" · ")[1] ?? "B"}
-            </div>
-            <input value={calc.unidad ?? ""} onChange={e => updCalc(calc.id, { unidad: e.target.value })}
-              placeholder="ud."
-              className="w-16 h-6 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary text-center font-mono" />
-          </div>
+
+          {(calc.tipo ?? "formula") === "formula" ? (
+            <>
+              {/* Formula mode: Campo A full-width, then [op | Campo B] */}
+              <div className="space-y-1.5">
+                <select value={calc.campoA} onChange={e => updCalc(calc.id, { campoA: e.target.value })}
+                  className="w-full h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary">
+                  <option value="">— Campo A —</option>
+                  {metricFields.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
+                </select>
+                <div className="flex items-center gap-1.5">
+                  <select value={calc.operacion} onChange={e => updCalc(calc.id, { operacion: e.target.value as CampoCalculado["operacion"] })}
+                    className="h-7 text-[10px] px-1.5 rounded border border-primary/40 bg-primary/5 text-primary font-bold focus:outline-none focus:ring-1 focus:ring-primary shrink-0"
+                    style={{ width: "3.2rem" }}>
+                    {OP_OPTIONS.map(op => <option key={op.value} value={op.value}>{op.symbol} {op.label.split(" ")[0]}</option>)}
+                  </select>
+                  <select value={calc.campoB} onChange={e => updCalc(calc.id, { campoB: e.target.value })}
+                    className="flex-1 min-w-0 h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary">
+                    <option value="">— Campo B —</option>
+                    {metricFields.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              {/* Preview + unit */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 text-[9px] text-muted-foreground bg-muted/40 rounded px-2 py-1 font-mono truncate">
+                  {calc.label || "resultado"} = {resolveFieldLabel(calc.campoA).split(" - ")[1] ?? "A"} {OP_OPTIONS.find(o => o.value === calc.operacion)?.symbol ?? "÷"} {resolveFieldLabel(calc.campoB).split(" - ")[1] ?? "B"}
+                </div>
+                <input value={calc.unidad ?? ""} onChange={e => updCalc(calc.id, { unidad: e.target.value })}
+                  placeholder="ud."
+                  className="w-16 h-6 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary text-center font-mono" />
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Aggregation mode */}
+              {/* Agrupar por (dimension) - Multi-select */}
+              <div className="space-y-1">
+                <label className="text-[10px] text-muted-foreground font-medium">Agrupar por (campos dimensión)</label>
+                <div className="space-y-1">
+                  {/* Selected chips */}
+                  {(calc.agruparPor && calc.agruparPor.length > 0) && (
+                    <div className="flex flex-wrap gap-1">
+                      {calc.agruparPor.map(token => (
+                        <Badge key={token} variant="secondary" className="text-[9px] gap-1 py-0 px-1.5">
+                          {resolveFieldLabel(token).split(" - ")[1] || token}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = (calc.agruparPor || []).filter(t => t !== token);
+                              updCalc(calc.id, { agruparPor: updated });
+                            }}
+                            className="hover:text-destructive"
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  {/* Add field selector */}
+                  <select
+                    value=""
+                    onChange={e => {
+                      if (e.target.value) {
+                        const current = calc.agruparPor || [];
+                        if (!current.includes(e.target.value)) {
+                          updCalc(calc.id, { agruparPor: [...current, e.target.value] });
+                        }
+                      }
+                    }}
+                    className="w-full h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="">+ Agregar campo de agrupación</option>
+                    {dimFields
+                      .filter(f => !(calc.agruparPor || []).includes(f.token))
+                      .map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
+                  </select>
+                  {dimFields.length === 0 && (
+                    <p className="text-[9px] text-amber-600">No hay campos de dimensión en las fuentes seleccionadas.</p>
+                  )}
+                </div>
+              </div>
+              {/* Campo a agregar (metric) */}
+              <div className="space-y-0.5">
+                <label className="text-[10px] text-muted-foreground font-medium">Campo a agregar (métrica)</label>
+                <select
+                  value={calc.campoAgregado ?? ""}
+                  onChange={e => updCalc(calc.id, { campoAgregado: e.target.value })}
+                  className="w-full h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">- Seleccionar métrica -</option>
+                  {metricFields.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
+                </select>
+              </div>
+              {/* Operación de agregación */}
+              <div className="space-y-0.5">
+                <label className="text-[10px] text-muted-foreground font-medium">Operación de agregación</label>
+                <div className="grid grid-cols-3 gap-1">
+                  {AGG_OPTIONS.map(op => (
+                    <button key={op.value}
+                      onClick={() => updCalc(calc.id, { operacionAgrupacion: op.value })}
+                      className={cn(
+                        "py-1.5 rounded border text-[10px] font-semibold flex items-center justify-center gap-1 transition-all",
+                        calc.operacionAgrupacion === op.value
+                          ? "border-violet-500 bg-violet-500 text-white"
+                          : "border-border text-muted-foreground hover:border-violet-300 hover:bg-violet-50/50"
+                      )}
+                      title={op.label}
+                    >
+                      <span className="text-xs">{op.symbol}</span>
+                      <span className="hidden sm:inline">{op.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Preview */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 text-[9px] text-muted-foreground bg-muted/40 rounded px-2 py-1 font-mono truncate">
+                  {calc.label || "resultado"} = {AGG_OPTIONS.find(o => o.value === calc.operacionAgrupacion)?.label ?? "Suma"}(
+                  {resolveFieldLabel(calc.campoAgregado ?? "").split(" - ")[1] ?? "métrica"}) por [{(calc.agruparPor || []).map(ap => resolveFieldLabel(ap).split(" - ")[1] || ap).join(", ") || "grupo"}]
+                </div>
+                <input value={calc.unidad ?? ""} onChange={e => updCalc(calc.id, { unidad: e.target.value })}
+                  placeholder="ud."
+                  className="w-16 h-6 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary text-center font-mono" />
+              </div>
+            </>
+          )}
         </div>
       ))}
-      <button type="button" onClick={addCalculo} disabled={availableFields.length < 2}
-        className={cn("w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-dashed text-xs font-medium transition-all",
-          availableFields.length < 2
-            ? "border-border/40 text-muted-foreground/40 cursor-not-allowed"
-            : "border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20 hover:border-violet-400")}>
-        <Calculator className="w-3.5 h-3.5" />
-        + Agregar cálculo cruzado
-        {availableFields.length < 2 && <span className="text-[9px] ml-1">(selecciona ≥2 fuentes con métricas)</span>}
-      </button>
+      {/* Add buttons */}
+      <div className="flex gap-1.5">
+        <button type="button" onClick={() => addCalculo("formula")} disabled={metricFields.length < 2}
+          className={cn("flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-dashed text-[10px] font-medium transition-all",
+            metricFields.length < 2
+              ? "border-border/40 text-muted-foreground/40 cursor-not-allowed"
+              : "border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20 hover:border-violet-400")}>
+          <Calculator className="w-3 h-3" /> + Fórmula
+        </button>
+        <button type="button" onClick={() => addCalculo("agregacion")} disabled={metricFields.length < 1}
+          className={cn("flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-dashed text-[10px] font-medium transition-all",
+            metricFields.length < 1
+              ? "border-border/40 text-muted-foreground/40 cursor-not-allowed"
+              : "border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20 hover:border-violet-400")}>
+          <Sigma className="w-3 h-3" /> + Agrupación
+        </button>
+      </div>
     </div>
   );
 }
 
-// ─── Componente principal ─────────────────────────────────────────────────────
+// ─── FiltroEstructuraEditor — hierarchy filter with cascading multi-select ─────
+
+interface FiltroEstructuraEditorProps {
+  filtros: Record<string, string[]>;
+  onChange: (nivel: string, valores: string[]) => void;
+}
+
+function FiltroEstructuraEditor({ filtros, onChange }: FiltroEstructuraEditorProps) {
+  const totalActive = Object.values(filtros).reduce((sum, v) => sum + v.length, 0);
+
+  return (
+    <div className="space-y-2.5">
+      {ESTRUCTURA_CULTIVO.map((nivel, levelIdx) => {
+        const selectedIds = filtros[nivel.nivel] ?? [];
+        let available = nivel.values;
+        if (levelIdx > 0) {
+          const parentNivel = ESTRUCTURA_CULTIVO[levelIdx - 1];
+          const parentSelected = filtros[parentNivel.nivel] ?? [];
+          if (parentSelected.length > 0) {
+            available = nivel.values.filter((v) => parentSelected.includes(v.parentId ?? ""));
+          }
+        }
+        const validSelected = selectedIds.filter((id) => available.some((v) => v.id === id));
+        return (
+          <div key={nivel.nivel} className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{nivel.label}</span>
+              {validSelected.length > 0 && (
+                <>
+                  <span className="text-[9px] bg-emerald-100 text-emerald-700 border border-emerald-300 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-700 rounded-full px-1.5 py-px font-bold">
+                    {validSelected.length}
+                  </span>
+                  <button
+                    onClick={() => onChange(nivel.nivel, [])}
+                    className="ml-auto p-0.5 rounded text-muted-foreground/40 hover:text-destructive transition-colors"
+                    title={`Quitar filtros de ${nivel.label}`}
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {available.length === 0 ? (
+                <span className="text-[10px] text-muted-foreground/50 italic">Sin opciones para la selección padre</span>
+              ) : (
+                available.map((val) => {
+                  const isOn = selectedIds.includes(val.id);
+                  return (
+                    <button
+                      key={val.id}
+                      onClick={() => {
+                        const newVals = isOn ? selectedIds.filter((v) => v !== val.id) : [...selectedIds, val.id];
+                        onChange(nivel.nivel, newVals);
+                      }}
+                      className={cn(
+                        "text-[10px] px-2 py-0.5 rounded-full border transition-all",
+                        isOn
+                          ? "bg-emerald-100 border-emerald-400 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-600"
+                          : "border-border text-muted-foreground hover:border-emerald-400/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/20",
+                      )}
+                    >
+                      {val.label}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {totalActive > 0 && (
+        <button
+          onClick={() => ESTRUCTURA_CULTIVO.forEach((n) => onChange(n.nivel, []))}
+          className="text-[10px] text-destructive/60 hover:text-destructive flex items-center gap-1 transition-colors mt-1"
+        >
+          <X className="w-2.5 h-2.5" /> Limpiar todos los filtros de estructura
+        </button>
+      )}
+    </div>
+  );
+}
+
+// --------- Componente principal ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 export function InformesBuilder({ informe, existingConfig, onClose, onSave }: InformesBuilderProps) {
-  const [openSection, setOpenSection] = useState<number>(1);
+  // Tab del builder simplificado
+  const [builderTab, setBuilderTab] = useState<"basico" | "graficos" | "tablas" | "avanzado">("basico");
+  // Wizard state para agregar gráficos/tablas de forma guiada
+  const [showWizard, setShowWizard] = useState<"grafico" | "tabla" | null>(null);
   const [selectedBloqueId, setSelectedBloqueId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1164,12 +1746,17 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
           { id: "superficie", label: "Superficie", fuente: "superficie", auto: true, valor: "" },
           { id: "productor",  label: "Productor",  fuente: "productor",  auto: true, valor: "" },
         ],
+        altura: "md",
+        posicionLogo: "left",
+        mostrarLinea: true,
       },
       columnas: [],
       incluirNotas: false,
       incluirConclusiones: false,
       incluirFirma: false,
       piePagina: "",
+      margenes: { superior: 20, inferior: 20, izquierdo: 15, derecho: 15 },
+      formato: { tamañoPagina: "A4", orientacion: "portrait", numeracionPaginas: true, posicionNumeracion: "footer" },
     },
   };
 
@@ -1230,12 +1817,58 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     }));
   }, []);
 
+  const setMetricaAgregacion = useCallback((bloqueId: string, metricaId: string, agr: AgregacionTipo) => {
+    setConfig((prev) => ({
+      ...prev,
+      bloques: prev.bloques.map((b) => {
+        if (b.id !== bloqueId) return b;
+        return { ...b, agregaciones: { ...(b.agregaciones ?? {}), [metricaId]: agr } } as ReporteBloque;
+      }),
+    }));
+  }, []);
+
+  const setGroupByTabla = useCallback((bloqueId: string, dimId: string) => {
+    setConfig((prev) => ({
+      ...prev,
+      bloques: prev.bloques.map((b) => {
+        if (b.id !== bloqueId || b.tipo !== "tabla") return b;
+        const t = b as TablaBloque;
+        const current = t.groupBy ?? [];
+        const isRemoving = current.includes(dimId);
+        const newGroupBy = isRemoving
+          ? current.filter((id) => id !== dimId)
+          : [...current, dimId];
+        // Auto-include newly added groupBy field as first columns
+        let newColumnas = t.columnas;
+        if (!isRemoving && !newColumnas.includes(dimId)) {
+          newColumnas = [dimId, ...newColumnas];
+        }
+        return {
+          ...t,
+          groupBy: newGroupBy.length > 0 ? newGroupBy : undefined,
+          columnas: newColumnas,
+        } as ReporteBloque;
+      }),
+    }));
+  }, []);
+
+  const setFiltroJerarquia = useCallback((bloqueId: string, nivel: string, valores: string[]) => {
+    setConfig((prev) => ({
+      ...prev,
+      bloques: prev.bloques.map((b) => {
+        if (b.id !== bloqueId) return b;
+        const filtros = { ...(b.filtrosJerarquia ?? {}), [nivel]: valores };
+        if (valores.length === 0) delete filtros[nivel];
+        return { ...b, filtrosJerarquia: filtros } as ReporteBloque;
+      }),
+    }));
+  }, []);
+
   const addGrafico = useCallback(() => {
     const num = config.bloques.filter((b) => b.tipo === "grafico").length + 1;
     const bloque = createDefaultGrafico(num);
     setConfig((prev) => ({ ...prev, bloques: [...prev.bloques, bloque] }));
     setSelectedBloqueId(bloque.id);
-    setOpenSection(2);
   }, [config.bloques]);
 
   const addTabla = useCallback(() => {
@@ -1243,12 +1876,43 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     const bloque = createDefaultTabla(num);
     setConfig((prev) => ({ ...prev, bloques: [...prev.bloques, bloque] }));
     setSelectedBloqueId(bloque.id);
-    setOpenSection(2);
   }, [config.bloques]);
 
   const removeBloque = useCallback((id: string) => {
     setConfig((prev) => ({ ...prev, bloques: prev.bloques.filter((b) => b.id !== id) }));
     setSelectedBloqueId((prev) => (prev === id ? null : prev));
+  }, []);
+
+  // Template functions
+
+  const resetTemplate = useCallback(() => {
+    setConfig({
+      ...defaultConfig,
+      id: config.id, // Keep the ID if editing existing report
+    });
+    setSelectedBloqueId(null);
+  }, [config.id, defaultConfig]);
+
+  const applyTemplate = useCallback((templateId: TemplateId) => {
+    const template = TEMPLATE_DEFINITIONS[templateId as TemplateId];
+
+    if (!template) {
+      console.warn(`Template ${templateId} not found`);
+      return;
+    }
+
+    const { config } = template;
+
+    setConfig((prev) => ({
+      ...prev,
+      nombre: config.nombre,
+      descripcion: config.descripcion,
+      categoria: config.categoria,
+      bloques: config.createBloques(),
+      id: prev.id, // Keep existing ID if editing
+    }));
+
+    setSelectedBloqueId(null);
   }, []);
 
   const paleta = PALETAS.find((p) => p.id === config.paletaId) ?? PALETAS[0];
@@ -1278,14 +1942,14 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
   const selectedGrafico = selectedBloque?.tipo === "grafico" ? selectedBloque as GraficoBloque : null;
   const selectedTabla = selectedBloque?.tipo === "tabla" ? selectedBloque as TablaBloque : null;
 
-  const updPlantilla = <K extends keyof PlantillaConfig>(key: K, val: PlantillaConfig[K]) => {
+  function updPlantilla(key: keyof PlantillaConfig, val: PlantillaConfig[keyof PlantillaConfig]) {
     setConfig((prev) => ({
       ...prev,
       plantilla: { ...(prev.plantilla as PlantillaConfig), [key]: val },
     }));
-  };
+  }
 
-  const updEncabezado = <K extends keyof PlantillaConfig["encabezado"]>(key: K, val: PlantillaConfig["encabezado"][K]) => {
+  function updEncabezado(key: keyof PlantillaConfig["encabezado"], val: PlantillaConfig["encabezado"][keyof PlantillaConfig["encabezado"]]) {
     setConfig((prev) => ({
       ...prev,
       plantilla: {
@@ -1293,7 +1957,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
         encabezado: { ...(prev.plantilla as PlantillaConfig).encabezado, [key]: val },
       },
     }));
-  };
+  }
 
   const handleSave = () => {
     setSaving(true);
@@ -1312,7 +1976,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
   return (
     <div className="fixed inset-0 z-50 bg-background flex flex-col">
 
-      {/* ── Top bar ─────────────────────────────────────────────────── */}
+      {/* Top bar */}
       <div className="h-14 border-b border-border flex items-center gap-3 px-4 shrink-0 bg-card">
         <button
           onClick={onClose}
@@ -1360,578 +2024,946 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
         </Button>
       </div>
 
-      {/* ── Body ────────────────────────────────────────────────────── */}
+      {/* Body */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
 
-        {/* ── Config panel ──────────────────────────────────────────── */}
-        <div className="w-[440px] shrink-0 border-r border-border overflow-y-auto bg-muted/20">
-          <div className="p-4 space-y-3">
+        {/* Config panel simplificado con tabs */}
+        <div className="w-[440px] shrink-0 border-r border-border bg-muted/20 flex flex-col">
 
-            {/* 1 — General */}
-            <Section
-              num={1} title="General" icon={Type}
-              open={openSection === 1} onToggle={() => setOpenSection(openSection === 1 ? 0 : 1)}
-            >
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Nombre del informe</Label>
-                <Input value={config.nombre} onChange={(e) => upd("nombre", e.target.value)}
-                  placeholder="Ej. Rendimiento de Cosecha por Semana" className="h-8 text-sm" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Descripción</Label>
-                <Textarea value={config.descripcion} onChange={(e) => upd("descripcion", e.target.value)}
-                  placeholder="Describe qué muestra este informe…" rows={2} className="text-sm resize-none" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Categoría</Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {(["laboratorio", "vivero", "siembra", "cosecha", "poscosecha", "general"] as const).map((cat) => (
-                    <button key={cat} onClick={() => upd("categoria", cat)}
-                      className={cn(
-                        "text-[11px] font-medium px-2.5 py-1 rounded-full border capitalize transition-all",
-                        config.categoria === cat
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "border-border text-muted-foreground hover:border-primary/40",
-                      )}
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </Section>
+          {/* Tab navigation */}
+          <div className="border-b border-border bg-card">
+            <div className="flex">
+              {[
+                { id: "basico", label: "Básico", icon: Type },
+                { id: "graficos", label: "Gráficos", icon: BarChart2, count: grafCount },
+                { id: "tablas", label: "Tablas", icon: Table2, count: tablaCount },
+                { id: "avanzado", label: "Diseño", icon: Palette },
+              ].map((tab) => {
+                const TabIcon = tab.icon;
+                const isActive = builderTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setBuilderTab(tab.id as any)}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-1.5 py-3 px-2 text-xs font-medium transition-colors border-b-2",
+                      isActive
+                        ? "border-primary text-primary bg-primary/5"
+                        : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    )}
+                  >
+                    <TabIcon className="w-3.5 h-3.5" />
+                    <span className="truncate">{tab.label}</span>
+                    {tab.count !== undefined && tab.count > 0 && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-current/10 text-current font-semibold">
+                        {tab.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-            {/* 2 — Bloques del informe */}
-            <Section
-              num={2} title="Bloques del informe" icon={Layers}
-              open={openSection === 2} onToggle={() => setOpenSection(openSection === 2 ? 0 : 2)}
-              badge={bloqueCount > 0 ? `${bloqueCount} bloque${bloqueCount !== 1 ? "s" : ""}` : undefined}
-            >
-              {/* Block list */}
-              {config.bloques.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-3">
-                  Agrega gráficos o tablas para construir tu informe.
-                </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {config.bloques.map((bloque, idx) => {
-                    const isSelected = selectedBloqueId === bloque.id;
-                    const isGrafico = bloque.tipo === "grafico";
-                    const gb = bloque as GraficoBloque;
-                    return (
-                      <div key={bloque.id}
-                        className={cn(
-                          "flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all",
-                          isSelected
-                            ? "bg-primary/5 border-primary shadow-sm"
-                            : "border-border hover:border-primary/30 hover:bg-muted/30",
-                        )}
-                        onClick={() => setSelectedBloqueId(isSelected ? null : bloque.id)}
-                      >
-                        <GripVertical className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
-                        <span className="text-[10px] text-muted-foreground shrink-0">#{idx + 1}</span>
-                        {isGrafico ? (
-                          <BarChart2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                        ) : (
-                          <Table2 className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                        )}
-                        <span className="text-xs font-semibold flex-1 truncate">
-                          {bloque.titulo || (isGrafico ? "Gráfico sin título" : "Tabla sin título")}
-                        </span>
-                        {isGrafico && (
-                          <span className="text-[9px] text-muted-foreground border border-border rounded px-1.5 py-0.5 shrink-0">
-                            {TIPOS_GRAFICO.find((t) => t.id === gb.tipoGrafico)?.label ?? "Gráfico"}
-                          </span>
-                        )}
+          {/* Tab content */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-4">
+
+              {/* TAB: Básico */}
+              {builderTab === "basico" && (
+                <div className="space-y-4">
+                  {/* Presets/Templates section */}
+                  <div className="space-y-3">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Plantillas predefinidas
+                    </Label>
+                    <div className="grid gap-2">
+                      {/* Quick templates */}
+                      <div className="grid grid-cols-2 gap-2">
                         <button
-                          onClick={(e) => { e.stopPropagation(); removeBloque(bloque.id); }}
-                          className="p-0.5 rounded hover:bg-destructive/10 hover:text-destructive transition-colors shrink-0 text-muted-foreground/50"
-                          title="Eliminar bloque"
+                          onClick={() => applyTemplate("rendimiento_semanal")}
+                          className="p-3 text-left border rounded-lg hover:border-primary/40 hover:bg-muted/30 transition-colors group"
                         >
-                          <X className="w-3.5 h-3.5" />
+                          <div className="flex items-center gap-2 mb-1">
+                            <TrendingUp className="w-4 h-4 text-green-500" />
+                            <span className="text-sm font-medium">Rendimiento Semanal</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">Gráfico de líneas con métricas de cosecha por semana</p>
+                        </button>
+
+                        <button
+                          onClick={() => applyTemplate("comparativo_productores")}
+                          className="p-3 text-left border rounded-lg hover:border-primary/40 hover:bg-muted/30 transition-colors group"
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <BarChart2 className="w-4 h-4 text-blue-500" />
+                            <span className="text-sm font-medium">Comparativo Productores</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">Gráfico de barras comparando productores</p>
+                        </button>
+
+                        <button
+                          onClick={() => applyTemplate("analisis_laboratorio")}
+                          className="p-3 text-left border rounded-lg hover:border-primary/40 hover:bg-muted/30 transition-colors group"
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <FlaskConical className="w-4 h-4 text-purple-500" />
+                            <span className="text-sm font-medium">Análisis Laboratorio</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">Tabla con resultados de análisis y métricas</p>
+                        </button>
+
+                        <button
+                          onClick={() => applyTemplate("dashboard_completo")}
+                          className="p-3 text-left border rounded-lg hover:border-primary/40 hover:bg-muted/30 transition-colors group"
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <Layers className="w-4 h-4 text-orange-500" />
+                            <span className="text-sm font-medium">Dashboard Completo</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">Múltiples gráficos y tablas variadas</p>
                         </button>
                       </div>
-                    );
-                  })}
+
+                      <div className="flex items-center gap-2 pt-1 border-t border-border/50">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => resetTemplate()}
+                          className="text-xs h-7"
+                        >
+                          <X className="w-3 h-3 mr-1" />
+                          Empezar en blanco
+                        </Button>
+                        <span className="text-xs text-muted-foreground">o selecciona una plantilla arriba</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Existing fields */}
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Nombre del informe
+                    </Label>
+                    <Input value={config.nombre} onChange={(e) => upd("nombre", e.target.value)}
+                      placeholder="Ej. Rendimiento de Cosecha por Semana" className="h-8 text-sm" />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Descripción
+                    </Label>
+                    <Textarea value={config.descripcion} onChange={(e) => upd("descripcion", e.target.value)}
+                      placeholder="Describe qué muestra este informe…" rows={3} className="text-sm resize-none" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Categoría
+                    </Label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(["laboratorio", "vivero", "siembra", "cosecha", "poscosecha", "general"] as const).map((cat) => (
+                        <button key={cat} onClick={() => upd("categoria", cat)}
+                          className={cn(
+                            "text-[11px] font-medium px-2.5 py-2 rounded-lg border capitalize transition-all",
+                            config.categoria === cat
+                              ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                              : "border-border text-muted-foreground hover:border-primary/40 hover:bg-muted/30",
+                          )}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Resumen visual */}
+                  <div className="mt-6 p-3 rounded-lg border border-border bg-muted/30">
+                    <h4 className="text-xs font-semibold text-foreground mb-2">Resumen del informe</h4>
+                    <div className="space-y-2 text-[11px] text-muted-foreground">
+                      <p><strong>Nombre:</strong> {config.nombre || "Sin nombre"}</p>
+                      <p><strong>Categoría:</strong> {config.categoria}</p>
+                      <p><strong>Elementos:</strong> {grafCount} gráfico{grafCount !== 1 ? "s" : ""}, {tablaCount} tabla{tablaCount !== 1 ? "s" : ""}</p>
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {/* Add buttons */}
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={addGrafico}
-                  className="flex-1 gap-1.5 text-xs border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 hover:border-blue-400">
-                  <Plus className="w-3.5 h-3.5" /> Añadir gráfico
-                </Button>
-                <Button variant="outline" size="sm" onClick={addTabla}
-                  className="flex-1 gap-1.5 text-xs border-dashed border-purple-300 text-purple-600 hover:bg-purple-50 hover:border-purple-400">
-                  <Plus className="w-3.5 h-3.5" /> Añadir tabla
-                </Button>
-              </div>
-
-              {/* Inline block editor */}
-              {selectedBloque && (
-                <div className="mt-1 rounded-xl border border-primary/30 bg-primary/3 overflow-hidden">
-                  <div className="px-3 py-2 bg-primary/5 border-b border-primary/20 flex items-center gap-2">
-                    {selectedBloque.tipo === "grafico" ? (
-                      <BarChart2 className="w-3.5 h-3.5 text-blue-500" />
-                    ) : (
-                      <Table2 className="w-3.5 h-3.5 text-purple-500" />
-                    )}
-                    <span className="text-xs font-semibold text-primary flex-1">
-                      Editando: {selectedBloque.titulo || (selectedBloque.tipo === "grafico" ? "Gráfico" : "Tabla")}
-                    </span>
-                    <Pencil className="w-3 h-3 text-primary/60" />
-                  </div>
-
-                  <div className="p-3 space-y-3">
-                    {/* Título del bloque */}
-                    <div className="space-y-1">
-                      <Label className="text-[11px] text-muted-foreground">Título del bloque</Label>
-                      <Input
-                        value={selectedBloque.titulo}
-                        onChange={(e) => updBloque(selectedBloque.id, { titulo: e.target.value })}
-                        placeholder={selectedBloque.tipo === "grafico" ? "Ej. Rendimiento semanal" : "Ej. Detalle de cosecha"}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-
-                    {/* Fuentes */}
-                    <div className="space-y-2">
-                      <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                        <Database className="w-3 h-3" /> Fuentes de datos
-                        {selectedBloque.fuentesSeleccionadas.length > 0 && (
-                          <span className="ml-auto text-[9px] font-normal normal-case text-muted-foreground">
-                            {selectedBloque.fuentesSeleccionadas.length} seleccionada{selectedBloque.fuentesSeleccionadas.length !== 1 ? "s" : ""}
-                          </span>
-                        )}
-                      </Label>
-                      <FuenteSelector
-                        fuentesSeleccionadas={selectedBloque.fuentesSeleccionadas}
-                        onFuenteToggle={(id) => toggleFuenteBloque(selectedBloque.id, id)}
-                      />
-                    </div>
-
-                    {/* Cálculos cruzados */}
-                    {selectedBloque.fuentesSeleccionadas.length > 0 && (
-                      <div className="space-y-2">
-                        <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                          <Calculator className="w-3 h-3 text-violet-500" />
-                          <span className="text-violet-700 dark:text-violet-300">Cálculos cruzados</span>
-                          {(selectedBloque.camposCalculados?.length ?? 0) > 0 && (
-                            <span className="ml-auto text-[9px] font-normal normal-case text-violet-500">
-                              {selectedBloque.camposCalculados!.length} definido{selectedBloque.camposCalculados!.length !== 1 ? "s" : ""}
-                            </span>
-                          )}
-                        </Label>
-                        <CamposCalculadosEditor
-                          camposCalculados={selectedBloque.camposCalculados ?? []}
-                          fuentesSeleccionadas={selectedBloque.fuentesSeleccionadas}
-                          onChange={(calcs) => updBloque(selectedBloque.id, { camposCalculados: calcs })}
-                        />
+              {/* TAB: Gráficos */}
+              {builderTab === "graficos" && (
+                <div className="space-y-4">
+                  {config.bloques.filter(b => b.tipo === "grafico").length === 0 ? (
+                    <div className="text-center py-8 space-y-3">
+                      <BarChart2 className="w-12 h-12 mx-auto text-muted-foreground/20" />
+                      <div>
+                        <h4 className="text-sm font-semibold text-foreground">Sin gráficos</h4>
+                        <p className="text-xs text-muted-foreground mt-1">Agrega tu primer gráfico para visualizar datos</p>
                       </div>
-                    )}
+                      <Button onClick={addGrafico} className="gap-2 text-xs">
+                        <Plus className="w-3.5 h-3.5" />
+                        Agregar primer gráfico
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide">
+                          Gráficos ({config.bloques.filter(b => b.tipo === "grafico").length})
+                        </h4>
+                        <Button size="sm" variant="outline" onClick={addGrafico} className="gap-1.5 text-xs">
+                          <Plus className="w-3.5 h-3.5" />
+                          Nuevo
+                        </Button>
+                      </div>
 
-                    {/* Gráfico: Dimensión y métricas */}
-                    {selectedGrafico && selectedCampos.length > 0 && (
+                      {/* Lista de gráficos */}
                       <div className="space-y-2">
-                        <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                          <SlidersHorizontal className="w-3 h-3" /> Dimensión y métricas
-                        </Label>
+                        {config.bloques.filter(b => b.tipo === "grafico").map((bloque, idx) => (
+                          <GraphicCard key={bloque.id} bloque={bloque as GraficoBloque} index={idx}
+                            isSelected={selectedBloqueId === bloque.id}
+                            onSelect={() => setSelectedBloqueId(bloque.id === selectedBloqueId ? null : bloque.id)}
+                            onDelete={() => removeBloque(bloque.id)}
+                            onUpdate={(updates) => updBloque(bloque.id, updates)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Inline editor for selected gráfico */}
+                  {selectedGrafico && (
+                    <div className="rounded-xl border border-primary/30 bg-primary/3 overflow-hidden">
+                      <div className="px-3 py-2 bg-primary/5 border-b border-primary/20 flex items-center gap-2">
+                        <BarChart2 className="w-3.5 h-3.5 text-blue-500" />
+                        <span className="text-xs font-semibold text-primary flex-1 truncate">
+                          Editando: {selectedGrafico.titulo || "Gráfico sin título"}
+                        </span>
+                        <Pencil className="w-3 h-3 text-primary/60" />
+                      </div>
+                      <div className="p-3 space-y-3">
+                        {/* Título */}
                         <div className="space-y-1">
-                          <Label className="text-[11px] text-muted-foreground">Eje X / Agrupación</Label>
-                          <div className="flex flex-wrap gap-1">
-                            {selectedDimensiones.map((d) => (
-                              <button key={d.id}
-                                onClick={() => updBloque(selectedGrafico.id, { dimension: d.id })}
-                                className={cn(
-                                  "text-[10px] font-medium px-2 py-0.5 rounded-full border transition-all",
-                                  selectedGrafico.dimension === d.id
-                                    ? "bg-primary/10 border-primary text-primary"
-                                    : "border-border text-muted-foreground hover:border-primary/30",
-                                )}
-                              >
-                                {d.label}
-                              </button>
-                            ))}
-                          </div>
+                          <Label className="text-[11px] text-muted-foreground">Título del bloque</Label>
+                          <Input
+                            value={selectedGrafico.titulo}
+                            onChange={(e) => updBloque(selectedGrafico.id, { titulo: e.target.value })}
+                            placeholder="Ej. Rendimiento semanal"
+                            className="h-7 text-xs"
+                          />
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-[11px] text-muted-foreground">Métricas (Eje Y)</Label>
-                          <div className="space-y-1">
-                            {selectedMetricsDisp.map((m) => {
-                              const isOn = selectedGrafico.metricas.includes(m.id);
+                        {/* Fuentes */}
+                        <div className="space-y-2">
+                          <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                            <Database className="w-3 h-3" /> Fuentes de datos
+                            {selectedGrafico.fuentesSeleccionadas.length > 0 && (
+                              <span className="ml-auto text-[9px] font-normal normal-case">
+                                {selectedGrafico.fuentesSeleccionadas.length} seleccionada{selectedGrafico.fuentesSeleccionadas.length !== 1 ? "s" : ""}
+                              </span>
+                            )}
+                          </Label>
+                          <FuenteSelector
+                            fuentesSeleccionadas={selectedGrafico.fuentesSeleccionadas}
+                            onFuenteToggle={(id) => toggleFuenteBloque(selectedGrafico.id, id)}
+                          />
+                        </div>
+                        {/* Cálculos cruzados */}
+                        {selectedGrafico.fuentesSeleccionadas.length > 0 && (
+                          <div className="space-y-2">
+                            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                              <Calculator className="w-3 h-3 text-violet-500" />
+                              <span className="text-violet-700 dark:text-violet-300">Cálculos cruzados</span>
+                              {(selectedGrafico.camposCalculados?.length ?? 0) > 0 && (
+                                <span className="ml-auto text-[9px] font-normal normal-case text-violet-500">
+                                  {selectedGrafico.camposCalculados!.length} definido{selectedGrafico.camposCalculados!.length !== 1 ? "s" : ""}
+                                </span>
+                              )}
+                            </Label>
+                            <CamposCalculadosEditor
+                              camposCalculados={selectedGrafico.camposCalculados ?? []}
+                              fuentesSeleccionadas={selectedGrafico.fuentesSeleccionadas}
+                              onChange={(calcs) => updBloque(selectedGrafico.id, { camposCalculados: calcs })}
+                            />
+                          </div>
+                        )}
+                        {/* Dimensión y métricas */}
+                        {selectedCampos.length > 0 && (
+                          <div className="space-y-2">
+                            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                              <SlidersHorizontal className="w-3 h-3" /> Dimensión y métricas
+                            </Label>
+                            <div className="space-y-1">
+                              <Label className="text-[11px] text-muted-foreground">Eje X / Agrupación</Label>
+                              <div className="flex flex-wrap gap-1">
+                                {selectedDimensiones.map((d) => (
+                                  <button key={d.id}
+                                    onClick={() => updBloque(selectedGrafico.id, { dimension: d.id })}
+                                    className={cn(
+                                      "text-[10px] font-medium px-2 py-0.5 rounded-full border transition-all",
+                                      selectedGrafico.dimension === d.id
+                                        ? "bg-primary/10 border-primary text-primary"
+                                        : "border-border text-muted-foreground hover:border-primary/30",
+                                    )}
+                                  >
+                                    {d.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[11px] text-muted-foreground">Métricas (Eje Y)</Label>
+                              <div className="space-y-1">
+                                {selectedMetricsDisp.map((m) => {
+                                  const isOn = selectedGrafico.metricas.includes(m.id);
+                                  const hasGrouping = !!selectedGrafico.dimension;
+                                  const agr: AgregacionTipo = (selectedGrafico.agregaciones?.[m.id] ?? "suma") as AgregacionTipo;
+                                  const agrColor = agr === "suma"    ? "bg-blue-100 border-blue-400 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-600"
+                                                 : agr === "promedio" ? "bg-violet-100 border-violet-400 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300 dark:border-violet-600"
+                                                 :                     "bg-amber-100 border-amber-400 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-600";
+                                  return (
+                                    <div key={m.id}>
+                                      <button
+                                        onClick={() => toggleMetricaBloque(selectedGrafico.id, m.id)}
+                                        className={cn(
+                                          "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border text-left transition-all",
+                                          isOn ? "bg-primary/5 border-primary/40" : "border-border hover:border-primary/20 hover:bg-muted/20",
+                                        )}
+                                      >
+                                        <div className={cn("w-3.5 h-3.5 rounded flex items-center justify-center shrink-0", isOn ? "bg-primary" : "border border-muted-foreground/30")}>
+                                          {isOn && <Check className="w-2 h-2 text-primary-foreground" />}
+                                        </div>
+                                        <span className="text-xs flex-1">{m.label}</span>
+                                        {m.unidad && <span className="text-[10px] text-muted-foreground font-mono">{m.unidad}</span>}
+                                        {isOn && hasGrouping && (
+                                          <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0", agrColor)}>
+                                            {agr === "suma" ? "Σ" : agr === "promedio" ? "⌀" : "~"}
+                                          </span>
+                                        )}
+                                      </button>
+                                      {isOn && hasGrouping && (
+                                        <div className="ml-6 mt-1 flex items-center gap-1">
+                                          <span className="text-[9px] text-muted-foreground shrink-0">Agregar por:</span>
+                                          {(["suma", "promedio", "mediana"] as AgregacionTipo[]).map((op) => {
+                                            const opColor = op === "suma"    ? "bg-blue-100 border-blue-400 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-600"
+                                                          : op === "promedio" ? "bg-violet-100 border-violet-400 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300 dark:border-violet-600"
+                                                          :                    "bg-amber-100 border-amber-400 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-600";
+                                            return (
+                                              <button
+                                                key={op}
+                                                onClick={(e) => { e.stopPropagation(); setMetricaAgregacion(selectedGrafico.id, m.id, op); }}
+                                                className={cn(
+                                                  "text-[9px] font-semibold px-2 py-0.5 rounded-md border transition-colors",
+                                                  agr === op ? opColor : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                                                )}
+                                              >
+                                                {op === "suma" ? "Σ Suma" : op === "promedio" ? "⌀ Prom" : "~ Med"}
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        {/* Tipo de gráfico */}
+                        <div className="space-y-2">
+                          <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                            <BarChart2 className="w-3 h-3" /> Tipo de gráfico
+                          </Label>
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {TIPOS_GRAFICO.map((t) => {
+                              const TIcon = t.icon;
+                              const active = selectedGrafico.tipoGrafico === t.id;
                               return (
-                                <button key={m.id}
-                                  onClick={() => toggleMetricaBloque(selectedGrafico.id, m.id)}
+                                <button key={t.id}
+                                  onClick={() => updBloque(selectedGrafico.id, { tipoGrafico: t.id })}
                                   className={cn(
-                                    "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border text-left transition-all",
-                                    isOn ? "bg-primary/5 border-primary/40" : "border-border hover:border-primary/20 hover:bg-muted/20",
+                                    "flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl border transition-all",
+                                    active ? "bg-primary/10 border-primary shadow-sm" : "border-border hover:border-primary/30 hover:bg-muted/40",
                                   )}
                                 >
-                                  <div className={cn("w-3.5 h-3.5 rounded flex items-center justify-center shrink-0", isOn ? "bg-primary" : "border border-muted-foreground/30")}>
-                                    {isOn && <Check className="w-2 h-2 text-primary-foreground" />}
-                                  </div>
-                                  <span className="text-xs flex-1">{m.label}</span>
-                                  {m.unidad && <span className="text-[10px] text-muted-foreground font-mono">{m.unidad}</span>}
+                                  <TIcon className={cn("w-4 h-4", active ? "text-primary" : "text-muted-foreground")} />
+                                  <span className={cn("text-[9px] font-semibold text-center leading-tight", active ? "text-primary" : "text-muted-foreground")}>
+                                    {t.label}
+                                  </span>
                                 </button>
                               );
                             })}
                           </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Tabla: Columnas */}
-                    {selectedTabla && selectedCampos.length > 0 && (
-                      <div className="space-y-2">
-                        <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                          <AlignLeft className="w-3 h-3" /> Columnas a mostrar
-                        </Label>
-                        <p className="text-[10px] text-muted-foreground">
-                          Si no seleccionas, se muestran todas las disponibles.
-                        </p>
-                        <div className="space-y-1">
-                          {selectedCampos.map((campo) => {
-                            const isOn = selectedTabla.columnas.includes(campo.id);
-                            return (
-                              <button key={campo.id}
-                                onClick={() => toggleColumnaBloque(selectedTabla.id, campo.id)}
-                                className={cn(
-                                  "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border text-left transition-all",
-                                  isOn ? "bg-primary/5 border-primary/40" : "border-border hover:border-primary/20 hover:bg-muted/20",
-                                )}
-                              >
-                                <div className={cn("w-3.5 h-3.5 rounded flex items-center justify-center shrink-0", isOn ? "bg-primary" : "border border-muted-foreground/30")}>
-                                  {isOn && <Check className="w-2 h-2 text-primary-foreground" />}
-                                </div>
-                                <span className="text-xs flex-1">{campo.label}</span>
-                                <span className="text-[10px] text-muted-foreground">{campo.tipo}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Gráfico: Tipo de gráfico */}
-                    {selectedGrafico && (
-                      <div className="space-y-2">
-                        <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                          <BarChart2 className="w-3 h-3" /> Tipo de gráfico
-                        </Label>
-                        <div className="grid grid-cols-4 gap-1.5">
-                          {TIPOS_GRAFICO.map((t) => {
-                            const TIcon = t.icon;
-                            const active = selectedGrafico.tipoGrafico === t.id;
-                            return (
-                              <button key={t.id}
-                                onClick={() => updBloque(selectedGrafico.id, { tipoGrafico: t.id })}
-                                className={cn(
-                                  "flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl border transition-all",
-                                  active ? "bg-primary/10 border-primary shadow-sm" : "border-border hover:border-primary/30 hover:bg-muted/40",
-                                )}
-                              >
-                                <TIcon className={cn("w-4 h-4", active ? "text-primary" : "text-muted-foreground")} />
-                                <span className={cn("text-[9px] font-semibold text-center leading-tight", active ? "text-primary" : "text-muted-foreground")}>
-                                  {t.label}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                        {/* Opciones */}
-                        <div className="space-y-2 pt-1">
-                          {(["bar_v", "bar_h", "area"] as TipoGrafico[]).includes(selectedGrafico.tipoGrafico) && (
-                            <div className="flex items-center justify-between">
-                              <Label className="text-[11px] text-muted-foreground">Barras apiladas</Label>
-                              <Switch checked={selectedGrafico.apilado}
-                                onCheckedChange={(v) => updBloque(selectedGrafico.id, { apilado: v })} />
-                            </div>
-                          )}
-                          {(
-                            [
+                          {/* Opciones */}
+                          <div className="space-y-2 pt-1">
+                            {(["bar_v", "bar_h", "area"] as TipoGrafico[]).includes(selectedGrafico.tipoGrafico) && (
+                              <div className="flex items-center justify-between">
+                                <Label className="text-[11px] text-muted-foreground">Barras apiladas</Label>
+                                <Switch checked={selectedGrafico.apilado}
+                                  onCheckedChange={(v) => updBloque(selectedGrafico.id, { apilado: v })} />
+                              </div>
+                            )}
+                            {[
                               { key: "mostrarLeyenda" as const, label: "Mostrar leyenda" },
                               { key: "mostrarGrid" as const, label: "Mostrar grilla" },
                               { key: "mostrarTooltip" as const, label: "Mostrar tooltip" },
-                            ]
-                          ).map(({ key, label }) => (
-                            <div key={key} className="flex items-center justify-between">
-                              <Label className="text-[11px] text-muted-foreground">{label}</Label>
-                              <Switch
-                                checked={selectedGrafico[key]}
-                                onCheckedChange={(v) => updBloque(selectedGrafico.id, { [key]: v })}
-                              />
-                            </div>
-                          ))}
+                            ].map(({ key, label }) => (
+                              <div key={key} className="flex items-center justify-between">
+                                <Label className="text-[11px] text-muted-foreground">{label}</Label>
+                                <Switch
+                                  checked={selectedGrafico[key]}
+                                  onCheckedChange={(v) => updBloque(selectedGrafico.id, { [key]: v })}
+                                />
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
-            </Section>
 
-            {/* 3 — Apariencia global */}
-            <Section
-              num={3} title="Apariencia global" icon={Palette}
-              open={openSection === 3} onToggle={() => setOpenSection(openSection === 3 ? 0 : 3)}
-            >
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Paleta de colores</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {PALETAS.map((p) => (
-                    <button key={p.id} onClick={() => upd("paletaId", p.id)}
-                      className={cn(
-                        "flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-all",
-                        config.paletaId === p.id ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/30",
-                      )}
-                    >
-                      <div className="flex gap-0.5">
-                        {p.colors.slice(0, 5).map((c, i) => (
-                          <div key={i} className="w-4 h-4 rounded-sm" style={{ backgroundColor: c }} />
+              {/* TAB: Tablas */}
+              {builderTab === "tablas" && (
+                <div className="space-y-4">
+                  {config.bloques.filter(b => b.tipo === "tabla").length === 0 ? (
+                    <div className="text-center py-8 space-y-3">
+                      <Table2 className="w-12 h-12 mx-auto text-muted-foreground/20" />
+                      <div>
+                        <h4 className="text-sm font-semibold text-foreground">Sin tablas</h4>
+                        <p className="text-xs text-muted-foreground mt-1">Agrega tu primera tabla para mostrar datos</p>
+                      </div>
+                      <Button onClick={addTabla} className="gap-2 text-xs">
+                        <Plus className="w-3.5 h-3.5" />
+                        Agregar primera tabla
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide">
+                          Tablas ({config.bloques.filter(b => b.tipo === "tabla").length})
+                        </h4>
+                        <Button size="sm" variant="outline" onClick={addTabla} className="gap-1.5 text-xs">
+                          <Plus className="w-3.5 h-3.5" />
+                          Nueva
+                        </Button>
+                      </div>
+
+                      {/* Lista de tablas */}
+                      <div className="space-y-2">
+                        {config.bloques.filter(b => b.tipo === "tabla").map((bloque, idx) => (
+                          <TableCard key={bloque.id} bloque={bloque as TablaBloque} index={idx}
+                            isSelected={selectedBloqueId === bloque.id}
+                            onSelect={() => setSelectedBloqueId(bloque.id === selectedBloqueId ? null : bloque.id)}
+                            onDelete={() => removeBloque(bloque.id)}
+                            onUpdate={(updates) => updBloque(bloque.id, updates)}
+                          />
                         ))}
                       </div>
-                      <span className={cn("text-[10px] font-medium", config.paletaId === p.id ? "text-primary" : "text-muted-foreground")}>
-                        {p.nombre}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Título en el informe</Label>
-                <Input value={config.titulo} onChange={(e) => upd("titulo", e.target.value)}
-                  placeholder="Usa el nombre por defecto" className="h-8 text-sm" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Subtítulo / período</Label>
-                <Input value={config.subtitulo} onChange={(e) => upd("subtitulo", e.target.value)}
-                  placeholder="Ej. Temporada 2024–2025" className="h-8 text-sm" />
-              </div>
-              <div className="flex items-center justify-between pt-1">
-                <Label className="text-xs text-muted-foreground cursor-pointer">Mostrar logotipo</Label>
-                <Switch checked={config.mostrarLogo} onCheckedChange={(v) => upd("mostrarLogo", v)} />
-              </div>
-            </Section>
-
-            {/* 4 — Plantilla de documento */}
-            <Section
-              num={4} title="Plantilla de documento" icon={FileEdit}
-              open={openSection === 4} onToggle={() => setOpenSection(openSection === 4 ? 0 : 4)}
-            >
-              {/* ── Editor dinámico del encabezado ── */}
-              {(() => {
-                const campos: CampoEncabezado[] = config.plantilla?.encabezado.campos ?? [];
-                const colorBorde = config.plantilla?.encabezado.colorBorde ?? "#cc0000";
-
-                const updCampos = (newCampos: CampoEncabezado[]) =>
-                  updEncabezado("campos", newCampos);
-
-                const updCampo = (id: string, patch: Partial<CampoEncabezado>) =>
-                  updCampos(campos.map(c => c.id === id ? { ...c, ...patch } : c));
-
-                const moverCampo = (idx: number, dir: -1 | 1) => {
-                  const next = [...campos];
-                  const target = idx + dir;
-                  if (target < 0 || target >= next.length) return;
-                  [next[idx], next[target]] = [next[target], next[idx]];
-                  updCampos(next);
-                };
-
-                const eliminarCampo = (id: string) =>
-                  updCampos(campos.filter(c => c.id !== id));
-
-                const agregarCampo = () =>
-                  updCampos([...campos, {
-                    id: `campo-${Date.now()}`,
-                    label: "Nuevo campo",
-                    fuente: "custom",
-                    auto: false,
-                    valor: "",
-                  }]);
-
-                const FUENTES: { value: FuenteCampo; label: string }[] = [
-                  { value: "finca",      label: "Finca (sistema)" },
-                  { value: "cultivo",    label: "Cultivo (sistema)" },
-                  { value: "variedad",   label: "Variedad (sistema)" },
-                  { value: "ubicacion",  label: "Ubicación (sistema)" },
-                  { value: "superficie", label: "Superficie (sistema)" },
-                  { value: "productor",  label: "Productor (sistema)" },
-                  { value: "custom",     label: "Personalizado" },
-                ];
-
-                return (
-                  <div className="space-y-3">
-                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      Encabezado del documento
-                    </Label>
-
-                    {/* ── Preview live ── */}
-                    <div className="rounded-lg border overflow-hidden bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-sm" style={{ borderBottom: `2px solid ${colorBorde}` }}>
-                      {/* Fila título */}
-                      <div className="flex text-[8px]">
-                        <div className="border-r border-zinc-300 dark:border-zinc-600 px-2 py-2 flex items-center justify-center w-14 bg-zinc-50 dark:bg-zinc-800">
-                          <span className="text-[7px] font-bold text-zinc-400 text-center leading-tight">LOGO</span>
-                        </div>
-                        <div className="flex-1 text-center py-2 font-bold border-r border-zinc-300 dark:border-zinc-600 uppercase tracking-wide text-[9px]">
-                          {config.titulo || config.nombre || "TÍTULO DEL DOCUMENTO"}
-                        </div>
-                        <div className="w-24 text-[7px] px-1.5 py-1 space-y-0.5">
-                          <div className="flex gap-1 border-b border-zinc-200 dark:border-zinc-700 pb-0.5">
-                            <span className="text-zinc-400 uppercase">Rev:</span>
-                            <span className="font-bold">1</span>
-                          </div>
-                          <div className="flex gap-1">
-                            <span className="text-zinc-400 uppercase">Cód:</span>
-                            <span className="font-mono text-[6px]">{config.id?.slice(0, 8) ?? "—"}</span>
-                          </div>
-                        </div>
-                      </div>
-                      {/* Fila campos dinámicos */}
-                      {campos.length > 0 && (
-                        <div className="flex border-t border-zinc-300 dark:border-zinc-600 divide-x divide-zinc-300 dark:divide-zinc-600 text-[7px]">
-                          {campos.map(c => (
-                            <div key={c.id} className="flex-1 px-1 py-1 text-center min-w-0">
-                              <div className="text-zinc-400 uppercase truncate">{c.label}</div>
-                              <div className="font-semibold truncate text-zinc-700 dark:text-zinc-300">
-                                {c.auto ? "—auto—" : (c.valor || "—")}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
+                  )}
 
-                    {/* ── Lista de campos ── */}
-                    <div className="space-y-1.5">
-                      {campos.map((campo, idx) => (
-                        <div key={campo.id} className="rounded-lg border bg-muted/30 p-2.5 space-y-2">
-                          {/* Fila superior: orden + label + acciones */}
-                          <div className="flex items-center gap-1.5">
-                            {/* Botones mover */}
-                            <div className="flex flex-col gap-0.5 shrink-0">
-                              <button
-                                disabled={idx === 0}
-                                onClick={() => moverCampo(idx, -1)}
-                                className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground disabled:opacity-20 transition-colors"
-                              >
-                                <MoveUp className="w-3 h-3" />
-                              </button>
-                              <button
-                                disabled={idx === campos.length - 1}
-                                onClick={() => moverCampo(idx, 1)}
-                                className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground disabled:opacity-20 transition-colors"
-                              >
-                                <MoveDown className="w-3 h-3" />
-                              </button>
-                            </div>
-
-                            {/* Label editable */}
-                            <Input
-                              value={campo.label}
-                              onChange={e => updCampo(campo.id, { label: e.target.value })}
-                              placeholder="Nombre del campo"
-                              className="h-7 text-xs flex-1"
+                  {/* Inline editor for selected tabla */}
+                  {selectedTabla && (
+                    <div className="rounded-xl border border-purple-300/50 overflow-hidden">
+                      <div className="px-3 py-2 bg-purple-500/5 border-b border-purple-300/20 flex items-center gap-2">
+                        <Table2 className="w-3.5 h-3.5 text-purple-500" />
+                        <span className="text-xs font-semibold text-purple-700 dark:text-purple-300 flex-1 truncate">
+                          Editando: {selectedTabla.titulo || "Tabla sin título"}
+                        </span>
+                        <Pencil className="w-3 h-3 text-purple-400" />
+                      </div>
+                      <div className="p-3 space-y-3">
+                        {/* Título */}
+                        <div className="space-y-1">
+                          <Label className="text-[11px] text-muted-foreground">Título de la tabla</Label>
+                          <Input
+                            value={selectedTabla.titulo}
+                            onChange={(e) => updBloque(selectedTabla.id, { titulo: e.target.value })}
+                            placeholder="Ej. Detalle de cosecha"
+                            className="h-7 text-xs"
+                          />
+                        </div>
+                        {/* Fuentes */}
+                        <div className="space-y-2">
+                          <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                            <Database className="w-3 h-3" /> Fuentes de datos
+                            {selectedTabla.fuentesSeleccionadas.length > 0 && (
+                              <span className="ml-auto text-[9px] font-normal normal-case">
+                                {selectedTabla.fuentesSeleccionadas.length} seleccionada{selectedTabla.fuentesSeleccionadas.length !== 1 ? "s" : ""}
+                              </span>
+                            )}
+                          </Label>
+                          <FuenteSelector
+                            fuentesSeleccionadas={selectedTabla.fuentesSeleccionadas}
+                            onFuenteToggle={(id) => toggleFuenteBloque(selectedTabla.id, id)}
+                          />
+                        </div>
+                        {/* Cálculos cruzados */}
+                        {selectedTabla.fuentesSeleccionadas.length > 0 && (
+                          <div className="space-y-2">
+                            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                              <Calculator className="w-3 h-3 text-violet-500" />
+                              <span className="text-violet-700 dark:text-violet-300">Cálculos cruzados</span>
+                              {(selectedTabla.camposCalculados?.length ?? 0) > 0 && (
+                                <span className="ml-auto text-[9px] font-normal normal-case text-violet-500">
+                                  {selectedTabla.camposCalculados!.length} definido{selectedTabla.camposCalculados!.length !== 1 ? "s" : ""}
+                                </span>
+                              )}
+                            </Label>
+                            <CamposCalculadosEditor
+                              camposCalculados={selectedTabla.camposCalculados ?? []}
+                              fuentesSeleccionadas={selectedTabla.fuentesSeleccionadas}
+                              onChange={(calcs) => updBloque(selectedTabla.id, { camposCalculados: calcs })}
                             />
-
-                            {/* Nº */}
-                            <span className="text-[10px] text-muted-foreground/50 shrink-0 w-4 text-center">{idx + 1}</span>
-
-                            {/* Eliminar */}
-                            <button
-                              onClick={() => eliminarCampo(campo.id)}
-                              className="p-1 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
                           </div>
-
-                          {/* Fila inferior: fuente + valor */}
-                          <div className="flex items-center gap-2 pl-7">
-                            {/* Selector de fuente */}
-                            <select
-                              value={campo.fuente}
-                              onChange={e => {
-                                const f = e.target.value as FuenteCampo;
-                                updCampo(campo.id, { fuente: f, auto: f !== "custom" });
-                              }}
-                              className="h-7 text-xs rounded-md border bg-background px-2 flex-1 focus:outline-none focus:ring-1 focus:ring-ring"
-                            >
-                              {FUENTES.map(f => (
-                                <option key={f.value} value={f.value}>{f.label}</option>
-                              ))}
-                            </select>
-
-                            {/* Valor manual si es custom o auto=false */}
-                            {(!campo.auto || campo.fuente === "custom") && (
-                              <Input
-                                value={campo.valor}
-                                onChange={e => updCampo(campo.id, { valor: e.target.value })}
-                                placeholder="Valor..."
-                                className="h-7 text-xs flex-1"
-                              />
+                        )}
+                        {/* Tabla: Agrupar por (multi-select) */}
+                        {selectedTabla && selectedDimensiones.length > 0 && (
+                          <div className="space-y-1">
+                            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                              <Sigma className="w-3 h-3" /> Agrupar por
+                            </Label>
+                            <div className="flex flex-wrap gap-1 items-center">
+                              {selectedDimensiones.map((d) => {
+                                const isActive = (selectedTabla.groupBy ?? []).includes(d.id);
+                                return (
+                                  <button key={d.id}
+                                    onClick={() => setGroupByTabla(selectedTabla.id, d.id)}
+                                    className={cn(
+                                      "text-[10px] font-medium px-2 py-0.5 rounded-full border transition-all flex items-center gap-1",
+                                      isActive
+                                        ? "bg-primary/10 border-primary text-primary"
+                                        : "border-border text-muted-foreground hover:border-primary/30",
+                                    )}
+                                  >
+                                    {isActive && <Check className="w-2 h-2" />}
+                                    {d.label}
+                                  </button>
+                                );
+                              })}
+                              {(selectedTabla.groupBy?.length ?? 0) > 0 && (
+                                <button
+                                  onClick={() => updBloque(selectedTabla.id, { groupBy: undefined })}
+                                  className="text-[9px] px-1.5 py-0.5 rounded-full border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors"
+                                  title="Quitar todas las agrupaciones"
+                                >
+                                  <X className="w-2.5 h-2.5" />
+                                </button>
+                              )}
+                            </div>
+                            {(selectedTabla.groupBy?.length ?? 0) > 0 && (
+                              <p className="text-[10px] text-primary/70">
+                                Agrupado por: <strong>{(selectedTabla.groupBy ?? []).map(id => selectedDimensiones.find(d => d.id === id)?.label ?? id).join(" + ")}</strong>
+                              </p>
                             )}
                           </div>
+                        )}
+                        {/* Columnas */}
+                        {selectedCampos.length > 0 && (
+                          <div className="space-y-2">
+                            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                              <AlignLeft className="w-3 h-3" /> Columnas a mostrar
+                            </Label>
+                            <p className="text-[10px] text-muted-foreground">
+                              Sin selección = todas las disponibles.
+                            </p>
+                            <div className="space-y-1">
+                              {selectedCampos.map((campo) => {
+                                const isOn = selectedTabla.columnas.includes(campo.id) || (selectedTabla.groupBy ?? []).includes(campo.id);
+                                const isGroupByField = (selectedTabla.groupBy ?? []).includes(campo.id);
+                                const isMetrica = campo.tipo === "metrica";
+                                const hasGrouping = (selectedTabla.groupBy?.length ?? 0) > 0;
+                                const agr: AgregacionTipo = (selectedTabla.agregaciones?.[campo.id] ?? "suma") as AgregacionTipo;
+                                const agrColor = agr === "suma"    ? "bg-blue-100 border-blue-400 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-600"
+                                               : agr === "promedio" ? "bg-violet-100 border-violet-400 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300 dark:border-violet-600"
+                                               :                     "bg-amber-100 border-amber-400 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-600";
+                                return (
+                                  <div key={campo.id}>
+                                    <button
+                                      onClick={() => isGroupByField ? undefined : toggleColumnaBloque(selectedTabla.id, campo.id)}
+                                      disabled={isGroupByField}
+                                      className={cn(
+                                        "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border text-left transition-all",
+                                        isGroupByField ? "bg-primary/10 border-primary/60 cursor-default" :
+                                        isOn ? "bg-primary/5 border-primary/40" : "border-border hover:border-primary/20 hover:bg-muted/20",
+                                      )}
+                                    >
+                                      <div className={cn("w-3.5 h-3.5 rounded flex items-center justify-center shrink-0",
+                                        isOn ? "bg-primary" : "border border-muted-foreground/30")}>
+                                        {isOn && <Check className="w-2 h-2 text-primary-foreground" />}
+                                      </div>
+                                      <span className="text-xs flex-1">{campo.label}</span>
+                                      {isGroupByField && (
+                                        <span className="text-[9px] text-primary font-semibold bg-primary/10 px-1 rounded shrink-0">agrup.</span>
+                                      )}
+                                      {campo.unidad && !isGroupByField && (
+                                        <span className="text-[10px] text-muted-foreground font-mono">{campo.unidad}</span>
+                                      )}
+                                      {isOn && isMetrica && hasGrouping && (
+                                        <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0", agrColor)}>
+                                          {agr === "suma" ? "Σ" : agr === "promedio" ? "⌀" : "~"}
+                                        </span>
+                                      )}
+                                    </button>
+                                    {isOn && isMetrica && hasGrouping && (
+                                      <div className="ml-6 mt-1 flex items-center gap-1">
+                                        <span className="text-[9px] text-muted-foreground shrink-0">Agregar por:</span>
+                                        {(["suma", "promedio", "mediana"] as AgregacionTipo[]).map((op) => {
+                                          const opColor = op === "suma"    ? "bg-blue-100 border-blue-400 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-600"
+                                                        : op === "promedio" ? "bg-violet-100 border-violet-400 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300 dark:border-violet-600"
+                                                        :                    "bg-amber-100 border-amber-400 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-600";
+                                          return (
+                                            <button
+                                              key={op}
+                                              onClick={(e) => { e.stopPropagation(); setMetricaAgregacion(selectedTabla.id, campo.id, op); }}
+                                              className={cn(
+                                                "text-[9px] font-semibold px-2 py-0.5 rounded-md border transition-colors",
+                                                agr === op ? opColor : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                                              )}
+                                            >
+                                              {op === "suma" ? "Σ Suma" : op === "promedio" ? "⌀ Prom" : "~ Med"}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      {/* Filtrar por estructura del cultivo */}
+                      {selectedBloque && selectedBloque.fuentesSeleccionadas.length > 0 && (
+                        <div className="space-y-2">
+                          <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                            <TreePine className="w-3 h-3 text-emerald-500" />
+                            <span className="text-emerald-700 dark:text-emerald-400">Estructura del cultivo</span>
+                            {Object.values(selectedBloque.filtrosJerarquia ?? {}).some((v) => v.length > 0) && (
+                              <span className="ml-auto text-[9px] font-normal normal-case text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
+                                <Filter className="w-2.5 h-2.5" />
+                                {Object.values(selectedBloque.filtrosJerarquia ?? {}).reduce((s, v) => s + v.length, 0)} filtro{Object.values(selectedBloque.filtrosJerarquia ?? {}).reduce((s, v) => s + v.length, 0) !== 1 ? "s" : ""} activo{Object.values(selectedBloque.filtrosJerarquia ?? {}).reduce((s, v) => s + v.length, 0) !== 1 ? "s" : ""}
+                              </span>
+                            )}
+                          </Label>
+                          <p className="text-[10px] text-muted-foreground leading-snug">
+                            Restringe los datos a bloques, parcelas o sectores específicos. La selección cascadea al nivel siguiente.
+                          </p>
+                          <FiltroEstructuraEditor
+                            filtros={selectedBloque.filtrosJerarquia ?? {}}
+                            onChange={(nivel, valores) => setFiltroJerarquia(selectedBloque.id, nivel, valores)}
+                          />
+                        </div>
+                      )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB: Avanzado (diseño y plantilla) */}
+              {builderTab === "avanzado" && (
+                <div className="space-y-5">
+
+                  {/* Paleta de colores */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <Palette className="w-3.5 h-3.5" /> Paleta de colores
+                    </Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {PALETAS.map((p) => (
+                        <button key={p.id} onClick={() => upd("paletaId", p.id)}
+                          className={cn(
+                            "flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-all",
+                            config.paletaId === p.id ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/30",
+                          )}
+                        >
+                          <div className="flex gap-0.5">
+                            {p.colors.slice(0, 4).map((c, i) => (
+                              <div key={i} className="w-3 h-3 rounded-sm" style={{ backgroundColor: c }} />
+                            ))}
+                          </div>
+                          <span className="text-[10px] font-medium">{p.nombre}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Logo e Imágenes */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <Image className="w-3.5 h-3.5" /> Logo e imágenes
+                    </Label>
+                    <div className="space-y-2 p-3 rounded-lg border border-border bg-muted/10">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-foreground">Mostrar logo</span>
+                        <Switch checked={config.mostrarLogo} onCheckedChange={(v) => upd("mostrarLogo", v)} className="scale-75" />
+                      </div>
+                      {config.mostrarLogo && (
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">Posición del logo</span>
+                          <div className="flex gap-1">
+                            {(["left", "center", "right"] as const).map((pos) => (
+                              <button key={pos}
+                                onClick={() => updEncabezado("posicionLogo", pos)}
+                                className={cn(
+                                  "flex-1 flex items-center justify-center py-1.5 rounded border text-[10px] gap-1 transition-all",
+                                  ((config.plantilla as any)?.encabezado?.posicionLogo ?? "left") === pos
+                                    ? "border-primary bg-primary/10 text-primary"
+                                    : "border-border text-muted-foreground hover:border-primary/30"
+                                )}
+                              >
+                                {pos === "left" && <AlignLeft className="w-3 h-3" />}
+                                {pos === "center" && <AlignCenter className="w-3 h-3" />}
+                                {pos === "right" && <AlignRight className="w-3 h-3" />}
+                                {pos === "left" ? "Izq" : pos === "center" ? "Centro" : "Der"}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div className="space-y-1">
+                        <span className="text-[11px] text-muted-foreground">URL del logo</span>
+                        <Input
+                          value={(config.plantilla as any)?.encabezado?.logoPersonalizado ?? ""}
+                          onChange={(e) => updEncabezado("logoPersonalizado", e.target.value)}
+                          placeholder="https://... o pegar URL de imagen"
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Encabezado del documento */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <LayoutTemplate className="w-3.5 h-3.5" /> Encabezado
+                    </Label>
+                    <div className="space-y-2 p-3 rounded-lg border border-border bg-muted/10">
+                      {(["mostrarEmpresa", "mostrarFecha", "mostrarLinea"] as const).map((key) => (
+                        <div key={key} className="flex items-center justify-between">
+                          <span className="text-xs">
+                            {key === "mostrarEmpresa" ? "Mostrar empresa" : key === "mostrarFecha" ? "Mostrar fecha" : "Línea separadora"}
+                          </span>
+                          <Switch
+                            checked={((config.plantilla as any)?.encabezado?.[key]) ?? (key === "mostrarLinea" ? true : false)}
+                            onCheckedChange={(v) => updEncabezado(key, v)}
+                            className="scale-75"
+                          />
+                        </div>
+                      ))}
+                      <div className="space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Altura del encabezado</span>
+                        <div className="flex gap-1">
+                          {(["sm", "md", "lg"] as const).map((h) => (
+                            <button key={h}
+                              onClick={() => updEncabezado("altura", h)}
+                              className={cn(
+                                "flex-1 py-1 rounded border text-[10px] font-medium transition-all",
+                                ((config.plantilla as any)?.encabezado?.altura ?? "md") === h
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border text-muted-foreground hover:border-primary/30"
+                              )}
+                            >
+                              {h === "sm" ? "Pequeño" : h === "md" ? "Mediano" : "Grande"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-muted-foreground flex-1">Color de borde</span>
+                        <input
+                          type="color"
+                          value={(config.plantilla as any)?.encabezado?.colorBorde ?? "#cc0000"}
+                          onChange={(e) => updEncabezado("colorBorde", e.target.value)}
+                          className="w-8 h-7 rounded cursor-pointer border border-border"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Texto personalizado</span>
+                        <Input
+                          value={(config.plantilla as any)?.encabezado?.textoPersonalizado ?? ""}
+                          onChange={(e) => updEncabezado("textoPersonalizado", e.target.value)}
+                          placeholder="Texto adicional en el encabezado"
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Contenido del informe */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5" /> Contenido del informe
+                    </Label>
+                    <div className="space-y-2 p-3 rounded-lg border border-border bg-muted/10">
+                      {(["incluirNotas", "incluirConclusiones", "incluirFirma"] as const).map((key) => (
+                        <div key={key} className="flex items-center justify-between">
+                          <span className="text-xs">
+                            {key === "incluirNotas" ? "Sección de notas" : key === "incluirConclusiones" ? "Sección de conclusiones" : "Firma del responsable"}
+                          </span>
+                          <Switch
+                            checked={((config.plantilla as any)?.[key]) ?? false}
+                            onCheckedChange={(v) => updPlantilla(key, v)}
+                            className="scale-75"
+                          />
+                        </div>
+                      ))}
+                      <div className="space-y-1 pt-1">
+                        <span className="text-[11px] text-muted-foreground">Pie de página</span>
+                        <Textarea
+                          value={(config.plantilla as any)?.piePagina ?? ""}
+                          onChange={(e) => updPlantilla("piePagina", e.target.value)}
+                          placeholder="Ej: Generado por AgroWorkin · Confidencial"
+                          className="text-xs min-h-[52px] resize-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Formato de página */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <Layout className="w-3.5 h-3.5" /> Formato de página
+                    </Label>
+                    <div className="space-y-2 p-3 rounded-lg border border-border bg-muted/10">
+                      <div className="space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Tamaño</span>
+                        <div className="flex gap-1">
+                          {(["A4", "Letter", "A3"] as const).map((sz) => (
+                            <button key={sz}
+                              onClick={() => updPlantilla("formato", { ...(config.plantilla as any)?.formato, tamañoPagina: sz })}
+                              className={cn(
+                                "flex-1 py-1 rounded border text-[10px] font-medium transition-all",
+                                ((config.plantilla as any)?.formato?.tamañoPagina ?? "A4") === sz
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border text-muted-foreground hover:border-primary/30"
+                              )}
+                            >{sz}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Orientación</span>
+                        <div className="flex gap-1">
+                          {(["portrait", "landscape"] as const).map((ori) => (
+                            <button key={ori}
+                              onClick={() => updPlantilla("formato", { ...(config.plantilla as any)?.formato, orientacion: ori })}
+                              className={cn(
+                                "flex-1 py-1.5 rounded border text-[10px] font-medium transition-all",
+                                ((config.plantilla as any)?.formato?.orientacion ?? "portrait") === ori
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border text-muted-foreground hover:border-primary/30"
+                              )}
+                            >{ori === "portrait" ? "Vertical" : "Horizontal"}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs">Numeración de páginas</span>
+                        <Switch
+                          checked={((config.plantilla as any)?.formato?.numeracionPaginas) ?? true}
+                          onCheckedChange={(v) => updPlantilla("formato", { ...(config.plantilla as any)?.formato, numeracionPaginas: v })}
+                          className="scale-75"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Márgenes */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <Ruler className="w-3.5 h-3.5" /> Márgenes (mm)
+                    </Label>
+                    <div className="grid grid-cols-2 gap-2 p-3 rounded-lg border border-border bg-muted/10">
+                      {(["superior", "inferior", "izquierdo", "derecho"] as const).map((lado) => (
+                        <div key={lado} className="space-y-0.5">
+                          <span className="text-[10px] text-muted-foreground capitalize">{lado}</span>
+                          <Input
+                            type="number" min={0} max={50}
+                            value={(config.plantilla as any)?.margenes?.[lado] ?? 20}
+                            onChange={(e) => updPlantilla("margenes", { ...(config.plantilla as any)?.margenes, [lado]: Number(e.target.value) })}
+                            className="h-7 text-xs"
+                          />
                         </div>
                       ))}
                     </div>
+                  </div>
 
-                    {/* Agregar campo */}
-                    <button
-                      onClick={agregarCampo}
-                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition-all"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Agregar campo
-                    </button>
-
-                    {/* Color del borde */}
-                    <div className="flex items-center justify-between pt-1 border-t">
-                      <Label className="text-xs text-muted-foreground">Color del borde inferior</Label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={colorBorde}
-                          onChange={(e) => updEncabezado("colorBorde", e.target.value)}
-                          className="w-7 h-7 rounded cursor-pointer border border-border"
-                        />
-                        <span className="text-[10px] font-mono text-muted-foreground">{colorBorde}</span>
+                  {/* Estilo de tablas */}
+                  {config.bloques.some(b => b.tipo === "tabla") && (
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                        <Grid3x3 className="w-3.5 h-3.5" /> Estilo de tablas
+                      </Label>
+                      <div className="space-y-3">
+                        {config.bloques.filter(b => b.tipo === "tabla").map((bloque) => {
+                          const tb = bloque as TablaBloque;
+                          const est = tb.estilos ?? { mostrarBordes: true, alternarFilas: true, tamañoFuente: "sm" as const, alineacion: "left" as const, compacta: false };
+                          return (
+                            <div key={tb.id} className="p-3 rounded-lg border border-border bg-muted/5 space-y-2">
+                              <p className="text-[11px] font-semibold text-foreground truncate">{tb.titulo || "Tabla sin título"}</p>
+                              {(["mostrarBordes", "alternarFilas", "compacta"] as const).map((key) => (
+                                <div key={key} className="flex items-center justify-between">
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {key === "mostrarBordes" ? "Mostrar bordes" : key === "alternarFilas" ? "Filas alternadas" : "Vista compacta"}
+                                  </span>
+                                  <Switch checked={est[key]} onCheckedChange={(v) => updBloque(tb.id, { estilos: { ...est, [key]: v } })} className="scale-75" />
+                                </div>
+                              ))}
+                              <div className="space-y-1">
+                                <span className="text-[10px] text-muted-foreground">Tamaño de texto</span>
+                                <div className="flex gap-1">
+                                  {(["xs", "sm", "base"] as const).map((sz) => (
+                                    <button key={sz}
+                                      onClick={() => updBloque(tb.id, { estilos: { ...est, tamañoFuente: sz } })}
+                                      className={cn(
+                                        "flex-1 py-1 rounded border text-[10px] transition-all",
+                                        est.tamañoFuente === sz
+                                          ? "border-primary bg-primary/10 text-primary"
+                                          : "border-border text-muted-foreground hover:border-primary/30"
+                                      )}
+                                    >{sz === "xs" ? "XS" : sz === "sm" ? "SM" : "MD"}</button>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-[10px] text-muted-foreground">Alineación</span>
+                                <div className="flex gap-1">
+                                  {(["left", "center", "right"] as const).map((al) => (
+                                    <button key={al}
+                                      onClick={() => updBloque(tb.id, { estilos: { ...est, alineacion: al } })}
+                                      className={cn(
+                                        "flex-1 flex items-center justify-center py-1 rounded border transition-all",
+                                        est.alineacion === al
+                                          ? "border-primary bg-primary/10 text-primary"
+                                          : "border-border text-muted-foreground hover:border-primary/30"
+                                      )}
+                                    >
+                                      {al === "left" ? <AlignLeft className="w-3 h-3" /> : al === "center" ? <AlignCenter className="w-3 h-3" /> : <AlignRight className="w-3 h-3" />}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  </div>
-                );
-              })()}
+                  )}
 
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Secciones adicionales</Label>
-                <div className="space-y-2">
-                  {[
-                    { key: "incluirNotas" as const, label: "Incluir sección de notas" },
-                    { key: "incluirConclusiones" as const, label: "Incluir conclusiones" },
-                    { key: "incluirFirma" as const, label: "Incluir campo de firma" },
-                  ].map(({ key, label }) => (
-                    <div key={key} className="flex items-center justify-between">
-                      <Label className="text-xs text-muted-foreground">{label}</Label>
-                      <Switch checked={config.plantilla?.[key] ?? false}
-                        onCheckedChange={(v) => updPlantilla(key, v)} />
-                    </div>
-                  ))}
                 </div>
-              </div>
+              )}
 
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pie de página</Label>
-                <Input value={config.plantilla?.piePagina ?? ""}
-                  onChange={(e) => updPlantilla("piePagina", e.target.value)}
-                  placeholder="Ej. Documento generado por Agroworkin" className="h-8 text-sm" />
-              </div>
-            </Section>
-
+            </div>
           </div>
         </div>
 
-        {/* ── Preview panel ────────────────────────────────────────────── */}
+
+
+        {/* Preview panel */}
         <div className="flex-1 flex flex-col min-w-0 bg-muted/30 overflow-hidden">
           {/* Preview header */}
           <div className="px-6 pt-5 pb-3 flex items-start justify-between gap-4 shrink-0">
@@ -1949,15 +2981,9 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {openSection === 4 ? (
-                <Badge variant="outline" className="text-[10px] gap-1">
-                  <FileEdit className="w-2.5 h-2.5" /> Vista de plantilla
-                </Badge>
-              ) : (
                 <Badge variant="outline" className="text-[10px] gap-1">
                   <Eye className="w-2.5 h-2.5" /> Preview en vivo
                 </Badge>
-              )}
               {bloqueCount > 0 && (
                 <Badge variant="secondary" className="text-[10px]">
                   {bloqueCount} bloque{bloqueCount !== 1 ? "s" : ""}
@@ -1974,142 +3000,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
             ))}
           </div>
 
-          {openSection === 4 ? (
-            /* ── Document template preview ── */
-            <div className="flex-1 overflow-y-auto px-6 pb-6">
-              <div className="bg-white rounded-2xl shadow-lg border border-border/40 overflow-hidden mx-auto max-w-2xl">
-                {/* Document header */}
-                <div className="px-8 py-5 border-b border-gray-100">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      {config.mostrarLogo && (
-                        <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center shrink-0 shadow">
-                          <Globe className="w-6 h-6 text-primary-foreground" />
-                        </div>
-                      )}
-                      <div>
-                        {config.plantilla?.encabezado.mostrarEmpresa && (
-                          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Empresa S.A.</p>
-                        )}
-                        <h2 className="font-bold text-base text-gray-800 leading-tight">
-                          {config.titulo || config.nombre || "Nuevo informe"}
-                        </h2>
-                        {config.subtitulo && <p className="text-[11px] text-gray-500">{config.subtitulo}</p>}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      {config.plantilla?.encabezado.mostrarFecha && (
-                        <p className="text-[10px] text-gray-400">
-                          {new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" })}
-                        </p>
-                      )}
-                      {config.plantilla?.encabezado.textoPersonalizado && (
-                        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mt-0.5">
-                          {config.plantilla.encabezado.textoPersonalizado}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-0.5 mt-3">
-                    {paleta.colors.slice(0, 5).map((c, i) => (
-                      <div key={i} className="h-0.5 flex-1 rounded-full" style={{ backgroundColor: c }} />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Block placeholders in document view */}
-                <div className="px-8 py-4 space-y-4">
-                  {config.bloques.length === 0 ? (
-                    <div className="bg-gray-50 rounded-xl border border-gray-100 p-6 flex flex-col items-center gap-2 text-gray-300">
-                      <Layers className="w-10 h-10" />
-                      <p className="text-xs font-medium">Sin bloques — agrega gráficos o tablas</p>
-                    </div>
-                  ) : (
-                    config.bloques.map((bloque, i) => (
-                      <div key={bloque.id} className="bg-gray-50 rounded-xl border border-gray-100 p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          {bloque.tipo === "grafico"
-                            ? <BarChart2 className="w-3 h-3 text-gray-400" />
-                            : <Table2 className="w-3 h-3 text-gray-400" />
-                          }
-                          <p className="text-[11px] font-semibold text-gray-500">
-                            {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${i + 1}` : `Tabla ${i + 1}`)}
-                          </p>
-                        </div>
-                        <div className="h-24 flex items-center justify-center">
-                          <div className="flex flex-col items-center gap-1.5 text-gray-200">
-                            {bloque.tipo === "grafico" ? (
-                              <>
-                                <BarChart2 className="w-8 h-8" />
-                                <div className="flex gap-1.5">
-                                  {paleta.colors.slice(0, 4).map((c, ci) => (
-                                    <div key={ci} className="w-5 h-5 rounded-sm opacity-40" style={{ backgroundColor: c }} />
-                                  ))}
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <Table2 className="w-8 h-8" />
-                                <div className="space-y-1">
-                                  {[0, 1, 2].map((r) => (
-                                    <div key={r} className="flex gap-1">
-                                      {[0, 1, 2, 3].map((c) => (
-                                        <div key={c} className="w-10 h-2 bg-gray-200 rounded" />
-                                      ))}
-                                    </div>
-                                  ))}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                {/* Optional sections */}
-                {config.plantilla?.incluirNotas && (
-                  <div className="px-8 pb-4">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Notas</p>
-                    <div className="bg-gray-50 rounded-lg border border-dashed border-gray-200 p-3 min-h-[40px]">
-                      <p className="text-[10px] text-gray-300 italic">Espacio para notas del responsable…</p>
-                    </div>
-                  </div>
-                )}
-                {config.plantilla?.incluirConclusiones && (
-                  <div className="px-8 pb-4">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Conclusiones</p>
-                    <div className="bg-gray-50 rounded-lg border border-dashed border-gray-200 p-3 min-h-[40px]">
-                      <p className="text-[10px] text-gray-300 italic">Espacio para conclusiones del informe…</p>
-                    </div>
-                  </div>
-                )}
-                {config.plantilla?.incluirFirma && (
-                  <div className="px-8 pb-4">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Firma</p>
-                    <div className="flex items-end gap-8">
-                      <div className="flex-1 border-b border-gray-300 pb-1">
-                        <p className="text-[10px] text-gray-400 text-center">Nombre y firma</p>
-                      </div>
-                      <div className="flex-1 border-b border-gray-300 pb-1">
-                        <p className="text-[10px] text-gray-400 text-center">Cargo</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Footer */}
-                <div className="px-8 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between">
-                  <p className="text-[10px] text-gray-400">
-                    {config.plantilla?.piePagina || "Generado por Agroworkin"}
-                  </p>
-                  <p className="text-[10px] text-gray-300">Pág. 1 de 1</p>
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* ── Live multi-block preview ── */
+            {/* ------ Live multi-block preview ------ */}
             <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-4">
               {config.bloques.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground/40 py-16">
@@ -2125,7 +3016,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                   return (
                     <div
                       key={bloque.id}
-                      onClick={() => { setSelectedBloqueId(bloque.id); setOpenSection(2); }}
+                      onClick={() => setSelectedBloqueId(bloque.id)}
                       className={cn(
                         "bg-card border rounded-2xl shadow-sm overflow-hidden cursor-pointer transition-all",
                         isSelected ? "ring-2 ring-primary border-primary/40" : "hover:border-primary/20",
@@ -2152,7 +3043,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                         )}
                       </div>
 
-                      {/* Block content — chart or table */}
+                      {/* Block content - chart or table */}
                       <div className={cn(bloque.tipo === "grafico" ? "h-52" : "h-44", "p-4")}>
                         {bloque.tipo === "grafico" ? (
                           <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} />
@@ -2165,7 +3056,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       <div className="px-4 py-2 border-t border-border/40 flex items-center gap-2 bg-muted/20">
                         <Shuffle className="w-3 h-3 text-muted-foreground/40" />
                         <span className="text-[10px] text-muted-foreground/50">
-                          Datos simulados · Haz clic para editar este bloque
+                          Datos simulados - Haz clic para editar este bloque
                         </span>
                       </div>
                     </div>
@@ -2173,9 +3064,269 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                 })
               )}
             </div>
-          )}
+          </div>
         </div>
       </div>
-    </div>
+    );
+  }
+
+  // --- GraphicCard - Simplified graphic management component ---
+
+interface GraphicCardProps {
+  bloque: GraficoBloque;
+  index: number;
+  isSelected: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+  onUpdate: (updates: Partial<GraficoBloque>) => void;
+}
+
+function GraphicCard({ bloque, index, isSelected, onSelect, onDelete, onUpdate }: GraphicCardProps) {
+  const {
+    isEditing,
+    localValue: localTitle,
+    setLocalValue: setLocalTitle,
+    handleSave,
+    handleCancel,
+    handleKeyDown,
+    startEdit,
+  } = useInlineEdit(bloque.titulo, (newTitle) => onUpdate({ titulo: newTitle }));
+
+  const tipoInfo = TIPOS_GRAFICO.find(t => t.id === bloque.tipoGrafico);
+  const sourcesCount = bloque.fuentesSeleccionadas.length;
+  const metricsCount = bloque.metricas.length;
+
+  return (
+    <Card className={cn(
+      "group transition-all cursor-pointer",
+      isSelected
+        ? "border-primary bg-primary/5 shadow-sm"
+        : "hover:border-primary/40 hover:shadow-sm"
+    )}>
+      <CardContent className="p-3">
+        <div className="flex items-start gap-3" onClick={onSelect}>
+        {/* Icon */}
+        <div className={cn(
+          "w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0",
+          isSelected ? "bg-primary/10" : "bg-muted"
+        )}>
+          {tipoInfo?.icon ? (
+            <tipoInfo.icon className={cn("w-4 h-4", isSelected ? "text-primary" : "text-muted-foreground")} />
+          ) : (
+            <BarChart2 className={cn("w-4 h-4", isSelected ? "text-primary" : "text-muted-foreground")} />
+          )}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          {/* Title */}
+          <div className="flex items-center gap-2 mb-1">
+            {isEditing ? (
+              <div className="flex items-center gap-1 flex-1" onClick={(e) => e.stopPropagation()}>
+                <Input
+                  value={localTitle}
+                  onChange={(e) => setLocalTitle(e.target.value)}
+                  className="h-6 text-sm flex-1"
+                  placeholder={`Gráfico ${index + 1}`}
+                  onKeyDown={handleKeyDown}
+                  autoFocus
+                />
+                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={handleSave}>
+                  <Check className="w-3 h-3" />
+                </Button>
+                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={handleCancel}>
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+            ) : (
+              <>
+                <h4 className="font-medium text-sm truncate flex-1">
+                  {bloque.titulo || `Gráfico ${index + 1}`}
+                </h4>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="w-6 h-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startEdit();
+                  }}
+                >
+                  <Pencil className="w-3 h-3" />
+                </Button>
+              </>
+            )}
+          </div>
+
+          {/* Type and Stats */}
+          <p className="text-xs text-muted-foreground mb-2">
+            {tipoInfo?.label || "Gráfico"} - {sourcesCount} fuente{sourcesCount !== 1 ? 's' : ''} - {metricsCount} métrica{metricsCount !== 1 ? 's' : ''}
+          </p>
+
+          {/* Options badges */}
+          <div className="flex flex-wrap gap-1">
+            {bloque.apilado && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">Apilado</Badge>
+            )}
+            {bloque.mostrarLeyenda && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">Leyenda</Badge>
+            )}
+            {bloque.mostrarGrid && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">Grid</Badge>
+            )}
+            {bloque.camposCalculados && bloque.camposCalculados.length > 0 && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                <Calculator className="w-2.5 h-2.5 mr-1" />
+                {bloque.camposCalculados.length}
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-6 h-6 p-0 text-destructive hover:text-destructive"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+          >
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// --- TableCard - Simplified table management component ---
+
+interface TableCardProps {
+  bloque: TablaBloque;
+  index: number;
+  isSelected: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+  onUpdate: (updates: Partial<TablaBloque>) => void;
+}
+
+function TableCard({ bloque, index, isSelected, onSelect, onDelete, onUpdate }: TableCardProps) {
+  const {
+    isEditing,
+    localValue: localTitle,
+    setLocalValue: setLocalTitle,
+    handleSave,
+    handleCancel,
+    handleKeyDown,
+    startEdit,
+  } = useInlineEdit(bloque.titulo, (newTitle) => onUpdate({ titulo: newTitle }));
+
+  const sourcesCount = bloque.fuentesSeleccionadas.length;
+  const columnsCount = bloque.columnas.length;
+
+  return (
+    <Card className={cn(
+      "group transition-all cursor-pointer",
+      isSelected
+        ? "border-primary bg-primary/5 shadow-sm"
+        : "hover:border-primary/40 hover:shadow-sm"
+    )}>
+      <CardContent className="p-3">
+        <div className="flex items-start gap-3" onClick={onSelect}>
+        {/* Icon */}
+        <div className={cn(
+          "w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0",
+          isSelected ? "bg-primary/10" : "bg-muted"
+        )}>
+          <Table2 className={cn("w-4 h-4", isSelected ? "text-primary" : "text-muted-foreground")} />
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          {/* Title */}
+          <div className="flex items-center gap-2 mb-1">
+            {isEditing ? (
+              <div className="flex items-center gap-1 flex-1" onClick={(e) => e.stopPropagation()}>
+                <Input
+                  value={localTitle}
+                  onChange={(e) => setLocalTitle(e.target.value)}
+                  className="h-6 text-sm flex-1"
+                  placeholder={`Tabla ${index + 1}`}
+                  onKeyDown={handleKeyDown}
+                  autoFocus
+                />
+                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={handleSave}>
+                  <Check className="w-3 h-3" />
+                </Button>
+                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={handleCancel}>
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+            ) : (
+              <>
+                <h4 className="font-medium text-sm truncate flex-1">
+                  {bloque.titulo || `Tabla ${index + 1}`}
+                </h4>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="w-6 h-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startEdit();
+                  }}
+                >
+                  <Pencil className="w-3 h-3" />
+                </Button>
+              </>
+            )}
+          </div>
+
+          {/* Stats */}
+          <p className="text-xs text-muted-foreground mb-2">
+            Tabla - {sourcesCount} fuente{sourcesCount !== 1 ? 's' : ''} - {columnsCount} columna{columnsCount !== 1 ? 's' : ''}
+          </p>
+
+          {/* Options badges */}
+          <div className="flex flex-wrap gap-1">
+            {bloque.estilos?.mostrarBordes && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">Bordes</Badge>
+            )}
+            {bloque.estilos?.alternarFilas && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">Alternado</Badge>
+            )}
+            {bloque.estilos?.compacta && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">Compacta</Badge>
+            )}
+            {bloque.camposCalculados && bloque.camposCalculados.length > 0 && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                <Calculator className="w-2.5 h-2.5 mr-1" />
+                {bloque.camposCalculados.length}
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-6 h-6 p-0 text-destructive hover:text-destructive"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+          >
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
