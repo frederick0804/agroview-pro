@@ -20,6 +20,7 @@ import {
   Cosecha,
   PostCosecha,
 } from "./pages/PlaceholderPages";
+import Perfil from "./pages/Perfil";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -61,6 +62,7 @@ const App = () => {
               <Route path="/comercial" element={<ProtectedRoute><ModuleGuard modulo="comercial"><Comercial /></ModuleGuard></ProtectedRoute>} />
               <Route path="/informes" element={<ProtectedRoute><ModuleGuard modulo="informes"><Informes /></ModuleGuard></ProtectedRoute>} />
               <Route path="/configuracion" element={<ProtectedRoute><ModuleGuard modulo="configuracion"><Configuracion /></ModuleGuard></ProtectedRoute>} />
+              <Route path="/perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
               <Route path="/gestion-usuarios" element={<Navigate to="/configuracion?tab=usuarios" replace />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
