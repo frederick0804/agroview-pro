@@ -8,8 +8,8 @@ import { ConfigProvider } from "@/contexts/ConfigContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
 import Configuracion from "./pages/Configuracion";
-import Comercial from "./pages/Comercial";
 import Informes from "./pages/Informes";
 import {
   Laboratorio,
@@ -19,6 +19,7 @@ import {
   RecursosHumanos,
   Cosecha,
   PostCosecha,
+  ComercialModule as Comercial,
 } from "./pages/PlaceholderPages";
 import Perfil from "./pages/Perfil";
 import NotFound from "./pages/NotFound";
@@ -51,6 +52,7 @@ const App = () => {
           <BrowserRouter>
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
               <Route path="/laboratorio" element={<ProtectedRoute><ModuleGuard modulo="laboratorio"><Laboratorio /></ModuleGuard></ProtectedRoute>} />
               <Route path="/vivero" element={<ProtectedRoute><ModuleGuard modulo="vivero"><Vivero /></ModuleGuard></ProtectedRoute>} />

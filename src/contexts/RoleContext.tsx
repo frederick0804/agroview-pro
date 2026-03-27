@@ -293,6 +293,7 @@ interface RoleContextType {
   addUser: (u: Omit<HardcodedUser, "id">) => HardcodedUser;
   updUser: (id: number, changes: Partial<Omit<HardcodedUser, "id">>) => void;
   toggleUserActive: (id: number) => void;
+  resetPassword: (email: string, newPassword: string) => boolean;
   // Clientes CRUD
   clientes: DemoCliente[];
   addCliente: (c: Omit<DemoCliente, "id">) => DemoCliente;
@@ -545,6 +546,12 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   const updUser = (id: number, changes: Partial<Omit<HardcodedUser, "id">>) => {
     setUsers(prev => prev.map(u => u.id === id ? { ...u, ...changes } : u));
   };
+  const resetPassword = (email: string, newPassword: string): boolean => {
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.activo !== false);
+    if (!user) return false;
+    setUsers(prev => prev.map(u => u.email.toLowerCase() === email.toLowerCase() ? { ...u, password: newPassword } : u));
+    return true;
+  };
   const toggleUserActive = (id: number) => {
     setUsers(prev => prev.map(u =>
       u.id === id
@@ -615,6 +622,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         addUser,
         updUser,
         toggleUserActive,
+        resetPassword,
         clientes,
         addCliente,
         updCliente,

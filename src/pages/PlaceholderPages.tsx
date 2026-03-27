@@ -1272,3 +1272,4 @@ export const Cosecha        = () => <DynamicModulePage title="Cosecha"          
 export const PostCosecha    = () => <DynamicModulePage title="Post-cosecha"     moduloKey="post-cosecha"     extraModuloKeys={["produccion"]} />;
 export const Produccion     = () => <DynamicModulePage title="Producción"       moduloKey="produccion"       />;
 export const RecursosHumanos= () => <DynamicModulePage title="Recursos Humanos" moduloKey="recursos-humanos" />;
+export const ComercialModule= () => <DynamicModulePage title="Comercial"         moduloKey="comercial"        />;

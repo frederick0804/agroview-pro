@@ -108,7 +108,11 @@ export default function Login() {
                       Recordarme
                     </Label>
                   </div>
-                  <button type="button" className="text-sm text-primary hover:underline">
+                  <button
+                    type="button"
+                    onClick={() => navigate("/forgot-password")}
+                    className="text-sm text-primary hover:underline"
+                  >
                     ¿Olvidaste tu contraseña?
                   </button>
                 </div>

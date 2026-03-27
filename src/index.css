@@ -206,4 +206,36 @@
     @apply hover:bg-primary hover:text-primary-foreground;
     @apply transition-all duration-200 text-sm font-medium;
   }
+
+  .wizard-step-in {
+    animation: wizard-step-in 220ms ease-out;
+  }
+
+  .wizard-footer-in {
+    animation: wizard-footer-in 180ms ease-out;
+  }
+}
+
+@keyframes wizard-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wizard-footer-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
