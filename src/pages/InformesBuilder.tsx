@@ -1,7 +1,7 @@
 // --------- Informe Builder - Editor visual con soporte de múltiples bloques ---------------------------
 // Permite agregar múltiples gráficos y tablas al mismo informe con live preview.
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1718,6 +1718,19 @@ function FiltroEstructuraEditor({ filtros, onChange }: FiltroEstructuraEditorPro
 export function InformesBuilder({ informe, existingConfig, onClose, onSave }: InformesBuilderProps) {
   // Tab del builder simplificado
   const [builderTab, setBuilderTab] = useState<"basico" | "graficos" | "tablas" | "avanzado">("basico");
+  const pageContainerRef = useRef<HTMLDivElement>(null);
+  const [pageContainerW, setPageContainerW] = useState(860);
+  useEffect(() => {
+    if (builderTab !== "avanzado") return;
+    const el = pageContainerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(([entry]) => {
+      setPageContainerW(entry.contentRect.width);
+    });
+    obs.observe(el);
+    setPageContainerW(el.clientWidth);
+    return () => obs.disconnect();
+  }, [builderTab]);
   // Wizard state para agregar gráficos/tablas de forma guiada
   const [showWizard, setShowWizard] = useState<"grafico" | "tabla" | null>(null);
   const [selectedBloqueId, setSelectedBloqueId] = useState<string | null>(null);
@@ -2984,7 +2997,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
               </div>
 
               {/* Page container — scrollable grey background */}
-              <div className="flex-1 overflow-y-auto bg-muted/50 flex justify-center py-8 px-4">
+              <div ref={pageContainerRef} className="flex-1 overflow-y-auto bg-muted/50 flex justify-center py-8 px-8">
                 {/* Paper page */}
                 {(() => {
                   const pl = config.plantilla as any;
@@ -2999,11 +3012,11 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                   };
                   const [pw, ph] = aspectMap[tamano] ?? [210, 297];
                   const [pageW, pageH] = isLandscape ? [ph, pw] : [pw, ph];
-                  // Scale to fit max-width ~600px
-                  const maxW = 600;
-                  const scale = Math.min(1, maxW / pageW);
-                  const dispW = pageW * scale;
-                  const dispH = pageH * scale;
+                  // dispW is the rendered pixel width of the page.
+                  // scale = dispW / pageW converts mm-based sizes to px for internal content.
+                  const dispW = Math.max(380, (pageContainerW - 64) * 0.88);
+                  const dispH = dispW * (pageH / pageW);
+                  const scale = dispW / pageW;
                   const scaledM = {
                     top: (margenes.superior ?? 20) * scale,
                     bottom: (margenes.inferior ?? 20) * scale,
