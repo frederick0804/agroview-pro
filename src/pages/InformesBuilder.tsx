@@ -2965,6 +2965,224 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
 
         {/* Preview panel */}
         <div className="flex-1 flex flex-col min-w-0 bg-muted/30 overflow-hidden">
+          {builderTab === "avanzado" ? (
+            /* ===== DISEÑO TAB: Full page layout preview ===== */
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Preview toolbar */}
+              <div className="px-6 pt-4 pb-3 flex items-center justify-between shrink-0 border-b border-border/40 bg-card/60">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-semibold">Vista de página</span>
+                  <Badge variant="outline" className="text-[10px] gap-1">
+                    {(config.plantilla as any)?.formato?.tamañoPagina ?? "A4"} ·{" "}
+                    {(config.plantilla as any)?.formato?.orientacion === "landscape" ? "Horizontal" : "Vertical"}
+                  </Badge>
+                </div>
+                <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground">
+                  <Eye className="w-2.5 h-2.5" /> Preview en vivo
+                </Badge>
+              </div>
+
+              {/* Page container — scrollable grey background */}
+              <div className="flex-1 overflow-y-auto bg-muted/50 flex justify-center py-8 px-4">
+                {/* Paper page */}
+                {(() => {
+                  const pl = config.plantilla as any;
+                  const fmt = pl?.formato ?? {};
+                  const enc = pl?.encabezado ?? {};
+                  const margenes = pl?.margenes ?? { superior: 20, inferior: 20, izquierdo: 15, derecho: 15 };
+                  const isLandscape = fmt.orientacion === "landscape";
+                  const tamano = fmt.tamañoPagina ?? "A4";
+                  // Approximate aspect ratios (W:H) for paper sizes
+                  const aspectMap: Record<string, [number, number]> = {
+                    A4: [210, 297], Letter: [216, 279], A3: [297, 420],
+                  };
+                  const [pw, ph] = aspectMap[tamano] ?? [210, 297];
+                  const [pageW, pageH] = isLandscape ? [ph, pw] : [pw, ph];
+                  // Scale to fit max-width ~600px
+                  const maxW = 600;
+                  const scale = Math.min(1, maxW / pageW);
+                  const dispW = pageW * scale;
+                  const dispH = pageH * scale;
+                  const scaledM = {
+                    top: (margenes.superior ?? 20) * scale,
+                    bottom: (margenes.inferior ?? 20) * scale,
+                    left: (margenes.izquierdo ?? 15) * scale,
+                    right: (margenes.derecho ?? 15) * scale,
+                  };
+                  const alturaEnc = enc.altura === "sm" ? 28 : enc.altura === "lg" ? 52 : 38;
+                  const colorBorde = enc.colorBorde ?? "#cc0000";
+                  const campos = enc.campos ?? [];
+                  const today = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
+
+                  return (
+                    <div
+                      className="bg-white shadow-2xl rounded-sm relative overflow-hidden shrink-0"
+                      style={{ width: dispW, height: dispH }}
+                    >
+                      {/* Page content with margins */}
+                      <div
+                        className="absolute inset-0 flex flex-col"
+                        style={{ padding: `${scaledM.top}px ${scaledM.right}px ${scaledM.bottom}px ${scaledM.left}px` }}
+                      >
+                        {/* ---- HEADER ---- */}
+                        <div className="shrink-0" style={{ minHeight: alturaEnc * scale }}>
+                          {/* Logo + title row */}
+                          <div className={cn("flex items-start gap-2", enc.posicionLogo === "right" && "flex-row-reverse")}>
+                            {config.mostrarLogo && (
+                              <div
+                                className="rounded bg-primary flex items-center justify-center shrink-0"
+                                style={{ width: 28 * scale, height: 28 * scale }}
+                              >
+                                <Globe style={{ width: 16 * scale, height: 16 * scale }} className="text-primary-foreground" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              {enc.mostrarEmpresa && (
+                                <p className="font-bold text-foreground truncate" style={{ fontSize: 8 * scale }}>
+                                  AgroWorkin SA
+                                </p>
+                              )}
+                              <p className="font-semibold text-foreground truncate" style={{ fontSize: 7 * scale }}>
+                                {config.titulo || config.nombre || "Nuevo informe"}
+                              </p>
+                              {config.subtitulo && (
+                                <p className="text-muted-foreground truncate" style={{ fontSize: 6 * scale }}>
+                                  {config.subtitulo}
+                                </p>
+                              )}
+                              {enc.textoPersonalizado && (
+                                <p className="text-muted-foreground truncate" style={{ fontSize: 6 * scale }}>
+                                  {enc.textoPersonalizado}
+                                </p>
+                              )}
+                            </div>
+                            {enc.mostrarFecha && (
+                              <p className="text-muted-foreground shrink-0" style={{ fontSize: 5.5 * scale }}>
+                                {today}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Metadata fields row */}
+                          {campos.length > 0 && (
+                            <div className="flex flex-wrap gap-x-3 mt-1" style={{ fontSize: 5.5 * scale }}>
+                              {campos.slice(0, 4).map((c: any) => (
+                                <span key={c.id} className="text-muted-foreground">
+                                  <span className="font-medium text-foreground">{c.label}:</span>{" "}
+                                  {c.valor || <span className="italic opacity-50">—</span>}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Colored border line */}
+                          {enc.mostrarLinea !== false && (
+                            <div
+                              className="rounded-full mt-1"
+                              style={{ height: Math.max(1.5, 2 * scale), backgroundColor: colorBorde, marginTop: 4 * scale }}
+                            />
+                          )}
+
+                          {/* Palette accent strip */}
+                          <div className="flex gap-0.5 mt-0.5">
+                            {paleta.colors.map((c, i) => (
+                              <div
+                                key={i}
+                                className="rounded-full flex-1"
+                                style={{ height: Math.max(1, 1.5 * scale), backgroundColor: c }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* ---- BLOCKS ---- */}
+                        <div className="flex-1 overflow-hidden flex flex-col gap-2 mt-2">
+                          {config.bloques.length === 0 ? (
+                            <div
+                              className="flex-1 flex flex-col items-center justify-center text-muted-foreground/30 border border-dashed rounded"
+                              style={{ fontSize: 6 * scale }}
+                            >
+                              <Layers style={{ width: 20 * scale, height: 20 * scale }} />
+                              <p className="mt-1">Sin bloques</p>
+                            </div>
+                          ) : (
+                            config.bloques.map((bloque, idx) => (
+                              <div
+                                key={bloque.id}
+                                onClick={() => { setSelectedBloqueId(bloque.id); setBuilderTab(bloque.tipo === "grafico" ? "graficos" : "tablas"); }}
+                                className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors flex-1"
+                                style={{ minHeight: 0 }}
+                              >
+                                {/* Mini block header */}
+                                <div
+                                  className="flex items-center gap-1 px-1.5 border-b border-border/40 bg-muted/30"
+                                  style={{ height: 12 * scale }}
+                                >
+                                  {bloque.tipo === "grafico"
+                                    ? <BarChart2 style={{ width: 6 * scale, height: 6 * scale }} className="text-blue-500 shrink-0" />
+                                    : <Table2 style={{ width: 6 * scale, height: 6 * scale }} className="text-purple-500 shrink-0" />
+                                  }
+                                  <span className="text-foreground font-medium truncate" style={{ fontSize: 5.5 * scale }}>
+                                    {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${idx + 1}` : `Tabla ${idx + 1}`)}
+                                  </span>
+                                </div>
+                                {/* Mini block content */}
+                                <div className="flex-1 p-1 overflow-hidden" style={{ height: `calc(100% - ${12 * scale}px)` }}>
+                                  <div style={{ transform: `scale(${scale * 0.55})`, transformOrigin: "top left", width: `${100 / (scale * 0.55)}%`, height: `${100 / (scale * 0.55)}%` }}>
+                                    {bloque.tipo === "grafico"
+                                      ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} />
+                                      : <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} />
+                                    }
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+
+                        {/* ---- SECTIONS (notas / conclusiones / firma) ---- */}
+                        {((pl?.incluirNotas) || (pl?.incluirConclusiones) || (pl?.incluirFirma)) && (
+                          <div className="shrink-0 flex gap-2 mt-1">
+                            {pl?.incluirNotas && (
+                              <div className="flex-1 border border-dashed border-border/50 rounded px-1 py-0.5" style={{ fontSize: 5 * scale }}>
+                                <span className="font-medium text-foreground">Notas</span>
+                              </div>
+                            )}
+                            {pl?.incluirConclusiones && (
+                              <div className="flex-1 border border-dashed border-border/50 rounded px-1 py-0.5" style={{ fontSize: 5 * scale }}>
+                                <span className="font-medium text-foreground">Conclusiones</span>
+                              </div>
+                            )}
+                            {pl?.incluirFirma && (
+                              <div className="flex-1 border-t-2 border-foreground/30 mt-1 px-1" style={{ fontSize: 5 * scale }}>
+                                <span className="text-muted-foreground">Firma</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* ---- FOOTER ---- */}
+                        <div
+                          className="shrink-0 flex items-center justify-between border-t border-border/30 mt-1 pt-0.5"
+                          style={{ fontSize: 5 * scale }}
+                        >
+                          <span className="text-muted-foreground truncate">
+                            {pl?.piePagina || ""}
+                          </span>
+                          {fmt.numeracionPaginas && (
+                            <span className="text-muted-foreground shrink-0 ml-2">1 / 1</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          ) : (
+            /* ===== OTHER TABS: Block card preview ===== */
+            <>
           {/* Preview header */}
           <div className="px-6 pt-5 pb-3 flex items-start justify-between gap-4 shrink-0">
             <div className="flex items-center gap-3">
@@ -3064,6 +3282,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                 })
               )}
             </div>
+            </>
+          )}
           </div>
         </div>
       </div>
