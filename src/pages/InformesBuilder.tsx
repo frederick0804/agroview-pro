@@ -85,6 +85,7 @@ import {
   LayoutTemplate,
   Filter,
   TreePine,
+  Minus,
 } from "lucide-react";
 
 // --------- Template constants for better performance ---------------------------------------------------------------------------------------------
@@ -1720,15 +1721,20 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
   const [builderTab, setBuilderTab] = useState<"basico" | "graficos" | "tablas" | "avanzado">("basico");
   const pageContainerRef = useRef<HTMLDivElement>(null);
   const [pageContainerW, setPageContainerW] = useState(860);
+  const [pageContainerH, setPageContainerH] = useState(700);
+  const [pageZoom, setPageZoom] = useState<number | null>(null); // null = auto-fit
+  const PAGE_ZOOM_STEPS = [0.35, 0.5, 0.65, 0.75, 0.9, 1.0, 1.25, 1.5];
   useEffect(() => {
     if (builderTab !== "avanzado") return;
     const el = pageContainerRef.current;
     if (!el) return;
     const obs = new ResizeObserver(([entry]) => {
       setPageContainerW(entry.contentRect.width);
+      setPageContainerH(entry.contentRect.height);
     });
     obs.observe(el);
     setPageContainerW(el.clientWidth);
+    setPageContainerH(el.clientHeight);
     return () => obs.disconnect();
   }, [builderTab]);
   // Wizard state para agregar gráficos/tablas de forma guiada
@@ -2982,23 +2988,56 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
             /* ===== DISEÑO TAB: Full page layout preview ===== */
             <div className="flex-1 flex flex-col overflow-hidden">
               {/* Preview toolbar */}
-              <div className="px-6 pt-4 pb-3 flex items-center justify-between shrink-0 border-b border-border/40 bg-card/60">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-semibold">Vista de página</span>
-                  <Badge variant="outline" className="text-[10px] gap-1">
+              <div className="px-4 pt-3 pb-2 flex items-center justify-between shrink-0 border-b border-border/40 bg-card/60 gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="w-4 h-4 text-primary shrink-0" />
+                  <span className="text-sm font-semibold shrink-0">Vista de página</span>
+                  <Badge variant="outline" className="text-[10px] gap-1 shrink-0">
                     {(config.plantilla as any)?.formato?.tamañoPagina ?? "A4"} ·{" "}
                     {(config.plantilla as any)?.formato?.orientacion === "landscape" ? "Horizontal" : "Vertical"}
                   </Badge>
                 </div>
-                <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground">
-                  <Eye className="w-2.5 h-2.5" /> Preview en vivo
-                </Badge>
+                {/* Zoom controls */}
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    className="w-6 h-6 flex items-center justify-center rounded hover:bg-muted border border-border/60 text-muted-foreground disabled:opacity-30"
+                    onClick={() => {
+                      const auto = Math.min(1, Math.max(280, pageContainerW - 48) / 794, Math.max(400, pageContainerH - 96) / 1123);
+                      const cur = pageZoom ?? auto;
+                      const next = PAGE_ZOOM_STEPS.slice().reverse().find(s => s < cur - 0.01);
+                      setPageZoom(next ?? PAGE_ZOOM_STEPS[0]);
+                    }}
+                    disabled={pageZoom !== null && pageZoom <= PAGE_ZOOM_STEPS[0]}
+                    title="Reducir"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <button
+                    className="min-w-[52px] h-6 px-1.5 text-[11px] font-medium rounded hover:bg-muted border border-border/60 text-foreground tabular-nums"
+                    onClick={() => setPageZoom(null)}
+                    title="Ajustar a pantalla"
+                  >
+                    {pageZoom !== null ? `${Math.round(pageZoom * 100)}%` : "Ajustar"}
+                  </button>
+                  <button
+                    className="w-6 h-6 flex items-center justify-center rounded hover:bg-muted border border-border/60 text-muted-foreground disabled:opacity-30"
+                    onClick={() => {
+                      const auto = Math.min(1, Math.max(280, pageContainerW - 48) / 794, Math.max(400, pageContainerH - 96) / 1123);
+                      const cur = pageZoom ?? auto;
+                      const next = PAGE_ZOOM_STEPS.find(s => s > cur + 0.01);
+                      setPageZoom(next ?? PAGE_ZOOM_STEPS[PAGE_ZOOM_STEPS.length - 1]);
+                    }}
+                    disabled={pageZoom !== null && pageZoom >= PAGE_ZOOM_STEPS[PAGE_ZOOM_STEPS.length - 1]}
+                    title="Ampliar"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
 
               {/* Page container — scrollable grey background */}
-              <div ref={pageContainerRef} className="flex-1 overflow-y-auto bg-muted/50 flex flex-col items-center py-8 px-4">
-                {/* Paper page — rendered at natural 96dpi size, then CSS-scaled to fit panel */}
+              <div ref={pageContainerRef} className="flex-1 overflow-y-auto bg-muted/50 flex flex-col items-center py-6 px-4 gap-6">
+                {/* Paper pages — rendered at natural 96dpi, CSS-scaled to fit panel */}
                 {(() => {
                   const pl = config.plantilla as any;
                   const fmt = pl?.formato ?? {};
@@ -3006,17 +3045,22 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                   const margenes = pl?.margenes ?? { superior: 20, inferior: 20, izquierdo: 15, derecho: 15 };
                   const isLandscape = fmt.orientacion === "landscape";
                   const tamano = fmt.tamañoPagina ?? "A4";
+
                   // Natural px at 96dpi (1mm = 3.7795px)
                   const naturalMap: Record<string, [number, number]> = {
                     A4: [794, 1123], Letter: [816, 1056], A3: [1123, 1587],
                   };
                   const [nw, nh] = naturalMap[tamano] ?? [794, 1123];
                   const [naturalW, naturalH] = isLandscape ? [nh, nw] : [nw, nh];
-                  // renderScale: shrink to fit available width (max 1:1)
-                  const availW = Math.max(300, pageContainerW - 32);
-                  const renderScale = Math.min(1, availW / naturalW);
+
+                  // Scale: manual zoom if set, otherwise auto-fit to both width and height
+                  const availW = Math.max(280, pageContainerW - 48);
+                  const availH = Math.max(400, pageContainerH - 96);
+                  const autoScale = Math.min(1, availW / naturalW, availH / naturalH);
+                  const renderScale = pageZoom ?? autoScale;
                   const dispW = naturalW * renderScale;
                   const dispH = naturalH * renderScale;
+
                   // Margins in natural px
                   const mm2px = 3.7795;
                   const pad = {
@@ -3028,152 +3072,174 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                   const colorBorde = enc.colorBorde ?? "#cc0000";
                   const campos = enc.campos ?? [];
                   const today = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
-                  // Block chart area height in natural px
+                  const hasSections = (pl?.incluirNotas || pl?.incluirConclusiones || pl?.incluirFirma);
+
+                  // Fixed heights (natural px)
                   const headerH = enc.altura === "sm" ? 80 : enc.altura === "lg" ? 140 : 110;
                   const footerH = 28;
-                  const sectionsH = ((pl?.incluirNotas ? 1 : 0) + (pl?.incluirConclusiones ? 1 : 0) + (pl?.incluirFirma ? 1 : 0)) > 0 ? 60 : 0;
-                  const blocksH = naturalH - pad.top - pad.bottom - headerH - footerH - sectionsH;
-                  const perBlockH = config.bloques.length > 0 ? Math.max(80, blocksH / config.bloques.length - 8) : blocksH;
+                  const sectionsH = hasSections ? 60 : 0;
+                  const GAP = 8; // gap between blocks
+                  const BLOCK_LABEL_H = 32;
+                  const MIN_BLOCK_H = 120;
+                  // Ideal block height: split available space evenly, min 120px
+                  const totalBlocksArea = naturalH - pad.top - pad.bottom - headerH - footerH - sectionsH - 12;
+                  const idealBlockH = config.bloques.length > 0
+                    ? Math.max(MIN_BLOCK_H, Math.floor((totalBlocksArea - GAP * (config.bloques.length - 1)) / config.bloques.length))
+                    : totalBlocksArea;
 
-                  return (
-                    /* Outer wrapper: takes the scaled dimensions so the container scrolls correctly */
-                    <div className="shrink-0" style={{ width: dispW, height: dispH }}>
-                      {/* Inner page at natural size, scaled via CSS transform */}
-                      <div
-                        className="bg-white shadow-2xl rounded-sm overflow-hidden origin-top-left"
-                        style={{
-                          width: naturalW,
-                          height: naturalH,
-                          transform: `scale(${renderScale})`,
-                        }}
-                      >
-                        {/* Page content with natural margins */}
+                  // ── Paginate blocks ──────────────────────────────────────────
+                  // Determine how many blocks fit per page
+                  const blocksPerPage = Math.max(1, Math.floor((totalBlocksArea + GAP) / (idealBlockH + GAP)));
+                  // Group blocks into pages
+                  const pages: typeof config.bloques[] = [];
+                  for (let i = 0; i < Math.max(1, config.bloques.length); i += blocksPerPage) {
+                    pages.push(config.bloques.slice(i, i + blocksPerPage));
+                  }
+                  const totalPages = pages.length;
+
+                  // ── Render a single page ─────────────────────────────────────
+                  const renderPage = (pageBlocks: typeof config.bloques, pageIdx: number) => {
+                    // On pages after the first, sections (notas/firma) only appear on the last page
+                    const isLastPage = pageIdx === totalPages - 1;
+                    const showSections = hasSections && isLastPage;
+
+                    return (
+                      <div key={pageIdx} className="shrink-0" style={{ width: dispW, height: dispH }}>
                         <div
-                          className="absolute inset-0 flex flex-col"
-                          style={{ padding: `${pad.top}px ${pad.right}px ${pad.bottom}px ${pad.left}px` }}
+                          className="bg-white shadow-xl rounded-sm overflow-hidden origin-top-left relative"
+                          style={{ width: naturalW, height: naturalH, transform: `scale(${renderScale})` }}
                         >
-                          {/* ---- HEADER ---- */}
-                          <div className="shrink-0" style={{ height: headerH }}>
-                            <div className={cn("flex items-start gap-3", enc.posicionLogo === "right" && "flex-row-reverse")}>
-                              {config.mostrarLogo && (
-                                <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shrink-0">
-                                  <Globe className="w-7 h-7 text-primary-foreground" />
+                          <div
+                            className="absolute inset-0 flex flex-col"
+                            style={{ padding: `${pad.top}px ${pad.right}px ${pad.bottom}px ${pad.left}px` }}
+                          >
+                            {/* ── HEADER (only page 1) ── */}
+                            {pageIdx === 0 ? (
+                              <div className="shrink-0" style={{ height: headerH }}>
+                                <div className={cn("flex items-start gap-3", enc.posicionLogo === "right" && "flex-row-reverse")}>
+                                  {config.mostrarLogo && (
+                                    <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shrink-0">
+                                      <Globe className="w-7 h-7 text-primary-foreground" />
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    {enc.mostrarEmpresa && (
+                                      <p className="font-bold text-foreground text-lg leading-tight truncate">AgroWorkin SA</p>
+                                    )}
+                                    <p className="font-semibold text-foreground text-base leading-tight truncate">
+                                      {config.titulo || config.nombre || "Nuevo informe"}
+                                    </p>
+                                    {config.subtitulo && <p className="text-muted-foreground text-sm truncate">{config.subtitulo}</p>}
+                                    {enc.textoPersonalizado && <p className="text-muted-foreground text-sm truncate">{enc.textoPersonalizado}</p>}
+                                  </div>
+                                  {enc.mostrarFecha && <p className="text-muted-foreground text-sm shrink-0">{today}</p>}
                                 </div>
-                              )}
-                              <div className="flex-1 min-w-0">
-                                {enc.mostrarEmpresa && (
-                                  <p className="font-bold text-foreground text-lg leading-tight truncate">AgroWorkin SA</p>
+                                {campos.length > 0 && (
+                                  <div className="flex flex-wrap gap-x-4 mt-2 text-sm">
+                                    {campos.slice(0, 6).map((c: any) => (
+                                      <span key={c.id} className="text-muted-foreground">
+                                        <span className="font-medium text-foreground">{c.label}:</span>{" "}
+                                        {c.valor || <span className="italic opacity-40">—</span>}
+                                      </span>
+                                    ))}
+                                  </div>
                                 )}
-                                <p className="font-semibold text-foreground text-base leading-tight truncate">
-                                  {config.titulo || config.nombre || "Nuevo informe"}
-                                </p>
-                                {config.subtitulo && (
-                                  <p className="text-muted-foreground text-sm truncate">{config.subtitulo}</p>
+                                {enc.mostrarLinea !== false && (
+                                  <div className="rounded-full mt-2" style={{ height: 3, backgroundColor: colorBorde }} />
                                 )}
-                                {enc.textoPersonalizado && (
-                                  <p className="text-muted-foreground text-sm truncate">{enc.textoPersonalizado}</p>
-                                )}
-                              </div>
-                              {enc.mostrarFecha && (
-                                <p className="text-muted-foreground text-sm shrink-0">{today}</p>
-                              )}
-                            </div>
-
-                            {campos.length > 0 && (
-                              <div className="flex flex-wrap gap-x-4 mt-2 text-sm">
-                                {campos.slice(0, 6).map((c: any) => (
-                                  <span key={c.id} className="text-muted-foreground">
-                                    <span className="font-medium text-foreground">{c.label}:</span>{" "}
-                                    {c.valor || <span className="italic opacity-40">—</span>}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-
-                            {enc.mostrarLinea !== false && (
-                              <div className="rounded-full mt-2" style={{ height: 3, backgroundColor: colorBorde }} />
-                            )}
-                            <div className="flex gap-1 mt-1">
-                              {paleta.colors.map((c, i) => (
-                                <div key={i} className="rounded-full flex-1 h-1" style={{ backgroundColor: c }} />
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* ---- BLOCKS ---- */}
-                          <div className="flex-1 flex flex-col gap-2 mt-3 overflow-hidden">
-                            {config.bloques.length === 0 ? (
-                              <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground/30 border border-dashed rounded text-sm">
-                                <Layers className="w-8 h-8 mb-2" />
-                                <p>Sin bloques</p>
+                                <div className="flex gap-1 mt-1">
+                                  {paleta.colors.map((c, i) => (
+                                    <div key={i} className="rounded-full flex-1 h-1" style={{ backgroundColor: c }} />
+                                  ))}
+                                </div>
                               </div>
                             ) : (
-                              config.bloques.map((bloque, idx) => (
-                                <div
-                                  key={bloque.id}
-                                  onClick={() => { setSelectedBloqueId(bloque.id); setBuilderTab(bloque.tipo === "grafico" ? "graficos" : "tablas"); }}
-                                  className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors shrink-0"
-                                  style={{ height: perBlockH }}
-                                >
-                                  {/* Block label row */}
-                                  <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/40 bg-muted/20">
-                                    {bloque.tipo === "grafico"
-                                      ? <BarChart2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                      : <Table2 className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                                    }
-                                    <span className="text-sm font-medium text-foreground truncate">
-                                      {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${idx + 1}` : `Tabla ${idx + 1}`)}
-                                    </span>
-                                  </div>
-                                  {/* Block content scaled */}
-                                  <div className="relative overflow-hidden" style={{ height: perBlockH - 32 }}>
-                                    <div style={{
-                                      transform: "scale(0.45)",
-                                      transformOrigin: "top left",
-                                      width: "222%",
-                                      height: "222%",
-                                    }}>
-                                      {bloque.tipo === "grafico"
-                                        ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} />
-                                        : <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} />
-                                      }
-                                    </div>
-                                  </div>
+                              /* Continuation header on pages 2+ */
+                              <div className="shrink-0 pb-2 mb-2 border-b border-border/40" style={{ height: 40 }}>
+                                <div className="flex items-center justify-between">
+                                  <p className="text-sm font-medium text-muted-foreground truncate">
+                                    {config.titulo || config.nombre || "Nuevo informe"} — cont.
+                                  </p>
+                                  <p className="text-xs text-muted-foreground shrink-0">{today}</p>
                                 </div>
-                              ))
+                              </div>
                             )}
-                          </div>
 
-                          {/* ---- SECTIONS (notas / conclusiones / firma) ---- */}
-                          {((pl?.incluirNotas) || (pl?.incluirConclusiones) || (pl?.incluirFirma)) && (
-                            <div className="shrink-0 flex gap-3 mt-2">
-                              {pl?.incluirNotas && (
-                                <div className="flex-1 border border-dashed border-border/50 rounded px-2 py-1 text-sm">
-                                  <span className="font-medium text-foreground">Notas</span>
+                            {/* ── BLOCKS ── */}
+                            <div className="flex-1 flex flex-col overflow-hidden" style={{ gap: GAP, marginTop: 12 }}>
+                              {pageBlocks.length === 0 ? (
+                                <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground/30 border border-dashed rounded text-sm">
+                                  <Layers className="w-8 h-8 mb-2" />
+                                  <p>Sin bloques</p>
                                 </div>
-                              )}
-                              {pl?.incluirConclusiones && (
-                                <div className="flex-1 border border-dashed border-border/50 rounded px-2 py-1 text-sm">
-                                  <span className="font-medium text-foreground">Conclusiones</span>
-                                </div>
-                              )}
-                              {pl?.incluirFirma && (
-                                <div className="flex-1 border-t-2 border-foreground/30 px-2 text-sm">
-                                  <span className="text-muted-foreground">Firma del responsable</span>
-                                </div>
+                              ) : (
+                                pageBlocks.map((bloque, idx) => {
+                                  const globalIdx = pageIdx * blocksPerPage + idx;
+                                  return (
+                                    <div
+                                      key={bloque.id}
+                                      onClick={() => { setSelectedBloqueId(bloque.id); setBuilderTab(bloque.tipo === "grafico" ? "graficos" : "tablas"); }}
+                                      className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors shrink-0"
+                                      style={{ height: idealBlockH }}
+                                    >
+                                      <div className="flex items-center gap-2 px-3 border-b border-border/40 bg-muted/20" style={{ height: BLOCK_LABEL_H }}>
+                                        {bloque.tipo === "grafico"
+                                          ? <BarChart2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                          : <Table2 className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                                        }
+                                        <span className="text-sm font-medium text-foreground truncate">
+                                          {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${globalIdx + 1}` : `Tabla ${globalIdx + 1}`)}
+                                        </span>
+                                      </div>
+                                      <div className="relative overflow-hidden" style={{ height: idealBlockH - BLOCK_LABEL_H }}>
+                                        <div style={{ transform: "scale(0.45)", transformOrigin: "top left", width: "222%", height: "222%" }}>
+                                          {bloque.tipo === "grafico"
+                                            ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} />
+                                            : <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} />
+                                          }
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })
                               )}
                             </div>
-                          )}
 
-                          {/* ---- FOOTER ---- */}
-                          <div className="shrink-0 flex items-center justify-between border-t border-border/30 mt-2 pt-1 text-xs text-muted-foreground">
-                            <span className="truncate">{pl?.piePagina || ""}</span>
-                            {fmt.numeracionPaginas && <span className="shrink-0 ml-2">1 / 1</span>}
+                            {/* ── SECTIONS (last page only) ── */}
+                            {showSections && (
+                              <div className="shrink-0 flex gap-3 mt-2">
+                                {pl?.incluirNotas && (
+                                  <div className="flex-1 border border-dashed border-border/50 rounded px-2 py-1 text-sm">
+                                    <span className="font-medium text-foreground">Notas</span>
+                                  </div>
+                                )}
+                                {pl?.incluirConclusiones && (
+                                  <div className="flex-1 border border-dashed border-border/50 rounded px-2 py-1 text-sm">
+                                    <span className="font-medium text-foreground">Conclusiones</span>
+                                  </div>
+                                )}
+                                {pl?.incluirFirma && (
+                                  <div className="flex-1 border-t-2 border-foreground/30 px-2 text-sm">
+                                    <span className="text-muted-foreground">Firma del responsable</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* ── FOOTER ── */}
+                            <div className="shrink-0 flex items-center justify-between border-t border-border/30 mt-2 pt-1 text-xs text-muted-foreground">
+                              <span className="truncate">{pl?.piePagina || ""}</span>
+                              {fmt.numeracionPaginas && (
+                                <span className="shrink-0 ml-2">{pageIdx + 1} / {totalPages}</span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  );
+                    );
+                  };
+
+                  return <>{pages.map((pageBlocks, pageIdx) => renderPage(pageBlocks, pageIdx))}</>;
                 })()}
               </div>
             </div>
