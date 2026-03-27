@@ -1261,27 +1261,31 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
     );
   }
 
-  const est = bloque.estilos;
+  const est = bloque.estilos ?? { mostrarBordes: true, alternarFilas: true, tamañoFuente: "sm" as const, alineacion: "left" as const, compacta: false };
   const t = bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
   const fontFamily = t.fuente;
-  const ptToFontSize = (pt: number) => `${pt}px`; // approximate: 1pt ≈ 1px at screen
-  const fontSize = ptToFontSize(t.tamano);
+  const fontSize = `${t.tamano}px`;
+  const cellPad = est.compacta ? "px-1.5 py-0.5" : "px-3 py-1.5";
+  const thPad   = est.compacta ? "px-1.5 py-0.5" : "px-3 py-2";
+  const cellAlign = est.alineacion === "center" ? "text-center" : est.alineacion === "right" ? "text-right" : "text-left";
+  const cellBorder = est.mostrarBordes ? "border border-border/40" : "";
   const thStyle: React.CSSProperties = {
     fontFamily,
     fontSize,
     fontWeight: t.encabezadoBold ? "bold" : "normal",
-    fontStyle: t.encabezadoItalic ? "italic" : "normal",
+    fontStyle:  t.encabezadoItalic ? "italic" : "normal",
+    textAlign:  est.alineacion,
   };
   const tdStyle: React.CSSProperties = {
     fontFamily,
     fontSize,
     fontWeight: t.cuerpoBold ? "bold" : "normal",
-    fontStyle: t.cuerpoItalic ? "italic" : "normal",
+    fontStyle:  t.cuerpoItalic ? "italic" : "normal",
   };
 
   return (
     <div className="overflow-auto h-full" style={{ fontFamily }}>
-      <table className="w-full border-collapse" style={{ fontSize }}>
+      <table className={cn("w-full", est.mostrarBordes ? "border-collapse border border-border/40" : "border-collapse")} style={{ fontSize }}>
         <thead>
           {/* ── Module band row (only when 2+ modules) ── */}
           {hasMultipleModules && (
@@ -1293,12 +1297,14 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
                     key={band.key}
                     colSpan={band.span}
                     className={cn(
-                      "px-3 py-1 text-[10px] font-bold text-center uppercase tracking-wide border-b-2 whitespace-nowrap",
+                      "text-[10px] font-bold text-center uppercase tracking-wide border-b-2 whitespace-nowrap",
+                      thPad,
                       band.isDim
                         ? "bg-muted/20 border-b-border text-transparent select-none"
                         : mc
                           ? `${mc.bg} ${mc.text} ${mc.border}`
                           : "bg-muted/40 text-muted-foreground border-b-border",
+                      cellBorder,
                     )}
                     style={{ fontFamily }}
                   >
@@ -1322,7 +1328,8 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
                 <th
                   key={id}
                   className={cn(
-                    "px-3 py-2 text-left border-b border-border whitespace-nowrap",
+                    "border-b border-border whitespace-nowrap",
+                    thPad, cellAlign, cellBorder,
                     mc ? `${mc.bg} ${mc.text}` : "bg-muted/50",
                   )}
                   style={{
@@ -1338,9 +1345,19 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
         </thead>
         <tbody>
           {mockRows.map((row, ri) => (
-            <tr key={ri} className={cn("border-b border-border/50", ri % 2 !== 0 && "bg-muted/20")}>
+            <tr
+              key={ri}
+              className={cn(
+                "border-b border-border/40",
+                est.alternarFilas && ri % 2 !== 0 && "bg-muted/20",
+              )}
+            >
               {cols.map((id) => (
-                <td key={id} className="px-3 py-1.5 text-foreground whitespace-nowrap" style={tdStyle}>
+                <td
+                  key={id}
+                  className={cn("text-foreground whitespace-nowrap", cellPad, cellAlign, cellBorder)}
+                  style={tdStyle}
+                >
                   {typeof row[id] === "number"
                     ? (row[id] as number).toLocaleString("es-CL")
                     : (row[id] ?? "-")}
@@ -3518,30 +3535,53 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                     return TABLE_H;
                   };
 
-                  // ── Paginate: greedy pack blocks onto pages ───────────────────
-                  const pages: typeof config.bloques[] = [];
-                  let currentPage: typeof config.bloques = [];
+                  // ── Group blocks into visual rows (by colSpan fractions) ───────
+                  const SPAN_FRAC: Record<ColSpan, number> = { full: 1, "two-thirds": 2/3, half: 0.5, third: 1/3 };
+                  const blockRows: ReporteBloque[][] = (() => {
+                    const rows: ReporteBloque[][] = [];
+                    let cur: ReporteBloque[] = [];
+                    let sum = 0;
+                    for (const b of config.bloques) {
+                      const frac = SPAN_FRAC[pl?.layoutConfig?.[b.id] ?? "full"];
+                      if (cur.length > 0 && sum + frac > 1.001) {
+                        rows.push(cur);
+                        cur = [b]; sum = frac;
+                      } else {
+                        cur.push(b); sum += frac;
+                        if (sum >= 0.999) { rows.push(cur); cur = []; sum = 0; }
+                      }
+                    }
+                    if (cur.length > 0) rows.push(cur);
+                    return rows;
+                  })();
+                  // Row height = max of heights of blocks in that row
+                  const rowHeight = (row: ReporteBloque[]) => Math.max(...row.map(b => blockHeight(b)));
+
+                  // ── Paginate by rows ──────────────────────────────────────────
+                  const pages: ReporteBloque[][][] = [];
+                  let currentPage: ReporteBloque[][] = [];
                   let currentH = 0;
-                  for (const bloque of config.bloques.length > 0 ? config.bloques : []) {
-                    const bh = blockHeight(bloque);
+                  for (const row of blockRows.length > 0 ? blockRows : [[]]) {
+                    const rh = rowHeight(row);
                     const gapAdd = currentPage.length > 0 ? GAP : 0;
-                    if (currentPage.length > 0 && currentH + gapAdd + bh > totalBlocksArea) {
+                    if (currentPage.length > 0 && currentH + gapAdd + rh > totalBlocksArea) {
                       pages.push(currentPage);
-                      currentPage = [bloque];
-                      currentH = bh;
+                      currentPage = [row];
+                      currentH = rh;
                     } else {
-                      currentPage.push(bloque);
-                      currentH += gapAdd + bh;
+                      currentPage.push(row);
+                      currentH += gapAdd + rh;
                     }
                   }
-                  if (currentPage.length > 0 || config.bloques.length === 0) pages.push(currentPage);
+                  if (currentPage.length > 0 || blockRows.length === 0) pages.push(currentPage);
                   const totalPages = pages.length;
 
                   // ── Render a single page ─────────────────────────────────────
-                  const renderPage = (pageBlocks: typeof config.bloques, pageIdx: number) => {
-                    // On pages after the first, sections (notas/firma) only appear on the last page
+                  const renderPage = (pageRows: ReporteBloque[][], pageIdx: number) => {
                     const isLastPage = pageIdx === totalPages - 1;
                     const showSections = hasSections && isLastPage;
+                    // Flat list of blocks on this page (for globalIdx computation)
+                    const pageBlocks = pageRows.flat();
 
                     return (
                       <div key={pageIdx} className="shrink-0" style={{ width: dispW, height: dispH }}>
@@ -3605,82 +3645,85 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                               </div>
                             )}
 
-                            {/* ── BLOCKS (flex-wrap grid) ── */}
-                            <div className="flex flex-wrap overflow-hidden" style={{ gap: GAP, marginTop: 12, flex: 1, alignContent: "flex-start" }}>
-                              {pageBlocks.length === 0 ? (
+                            {/* ── BLOCKS (row-based grid, uniform row height) ── */}
+                            <div className="flex flex-col overflow-hidden" style={{ gap: GAP, marginTop: 12, flex: 1 }}>
+                              {pageRows.length === 0 ? (
                                 <div className="w-full flex flex-col items-center justify-center text-muted-foreground/30 border border-dashed rounded text-sm" style={{ height: totalBlocksArea }}>
                                   <Layers className="w-8 h-8 mb-2" />
                                   <p>Sin bloques</p>
                                 </div>
                               ) : (
-                                pageBlocks.map((bloque, idx) => {
-                                  const allPrevPages = pages.slice(0, pageIdx);
-                                  const globalIdx = allPrevPages.reduce((s, p) => s + p.length, 0) + idx;
-                                  const bh = blockHeight(bloque);
-                                  const span: ColSpan = pl?.layoutConfig?.[bloque.id] ?? "full";
-                                  const blockW = span === "full" ? "100%"
-                                    : span === "half" ? `calc(50% - ${GAP / 2}px)`
-                                    : span === "third" ? `calc(33.33% - ${GAP * 2 / 3}px)`
-                                    : `calc(66.67% - ${GAP / 3}px)`; // two-thirds
-                                  const innerScale = bloque.tipo === "tabla" ? 0.55 : bloque.tipo === "texto" ? 1 : 0.45;
-                                  const invScale = 1 / innerScale;
+                                pageRows.map((rowBlocks, rowIdx) => {
+                                  const rh = rowHeight(rowBlocks);
+                                  // globalIdx offset: count all blocks on previous pages + previous rows on this page
+                                  const prevPagesBlockCount = pages.slice(0, pageIdx).reduce((s, p) => s + p.reduce((rs, r) => rs + r.length, 0), 0);
+                                  const prevRowsBlockCount = pageRows.slice(0, rowIdx).reduce((s, r) => s + r.length, 0);
                                   return (
-                                    <div
-                                      key={bloque.id}
-                                      onClick={() => {
-                                        if (bloque.tipo !== "texto") {
-                                          setSelectedBloqueId(bloque.id);
-                                          setBuilderTab(bloque.tipo === "grafico" ? "graficos" : "tablas");
-                                        } else {
-                                          setSelectedBloqueId(bloque.id);
-                                          setBuilderTab("textos");
-                                        }
-                                      }}
-                                      style={{ width: blockW, height: bh, flexShrink: 0 }}
-                                    >
-                                      {bloque.tipo === "texto" ? (
-                                        <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full">
-                                          <TextoBloqueView bloque={bloque as TextoBloque} />
-                                        </div>
-                                      ) : (
-                                        <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full">
-                                          {/* Block label row */}
-                                          <div className="flex items-center gap-2 px-3 border-b border-border/40 bg-muted/20" style={{ height: BLOCK_LABEL_H }}>
-                                            {bloque.tipo === "grafico"
-                                              ? <BarChart2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                              : <Table2 className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                                            }
-                                            <span className="text-sm font-medium text-foreground truncate">
-                                              {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${globalIdx + 1}` : `Tabla ${globalIdx + 1}`)}
-                                            </span>
+                                    <div key={rowIdx} className="flex shrink-0" style={{ height: rh, gap: GAP }}>
+                                      {rowBlocks.map((bloque, idx) => {
+                                        const globalIdx = prevPagesBlockCount + prevRowsBlockCount + idx;
+                                        const span: ColSpan = pl?.layoutConfig?.[bloque.id] ?? "full";
+                                        const blockW = span === "full" ? "100%"
+                                          : span === "half" ? `calc(50% - ${GAP / 2}px)`
+                                          : span === "third" ? `calc(33.33% - ${GAP * 2 / 3}px)`
+                                          : `calc(66.67% - ${GAP / 3}px)`;
+                                        const innerScale = bloque.tipo === "tabla" ? 0.55 : bloque.tipo === "texto" ? 1 : 0.45;
+                                        const invScale = 1 / innerScale;
+                                        return (
+                                          <div
+                                            key={bloque.id}
+                                            onClick={() => {
+                                              setSelectedBloqueId(bloque.id);
+                                              setBuilderTab(bloque.tipo === "grafico" ? "graficos" : bloque.tipo === "tabla" ? "tablas" : "textos");
+                                            }}
+                                            style={{ width: blockW, height: "100%", flexShrink: 0 }}
+                                          >
+                                            {bloque.tipo === "texto" ? (
+                                              <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full">
+                                                <TextoBloqueView bloque={bloque as TextoBloque} />
+                                              </div>
+                                            ) : (
+                                              <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full flex flex-col">
+                                                {/* Block label row */}
+                                                <div className="flex items-center gap-2 px-3 border-b border-border/40 bg-muted/20 shrink-0" style={{ height: BLOCK_LABEL_H }}>
+                                                  {bloque.tipo === "grafico"
+                                                    ? <BarChart2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                                    : <Table2    className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                                                  }
+                                                  <span className="text-sm font-medium text-foreground truncate">
+                                                    {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${globalIdx + 1}` : `Tabla ${globalIdx + 1}`)}
+                                                  </span>
+                                                </div>
+                                                {/* Block content — flex-1 so it fills uniform row height */}
+                                                <div className="relative overflow-hidden flex-1">
+                                                  <div style={{
+                                                    transform: `scale(${innerScale})`,
+                                                    transformOrigin: "top left",
+                                                    width: `${invScale * 100}%`,
+                                                    height: `${invScale * 100}%`,
+                                                  }}>
+                                                    {bloque.tipo === "grafico"
+                                                      ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} />
+                                                      : <TablaBloqueView   bloque={bloque as TablaBloque}   colors={paleta.colors} />
+                                                    }
+                                                  </div>
+                                                </div>
+                                                {/* Per-block observations/conclusions */}
+                                                {(bloque.observaciones || bloque.conclusiones) && (
+                                                  <div className="px-2 py-1 bg-amber-50/50 border-t border-amber-200/50 space-y-0.5 shrink-0">
+                                                    {bloque.observaciones && (
+                                                      <p className="text-[9px] text-amber-800"><span className="font-semibold">Obs: </span>{bloque.observaciones}</p>
+                                                    )}
+                                                    {bloque.conclusiones && (
+                                                      <p className="text-[9px] text-blue-800"><span className="font-semibold">Conc: </span>{bloque.conclusiones}</p>
+                                                    )}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
                                           </div>
-                                          {/* Block content */}
-                                          <div className="relative overflow-hidden" style={{ height: bh - BLOCK_LABEL_H }}>
-                                            <div style={{
-                                              transform: `scale(${innerScale})`,
-                                              transformOrigin: "top left",
-                                              width: `${invScale * 100}%`,
-                                              height: `${invScale * 100}%`,
-                                            }}>
-                                              {bloque.tipo === "grafico"
-                                                ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} />
-                                                : <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} />
-                                              }
-                                            </div>
-                                          </div>
-                                          {/* Per-block observations/conclusions */}
-                                          {(bloque.observaciones || bloque.conclusiones) && (
-                                            <div className="px-2 py-1 bg-amber-50/50 border-t border-amber-200/50 space-y-0.5">
-                                              {bloque.observaciones && (
-                                                <p className="text-[9px] text-amber-800"><span className="font-semibold">Obs: </span>{bloque.observaciones}</p>
-                                              )}
-                                              {bloque.conclusiones && (
-                                                <p className="text-[9px] text-blue-800"><span className="font-semibold">Conc: </span>{bloque.conclusiones}</p>
-                                              )}
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
+                                        );
+                                      })}
                                     </div>
                                   );
                                 })
@@ -3721,7 +3764,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                     );
                   };
 
-                  return <>{pages.map((pageBlocks, pageIdx) => renderPage(pageBlocks, pageIdx))}</>;
+                  return <>{pages.map((pageRows, pageIdx) => renderPage(pageRows, pageIdx))}</>;
                 })()}
               </div>
             </div>
