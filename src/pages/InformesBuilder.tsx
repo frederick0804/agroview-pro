@@ -327,6 +327,12 @@ export interface TablaBloque {
     tamañoFuente: "xs" | "sm" | "base" | "lg";
     alineacion: "left" | "center" | "right";
     compacta: boolean;
+    // Tipografía
+    fuente?: string;
+    encabezadoBold?: boolean;
+    encabezadoItalic?: boolean;
+    cuerpoItalic?: boolean;
+    cuerpoBold?: boolean;
   };
   paginacion?: {
     habilitada: boolean;
@@ -1218,9 +1224,26 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
     );
   }
 
+  const est = bloque.estilos;
+  const fontFamily = est?.fuente ?? "Calibri, sans-serif";
+  const fontSizeMap = { xs: "10px", sm: "12px", base: "14px", lg: "16px" };
+  const fontSize = fontSizeMap[est?.tamañoFuente ?? "sm"];
+  const thStyle: React.CSSProperties = {
+    fontFamily,
+    fontSize,
+    fontWeight: est?.encabezadoBold !== false ? "bold" : "normal",
+    fontStyle: est?.encabezadoItalic ? "italic" : "normal",
+  };
+  const tdStyle: React.CSSProperties = {
+    fontFamily,
+    fontSize,
+    fontWeight: est?.cuerpoBold ? "bold" : "normal",
+    fontStyle: est?.cuerpoItalic ? "italic" : "normal",
+  };
+
   return (
-    <div className="overflow-auto h-full">
-      <table className="w-full text-xs border-collapse">
+    <div className="overflow-auto h-full" style={{ fontFamily }}>
+      <table className="w-full border-collapse" style={{ fontSize }}>
         <thead>
           {/* ── Module band row (only when 2+ modules) ── */}
           {hasMultipleModules && (
@@ -1239,6 +1262,7 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
                           ? `${mc.bg} ${mc.text} ${mc.border}`
                           : "bg-muted/40 text-muted-foreground border-b-border",
                     )}
+                    style={{ fontFamily }}
                   >
                     {band.isDim ? "" : band.label}
                   </th>
@@ -1255,16 +1279,18 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
               const agr = (bloque.agregaciones?.[id] ?? "suma") as AgregacionTipo;
               const agrSymbol = agr === "suma" ? "Σ" : agr === "promedio" ? "⌀" : "~";
               const isGroupKey = groupByKeys.includes(id);
-              // Color the header by module for metric columns
               const mc = !isGroupKey && isMetric ? MODULE_BAND_COLORS[colModuleKey[id] ?? ""] : undefined;
               return (
                 <th
                   key={id}
                   className={cn(
-                    "px-3 py-2 text-left font-semibold border-b border-border whitespace-nowrap",
+                    "px-3 py-2 text-left border-b border-border whitespace-nowrap",
                     mc ? `${mc.bg} ${mc.text}` : "bg-muted/50",
                   )}
-                  style={!mc && i > 0 && !isGroupKey ? { color: colors[i % colors.length] } : {}}
+                  style={{
+                    ...thStyle,
+                    ...(!mc && i > 0 && !isGroupKey ? { color: colors[i % colors.length] } : {}),
+                  }}
                 >
                   {groupByKeys.length > 0 && isMetric ? `${agrSymbol} ${displayLabel}` : displayLabel}
                 </th>
@@ -1276,7 +1302,7 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
           {mockRows.map((row, ri) => (
             <tr key={ri} className={cn("border-b border-border/50", ri % 2 !== 0 && "bg-muted/20")}>
               {cols.map((id) => (
-                <td key={id} className="px-3 py-1.5 text-foreground whitespace-nowrap">
+                <td key={id} className="px-3 py-1.5 text-foreground whitespace-nowrap" style={tdStyle}>
                   {typeof row[id] === "number"
                     ? (row[id] as number).toLocaleString("es-CL")
                     : (row[id] ?? "-")}
@@ -2654,28 +2680,107 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             </div>
                           </div>
                         )}
-                      {/* Filtrar por estructura del cultivo */}
-                      {selectedBloque && selectedBloque.fuentesSeleccionadas.length > 0 && (
-                        <div className="space-y-2">
-                          <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                            <TreePine className="w-3 h-3 text-emerald-500" />
-                            <span className="text-emerald-700 dark:text-emerald-400">Estructura del cultivo</span>
-                            {Object.values(selectedBloque.filtrosJerarquia ?? {}).some((v) => v.length > 0) && (
-                              <span className="ml-auto text-[9px] font-normal normal-case text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
-                                <Filter className="w-2.5 h-2.5" />
-                                {Object.values(selectedBloque.filtrosJerarquia ?? {}).reduce((s, v) => s + v.length, 0)} filtro{Object.values(selectedBloque.filtrosJerarquia ?? {}).reduce((s, v) => s + v.length, 0) !== 1 ? "s" : ""} activo{Object.values(selectedBloque.filtrosJerarquia ?? {}).reduce((s, v) => s + v.length, 0) !== 1 ? "s" : ""}
-                              </span>
-                            )}
-                          </Label>
-                          <p className="text-[10px] text-muted-foreground leading-snug">
-                            Restringe los datos a bloques, parcelas o sectores específicos. La selección cascadea al nivel siguiente.
-                          </p>
-                          <FiltroEstructuraEditor
-                            filtros={selectedBloque.filtrosJerarquia ?? {}}
-                            onChange={(nivel, valores) => setFiltroJerarquia(selectedBloque.id, nivel, valores)}
-                          />
-                        </div>
-                      )}
+                      {/* Tipografía */}
+                      {(() => {
+                        const tb = selectedBloque as TablaBloque;
+                        const est = tb.estilos ?? { mostrarBordes: true, alternarFilas: true, tamañoFuente: "sm" as const, alineacion: "left" as const, compacta: false };
+                        const FONTS = [
+                          { value: "Calibri, sans-serif", label: "Calibri" },
+                          { value: "Arial, sans-serif", label: "Arial" },
+                          { value: "'Times New Roman', serif", label: "Times New Roman" },
+                          { value: "Georgia, serif", label: "Georgia" },
+                          { value: "'Trebuchet MS', sans-serif", label: "Trebuchet MS" },
+                          { value: "'Courier New', monospace", label: "Courier New" },
+                        ];
+                        const upd = (patch: Partial<typeof est>) =>
+                          updBloque(tb.id, { estilos: { ...est, ...patch } });
+                        return (
+                          <div className="space-y-2.5">
+                            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                              <Type className="w-3 h-3" /> Tipografía
+                            </Label>
+                            {/* Font family */}
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-muted-foreground">Fuente</span>
+                              <select
+                                value={est.fuente ?? "Calibri, sans-serif"}
+                                onChange={e => upd({ fuente: e.target.value })}
+                                className="w-full h-7 text-xs rounded border border-border bg-background px-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                                style={{ fontFamily: est.fuente ?? "Calibri, sans-serif" }}
+                              >
+                                {FONTS.map(f => (
+                                  <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                            {/* Font size */}
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-muted-foreground">Tamaño</span>
+                              <div className="flex gap-1">
+                                {(["xs", "sm", "base", "lg"] as const).map((sz) => (
+                                  <button key={sz}
+                                    onClick={() => upd({ tamañoFuente: sz })}
+                                    className={cn(
+                                      "flex-1 py-1 rounded border text-[10px] transition-all",
+                                      est.tamañoFuente === sz
+                                        ? "border-primary bg-primary/10 text-primary font-medium"
+                                        : "border-border text-muted-foreground hover:border-primary/40"
+                                    )}
+                                  >{sz === "xs" ? "8pt" : sz === "sm" ? "10pt" : sz === "base" ? "12pt" : "14pt"}</button>
+                                ))}
+                              </div>
+                            </div>
+                            {/* Encabezado */}
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-muted-foreground">Encabezado</span>
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={() => upd({ encabezadoBold: !est.encabezadoBold })}
+                                  className={cn(
+                                    "flex-1 py-1 rounded border text-[11px] font-bold transition-all",
+                                    est.encabezadoBold !== false
+                                      ? "border-primary bg-primary/10 text-primary"
+                                      : "border-border text-muted-foreground hover:border-primary/40"
+                                  )}
+                                >N</button>
+                                <button
+                                  onClick={() => upd({ encabezadoItalic: !est.encabezadoItalic })}
+                                  className={cn(
+                                    "flex-1 py-1 rounded border text-[11px] italic transition-all",
+                                    est.encabezadoItalic
+                                      ? "border-primary bg-primary/10 text-primary"
+                                      : "border-border text-muted-foreground hover:border-primary/40"
+                                  )}
+                                >K</button>
+                              </div>
+                            </div>
+                            {/* Cuerpo */}
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-muted-foreground">Cuerpo</span>
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={() => upd({ cuerpoBold: !est.cuerpoBold })}
+                                  className={cn(
+                                    "flex-1 py-1 rounded border text-[11px] font-bold transition-all",
+                                    est.cuerpoBold
+                                      ? "border-primary bg-primary/10 text-primary"
+                                      : "border-border text-muted-foreground hover:border-primary/40"
+                                  )}
+                                >N</button>
+                                <button
+                                  onClick={() => upd({ cuerpoItalic: !est.cuerpoItalic })}
+                                  className={cn(
+                                    "flex-1 py-1 rounded border text-[11px] italic transition-all",
+                                    est.cuerpoItalic
+                                      ? "border-primary bg-primary/10 text-primary"
+                                      : "border-border text-muted-foreground hover:border-primary/40"
+                                  )}
+                                >K</button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                       </div>
                     </div>
                   )}
