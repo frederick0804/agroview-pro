@@ -289,6 +289,18 @@ export interface PlantillaConfig {
   };
   // Grid layout — keyed by bloqueId, value is the column width for that block
   layoutConfig?: Record<string, ColSpan>;
+  // Global visual style applied to ALL tables in the report
+  estiloTablas?: {
+    mostrarBordes: boolean;
+    alternarFilas: boolean;
+    alineacion: "left" | "center" | "right";
+    compacta: boolean;
+    tipografia: TipografiaBloque;
+  };
+  // Global visual style applied to ALL charts in the report
+  estiloGraficos?: {
+    tipografia: TipografiaBloque;
+  };
 }
 
 export type AgregacionTipo = "suma" | "promedio" | "mediana";
@@ -896,13 +908,19 @@ interface LiveChartProps {
   colors: string[];
   uid: string; // for unique gradient IDs when multiple charts on page
   labelOverrides?: Record<string, string>; // extra labels for calculated fields
+  fontFamily?: string;
+  fontSize?: number; // pt
 }
 
 function LiveChart({
   tipo, apilado, mostrarLeyenda, mostrarGrid, mostrarTooltip,
-  data, metricas, colors, uid, labelOverrides,
+  data, metricas, colors, uid, labelOverrides, fontFamily, fontSize,
 }: LiveChartProps) {
   const label = (id: string) => labelOverrides?.[id] ?? LABEL_MAP[id] ?? id;
+  const chartStyle: React.CSSProperties = {
+    fontFamily: fontFamily ?? "inherit",
+    fontSize: fontSize ? `${fontSize}px` : undefined,
+  };
   if (data.length === 0 || metricas.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground/40">
@@ -913,7 +931,7 @@ function LiveChart({
   }
 
   const commonProps = { data, margin: { top: 8, right: 16, left: 0, bottom: 4 } };
-  const axisStyle = { fontSize: 10, fill: "#6b7280" };
+  const axisStyle = { fontSize: fontSize ?? 10, fill: "#6b7280", fontFamily: fontFamily ?? "inherit" };
   const gridColor = "#e5e7eb";
   const isTimeDim = true; // assume monotone for all
   const curveType = isTimeDim ? "monotone" : "linear";
@@ -935,7 +953,7 @@ function LiveChart({
             {pieData.map((_, i) => <Cell key={i} fill={colors[i % colors.length]} />)}
           </Pie>
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
         </PieChart>
       </ResponsiveContainer>
     );
@@ -953,7 +971,7 @@ function LiveChart({
               stroke={colors[i % colors.length]} fill={colors[i % colors.length]} fillOpacity={0.2} />
           ))}
           {mostrarTooltip && <Tooltip />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
         </RadarChart>
       </ResponsiveContainer>
     );
@@ -967,7 +985,7 @@ function LiveChart({
           <XAxis type="number" tick={axisStyle} />
           <YAxis dataKey="name" type="category" tick={axisStyle} width={65} />
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
           {metricas.map((m, i) => (
             <Bar key={m} dataKey={m} name={label(m)} fill={colors[i % colors.length]}
               stackId={apilado ? "stack" : undefined} radius={[0, 3, 3, 0]} />
@@ -985,7 +1003,7 @@ function LiveChart({
           <XAxis dataKey="name" tick={axisStyle} />
           <YAxis tick={axisStyle} />
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
           {metricas.map((m, i) => (
             <Bar key={m} dataKey={m} name={label(m)} fill={colors[i % colors.length]}
               stackId={apilado ? "stack" : undefined} radius={[3, 3, 0, 0]} />
@@ -1003,7 +1021,7 @@ function LiveChart({
           <XAxis dataKey="name" tick={axisStyle} />
           <YAxis tick={axisStyle} />
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
           {metricas.map((m, i) => (
             <Line key={m} type={curveType} dataKey={m} name={label(m)}
               stroke={colors[i % colors.length]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
@@ -1029,7 +1047,7 @@ function LiveChart({
           <XAxis dataKey="name" tick={axisStyle} />
           <YAxis tick={axisStyle} />
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
           {metricas.map((m, i) => (
             <Area key={m} type={curveType} dataKey={m} name={label(m)}
               stroke={colors[i % colors.length]} strokeWidth={2}
@@ -1051,7 +1069,7 @@ function LiveChart({
           <YAxis yAxisId="left" tick={axisStyle} />
           {lineMetrics.length > 0 && <YAxis yAxisId="right" orientation="right" tick={axisStyle} />}
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
           {barMetric && (
             <Bar yAxisId="left" dataKey={barMetric} name={label(barMetric)}
               fill={colors[0]} radius={[3, 3, 0, 0]} />
@@ -1070,7 +1088,7 @@ function LiveChart({
 
 // --------- GraficoBloqueView - chart preview for a single GraficoBloque ---------------------------------------
 
-function GraficoBloqueView({ bloque, colors }: { bloque: GraficoBloque; colors: string[] }) {
+function GraficoBloqueView({ bloque, colors, estiloPlantilla }: { bloque: GraficoBloque; colors: string[]; estiloPlantilla?: PlantillaConfig["estiloGraficos"] }) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes), []);
 
   const camposDisponibles = useMemo((): CampoInfo[] => {
@@ -1115,6 +1133,7 @@ function GraficoBloqueView({ bloque, colors }: { bloque: GraficoBloque; colors: 
     [bloque.camposCalculados],
   );
 
+  const tipGrafico = estiloPlantilla?.tipografia ?? bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
   return (
     <LiveChart
       tipo={bloque.tipoGrafico}
@@ -1127,6 +1146,8 @@ function GraficoBloqueView({ bloque, colors }: { bloque: GraficoBloque; colors: 
       colors={colors}
       uid={bloque.id}
       labelOverrides={calcLabelOverrides}
+      fontFamily={tipGrafico.fuente}
+      fontSize={tipGrafico.tamano}
     />
   );
 }
@@ -1139,7 +1160,7 @@ const MODULE_BAND_COLORS: Record<string, { bg: string; text: string; border: str
   "Poscosecha":           { bg: "bg-blue-50",    text: "text-blue-800",    border: "border-b-blue-400" },
 };
 
-function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: string[] }) {
+function TablaBloqueView({ bloque, colors, estiloPlantilla }: { bloque: TablaBloque; colors: string[]; estiloPlantilla?: PlantillaConfig["estiloTablas"] }) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes), []);
   const groupByKeys = bloque.groupBy ?? [];
 
@@ -1261,8 +1282,9 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
     );
   }
 
-  const est = bloque.estilos ?? { mostrarBordes: true, alternarFilas: true, tamañoFuente: "sm" as const, alineacion: "left" as const, compacta: false };
-  const t = bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
+  // Plantilla-level style takes precedence; fall back to per-block estilos/tipografia for backward compat
+  const est = estiloPlantilla ?? bloque.estilos ?? { mostrarBordes: true, alternarFilas: true, tamañoFuente: "sm" as const, alineacion: "left" as const, compacta: false };
+  const t = estiloPlantilla?.tipografia ?? bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
   const fontFamily = t.fuente;
   const fontSize = `${t.tamano}px`;
   const cellPad = est.compacta ? "px-1.5 py-0.5" : "px-3 py-1.5";
@@ -1994,6 +2016,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
       piePagina: "",
       margenes: { superior: 20, inferior: 20, izquierdo: 15, derecho: 15 },
       formato: { tamañoPagina: "A4", orientacion: "portrait", numeracionPaginas: true, posicionNumeracion: "footer" },
+      estiloTablas: { mostrarBordes: true, alternarFilas: true, alineacion: "left", compacta: false, tipografia: { ...DEFAULT_TIPOGRAFIA } },
+      estiloGraficos: { tipografia: { ...DEFAULT_TIPOGRAFIA } },
     },
   };
 
@@ -2655,11 +2679,6 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             ))}
                           </div>
                         </div>
-                        {/* Tipografía */}
-                        <TipografiaPanel
-                          tipografia={selectedGrafico.tipografia ?? DEFAULT_TIPOGRAFIA}
-                          onChange={(t) => updBloque(selectedGrafico.id, { tipografia: t })}
-                        />
                         {/* Observaciones */}
                         <div className="space-y-1.5">
                           <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
@@ -2904,11 +2923,6 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             </div>
                           </div>
                         )}
-                        {/* Tipografía */}
-                        <TipografiaPanel
-                          tipografia={(selectedBloque as TablaBloque).tipografia ?? { ...DEFAULT_TIPOGRAFIA, ...((selectedBloque as TablaBloque).estilos?.fuente ? { fuente: (selectedBloque as TablaBloque).estilos!.fuente! } : {}) }}
-                          onChange={(t) => updBloque(selectedBloque!.id, { tipografia: t })}
-                        />
                         {/* Observaciones */}
                         <div className="space-y-1.5">
                           <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
@@ -3339,67 +3353,61 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                     </div>
                   </div>
 
-                  {/* Estilo de tablas */}
-                  {config.bloques.some(b => b.tipo === "tabla") && (
-                    <div className="space-y-2">
-                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                        <Grid3x3 className="w-3.5 h-3.5" /> Estilo de tablas
-                      </Label>
-                      <div className="space-y-3">
-                        {config.bloques.filter(b => b.tipo === "tabla").map((bloque) => {
-                          const tb = bloque as TablaBloque;
-                          const est = tb.estilos ?? { mostrarBordes: true, alternarFilas: true, tamañoFuente: "sm" as const, alineacion: "left" as const, compacta: false };
-                          return (
-                            <div key={tb.id} className="p-3 rounded-lg border border-border bg-muted/5 space-y-2">
-                              <p className="text-[11px] font-semibold text-foreground truncate">{tb.titulo || "Tabla sin título"}</p>
-                              {(["mostrarBordes", "alternarFilas", "compacta"] as const).map((key) => (
-                                <div key={key} className="flex items-center justify-between">
-                                  <span className="text-[11px] text-muted-foreground">
-                                    {key === "mostrarBordes" ? "Mostrar bordes" : key === "alternarFilas" ? "Filas alternadas" : "Vista compacta"}
-                                  </span>
-                                  <Switch checked={est[key]} onCheckedChange={(v) => updBloque(tb.id, { estilos: { ...est, [key]: v } })} className="scale-75" />
-                                </div>
-                              ))}
-                              <div className="space-y-1">
-                                <span className="text-[10px] text-muted-foreground">Tamaño de texto</span>
-                                <div className="flex gap-1">
-                                  {(["xs", "sm", "base"] as const).map((sz) => (
-                                    <button key={sz}
-                                      onClick={() => updBloque(tb.id, { estilos: { ...est, tamañoFuente: sz } })}
-                                      className={cn(
-                                        "flex-1 py-1 rounded border text-[10px] transition-all",
-                                        est.tamañoFuente === sz
-                                          ? "border-primary bg-primary/10 text-primary"
-                                          : "border-border text-muted-foreground hover:border-primary/30"
-                                      )}
-                                    >{sz === "xs" ? "XS" : sz === "sm" ? "SM" : "MD"}</button>
-                                  ))}
-                                </div>
+                  {/* Apariencia global de tablas */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <Table2 className="w-3.5 h-3.5" /> Apariencia de tablas
+                    </Label>
+                    <div className="p-3 rounded-lg border border-border bg-muted/5 space-y-3">
+                      {(() => {
+                        const et = (config.plantilla as any)?.estiloTablas ?? { mostrarBordes: true, alternarFilas: true, alineacion: "left", compacta: false, tipografia: DEFAULT_TIPOGRAFIA };
+                        const updET = (patch: object) => updPlantilla("estiloTablas" as any, { ...et, ...patch });
+                        return (
+                          <>
+                            {(["mostrarBordes", "alternarFilas", "compacta"] as const).map((key) => (
+                              <div key={key} className="flex items-center justify-between">
+                                <span className="text-[11px] text-muted-foreground">
+                                  {key === "mostrarBordes" ? "Mostrar bordes" : key === "alternarFilas" ? "Filas alternadas" : "Vista compacta"}
+                                </span>
+                                <Switch checked={!!et[key]} onCheckedChange={(v) => updET({ [key]: v })} className="scale-75" />
                               </div>
-                              <div className="space-y-1">
-                                <span className="text-[10px] text-muted-foreground">Alineación</span>
-                                <div className="flex gap-1">
-                                  {(["left", "center", "right"] as const).map((al) => (
-                                    <button key={al}
-                                      onClick={() => updBloque(tb.id, { estilos: { ...est, alineacion: al } })}
-                                      className={cn(
-                                        "flex-1 flex items-center justify-center py-1 rounded border transition-all",
-                                        est.alineacion === al
-                                          ? "border-primary bg-primary/10 text-primary"
-                                          : "border-border text-muted-foreground hover:border-primary/30"
-                                      )}
-                                    >
-                                      {al === "left" ? <AlignLeft className="w-3 h-3" /> : al === "center" ? <AlignCenter className="w-3 h-3" /> : <AlignRight className="w-3 h-3" />}
-                                    </button>
-                                  ))}
-                                </div>
+                            ))}
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-muted-foreground">Alineación</span>
+                              <div className="flex gap-1">
+                                {(["left", "center", "right"] as const).map((al) => (
+                                  <button key={al} onClick={() => updET({ alineacion: al })}
+                                    className={cn("flex-1 flex items-center justify-center py-1 rounded border transition-all",
+                                      et.alineacion === al ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30")}>
+                                    {al === "left" ? <AlignLeft className="w-3 h-3" /> : al === "center" ? <AlignCenter className="w-3 h-3" /> : <AlignRight className="w-3 h-3" />}
+                                  </button>
+                                ))}
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
+                            <TipografiaPanel tipografia={et.tipografia ?? DEFAULT_TIPOGRAFIA} onChange={(t) => updET({ tipografia: t })} />
+                          </>
+                        );
+                      })()}
                     </div>
-                  )}
+                  </div>
+
+                  {/* Apariencia global de gráficos */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <BarChart2 className="w-3.5 h-3.5" /> Apariencia de gráficos
+                    </Label>
+                    <div className="p-3 rounded-lg border border-border bg-muted/5">
+                      {(() => {
+                        const eg = (config.plantilla as any)?.estiloGraficos ?? { tipografia: DEFAULT_TIPOGRAFIA };
+                        return (
+                          <TipografiaPanel
+                            tipografia={eg.tipografia ?? DEFAULT_TIPOGRAFIA}
+                            onChange={(t) => updPlantilla("estiloGraficos" as any, { ...eg, tipografia: t })}
+                          />
+                        );
+                      })()}
+                    </div>
+                  </div>
 
                 </div>
               )}
@@ -3703,8 +3711,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                                     height: `${invScale * 100}%`,
                                                   }}>
                                                     {bloque.tipo === "grafico"
-                                                      ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} />
-                                                      : <TablaBloqueView   bloque={bloque as TablaBloque}   colors={paleta.colors} />
+                                                      ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} estiloPlantilla={(pl as any)?.estiloGraficos} />
+                                                      : <TablaBloqueView   bloque={bloque as TablaBloque}   colors={paleta.colors} estiloPlantilla={(pl as any)?.estiloTablas} />
                                                     }
                                                   </div>
                                                 </div>
@@ -3859,9 +3867,9 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       {/* Block content - chart, table or text */}
                       <div className={cn(bloque.tipo === "grafico" ? "h-52" : bloque.tipo === "texto" ? "h-24" : "h-44", "p-4")}>
                         {bloque.tipo === "grafico" ? (
-                          <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} />
+                          <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} estiloPlantilla={(config.plantilla as any)?.estiloGraficos} />
                         ) : bloque.tipo === "tabla" ? (
-                          <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} />
+                          <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} estiloPlantilla={(config.plantilla as any)?.estiloTablas} />
                         ) : (
                           <TextoBloqueView bloque={bloque as TextoBloque} />
                         )}
