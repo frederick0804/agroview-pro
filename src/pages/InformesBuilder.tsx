@@ -1,7 +1,7 @@
 // --------- Informe Builder - Editor visual con soporte de múltiples bloques ---------------------------
 // Permite agregar múltiples gráficos y tablas al mismo informe con live preview.
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -85,6 +85,7 @@ import {
   LayoutTemplate,
   Filter,
   TreePine,
+  Minus,
 } from "lucide-react";
 
 // --------- Template constants for better performance ---------------------------------------------------------------------------------------------
@@ -286,9 +287,43 @@ export interface PlantillaConfig {
     numeracionPaginas: boolean;
     posicionNumeracion: "header" | "footer" | "none";
   };
+  // Grid layout — keyed by bloqueId, value is the column width for that block
+  layoutConfig?: Record<string, ColSpan>;
+  // Global visual style applied to ALL tables in the report
+  estiloTablas?: {
+    mostrarBordes: boolean;
+    alternarFilas: boolean;
+    alineacion: "left" | "center" | "right";
+    compacta: boolean;
+    tipografia: TipografiaBloque;
+  };
+  // Global visual style applied to ALL charts in the report
+  estiloGraficos?: {
+    tipografia: TipografiaBloque;
+  };
 }
 
 export type AgregacionTipo = "suma" | "promedio" | "mediana";
+
+export type ColSpan = "full" | "half" | "third" | "two-thirds";
+
+export interface TipografiaBloque {
+  fuente: string;       // CSS font-family string
+  tamano: number;       // pt value, e.g. 10
+  encabezadoBold: boolean;
+  encabezadoItalic: boolean;
+  cuerpoBold: boolean;
+  cuerpoItalic: boolean;
+}
+
+export interface TextoBloque {
+  id: string;
+  tipo: "texto";
+  subtipo: "observaciones" | "conclusiones" | "descripcion" | "libre";
+  titulo?: string;
+  // No content field — text blocks are template placeholders; the end user fills them in the final report
+  tipografia?: TipografiaBloque;
+}
 
 export interface GraficoBloque {
   id: string;
@@ -306,6 +341,9 @@ export interface GraficoBloque {
   mostrarTooltip: boolean;
   camposCalculados?: CampoCalculado[];
   filtrosJerarquia?: Record<string, string[]>;
+  observaciones?: string;
+  conclusiones?: string;
+  tipografia?: TipografiaBloque;
 }
 
 export interface TablaBloque {
@@ -326,15 +364,24 @@ export interface TablaBloque {
     tamañoFuente: "xs" | "sm" | "base" | "lg";
     alineacion: "left" | "center" | "right";
     compacta: boolean;
+    // Tipografía
+    fuente?: string;
+    encabezadoBold?: boolean;
+    encabezadoItalic?: boolean;
+    cuerpoItalic?: boolean;
+    cuerpoBold?: boolean;
   };
   paginacion?: {
     habilitada: boolean;
     filasPorPagina: number;
     mostrarControles: boolean;
   };
+  observaciones?: string;
+  conclusiones?: string;
+  tipografia?: TipografiaBloque;
 }
 
-export type ReporteBloque = GraficoBloque | TablaBloque;
+export type ReporteBloque = GraficoBloque | TablaBloque | TextoBloque;
 
 export interface BuilderConfig {
   id?: string;
@@ -625,6 +672,15 @@ const PALETAS = [
   { id: "mono",       nombre: "Gris",       colors: ["#1e293b", "#475569", "#64748b", "#94a3b8", "#cbd5e1"] },
 ];
 
+const DEFAULT_TIPOGRAFIA: TipografiaBloque = {
+  fuente: "Calibri, sans-serif",
+  tamano: 10,
+  encabezadoBold: true,
+  encabezadoItalic: false,
+  cuerpoBold: false,
+  cuerpoItalic: false,
+};
+
 // --------- Tipos de gráfico ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 const TIPOS_GRAFICO: { id: TipoGrafico; label: string; icon: React.ElementType; desc: string }[] = [
@@ -852,13 +908,19 @@ interface LiveChartProps {
   colors: string[];
   uid: string; // for unique gradient IDs when multiple charts on page
   labelOverrides?: Record<string, string>; // extra labels for calculated fields
+  fontFamily?: string;
+  fontSize?: number; // pt
 }
 
 function LiveChart({
   tipo, apilado, mostrarLeyenda, mostrarGrid, mostrarTooltip,
-  data, metricas, colors, uid, labelOverrides,
+  data, metricas, colors, uid, labelOverrides, fontFamily, fontSize,
 }: LiveChartProps) {
   const label = (id: string) => labelOverrides?.[id] ?? LABEL_MAP[id] ?? id;
+  const chartStyle: React.CSSProperties = {
+    fontFamily: fontFamily ?? "inherit",
+    fontSize: fontSize ? `${fontSize}px` : undefined,
+  };
   if (data.length === 0 || metricas.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground/40">
@@ -869,7 +931,7 @@ function LiveChart({
   }
 
   const commonProps = { data, margin: { top: 8, right: 16, left: 0, bottom: 4 } };
-  const axisStyle = { fontSize: 10, fill: "#6b7280" };
+  const axisStyle = { fontSize: fontSize ?? 10, fill: "#6b7280", fontFamily: fontFamily ?? "inherit" };
   const gridColor = "#e5e7eb";
   const isTimeDim = true; // assume monotone for all
   const curveType = isTimeDim ? "monotone" : "linear";
@@ -891,7 +953,7 @@ function LiveChart({
             {pieData.map((_, i) => <Cell key={i} fill={colors[i % colors.length]} />)}
           </Pie>
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
         </PieChart>
       </ResponsiveContainer>
     );
@@ -909,7 +971,7 @@ function LiveChart({
               stroke={colors[i % colors.length]} fill={colors[i % colors.length]} fillOpacity={0.2} />
           ))}
           {mostrarTooltip && <Tooltip />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
         </RadarChart>
       </ResponsiveContainer>
     );
@@ -923,7 +985,7 @@ function LiveChart({
           <XAxis type="number" tick={axisStyle} />
           <YAxis dataKey="name" type="category" tick={axisStyle} width={65} />
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
           {metricas.map((m, i) => (
             <Bar key={m} dataKey={m} name={label(m)} fill={colors[i % colors.length]}
               stackId={apilado ? "stack" : undefined} radius={[0, 3, 3, 0]} />
@@ -941,7 +1003,7 @@ function LiveChart({
           <XAxis dataKey="name" tick={axisStyle} />
           <YAxis tick={axisStyle} />
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
           {metricas.map((m, i) => (
             <Bar key={m} dataKey={m} name={label(m)} fill={colors[i % colors.length]}
               stackId={apilado ? "stack" : undefined} radius={[3, 3, 0, 0]} />
@@ -959,7 +1021,7 @@ function LiveChart({
           <XAxis dataKey="name" tick={axisStyle} />
           <YAxis tick={axisStyle} />
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
           {metricas.map((m, i) => (
             <Line key={m} type={curveType} dataKey={m} name={label(m)}
               stroke={colors[i % colors.length]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
@@ -985,7 +1047,7 @@ function LiveChart({
           <XAxis dataKey="name" tick={axisStyle} />
           <YAxis tick={axisStyle} />
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
           {metricas.map((m, i) => (
             <Area key={m} type={curveType} dataKey={m} name={label(m)}
               stroke={colors[i % colors.length]} strokeWidth={2}
@@ -1007,7 +1069,7 @@ function LiveChart({
           <YAxis yAxisId="left" tick={axisStyle} />
           {lineMetrics.length > 0 && <YAxis yAxisId="right" orientation="right" tick={axisStyle} />}
           {mostrarTooltip && <Tooltip formatter={(v: number) => v.toLocaleString("es-CL")} />}
-          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {mostrarLeyenda && <Legend wrapperStyle={{ fontSize: fontSize ?? 10, fontFamily: fontFamily ?? "inherit" }} />}
           {barMetric && (
             <Bar yAxisId="left" dataKey={barMetric} name={label(barMetric)}
               fill={colors[0]} radius={[3, 3, 0, 0]} />
@@ -1026,7 +1088,7 @@ function LiveChart({
 
 // --------- GraficoBloqueView - chart preview for a single GraficoBloque ---------------------------------------
 
-function GraficoBloqueView({ bloque, colors }: { bloque: GraficoBloque; colors: string[] }) {
+function GraficoBloqueView({ bloque, colors, estiloPlantilla }: { bloque: GraficoBloque; colors: string[]; estiloPlantilla?: PlantillaConfig["estiloGraficos"] }) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes), []);
 
   const camposDisponibles = useMemo((): CampoInfo[] => {
@@ -1071,6 +1133,7 @@ function GraficoBloqueView({ bloque, colors }: { bloque: GraficoBloque; colors: 
     [bloque.camposCalculados],
   );
 
+  const tipGrafico = estiloPlantilla?.tipografia ?? bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
   return (
     <LiveChart
       tipo={bloque.tipoGrafico}
@@ -1083,6 +1146,8 @@ function GraficoBloqueView({ bloque, colors }: { bloque: GraficoBloque; colors: 
       colors={colors}
       uid={bloque.id}
       labelOverrides={calcLabelOverrides}
+      fontFamily={tipGrafico.fuente}
+      fontSize={tipGrafico.tamano}
     />
   );
 }
@@ -1095,7 +1160,7 @@ const MODULE_BAND_COLORS: Record<string, { bg: string; text: string; border: str
   "Poscosecha":           { bg: "bg-blue-50",    text: "text-blue-800",    border: "border-b-blue-400" },
 };
 
-function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: string[] }) {
+function TablaBloqueView({ bloque, colors, estiloPlantilla }: { bloque: TablaBloque; colors: string[]; estiloPlantilla?: PlantillaConfig["estiloTablas"] }) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes), []);
   const groupByKeys = bloque.groupBy ?? [];
 
@@ -1217,9 +1282,32 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
     );
   }
 
+  // Plantilla-level style takes precedence; fall back to per-block estilos/tipografia for backward compat
+  const est = estiloPlantilla ?? bloque.estilos ?? { mostrarBordes: true, alternarFilas: true, tamañoFuente: "sm" as const, alineacion: "left" as const, compacta: false };
+  const t = estiloPlantilla?.tipografia ?? bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
+  const fontFamily = t.fuente;
+  const fontSize = `${t.tamano}px`;
+  const cellPad = est.compacta ? "px-1.5 py-0.5" : "px-3 py-1.5";
+  const thPad   = est.compacta ? "px-1.5 py-0.5" : "px-3 py-2";
+  const cellAlign = est.alineacion === "center" ? "text-center" : est.alineacion === "right" ? "text-right" : "text-left";
+  const cellBorder = est.mostrarBordes ? "border border-border/40" : "";
+  const thStyle: React.CSSProperties = {
+    fontFamily,
+    fontSize,
+    fontWeight: t.encabezadoBold ? "bold" : "normal",
+    fontStyle:  t.encabezadoItalic ? "italic" : "normal",
+    textAlign:  est.alineacion,
+  };
+  const tdStyle: React.CSSProperties = {
+    fontFamily,
+    fontSize,
+    fontWeight: t.cuerpoBold ? "bold" : "normal",
+    fontStyle:  t.cuerpoItalic ? "italic" : "normal",
+  };
+
   return (
-    <div className="overflow-auto h-full">
-      <table className="w-full text-xs border-collapse">
+    <div className="overflow-auto h-full" style={{ fontFamily }}>
+      <table className={cn("w-full", est.mostrarBordes ? "border-collapse border border-border/40" : "border-collapse")} style={{ fontSize }}>
         <thead>
           {/* ── Module band row (only when 2+ modules) ── */}
           {hasMultipleModules && (
@@ -1231,13 +1319,16 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
                     key={band.key}
                     colSpan={band.span}
                     className={cn(
-                      "px-3 py-1 text-[10px] font-bold text-center uppercase tracking-wide border-b-2 whitespace-nowrap",
+                      "text-[10px] font-bold text-center uppercase tracking-wide border-b-2 whitespace-nowrap",
+                      thPad,
                       band.isDim
                         ? "bg-muted/20 border-b-border text-transparent select-none"
                         : mc
                           ? `${mc.bg} ${mc.text} ${mc.border}`
                           : "bg-muted/40 text-muted-foreground border-b-border",
+                      cellBorder,
                     )}
+                    style={{ fontFamily }}
                   >
                     {band.isDim ? "" : band.label}
                   </th>
@@ -1254,16 +1345,19 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
               const agr = (bloque.agregaciones?.[id] ?? "suma") as AgregacionTipo;
               const agrSymbol = agr === "suma" ? "Σ" : agr === "promedio" ? "⌀" : "~";
               const isGroupKey = groupByKeys.includes(id);
-              // Color the header by module for metric columns
               const mc = !isGroupKey && isMetric ? MODULE_BAND_COLORS[colModuleKey[id] ?? ""] : undefined;
               return (
                 <th
                   key={id}
                   className={cn(
-                    "px-3 py-2 text-left font-semibold border-b border-border whitespace-nowrap",
+                    "border-b border-border whitespace-nowrap",
+                    thPad, cellAlign, cellBorder,
                     mc ? `${mc.bg} ${mc.text}` : "bg-muted/50",
                   )}
-                  style={!mc && i > 0 && !isGroupKey ? { color: colors[i % colors.length] } : {}}
+                  style={{
+                    ...thStyle,
+                    ...(!mc && i > 0 && !isGroupKey ? { color: colors[i % colors.length] } : {}),
+                  }}
                 >
                   {groupByKeys.length > 0 && isMetric ? `${agrSymbol} ${displayLabel}` : displayLabel}
                 </th>
@@ -1273,9 +1367,19 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
         </thead>
         <tbody>
           {mockRows.map((row, ri) => (
-            <tr key={ri} className={cn("border-b border-border/50", ri % 2 !== 0 && "bg-muted/20")}>
+            <tr
+              key={ri}
+              className={cn(
+                "border-b border-border/40",
+                est.alternarFilas && ri % 2 !== 0 && "bg-muted/20",
+              )}
+            >
               {cols.map((id) => (
-                <td key={id} className="px-3 py-1.5 text-foreground whitespace-nowrap">
+                <td
+                  key={id}
+                  className={cn("text-foreground whitespace-nowrap", cellPad, cellAlign, cellBorder)}
+                  style={tdStyle}
+                >
                   {typeof row[id] === "number"
                     ? (row[id] as number).toLocaleString("es-CL")
                     : (row[id] ?? "-")}
@@ -1285,6 +1389,143 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// --------- SUBTIPO_STYLES (module-level so accessible from Textos tab) ----------------------------------------
+
+const SUBTIPO_STYLES: Record<TextoBloque["subtipo"], { bg: string; border: string; label: string }> = {
+  observaciones: { bg: "bg-amber-50/60",  border: "border-amber-200",  label: "Observaciones" },
+  conclusiones:  { bg: "bg-blue-50/60",   border: "border-blue-200",   label: "Conclusiones"  },
+  descripcion:   { bg: "bg-muted/20",     border: "border-border",     label: "Descripción"   },
+  libre:         { bg: "bg-muted/10",     border: "border-border/50",  label: ""              },
+};
+
+function TextoBloqueView({ bloque }: { bloque: TextoBloque }) {
+  const s = SUBTIPO_STYLES[bloque.subtipo];
+  const t = bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
+  const fontFamily = t.fuente;
+  const fontSize = `${t.tamano}pt`;
+  const heading = bloque.titulo || s.label;
+  return (
+    <div className={cn("h-full rounded border flex flex-col overflow-hidden", s.bg, s.border)}>
+      {heading && (
+        <div className={cn("px-2.5 py-1 border-b text-[11px]", s.border)} style={{ fontFamily, fontWeight: t.encabezadoBold ? "bold" : "normal", fontStyle: t.encabezadoItalic ? "italic" : "normal" }}>
+          {heading}
+        </div>
+      )}
+      {/* Placeholder lines — represent the write-in area on the printed report */}
+      <div className="flex-1 px-2.5 py-2 flex flex-col justify-end gap-1.5">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="border-b border-foreground/15 w-full" style={{ height: 1 }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// --------- TipografiaPanel & ColSpanPicker - reusable typography/layout controls --------------------------------
+
+const FONT_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "Calibri, sans-serif",        label: "Calibri" },
+  { value: "Arial, sans-serif",          label: "Arial" },
+  { value: "'Times New Roman', serif",   label: "Times New Roman" },
+  { value: "Georgia, serif",             label: "Georgia" },
+  { value: "'Trebuchet MS', sans-serif", label: "Trebuchet MS" },
+  { value: "'Courier New', monospace",   label: "Courier New" },
+];
+const PT_OPTIONS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 36];
+
+interface TipografiaPanelProps {
+  tipografia: TipografiaBloque;
+  onChange: (t: TipografiaBloque) => void;
+}
+function TipografiaPanel({ tipografia: t, onChange }: TipografiaPanelProps) {
+  const upd = (patch: Partial<TipografiaBloque>) => onChange({ ...t, ...patch });
+  return (
+    <div className="space-y-2.5">
+      <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+        <Type className="w-3 h-3" /> Tipografía
+      </Label>
+      {/* Font family */}
+      <div className="space-y-1">
+        <span className="text-[10px] text-muted-foreground">Fuente</span>
+        <select
+          value={t.fuente}
+          onChange={e => upd({ fuente: e.target.value })}
+          className="w-full h-7 text-xs rounded border border-border bg-background px-2 focus:outline-none focus:ring-1 focus:ring-primary"
+          style={{ fontFamily: t.fuente }}
+        >
+          {FONT_OPTIONS.map(f => (
+            <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
+          ))}
+        </select>
+      </div>
+      {/* Font size */}
+      <div className="space-y-1">
+        <span className="text-[10px] text-muted-foreground">Tamaño</span>
+        <div className="flex items-center gap-1.5">
+          <select
+            value={t.tamano}
+            onChange={e => upd({ tamano: Number(e.target.value) })}
+            className="h-7 text-xs rounded border border-border bg-background px-2 focus:outline-none focus:ring-1 focus:ring-primary flex-1"
+          >
+            {PT_OPTIONS.map(pt => (
+              <option key={pt} value={pt}>{pt}pt</option>
+            ))}
+          </select>
+          <span className="text-[10px] text-muted-foreground shrink-0" style={{ fontFamily: t.fuente, fontSize: Math.min(t.tamano, 14) }}>Aa</span>
+        </div>
+      </div>
+      {/* Encabezado style */}
+      <div className="space-y-1">
+        <span className="text-[10px] text-muted-foreground">Encabezado</span>
+        <div className="flex gap-1">
+          <button onClick={() => upd({ encabezadoBold: !t.encabezadoBold })} className={cn("flex-1 py-1 rounded border text-[11px] font-bold transition-all", t.encabezadoBold ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40")}>N</button>
+          <button onClick={() => upd({ encabezadoItalic: !t.encabezadoItalic })} className={cn("flex-1 py-1 rounded border text-[11px] italic transition-all", t.encabezadoItalic ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40")}>K</button>
+        </div>
+      </div>
+      {/* Body style */}
+      <div className="space-y-1">
+        <span className="text-[10px] text-muted-foreground">Cuerpo</span>
+        <div className="flex gap-1">
+          <button onClick={() => upd({ cuerpoBold: !t.cuerpoBold })} className={cn("flex-1 py-1 rounded border text-[11px] font-bold transition-all", t.cuerpoBold ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40")}>N</button>
+          <button onClick={() => upd({ cuerpoItalic: !t.cuerpoItalic })} className={cn("flex-1 py-1 rounded border text-[11px] italic transition-all", t.cuerpoItalic ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40")}>K</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ColSpanPicker({ value, onChange }: { value: ColSpan; onChange: (v: ColSpan) => void }) {
+  const opts: Array<{ v: ColSpan; label: string; title: string }> = [
+    { v: "full",       label: "■",   title: "Ancho completo" },
+    { v: "two-thirds", label: "⅔",   title: "Dos tercios" },
+    { v: "half",       label: "½",   title: "Mitad" },
+    { v: "third",      label: "⅓",   title: "Un tercio" },
+  ];
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+        <Grid3x3 className="w-3 h-3" /> Ancho en la página
+      </Label>
+      <div className="grid grid-cols-4 gap-1">
+        {opts.map(o => (
+          <button
+            key={o.v}
+            title={o.title}
+            onClick={() => onChange(o.v)}
+            className={cn(
+              "py-1.5 rounded border text-[13px] transition-all",
+              value === o.v
+                ? "border-primary bg-primary/10 text-primary font-bold"
+                : "border-border text-muted-foreground hover:border-primary/40"
+            )}
+          >{o.label}</button>
+        ))}
+      </div>
+      <p className="text-[10px] text-muted-foreground">Combina bloques en la misma fila usando anchos complementarios (½ + ½, ⅔ + ⅓)</p>
     </div>
   );
 }
@@ -1717,7 +1958,25 @@ function FiltroEstructuraEditor({ filtros, onChange }: FiltroEstructuraEditorPro
 
 export function InformesBuilder({ informe, existingConfig, onClose, onSave }: InformesBuilderProps) {
   // Tab del builder simplificado
-  const [builderTab, setBuilderTab] = useState<"basico" | "graficos" | "tablas" | "avanzado">("basico");
+  const [builderTab, setBuilderTab] = useState<"basico" | "graficos" | "tablas" | "textos" | "avanzado">("basico");
+  const pageContainerRef = useRef<HTMLDivElement>(null);
+  const [pageContainerW, setPageContainerW] = useState(860);
+  const [pageContainerH, setPageContainerH] = useState(700);
+  const [pageZoom, setPageZoom] = useState<number | null>(null); // null = auto-fit
+  const PAGE_ZOOM_STEPS = [0.35, 0.5, 0.65, 0.75, 0.9, 1.0, 1.25, 1.5];
+  useEffect(() => {
+    if (builderTab !== "avanzado") return;
+    const el = pageContainerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(([entry]) => {
+      setPageContainerW(entry.contentRect.width);
+      setPageContainerH(entry.contentRect.height);
+    });
+    obs.observe(el);
+    setPageContainerW(el.clientWidth);
+    setPageContainerH(el.clientHeight);
+    return () => obs.disconnect();
+  }, [builderTab]);
   // Wizard state para agregar gráficos/tablas de forma guiada
   const [showWizard, setShowWizard] = useState<"grafico" | "tabla" | null>(null);
   const [selectedBloqueId, setSelectedBloqueId] = useState<string | null>(null);
@@ -1757,6 +2016,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
       piePagina: "",
       margenes: { superior: 20, inferior: 20, izquierdo: 15, derecho: 15 },
       formato: { tamañoPagina: "A4", orientacion: "portrait", numeracionPaginas: true, posicionNumeracion: "footer" },
+      estiloTablas: { mostrarBordes: true, alternarFilas: true, alineacion: "left", compacta: false, tipografia: { ...DEFAULT_TIPOGRAFIA } },
+      estiloGraficos: { tipografia: { ...DEFAULT_TIPOGRAFIA } },
     },
   };
 
@@ -1768,7 +2029,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     setConfig((prev) => ({ ...prev, [key]: val }));
   }, []);
 
-  const updBloque = useCallback((id: string, updates: Partial<GraficoBloque> | Partial<TablaBloque>) => {
+  const updBloque = useCallback((id: string, updates: Partial<GraficoBloque> | Partial<TablaBloque> | Partial<TextoBloque>) => {
     setConfig((prev) => ({
       ...prev,
       bloques: prev.bloques.map((b) =>
@@ -1781,7 +2042,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     setConfig((prev) => ({
       ...prev,
       bloques: prev.bloques.map((b) => {
-        if (b.id !== bloqueId) return b;
+        if (b.id !== bloqueId || b.tipo === "texto") return b;
         const has = b.fuentesSeleccionadas.includes(fuenteId);
         return {
           ...b,
@@ -1921,7 +2182,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
   const selectedBloque = config.bloques.find((b) => b.id === selectedBloqueId) ?? null;
 
   const selectedCampos = useMemo((): CampoInfo[] => {
-    if (!selectedBloque) return [];
+    if (!selectedBloque || selectedBloque.tipo === "texto") return [];
     const allFuentes = Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes);
     const selected = allFuentes.filter((f) => selectedBloque.fuentesSeleccionadas.includes(f.id));
     const all = selected.flatMap((f) => f.campos);
@@ -2032,11 +2293,12 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
 
           {/* Tab navigation */}
           <div className="border-b border-border bg-card">
-            <div className="flex">
+            <div className="flex overflow-x-auto">
               {[
                 { id: "basico", label: "Básico", icon: Type },
                 { id: "graficos", label: "Gráficos", icon: BarChart2, count: grafCount },
                 { id: "tablas", label: "Tablas", icon: Table2, count: tablaCount },
+                { id: "textos", label: "Textos", icon: FileText, count: config.bloques.filter(b => b.tipo === "texto").length },
                 { id: "avanzado", label: "Diseño", icon: Palette },
               ].map((tab) => {
                 const TabIcon = tab.icon;
@@ -2044,9 +2306,9 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => setBuilderTab(tab.id as any)}
+                    onClick={() => setBuilderTab(tab.id as "basico" | "graficos" | "tablas" | "textos" | "avanzado")}
                     className={cn(
-                      "flex-1 flex items-center justify-center gap-1.5 py-3 px-2 text-xs font-medium transition-colors border-b-2",
+                      "flex-1 flex items-center justify-center gap-1.5 py-3 px-2 text-xs font-medium transition-colors border-b-2 whitespace-nowrap",
                       isActive
                         ? "border-primary text-primary bg-primary/5"
                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -2417,6 +2679,32 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             ))}
                           </div>
                         </div>
+                        {/* Observaciones */}
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                            <FileText className="w-3 h-3" /> Observaciones y conclusiones
+                          </Label>
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-muted-foreground">Observaciones</span>
+                            <Textarea
+                              value={selectedGrafico.observaciones ?? ""}
+                              onChange={e => updBloque(selectedGrafico.id, { observaciones: e.target.value })}
+                              placeholder="Notas u observaciones sobre este gráfico..."
+                              className="text-xs min-h-[48px] resize-none"
+                              rows={2}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-muted-foreground">Conclusiones</span>
+                            <Textarea
+                              value={selectedGrafico.conclusiones ?? ""}
+                              onChange={e => updBloque(selectedGrafico.id, { conclusiones: e.target.value })}
+                              placeholder="Conclusiones derivadas de este gráfico..."
+                              className="text-xs min-h-[48px] resize-none"
+                              rows={2}
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -2635,31 +2923,151 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             </div>
                           </div>
                         )}
-                      {/* Filtrar por estructura del cultivo */}
-                      {selectedBloque && selectedBloque.fuentesSeleccionadas.length > 0 && (
-                        <div className="space-y-2">
+                        {/* Observaciones */}
+                        <div className="space-y-1.5">
                           <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                            <TreePine className="w-3 h-3 text-emerald-500" />
-                            <span className="text-emerald-700 dark:text-emerald-400">Estructura del cultivo</span>
-                            {Object.values(selectedBloque.filtrosJerarquia ?? {}).some((v) => v.length > 0) && (
-                              <span className="ml-auto text-[9px] font-normal normal-case text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
-                                <Filter className="w-2.5 h-2.5" />
-                                {Object.values(selectedBloque.filtrosJerarquia ?? {}).reduce((s, v) => s + v.length, 0)} filtro{Object.values(selectedBloque.filtrosJerarquia ?? {}).reduce((s, v) => s + v.length, 0) !== 1 ? "s" : ""} activo{Object.values(selectedBloque.filtrosJerarquia ?? {}).reduce((s, v) => s + v.length, 0) !== 1 ? "s" : ""}
-                              </span>
-                            )}
+                            <FileText className="w-3 h-3" /> Observaciones y conclusiones
                           </Label>
-                          <p className="text-[10px] text-muted-foreground leading-snug">
-                            Restringe los datos a bloques, parcelas o sectores específicos. La selección cascadea al nivel siguiente.
-                          </p>
-                          <FiltroEstructuraEditor
-                            filtros={selectedBloque.filtrosJerarquia ?? {}}
-                            onChange={(nivel, valores) => setFiltroJerarquia(selectedBloque.id, nivel, valores)}
-                          />
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-muted-foreground">Observaciones</span>
+                            <Textarea
+                              value={(selectedBloque as TablaBloque).observaciones ?? ""}
+                              onChange={e => updBloque(selectedBloque!.id, { observaciones: e.target.value })}
+                              placeholder="Notas u observaciones sobre esta tabla..."
+                              className="text-xs min-h-[48px] resize-none"
+                              rows={2}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-muted-foreground">Conclusiones</span>
+                            <Textarea
+                              value={(selectedBloque as TablaBloque).conclusiones ?? ""}
+                              onChange={e => updBloque(selectedBloque!.id, { conclusiones: e.target.value })}
+                              placeholder="Conclusiones derivadas de esta tabla..."
+                              className="text-xs min-h-[48px] resize-none"
+                              rows={2}
+                            />
+                          </div>
                         </div>
-                      )}
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* TAB: Textos */}
+              {builderTab === "textos" && (
+                <div className="space-y-4">
+                  {/* Header */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      BLOQUES DE TEXTO ({config.bloques.filter(b => b.tipo === "texto").length})
+                    </span>
+                    <button
+                      onClick={() => {
+                        const newBloque: TextoBloque = {
+                          id: `texto_${Date.now()}`,
+                          tipo: "texto",
+                          subtipo: "libre",
+                          titulo: "",
+                          contenido: "",
+                          colSpan: "full",
+                          tipografia: { ...DEFAULT_TIPOGRAFIA },
+                        };
+                        setConfig(prev => ({ ...prev, bloques: [...prev.bloques, newBloque] }));
+                        setSelectedBloqueId(newBloque.id);
+                      }}
+                      className="flex items-center gap-1 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Nueva
+                    </button>
+                  </div>
+
+                  {config.bloques.filter(b => b.tipo === "texto").length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 gap-3 text-muted-foreground/40 border border-dashed rounded-lg">
+                      <FileText className="w-10 h-10" />
+                      <div className="text-center">
+                        <p className="text-sm font-medium">Sin bloques de texto</p>
+                        <p className="text-xs">Agrega observaciones, conclusiones o descripciones</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const newBloque: TextoBloque = {
+                            id: `texto_${Date.now()}`,
+                            tipo: "texto",
+                            subtipo: "observaciones",
+                            titulo: "",
+                            contenido: "",
+                            colSpan: "full",
+                            tipografia: { ...DEFAULT_TIPOGRAFIA },
+                          };
+                          setConfig(prev => ({ ...prev, bloques: [...prev.bloques, newBloque] }));
+                          setSelectedBloqueId(newBloque.id);
+                        }}
+                        className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors"
+                      >
+                        <Plus className="w-4 h-4" /> Agregar primer bloque de texto
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {config.bloques.filter(b => b.tipo === "texto").map(bloque => {
+                        const tb = bloque as TextoBloque;
+                        const isSelected = selectedBloqueId === tb.id;
+                        return (
+                          <div
+                            key={tb.id}
+                            onClick={() => setSelectedBloqueId(isSelected ? null : tb.id)}
+                            className={cn("p-2.5 rounded-lg border cursor-pointer transition-all", isSelected ? "border-primary/50 bg-primary/5 ring-1 ring-primary/20" : "border-border hover:border-border/80 bg-muted/5")}
+                          >
+                            <div className="flex items-center gap-2">
+                              <FileText className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                              <span className="text-xs font-medium text-foreground truncate flex-1">{tb.titulo || SUBTIPO_STYLES[tb.subtipo]?.label || "Bloque de texto"}</span>
+                              <span className="text-[9px] text-muted-foreground shrink-0 capitalize">{tb.subtipo}</span>
+                              <button onClick={e => { e.stopPropagation(); setConfig(prev => ({ ...prev, bloques: prev.bloques.filter(b => b.id !== tb.id) })); setSelectedBloqueId(null); }} className="p-0.5 rounded text-muted-foreground/40 hover:text-destructive transition-colors shrink-0"><Trash2 className="w-3 h-3" /></button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Inline editor for selected text block */}
+                  {(() => {
+                    const selectedTexto = config.bloques.find(b => b.id === selectedBloqueId && b.tipo === "texto") as TextoBloque | undefined;
+                    if (!selectedTexto) return null;
+                    return (
+                      <div className="rounded-lg border-2 border-primary/20 bg-primary/3 overflow-hidden">
+                        <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 border-b border-primary/15">
+                          <FileText className="w-3.5 h-3.5 text-primary shrink-0" />
+                          <span className="text-xs font-semibold text-primary truncate flex-1">Editando: {selectedTexto.titulo || "Bloque de texto"}</span>
+                        </div>
+                        <div className="p-3 space-y-3">
+                          {/* Subtipo */}
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-muted-foreground">Tipo de bloque</Label>
+                            <div className="grid grid-cols-2 gap-1">
+                              {(["observaciones", "conclusiones", "descripcion", "libre"] as const).map(sub => (
+                                <button key={sub} onClick={() => updBloque(selectedTexto.id, { subtipo: sub })}
+                                  className={cn("py-1.5 rounded border text-[10px] capitalize transition-all", selectedTexto.subtipo === sub ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground hover:border-primary/40")}
+                                >{sub === "libre" ? "Libre" : sub.charAt(0).toUpperCase() + sub.slice(1)}</button>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Título */}
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-muted-foreground">Título (opcional)</Label>
+                            <Input value={selectedTexto.titulo ?? ""} onChange={e => updBloque(selectedTexto.id, { titulo: e.target.value } as any)} placeholder="Ej. Observaciones del período" className="h-7 text-xs" />
+                          </div>
+                          <p className="text-[10px] text-muted-foreground border border-border/50 rounded p-2 bg-muted/20">
+                            Este bloque es un área en blanco de la plantilla. El contenido lo escribe el usuario en el informe final.
+                          </p>
+                          {/* Tipografía */}
+                          <TipografiaPanel tipografia={selectedTexto.tipografia ?? DEFAULT_TIPOGRAFIA} onChange={t => updBloque(selectedTexto.id, { tipografia: t } as any)} />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -2823,6 +3231,59 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                     </div>
                   </div>
 
+                  {/* Disposición en página */}
+                  {config.bloques.length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                        <Grid3x3 className="w-3.5 h-3.5" /> Disposición en página
+                      </Label>
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        Define el ancho de cada bloque. Combina anchos complementarios (½ + ½, ⅔ + ⅓) para colocarlos en la misma fila.
+                      </p>
+                      <div className="space-y-1.5">
+                        {config.bloques.map((bloque, idx) => {
+                          const currentSpan: ColSpan = (config.plantilla as any)?.layoutConfig?.[bloque.id] ?? "full";
+                          const label = bloque.tipo === "texto"
+                            ? ((bloque as TextoBloque).titulo || SUBTIPO_STYLES[(bloque as TextoBloque).subtipo]?.label || `Texto ${idx + 1}`)
+                            : bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${idx + 1}` : `Tabla ${idx + 1}`);
+                          const opts: Array<{ v: ColSpan; label: string }> = [
+                            { v: "full",       label: "■" },
+                            { v: "two-thirds", label: "⅔" },
+                            { v: "half",       label: "½" },
+                            { v: "third",      label: "⅓" },
+                          ];
+                          return (
+                            <div key={bloque.id} className="flex items-center gap-2 p-2 rounded border border-border bg-muted/10">
+                              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                {bloque.tipo === "grafico" && <BarChart2 className="w-3 h-3 text-blue-500 shrink-0" />}
+                                {bloque.tipo === "tabla"   && <Table2    className="w-3 h-3 text-purple-500 shrink-0" />}
+                                {bloque.tipo === "texto"   && <FileText  className="w-3 h-3 text-amber-500 shrink-0" />}
+                                <span className="text-[11px] text-foreground truncate">{label}</span>
+                              </div>
+                              <div className="flex gap-0.5 shrink-0">
+                                {opts.map(o => (
+                                  <button
+                                    key={o.v}
+                                    onClick={() => {
+                                      const current = (config.plantilla as any)?.layoutConfig ?? {};
+                                      updPlantilla("layoutConfig" as any, { ...current, [bloque.id]: o.v });
+                                    }}
+                                    className={cn(
+                                      "w-7 h-6 rounded border text-[11px] transition-all",
+                                      currentSpan === o.v
+                                        ? "border-primary bg-primary/10 text-primary font-bold"
+                                        : "border-border text-muted-foreground hover:border-primary/40"
+                                    )}
+                                  >{o.label}</button>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Formato de página */}
                   <div className="space-y-2">
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
@@ -2892,67 +3353,61 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                     </div>
                   </div>
 
-                  {/* Estilo de tablas */}
-                  {config.bloques.some(b => b.tipo === "tabla") && (
-                    <div className="space-y-2">
-                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                        <Grid3x3 className="w-3.5 h-3.5" /> Estilo de tablas
-                      </Label>
-                      <div className="space-y-3">
-                        {config.bloques.filter(b => b.tipo === "tabla").map((bloque) => {
-                          const tb = bloque as TablaBloque;
-                          const est = tb.estilos ?? { mostrarBordes: true, alternarFilas: true, tamañoFuente: "sm" as const, alineacion: "left" as const, compacta: false };
-                          return (
-                            <div key={tb.id} className="p-3 rounded-lg border border-border bg-muted/5 space-y-2">
-                              <p className="text-[11px] font-semibold text-foreground truncate">{tb.titulo || "Tabla sin título"}</p>
-                              {(["mostrarBordes", "alternarFilas", "compacta"] as const).map((key) => (
-                                <div key={key} className="flex items-center justify-between">
-                                  <span className="text-[11px] text-muted-foreground">
-                                    {key === "mostrarBordes" ? "Mostrar bordes" : key === "alternarFilas" ? "Filas alternadas" : "Vista compacta"}
-                                  </span>
-                                  <Switch checked={est[key]} onCheckedChange={(v) => updBloque(tb.id, { estilos: { ...est, [key]: v } })} className="scale-75" />
-                                </div>
-                              ))}
-                              <div className="space-y-1">
-                                <span className="text-[10px] text-muted-foreground">Tamaño de texto</span>
-                                <div className="flex gap-1">
-                                  {(["xs", "sm", "base"] as const).map((sz) => (
-                                    <button key={sz}
-                                      onClick={() => updBloque(tb.id, { estilos: { ...est, tamañoFuente: sz } })}
-                                      className={cn(
-                                        "flex-1 py-1 rounded border text-[10px] transition-all",
-                                        est.tamañoFuente === sz
-                                          ? "border-primary bg-primary/10 text-primary"
-                                          : "border-border text-muted-foreground hover:border-primary/30"
-                                      )}
-                                    >{sz === "xs" ? "XS" : sz === "sm" ? "SM" : "MD"}</button>
-                                  ))}
-                                </div>
+                  {/* Apariencia global de tablas */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <Table2 className="w-3.5 h-3.5" /> Apariencia de tablas
+                    </Label>
+                    <div className="p-3 rounded-lg border border-border bg-muted/5 space-y-3">
+                      {(() => {
+                        const et = (config.plantilla as any)?.estiloTablas ?? { mostrarBordes: true, alternarFilas: true, alineacion: "left", compacta: false, tipografia: DEFAULT_TIPOGRAFIA };
+                        const updET = (patch: object) => updPlantilla("estiloTablas" as any, { ...et, ...patch });
+                        return (
+                          <>
+                            {(["mostrarBordes", "alternarFilas", "compacta"] as const).map((key) => (
+                              <div key={key} className="flex items-center justify-between">
+                                <span className="text-[11px] text-muted-foreground">
+                                  {key === "mostrarBordes" ? "Mostrar bordes" : key === "alternarFilas" ? "Filas alternadas" : "Vista compacta"}
+                                </span>
+                                <Switch checked={!!et[key]} onCheckedChange={(v) => updET({ [key]: v })} className="scale-75" />
                               </div>
-                              <div className="space-y-1">
-                                <span className="text-[10px] text-muted-foreground">Alineación</span>
-                                <div className="flex gap-1">
-                                  {(["left", "center", "right"] as const).map((al) => (
-                                    <button key={al}
-                                      onClick={() => updBloque(tb.id, { estilos: { ...est, alineacion: al } })}
-                                      className={cn(
-                                        "flex-1 flex items-center justify-center py-1 rounded border transition-all",
-                                        est.alineacion === al
-                                          ? "border-primary bg-primary/10 text-primary"
-                                          : "border-border text-muted-foreground hover:border-primary/30"
-                                      )}
-                                    >
-                                      {al === "left" ? <AlignLeft className="w-3 h-3" /> : al === "center" ? <AlignCenter className="w-3 h-3" /> : <AlignRight className="w-3 h-3" />}
-                                    </button>
-                                  ))}
-                                </div>
+                            ))}
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-muted-foreground">Alineación</span>
+                              <div className="flex gap-1">
+                                {(["left", "center", "right"] as const).map((al) => (
+                                  <button key={al} onClick={() => updET({ alineacion: al })}
+                                    className={cn("flex-1 flex items-center justify-center py-1 rounded border transition-all",
+                                      et.alineacion === al ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30")}>
+                                    {al === "left" ? <AlignLeft className="w-3 h-3" /> : al === "center" ? <AlignCenter className="w-3 h-3" /> : <AlignRight className="w-3 h-3" />}
+                                  </button>
+                                ))}
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
+                            <TipografiaPanel tipografia={et.tipografia ?? DEFAULT_TIPOGRAFIA} onChange={(t) => updET({ tipografia: t })} />
+                          </>
+                        );
+                      })()}
                     </div>
-                  )}
+                  </div>
+
+                  {/* Apariencia global de gráficos */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <BarChart2 className="w-3.5 h-3.5" /> Apariencia de gráficos
+                    </Label>
+                    <div className="p-3 rounded-lg border border-border bg-muted/5">
+                      {(() => {
+                        const eg = (config.plantilla as any)?.estiloGraficos ?? { tipografia: DEFAULT_TIPOGRAFIA };
+                        return (
+                          <TipografiaPanel
+                            tipografia={eg.tipografia ?? DEFAULT_TIPOGRAFIA}
+                            onChange={(t) => updPlantilla("estiloGraficos" as any, { ...eg, tipografia: t })}
+                          />
+                        );
+                      })()}
+                    </div>
+                  </div>
 
                 </div>
               )}
@@ -2965,6 +3420,365 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
 
         {/* Preview panel */}
         <div className="flex-1 flex flex-col min-w-0 bg-muted/30 overflow-hidden">
+          {builderTab === "avanzado" ? (
+            /* ===== DISEÑO TAB: Full page layout preview ===== */
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Preview toolbar */}
+              <div className="px-4 pt-3 pb-2 flex items-center justify-between shrink-0 border-b border-border/40 bg-card/60 gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="w-4 h-4 text-primary shrink-0" />
+                  <span className="text-sm font-semibold shrink-0">Vista de página</span>
+                  <Badge variant="outline" className="text-[10px] gap-1 shrink-0">
+                    {(config.plantilla as any)?.formato?.tamañoPagina ?? "A4"} ·{" "}
+                    {(config.plantilla as any)?.formato?.orientacion === "landscape" ? "Horizontal" : "Vertical"}
+                  </Badge>
+                </div>
+                {/* Zoom controls */}
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    className="w-6 h-6 flex items-center justify-center rounded hover:bg-muted border border-border/60 text-muted-foreground disabled:opacity-30"
+                    onClick={() => {
+                      const auto = Math.min(1, Math.max(280, pageContainerW - 48) / 794, Math.max(400, pageContainerH - 96) / 1123);
+                      const cur = pageZoom ?? auto;
+                      const next = PAGE_ZOOM_STEPS.slice().reverse().find(s => s < cur - 0.01);
+                      setPageZoom(next ?? PAGE_ZOOM_STEPS[0]);
+                    }}
+                    disabled={pageZoom !== null && pageZoom <= PAGE_ZOOM_STEPS[0]}
+                    title="Reducir"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <button
+                    className="min-w-[52px] h-6 px-1.5 text-[11px] font-medium rounded hover:bg-muted border border-border/60 text-foreground tabular-nums"
+                    onClick={() => setPageZoom(null)}
+                    title="Ajustar a pantalla"
+                  >
+                    {pageZoom !== null ? `${Math.round(pageZoom * 100)}%` : "Ajustar"}
+                  </button>
+                  <button
+                    className="w-6 h-6 flex items-center justify-center rounded hover:bg-muted border border-border/60 text-muted-foreground disabled:opacity-30"
+                    onClick={() => {
+                      const auto = Math.min(1, Math.max(280, pageContainerW - 48) / 794, Math.max(400, pageContainerH - 96) / 1123);
+                      const cur = pageZoom ?? auto;
+                      const next = PAGE_ZOOM_STEPS.find(s => s > cur + 0.01);
+                      setPageZoom(next ?? PAGE_ZOOM_STEPS[PAGE_ZOOM_STEPS.length - 1]);
+                    }}
+                    disabled={pageZoom !== null && pageZoom >= PAGE_ZOOM_STEPS[PAGE_ZOOM_STEPS.length - 1]}
+                    title="Ampliar"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Page container — scrollable grey background */}
+              <div ref={pageContainerRef} className="flex-1 overflow-y-auto bg-muted/50 flex flex-col items-center py-6 px-4 gap-6">
+                {/* Paper pages — rendered at natural 96dpi, CSS-scaled to fit panel */}
+                {(() => {
+                  const pl = config.plantilla as any;
+                  const fmt = pl?.formato ?? {};
+                  const enc = pl?.encabezado ?? {};
+                  const margenes = pl?.margenes ?? { superior: 20, inferior: 20, izquierdo: 15, derecho: 15 };
+                  const isLandscape = fmt.orientacion === "landscape";
+                  const tamano = fmt.tamañoPagina ?? "A4";
+
+                  // Natural px at 96dpi (1mm = 3.7795px)
+                  const naturalMap: Record<string, [number, number]> = {
+                    A4: [794, 1123], Letter: [816, 1056], A3: [1123, 1587],
+                  };
+                  const [nw, nh] = naturalMap[tamano] ?? [794, 1123];
+                  const [naturalW, naturalH] = isLandscape ? [nh, nw] : [nw, nh];
+
+                  // Scale: manual zoom if set, otherwise auto-fit to both width and height
+                  const availW = Math.max(280, pageContainerW - 48);
+                  const availH = Math.max(400, pageContainerH - 96);
+                  const autoScale = Math.min(1, availW / naturalW, availH / naturalH);
+                  const renderScale = pageZoom ?? autoScale;
+                  const dispW = naturalW * renderScale;
+                  const dispH = naturalH * renderScale;
+
+                  // Margins in natural px
+                  const mm2px = 3.7795;
+                  const pad = {
+                    top: (margenes.superior ?? 20) * mm2px,
+                    bottom: (margenes.inferior ?? 20) * mm2px,
+                    left: (margenes.izquierdo ?? 15) * mm2px,
+                    right: (margenes.derecho ?? 15) * mm2px,
+                  };
+                  const colorBorde = enc.colorBorde ?? "#cc0000";
+                  const campos = enc.campos ?? [];
+                  const today = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
+                  const hasSections = (pl?.incluirNotas || pl?.incluirConclusiones || pl?.incluirFirma);
+
+                  // Fixed heights (natural px)
+                  const headerH = enc.altura === "sm" ? 80 : enc.altura === "lg" ? 140 : 110;
+                  const footerH = 28;
+                  const sectionsH = hasSections ? 60 : 0;
+                  const GAP = 8; // gap between blocks
+                  const BLOCK_LABEL_H = 32;
+                  const totalBlocksArea = naturalH - pad.top - pad.bottom - headerH - footerH - sectionsH - 12;
+                  // ── Type-aware block heights ─────────────────────────────────
+                  // Tables: compact (label + col header + N data rows)
+                  // Charts: fill remaining space, capped at MAX_CHART_H
+                  const MAX_CHART_H = 320;
+                  const TABLE_ROW_H = 22;
+                  const TABLE_DATA_ROWS = 6;
+                  const TABLE_H = BLOCK_LABEL_H + 28 + TABLE_DATA_ROWS * TABLE_ROW_H + 8; // ~228px
+
+                  const TEXT_BLOCK_H = 120;
+                  const chartCount = config.bloques.filter(b => b.tipo === "grafico").length;
+                  const tableCount = config.bloques.filter(b => b.tipo === "tabla").length;
+                  const textCount = config.bloques.filter(b => b.tipo === "texto").length;
+                  const totalTableH = tableCount * TABLE_H;
+                  const totalTextH = textCount * TEXT_BLOCK_H;
+                  const totalGaps = Math.max(0, config.bloques.length - 1) * GAP;
+                  const remainingForCharts = Math.max(0, totalBlocksArea - totalTableH - totalTextH - totalGaps);
+                  const chartH = chartCount > 0
+                    ? Math.min(MAX_CHART_H, Math.max(160, Math.floor(remainingForCharts / chartCount)))
+                    : 0;
+
+                  const blockHeight = (b: ReporteBloque): number => {
+                    if (b.tipo === "texto") return TEXT_BLOCK_H;
+                    if (b.tipo === "grafico") return chartH;
+                    return TABLE_H;
+                  };
+
+                  // ── Group blocks into visual rows (by colSpan fractions) ───────
+                  const SPAN_FRAC: Record<ColSpan, number> = { full: 1, "two-thirds": 2/3, half: 0.5, third: 1/3 };
+                  const blockRows: ReporteBloque[][] = (() => {
+                    const rows: ReporteBloque[][] = [];
+                    let cur: ReporteBloque[] = [];
+                    let sum = 0;
+                    for (const b of config.bloques) {
+                      const frac = SPAN_FRAC[pl?.layoutConfig?.[b.id] ?? "full"];
+                      if (cur.length > 0 && sum + frac > 1.001) {
+                        rows.push(cur);
+                        cur = [b]; sum = frac;
+                      } else {
+                        cur.push(b); sum += frac;
+                        if (sum >= 0.999) { rows.push(cur); cur = []; sum = 0; }
+                      }
+                    }
+                    if (cur.length > 0) rows.push(cur);
+                    return rows;
+                  })();
+                  // Row height = max of heights of blocks in that row
+                  const rowHeight = (row: ReporteBloque[]) => Math.max(...row.map(b => blockHeight(b)));
+
+                  // ── Paginate by rows ──────────────────────────────────────────
+                  const pages: ReporteBloque[][][] = [];
+                  let currentPage: ReporteBloque[][] = [];
+                  let currentH = 0;
+                  for (const row of blockRows.length > 0 ? blockRows : [[]]) {
+                    const rh = rowHeight(row);
+                    const gapAdd = currentPage.length > 0 ? GAP : 0;
+                    if (currentPage.length > 0 && currentH + gapAdd + rh > totalBlocksArea) {
+                      pages.push(currentPage);
+                      currentPage = [row];
+                      currentH = rh;
+                    } else {
+                      currentPage.push(row);
+                      currentH += gapAdd + rh;
+                    }
+                  }
+                  if (currentPage.length > 0 || blockRows.length === 0) pages.push(currentPage);
+                  const totalPages = pages.length;
+
+                  // ── Render a single page ─────────────────────────────────────
+                  const renderPage = (pageRows: ReporteBloque[][], pageIdx: number) => {
+                    const isLastPage = pageIdx === totalPages - 1;
+                    const showSections = hasSections && isLastPage;
+                    // Flat list of blocks on this page (for globalIdx computation)
+                    const pageBlocks = pageRows.flat();
+
+                    return (
+                      <div key={pageIdx} className="shrink-0" style={{ width: dispW, height: dispH }}>
+                        <div
+                          className="bg-white shadow-xl rounded-sm overflow-hidden origin-top-left relative"
+                          style={{ width: naturalW, height: naturalH, transform: `scale(${renderScale})` }}
+                        >
+                          <div
+                            className="absolute inset-0 flex flex-col"
+                            style={{ padding: `${pad.top}px ${pad.right}px ${pad.bottom}px ${pad.left}px` }}
+                          >
+                            {/* ── HEADER (only page 1) ── */}
+                            {pageIdx === 0 ? (
+                              <div className="shrink-0" style={{ height: headerH }}>
+                                <div className={cn("flex items-start gap-3", enc.posicionLogo === "right" && "flex-row-reverse")}>
+                                  {config.mostrarLogo && (
+                                    <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shrink-0">
+                                      <Globe className="w-7 h-7 text-primary-foreground" />
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    {enc.mostrarEmpresa && (
+                                      <p className="font-bold text-foreground text-lg leading-tight truncate">AgroWorkin SA</p>
+                                    )}
+                                    <p className="font-semibold text-foreground text-base leading-tight truncate">
+                                      {config.titulo || config.nombre || "Nuevo informe"}
+                                    </p>
+                                    {config.subtitulo && <p className="text-muted-foreground text-sm truncate">{config.subtitulo}</p>}
+                                    {enc.textoPersonalizado && <p className="text-muted-foreground text-sm truncate">{enc.textoPersonalizado}</p>}
+                                  </div>
+                                  {enc.mostrarFecha && <p className="text-muted-foreground text-sm shrink-0">{today}</p>}
+                                </div>
+                                {campos.length > 0 && (
+                                  <div className="flex flex-wrap gap-x-4 mt-2 text-sm">
+                                    {campos.slice(0, 6).map((c: any) => (
+                                      <span key={c.id} className="text-muted-foreground">
+                                        <span className="font-medium text-foreground">{c.label}:</span>{" "}
+                                        {c.valor || <span className="italic opacity-40">—</span>}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                {enc.mostrarLinea !== false && (
+                                  <div className="rounded-full mt-2" style={{ height: 3, backgroundColor: colorBorde }} />
+                                )}
+                                <div className="flex gap-1 mt-1">
+                                  {paleta.colors.map((c, i) => (
+                                    <div key={i} className="rounded-full flex-1 h-1" style={{ backgroundColor: c }} />
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              /* Continuation header on pages 2+ */
+                              <div className="shrink-0 pb-2 mb-2 border-b border-border/40" style={{ height: 40 }}>
+                                <div className="flex items-center justify-between">
+                                  <p className="text-sm font-medium text-muted-foreground truncate">
+                                    {config.titulo || config.nombre || "Nuevo informe"} — cont.
+                                  </p>
+                                  <p className="text-xs text-muted-foreground shrink-0">{today}</p>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* ── BLOCKS (row-based grid, uniform row height) ── */}
+                            <div className="flex flex-col overflow-hidden" style={{ gap: GAP, marginTop: 12, flex: 1 }}>
+                              {pageRows.length === 0 ? (
+                                <div className="w-full flex flex-col items-center justify-center text-muted-foreground/30 border border-dashed rounded text-sm" style={{ height: totalBlocksArea }}>
+                                  <Layers className="w-8 h-8 mb-2" />
+                                  <p>Sin bloques</p>
+                                </div>
+                              ) : (
+                                pageRows.map((rowBlocks, rowIdx) => {
+                                  const rh = rowHeight(rowBlocks);
+                                  // globalIdx offset: count all blocks on previous pages + previous rows on this page
+                                  const prevPagesBlockCount = pages.slice(0, pageIdx).reduce((s, p) => s + p.reduce((rs, r) => rs + r.length, 0), 0);
+                                  const prevRowsBlockCount = pageRows.slice(0, rowIdx).reduce((s, r) => s + r.length, 0);
+                                  return (
+                                    <div key={rowIdx} className="flex shrink-0" style={{ height: rh, gap: GAP }}>
+                                      {rowBlocks.map((bloque, idx) => {
+                                        const globalIdx = prevPagesBlockCount + prevRowsBlockCount + idx;
+                                        const span: ColSpan = pl?.layoutConfig?.[bloque.id] ?? "full";
+                                        const blockW = span === "full" ? "100%"
+                                          : span === "half" ? `calc(50% - ${GAP / 2}px)`
+                                          : span === "third" ? `calc(33.33% - ${GAP * 2 / 3}px)`
+                                          : `calc(66.67% - ${GAP / 3}px)`;
+                                        const innerScale = bloque.tipo === "tabla" ? 0.55 : bloque.tipo === "texto" ? 1 : 0.45;
+                                        const invScale = 1 / innerScale;
+                                        return (
+                                          <div
+                                            key={bloque.id}
+                                            onClick={() => {
+                                              setSelectedBloqueId(bloque.id);
+                                              setBuilderTab(bloque.tipo === "grafico" ? "graficos" : bloque.tipo === "tabla" ? "tablas" : "textos");
+                                            }}
+                                            style={{ width: blockW, height: "100%", flexShrink: 0 }}
+                                          >
+                                            {bloque.tipo === "texto" ? (
+                                              <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full">
+                                                <TextoBloqueView bloque={bloque as TextoBloque} />
+                                              </div>
+                                            ) : (
+                                              <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full flex flex-col">
+                                                {/* Block label row */}
+                                                <div className="flex items-center gap-2 px-3 border-b border-border/40 bg-muted/20 shrink-0" style={{ height: BLOCK_LABEL_H }}>
+                                                  {bloque.tipo === "grafico"
+                                                    ? <BarChart2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                                    : <Table2    className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                                                  }
+                                                  <span className="text-sm font-medium text-foreground truncate">
+                                                    {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${globalIdx + 1}` : `Tabla ${globalIdx + 1}`)}
+                                                  </span>
+                                                </div>
+                                                {/* Block content — flex-1 so it fills uniform row height */}
+                                                <div className="relative overflow-hidden flex-1">
+                                                  <div style={{
+                                                    transform: `scale(${innerScale})`,
+                                                    transformOrigin: "top left",
+                                                    width: `${invScale * 100}%`,
+                                                    height: `${invScale * 100}%`,
+                                                  }}>
+                                                    {bloque.tipo === "grafico"
+                                                      ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} estiloPlantilla={(pl as any)?.estiloGraficos} />
+                                                      : <TablaBloqueView   bloque={bloque as TablaBloque}   colors={paleta.colors} estiloPlantilla={(pl as any)?.estiloTablas} />
+                                                    }
+                                                  </div>
+                                                </div>
+                                                {/* Per-block observations/conclusions */}
+                                                {(bloque.observaciones || bloque.conclusiones) && (
+                                                  <div className="px-2 py-1 bg-amber-50/50 border-t border-amber-200/50 space-y-0.5 shrink-0">
+                                                    {bloque.observaciones && (
+                                                      <p className="text-[9px] text-amber-800"><span className="font-semibold">Obs: </span>{bloque.observaciones}</p>
+                                                    )}
+                                                    {bloque.conclusiones && (
+                                                      <p className="text-[9px] text-blue-800"><span className="font-semibold">Conc: </span>{bloque.conclusiones}</p>
+                                                    )}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+
+                            {/* ── SECTIONS (last page only) ── */}
+                            {showSections && (
+                              <div className="shrink-0 flex gap-3 mt-2">
+                                {pl?.incluirNotas && (
+                                  <div className="flex-1 border border-dashed border-border/50 rounded px-2 py-1 text-sm">
+                                    <span className="font-medium text-foreground">Notas</span>
+                                  </div>
+                                )}
+                                {pl?.incluirConclusiones && (
+                                  <div className="flex-1 border border-dashed border-border/50 rounded px-2 py-1 text-sm">
+                                    <span className="font-medium text-foreground">Conclusiones</span>
+                                  </div>
+                                )}
+                                {pl?.incluirFirma && (
+                                  <div className="flex-1 border-t-2 border-foreground/30 px-2 text-sm">
+                                    <span className="text-muted-foreground">Firma del responsable</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* ── FOOTER ── */}
+                            <div className="shrink-0 flex items-center justify-between border-t border-border/30 mt-2 pt-1 text-xs text-muted-foreground">
+                              <span className="truncate">{pl?.piePagina || ""}</span>
+                              {fmt.numeracionPaginas && (
+                                <span className="shrink-0 ml-2">{pageIdx + 1} / {totalPages}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  return <>{pages.map((pageRows, pageIdx) => renderPage(pageRows, pageIdx))}</>;
+                })()}
+              </div>
+            </div>
+          ) : (
+            /* ===== OTHER TABS: Block card preview ===== */
+            <>
           {/* Preview header */}
           <div className="px-6 pt-5 pb-3 flex items-start justify-between gap-4 shrink-0">
             <div className="flex items-center gap-3">
@@ -3026,16 +3840,23 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       <div className="px-4 py-2.5 border-b border-border/60 flex items-center gap-2">
                         {bloque.tipo === "grafico" ? (
                           <BarChart2 className="w-3.5 h-3.5 text-blue-500" />
-                        ) : (
+                        ) : bloque.tipo === "tabla" ? (
                           <Table2 className="w-3.5 h-3.5 text-purple-500" />
+                        ) : (
+                          <FileText className="w-3.5 h-3.5 text-amber-500" />
                         )}
                         <span className="text-xs font-semibold flex-1">
-                          {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${idx + 1}` : `Tabla ${idx + 1}`)}
+                          {bloque.tipo === "texto"
+                            ? ((bloque as TextoBloque).titulo || SUBTIPO_STYLES[(bloque as TextoBloque).subtipo]?.label || `Texto ${idx + 1}`)
+                            : (bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${idx + 1}` : `Tabla ${idx + 1}`))
+                          }
                         </span>
                         <span className="text-[9px] text-muted-foreground">
                           {bloque.tipo === "grafico"
                             ? TIPOS_GRAFICO.find((t) => t.id === (bloque as GraficoBloque).tipoGrafico)?.label
-                            : `${(bloque as TablaBloque).fuentesSeleccionadas.length} fuente${(bloque as TablaBloque).fuentesSeleccionadas.length !== 1 ? "s" : ""}`
+                            : bloque.tipo === "tabla"
+                              ? `${(bloque as TablaBloque).fuentesSeleccionadas.length} fuente${(bloque as TablaBloque).fuentesSeleccionadas.length !== 1 ? "s" : ""}`
+                              : (bloque as TextoBloque).subtipo
                           }
                         </span>
                         {isSelected && (
@@ -3043,12 +3864,14 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                         )}
                       </div>
 
-                      {/* Block content - chart or table */}
-                      <div className={cn(bloque.tipo === "grafico" ? "h-52" : "h-44", "p-4")}>
+                      {/* Block content - chart, table or text */}
+                      <div className={cn(bloque.tipo === "grafico" ? "h-52" : bloque.tipo === "texto" ? "h-24" : "h-44", "p-4")}>
                         {bloque.tipo === "grafico" ? (
-                          <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} />
+                          <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} estiloPlantilla={(config.plantilla as any)?.estiloGraficos} />
+                        ) : bloque.tipo === "tabla" ? (
+                          <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} estiloPlantilla={(config.plantilla as any)?.estiloTablas} />
                         ) : (
-                          <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} />
+                          <TextoBloqueView bloque={bloque as TextoBloque} />
                         )}
                       </div>
 
@@ -3056,7 +3879,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       <div className="px-4 py-2 border-t border-border/40 flex items-center gap-2 bg-muted/20">
                         <Shuffle className="w-3 h-3 text-muted-foreground/40" />
                         <span className="text-[10px] text-muted-foreground/50">
-                          Datos simulados - Haz clic para editar este bloque
+                          {bloque.tipo === "texto" ? "Haz clic para editar este bloque" : "Datos simulados - Haz clic para editar este bloque"}
                         </span>
                       </div>
                     </div>
@@ -3064,6 +3887,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                 })
               )}
             </div>
+            </>
+          )}
           </div>
         </div>
       </div>

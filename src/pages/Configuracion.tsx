@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+﻿import { useState, useRef, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { MainLayout }  from "@/components/layout/MainLayout";
@@ -52,7 +52,7 @@ import {
   ShieldAlert, AlertTriangle, Users2, Building2, Tractor, Pencil, Globe, FileText, MapPin,
 } from "lucide-react";
 
-// ─── InfoBanner (dismissible) ─────────────────────────────────────────────────
+//  InfoBanner (dismissible) 
 
 function InfoBanner({ children, storageKey }: { children: React.ReactNode; storageKey: string }) {
   const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(`info-${storageKey}`) === "1");
@@ -72,7 +72,7 @@ function InfoBanner({ children, storageKey }: { children: React.ReactNode; stora
   );
 }
 
-// ─── Constantes ───────────────────────────────────────────────────────────────
+//  Constantes 
 
 const MODULO_OPTIONS = [
   { value: "vivero",           label: "Vivero" },
@@ -116,28 +116,28 @@ const ESTADO_OPTIONS = [
   { value: "archivado", label: "Archivado" },
 ];
 
-// ─── Constantes de acceso por definición ──────────────────────────────────────
+//  Constantes de acceso por definición 
 
 const NIVEL_ACCESS_OPTIONS = [
-  { value: 1, label: "Lector",        icon: "🔓" },
-  { value: 2, label: "Supervisor",    icon: "👁" },
-  { value: 3, label: "Jefe de Área",  icon: "🗂" },
-  { value: 4, label: "Productor",     icon: "🌱" },
-  { value: 5, label: "Cliente Admin", icon: "🏢" },
-  { value: 6, label: "Super Admin",   icon: "⚡" },
+  { value: 1, label: "Lector",        icon: "L" },
+  { value: 2, label: "Supervisor",    icon: "S" },
+  { value: 3, label: "Jefe de área",  icon: "JA" },
+  { value: 4, label: "Productor",     icon: "P" },
+  { value: 5, label: "Cliente Admin", icon: "CA" },
+  { value: 6, label: "Super Admin",   icon: "SA" },
 ];
 
 // Claves de rol en el mismo orden jerárquico
 const ROLE_ACCESS_OPTIONS: { value: string; label: string; short: string }[] = [
   { value: "lector",        label: "Lector",        short: "Lector" },
   { value: "supervisor",    label: "Supervisor",     short: "Superv." },
-  { value: "jefe_area",     label: "Jefe de Área",  short: "J.Área" },
+  { value: "jefe_area",     label: "Jefe de área",  short: "J.área" },
   { value: "productor",     label: "Productor",      short: "Product." },
   { value: "cliente_admin", label: "Cliente Admin",  short: "C.Admin" },
   { value: "super_admin",   label: "Super Admin",    short: "S.Admin" },
 ];
 
-// ─── Version helpers ──────────────────────────────────────────────────────────
+//  Version helpers 
 
 const bumpV = (v: string, kind: "minor" | "major"): string => {
   const parts = (v ?? "1.0").split(".").map(n => parseInt(n) || 0);
@@ -146,7 +146,7 @@ const bumpV = (v: string, kind: "minor" | "major"): string => {
   return kind === "minor" ? `${maj}.${min + 1}` : `${maj + 1}.0`;
 };
 
-// ─── EstadoIcon ───────────────────────────────────────────────────────────────
+//  EstadoIcon 
 
 function EstadoIcon({ estado }: { estado: EstadoDef }) {
   if (estado === "activo")    return <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />;
@@ -154,7 +154,7 @@ function EstadoIcon({ estado }: { estado: EstadoDef }) {
   return                             <Archive       className="w-3.5 h-3.5 text-gray-400" />;
 }
 
-// ─── Biblioteca interna (usada en Sheet desde TabFormularios) ─────────────────
+//  Biblioteca interna (usada en Sheet desde TabFormularios) 
 
 const TIPO_META: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
   "Texto":   { icon: FileText,    color: "text-blue-700 dark:text-blue-400",    bg: "bg-blue-100 dark:bg-blue-900/30" },
@@ -178,6 +178,65 @@ const EMPTY_PARAM_FORM = {
   relacion_campo_label: null as string | null,
   relacion_campo_valor: null as string | null,
 };
+
+const NEW_DEF_TEMPLATES = [
+  {
+    id: "fitosanitario-cultivo",
+    label: "Fitosanitario",
+    hint: "Control de aplicaciones y observaciones en cultivo",
+    modulo: "cultivo",
+    tipo: "fitosanitario" as TipoConfig,
+    descripcion: "Registro de aplicaciones, dosis, responsable y observaciones.",
+  },
+  {
+    id: "riego-cultivo",
+    label: "Riego",
+    hint: "Seguimiento de riego, tiempos y volumen",
+    modulo: "cultivo",
+    tipo: "riego" as TipoConfig,
+    descripcion: "Control de turnos de riego, duracion y parametros de operacion.",
+  },
+  {
+    id: "cosecha-registro",
+    label: "Cosecha",
+    hint: "Captura de rendimiento y calidad de cosecha",
+    modulo: "cosecha",
+    tipo: "cosecha_registro" as TipoConfig,
+    descripcion: "Registro de lotes, kilos, calibre y trazabilidad de cosecha.",
+  },
+  {
+    id: "personalizado",
+    label: "Personalizado",
+    hint: "Comienza desde cero con estructura libre",
+    modulo: "cultivo",
+    tipo: "personalizado" as TipoConfig,
+    descripcion: "Formulario configurable para procesos especificos del cliente.",
+  },
+] as const;
+
+const EVENTO_TEMPLATES = [
+  {
+    id: "seguimiento",
+    label: "Seguimiento semanal",
+    nombre: "Seguimiento semanal",
+    descripcion: "Control periodico de estado, avances y observaciones.",
+    estado: "activo" as const,
+  },
+  {
+    id: "incidencia",
+    label: "Incidencia",
+    nombre: "Registro de incidencia",
+    descripcion: "Evento para documentar incidentes y acciones correctivas.",
+    estado: "activo" as const,
+  },
+  {
+    id: "auditoria",
+    label: "Auditoria",
+    nombre: "Auditoria interna",
+    descripcion: "Checklist y observaciones de cumplimiento del proceso.",
+    estado: "borrador" as const,
+  },
+] as const;
 
 function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => void }) {
   const { parametrosLib, addParamLib, updParamLib, delParamLib, allDefiniciones, parametros } = useConfig();
@@ -258,7 +317,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
 
   return (
     <div className="space-y-4">
-      {/* ── Barra superior ─────────────────────────────────────────────── */}
+      {/*  Barra superior  */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
@@ -279,7 +338,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
         </Button>
       </div>
 
-      {/* ── Filtros por tipo ─────────────────────────────────────────── */}
+      {/*  Filtros por tipo  */}
       <div className="flex items-center gap-1.5 flex-wrap">
         {tipos.map(t => {
           const meta = TIPO_META[t];
@@ -313,7 +372,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
         </span>
       </div>
 
-      {/* ── Formulario nuevo parámetro ────────────────────────────────── */}
+      {/*  Formulario nuevo parámetro  */}
       {showAddForm && (
         <div className="rounded-xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 space-y-3">
           <p className="text-xs font-semibold text-primary flex items-center gap-1.5">
@@ -329,7 +388,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
         </div>
       )}
 
-      {/* ── Lista de parámetros ───────────────────────────────────────── */}
+      {/*  Lista de parámetros  */}
       {filtered.length === 0 ? (
         <div className="py-16 text-center space-y-2">
           <BookOpen className="w-8 h-8 mx-auto text-muted-foreground/20" />
@@ -354,7 +413,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
                 )}
               >
                 {isEditing ? (
-                  /* ── Modo edición ── */
+                  /*  Modo edición  */
                   <div className="p-4 space-y-3">
                     <div className="flex items-center gap-2 mb-1">
                       <div className={cn("w-6 h-6 rounded-lg flex items-center justify-center shrink-0", meta.bg)}>
@@ -371,7 +430,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
                     </div>
                   </div>
                 ) : isDeleting ? (
-                  /* ── Confirmar eliminación ── */
+                  /*  Confirmar eliminación  */
                   <div className="px-4 py-3 flex items-center gap-3">
                     <span className="flex-1 text-sm text-destructive font-medium">
                       ¿Eliminar <strong>{p.nombre}</strong>?
@@ -382,7 +441,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
                     <Button size="sm" variant="ghost" onClick={() => setConfirmDelId(null)}>Cancelar</Button>
                   </div>
                 ) : (
-                  /* ── Vista normal ── */
+                  /*  Vista normal  */
                   <div className="flex items-center gap-3 px-4 py-3 group">
                     {/* Tipo icon */}
                     <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0", meta.bg)}>
@@ -445,7 +504,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
   );
 }
 
-// ── Formulario de campo de biblioteca ──────────────────────────────────────────
+// -- Formulario de campo de biblioteca ------------------------------------------
 function LibParamForm({
   form,
   onChange,
@@ -516,7 +575,7 @@ function LibParamForm({
         <Input
           value={form.unidad_medida}
           onChange={e => onChange({ ...form, unidad_medida: e.target.value })}
-          placeholder="ej. kg, °C, mm"
+          placeholder="ej. kg, C, mm"
           className="h-8 text-sm"
         />
       </div>
@@ -534,7 +593,7 @@ function LibParamForm({
               onChange={e => onChange({ ...form, relacion_def_id: e.target.value || null, relacion_campo_label: null, relacion_campo_valor: null })}
               className="w-full h-8 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
             >
-              <option value="">— Seleccionar definición —</option>
+              <option value=""> Seleccionar definición </option>
               {definiciones.map(d => (
                 <option key={d.id} value={d.id}>{d.nombre}</option>
               ))}
@@ -552,7 +611,7 @@ function LibParamForm({
                   onChange={e => onChange({ ...form, relacion_campo_label: e.target.value || null })}
                   className="w-full h-8 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
                 >
-                  <option value="">— Seleccionar campo —</option>
+                  <option value=""> Seleccionar campo </option>
                   {camposDisponibles.map(c => (
                     <option key={c.id} value={c.nombre}>{c.nombre.replace(/_/g, " ")}</option>
                   ))}
@@ -568,7 +627,7 @@ function LibParamForm({
                   onChange={e => onChange({ ...form, relacion_campo_valor: e.target.value || null })}
                   className="w-full h-8 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
                 >
-                  <option value="">— Mismo que mostrar —</option>
+                  <option value=""> Mismo que mostrar </option>
                   {camposDisponibles.map(c => (
                     <option key={c.id} value={c.nombre}>{c.nombre.replace(/_/g, " ")}</option>
                   ))}
@@ -610,7 +669,7 @@ function LibParamForm({
   );
 }
 
-// ─── Hub de Formularios ───────────────────────────────────────────────────────
+// --- Hub de Formularios -------------------------------------------------------
 // Hub central: tarjetas de formularios con campos inline, biblioteca en Sheet,
 // gestión de versiones y configuración avanzada de campos.
 
@@ -624,7 +683,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
   const { role, clientes, productores, users: allUsers, empresaCtxId } = useRole();
   const isSuperAdmin = role === "super_admin";
 
-  // ── Estado ──────────────────────────────────────────────────────────────────
+  // -- Estado ------------------------------------------------------------------
   const [searchDef,       setSearchDef]       = useState("");
   const [expandedCampos,  setExpandedCampos]  = useState<Set<string>>(new Set());
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
@@ -639,11 +698,37 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
   const [campoSearch,       setCampoSearch]       = useState("");
   const [campoTypeFilter,   setCampoTypeFilter]   = useState<string>("Todos");
   const [selectedLibIds,    setSelectedLibIds]    = useState<Set<string>>(new Set());
-  const [createNewCampo,    setCreateNewCampo]    = useState(false);
 
   // Super admin: filtro por cliente y productor
   const [selectedClienteFilter, setSelectedClienteFilter] = useState<number | null>(null);
   const [selectedProductorFilter, setSelectedProductorFilter] = useState<number | null>(null);
+  const [newDefModalOpen, setNewDefModalOpen] = useState(false);
+  const [newDefStep, setNewDefStep] = useState<"basico" | "avanzado" | "campos">("basico");
+  const [newDefAdvancedUnlocked, setNewDefAdvancedUnlocked] = useState(false);
+  const [newDefCamposUnlocked, setNewDefCamposUnlocked] = useState(false);
+  const [newDefStep2Completed, setNewDefStep2Completed] = useState(false);
+  const [newDefCampoSearch, setNewDefCampoSearch] = useState("");
+  const [newDefCampoTypeFilter, setNewDefCampoTypeFilter] = useState<string>("Todos");
+  const [newDefSelectedLibIds, setNewDefSelectedLibIds] = useState<Set<string>>(new Set());
+  const [newDefForm, setNewDefForm] = useState<{
+    nombre: string;
+    descripcion: string;
+    modulo: string;
+    tipo: TipoConfig;
+    estado: EstadoDef;
+    cultivo_id: string;
+    nivel_minimo: number;
+    roles_excluidos: string[];
+  }>({
+    nombre: "",
+    descripcion: "",
+    modulo: "cultivo",
+    tipo: "personalizado",
+    estado: "borrador",
+    cultivo_id: "",
+    nivel_minimo: 1,
+    roles_excluidos: [],
+  });
   const [showCopyDialog,        setShowCopyDialog]        = useState(false);
   const [copySourceClienteId,   setCopySourceClienteId]   = useState<number | null>(null);
   const [copySelectedDefs,      setCopySelectedDefs]      = useState<Set<string>>(new Set());
@@ -653,7 +738,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
     setSelectedProductorFilter(null);
   }, [selectedClienteFilter]);
 
-  // Sincronizar empresa context global → filtro local
+  // Sincronizar empresa context global ? filtro local
   useEffect(() => {
     if (isSuperAdmin) setSelectedClienteFilter(empresaCtxId);
   }, [empresaCtxId, isSuperAdmin]);
@@ -677,16 +762,19 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
   } | null>(null);
   const [compareRootId, setCompareRootId] = useState<string | null>(null);
 
-  // ── Evento Sheet (gestión unificada) ────────────────────────────────────────
+  // -- Evento Sheet (gestión unificada) ----------------------------------------
   const [eventosSheet, setEventosSheet] = useState<{
     defId: string; rootId: string; modulo: string; nombre: string;
   } | null>(null);
-  const [eventosSheetView, setEventosSheetView] = useState<"list" | "new">("list");
+  const [eventosSheetView, setEventosSheetView] = useState<"list" | "detail" | "new">("list");
+  const [eventosSelectedRootId, setEventosSelectedRootId] = useState<string | null>(null);
+  const [eventosDetailTab, setEventosDetailTab] = useState<"general" | "campos" | "historial" | "accesos">("general");
   const [newEventoNombre, setNewEventoNombre]           = useState("");
   const [newEventoDescripcion, setNewEventoDescripcion] = useState("");
   const [newEventoEstado, setNewEventoEstado]           = useState<"activo" | "borrador">("activo");
-  const [expandedEvCampos, setExpandedEvCampos]         = useState<Set<string>>(new Set());
-  const [expandedEvHistory, setExpandedEvHistory]       = useState<Set<string>>(new Set());
+  const [eventosSearch, setEventosSearch] = useState("");
+  const [eventosEstadoFilter, setEventosEstadoFilter] = useState<"todos" | "activo" | "borrador" | "archivado">("todos");
+  const [eventosSort, setEventosSort] = useState<"recientes" | "nombre">("recientes");
   const [compareEvId,       setCompareEvId]             = useState<string | null>(null);
   const [evRollbackModal, setEvRollbackModal] = useState<{
     targetId: string; targetVersion: string; targetNombre: string;
@@ -703,10 +791,8 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
     rootId: string; sourceId: string; sourceName: string;
     sourceVersion: string; newVersion: string; paramCount: number; newName: string;
   } | null>(null);
-  const toggleEvCampos  = (id: string) => setExpandedEvCampos(p  => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleEvHistory = (id: string) => setExpandedEvHistory(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-  // ── Bulk access dialog ───────────────────────────────────────────────────────
+  // -- Bulk access dialog -------------------------------------------------------
   const [accesosModal,   setAccesosModal]   = useState<string | null>(null); // defId
   const [accSearch,      setAccSearch]      = useState("");
   const [accFilter,      setAccFilter]      = useState<"todos" | "permitidos" | "bloqueados" | "por_rol">("todos");
@@ -722,7 +808,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
       // Solo formularios del productor específico
       list = list.filter(d => d.productor_id === selectedProductorFilter);
     } else {
-      // Solo empresa → excluir formularios de productores específicos
+      // Solo empresa ? excluir formularios de productores específicos
       list = list.filter(d => !d.productor_id);
     }
     return list;
@@ -742,8 +828,117 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
     );
   }, [isSuperAdmin, selectedClienteFilter, cultivos, allCultivos]);
 
+  const activeParametrosCount = useMemo(
+    () => parametrosLib.filter(p => p.activo !== false).length,
+    [parametrosLib],
+  );
+
+  const openBibliotecaFlow = () => {
+    setAddCampoModal(null);
+    setNewDefModalOpen(false);
+    setShowBiblioteca(true);
+  };
+
+  const resetNewDefForm = (moduloPref?: string) => {
+    setNewDefStep("basico");
+    setNewDefAdvancedUnlocked(false);
+    setNewDefCamposUnlocked(false);
+    setNewDefStep2Completed(false);
+    setNewDefCampoSearch("");
+    setNewDefCampoTypeFilter("Todos");
+    setNewDefSelectedLibIds(new Set());
+    setNewDefForm({
+      nombre: "",
+      descripcion: "",
+      modulo: moduloPref ?? "cultivo",
+      tipo: "personalizado",
+      estado: "borrador",
+      cultivo_id: "",
+      nivel_minimo: 1,
+      roles_excluidos: [],
+    });
+  };
+
+  const openNewDefModal = (moduloPref?: string) => {
+    resetNewDefForm(moduloPref);
+    setNewDefModalOpen(true);
+  };
+
+  const openAccesosModal = (defId: string) => {
+    setAccesosModal(defId);
+    setAccSearch("");
+    setAccFilter("todos");
+    setAccSelected(new Set());
+  };
+
+  const resetNewEventoForm = () => {
+    setNewEventoNombre("");
+    setNewEventoDescripcion("");
+    setNewEventoEstado("activo");
+  };
+
+  const openEventosSheetFlow = (
+    payload: { defId: string; rootId: string; modulo: string; nombre: string },
+    view: "list" | "new" = "list",
+  ) => {
+    setEventosSheet(payload);
+    setEventosSearch("");
+    setEventosEstadoFilter("todos");
+    setEventosSort("recientes");
+    setEventosSelectedRootId(null);
+    setEventosDetailTab("general");
+    if (view === "new") {
+      resetNewEventoForm();
+    }
+    setEventosSheetView(view);
+  };
+
+  const openEventoDetail = (rootId: string, tab: "general" | "campos" | "historial" | "accesos" = "general") => {
+    setEventosSelectedRootId(rootId);
+    setEventosDetailTab(tab);
+    setEventosSheetView("detail");
+  };
+
+  const applyEventoTemplate = (templateId: string) => {
+    const template = EVENTO_TEMPLATES.find(t => t.id === templateId);
+    if (!template) return;
+    setNewEventoNombre(template.nombre);
+    setNewEventoDescripcion(template.descripcion);
+    setNewEventoEstado(template.estado);
+    setEventosSheetView("new");
+  };
+
+  const newDefStepIndex = newDefStep === "basico" ? 1 : newDefStep === "avanzado" ? 2 : 3;
+  const newDefStep1Completed = newDefForm.nombre.trim().length > 0;
+  const newDefStep3Completed = newDefSelectedLibIds.size > 0;
+
+  const createDefinitionFromWizard = () => {
+    const nombre = newDefForm.nombre.trim();
+    if (!nombre || !newDefStep2Completed || !newDefStep3Completed) return;
+    const created = addDef({
+      nombre,
+      descripcion: newDefForm.descripcion.trim(),
+      modulo: newDefForm.modulo,
+      tipo: newDefForm.tipo,
+      estado: newDefForm.estado,
+      cultivoId: newDefForm.cultivo_id || undefined,
+      nivel_minimo: newDefForm.nivel_minimo,
+      roles_excluidos: newDefForm.roles_excluidos,
+      clienteIdOverride: selectedClienteFilter ?? undefined,
+      productorIdOverride: selectedProductorFilter ?? undefined,
+    });
+    newDefSelectedLibIds.forEach(libId => {
+      const lib = parametrosLib.find(p => p.id === libId);
+      if (lib) addPar(created.id, lib.id, lib.nombre);
+    });
+    setListExpandedRows(prev => new Set(prev).add(created.id));
+    setSearchDef("");
+    setNewDefModalOpen(false);
+    onPendingChange?.(false);
+  };
+
   const families = useMemo(() => {
-    // Exclude evento defs — they appear nested inside their parent registro card
+    // Exclude evento defs ? they appear nested inside their parent registro card
     const registros = effectiveDefs.filter(d => !d.registro_padre_id);
     const map = new Map<string, ModDef[]>();
     registros.forEach(d => {
@@ -829,17 +1024,50 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
     });
   }, [sheetEventos]);
 
+  const filteredSheetEventoFamilies = useMemo(() => {
+    const q = eventosSearch.trim().toLowerCase();
+    let list = [...sheetEventoFamilies];
+
+    if (q) {
+      list = list.filter(({ latest, versions }) =>
+        latest.nombre.toLowerCase().includes(q)
+        || (latest.descripcion ?? "").toLowerCase().includes(q)
+        || versions.some(v => v.nombre.toLowerCase().includes(q)),
+      );
+    }
+
+    if (eventosEstadoFilter !== "todos") {
+      list = list.filter(({ latest }) => (latest.estado ?? "borrador") === eventosEstadoFilter);
+    }
+
+    list.sort((a, b) => {
+      if (eventosSort === "nombre") {
+        return a.latest.nombre.localeCompare(b.latest.nombre, "es", { sensitivity: "base" });
+      }
+      const aTime = a.latest.updated_at ? new Date(a.latest.updated_at).getTime() : 0;
+      const bTime = b.latest.updated_at ? new Date(b.latest.updated_at).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    return list;
+  }, [sheetEventoFamilies, eventosSearch, eventosEstadoFilter, eventosSort]);
+
+  const selectedEventoFamily = useMemo(() => {
+    if (!eventosSelectedRootId) return null;
+    return sheetEventoFamilies.find(f => f.rootId === eventosSelectedRootId) ?? null;
+  }, [sheetEventoFamilies, eventosSelectedRootId]);
+
   return (
     <div className="space-y-5">
 
-      {/* ── Barra de herramientas ──────────────────────────────────────────── */}
+      {/* -- Barra de herramientas -------------------------------------------- */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-0 max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
           <input
             value={searchDef}
             onChange={e => setSearchDef(e.target.value)}
-            placeholder="Buscar formulario…"
+            placeholder="Buscar formulario⬦"
             className="w-full pl-9 pr-8 py-2 text-sm rounded-lg bg-muted/40 border border-border focus:border-primary/50 focus:outline-none focus:bg-background transition-colors"
           />
           {searchDef && (
@@ -863,7 +1091,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                 <option key={c.id} value={c.id}>{c.nombre}</option>
               ))}
             </select>
-            {/* Filtro productor — solo visible cuando hay empresa seleccionada */}
+            {/* Filtro productor ? solo visible cuando hay empresa seleccionada */}
             {selectedClienteFilter !== null && filteredProductores.length > 0 && (
               <>
                 <Tractor className="w-3.5 h-3.5 text-muted-foreground ml-1" />
@@ -883,7 +1111,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         )}
 
         <div className="flex items-center gap-2 ml-auto">
-          {/* ── Toggle vista lista/tarjeta ── */}
+          {/* -- Toggle vista lista/tarjeta -- */}
           <div className="flex items-center p-0.5 rounded-lg bg-muted border border-border">
             <button
               onClick={() => setViewMode("list")}
@@ -916,21 +1144,21 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               Copiar desde empresa
             </Button>
           )}
-          <Button size="sm" onClick={() => addDef(undefined, undefined, selectedClienteFilter ?? undefined, selectedProductorFilter ?? undefined)}>
+          <Button size="sm" onClick={() => openNewDefModal()}>
             <Plus className="w-4 h-4 mr-1.5" />
             Nueva definición
           </Button>
         </div>
       </div>
 
-      {/* ── Banner de contexto ────────────────────────────────────────────────── */}
+      {/* -- Banner de contexto -------------------------------------------------- */}
       {(() => {
         const selectedCliente = selectedClienteFilter !== null ? clientes.find(c => c.id === selectedClienteFilter) : null;
         const selectedProductor = selectedProductorFilter !== null ? productores.find(p => p.id === selectedProductorFilter) : null;
         const defsCount = effectiveDefs.filter(d => !d.registro_padre_id).length;
         const clientesConDefs = new Set(allDefiniciones.map(d => d.cliente_id).filter(Boolean)).size;
 
-        // Super admin sin filtro → global
+        // Super admin sin filtro ? global
         if (isSuperAdmin && selectedClienteFilter === null) {
           return (
             <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
@@ -952,7 +1180,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               <Tractor className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <div className="flex-1">
                 <span className="font-semibold text-sm text-amber-700 dark:text-amber-200">
-                  {selectedCliente?.nombre} <span className="font-normal text-amber-500">›</span> {selectedProductor.nombre}
+                  {selectedCliente?.nombre} <span className="font-normal text-amber-500">?</span> {selectedProductor.nombre}
                 </span>
                 <span className="text-xs text-amber-600 dark:text-amber-400 ml-2">
                   {defsCount} formulario{defsCount !== 1 ? "s" : ""} de este productor
@@ -1009,7 +1237,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         return null;
       })()}
 
-      {/* ── Estado vacío ──────────────────────────────────────────────────── */}
+      {/* -- Estado vacío ---------------------------------------------------- */}
       {filteredFamilies.length === 0 && (
         <div className="flex flex-col items-center gap-4 py-16 text-center">
           <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center">
@@ -1030,14 +1258,14 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
             </p>
           </div>
           {!searchDef && (
-            <Button onClick={() => addDef(undefined, undefined, selectedClienteFilter ?? undefined, selectedProductorFilter ?? undefined)}>
+            <Button onClick={() => openNewDefModal()}>
               <Plus className="w-4 h-4 mr-2" /> Nueva definición
             </Button>
           )}
         </div>
       )}
 
-      {/* ── Tarjetas agrupadas por módulo ─────────────────────────────────── */}
+      {/* -- Tarjetas agrupadas por módulo ----------------------------------- */}
       {filteredFamilies.length > 0 && (
         <div className="space-y-8">
           {familiesByModulo.map(({ modulo, label, families }) => (
@@ -1061,12 +1289,23 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               )}>
                 {families.map(({ rootId, versions, latest, rep }) => {
             const campos       = parametros.filter(p => p.definicion_id === latest.id);
+              const sortedCampos = [...campos].sort((a, b) => a.orden - b.orden);
+              const hasManyCampos = sortedCampos.length > 8;
             const hasHistory   = versions.length > 1;
             const isExpCampos  = expandedCampos.has(rootId);
             const isExpHistory = expandedHistory.has(rootId);
             const isExpEventos = expandedEventos.has(rootId);
             // Eventos vinculados a este registro
             const eventos      = definiciones.filter(d => d.registro_padre_id === latest.id);
+            const eventosActivos = eventos.filter(ev => ev.estado === "activo").length;
+            const eventosBorrador = eventos.filter(ev => ev.estado === "borrador").length;
+            const eventosLastUpdateTs = eventos.reduce((maxTs, ev) => {
+              const ts = ev.updated_at ? new Date(ev.updated_at).getTime() : 0;
+              return ts > maxTs ? ts : maxTs;
+            }, 0);
+            const eventosLastUpdateLabel = eventosLastUpdateTs > 0
+              ? new Date(eventosLastUpdateTs).toLocaleDateString("es-CL", { day: "2-digit", month: "short" })
+              : null;
             // Protección: no permitir desactivar si es la única versión no archivada y ya tiene datos
             const defDatos            = datos.filter(d => d.definicion_id === latest.id);
             const otherLiveVersions   = versions.filter(v => v.id !== latest.id && v.estado !== "archivado");
@@ -1093,7 +1332,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                   : "bg-card border border-border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow",
               )}>
 
-                {/* ── Compact list row (solo en modo lista) ─────────────── */}
+                {/* -- Compact list row (solo en modo lista) --------------- */}
                 {isListRow && (
                   <div
                     className={cn(
@@ -1131,6 +1370,22 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                     <span className="hidden sm:inline text-[11px] text-muted-foreground shrink-0">
                       {MODULO_OPTIONS.find(m => m.value === latest.modulo)?.label ?? latest.modulo}
                     </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openAccesosModal(latest.id);
+                      }}
+                      className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md border border-primary/25 bg-primary/5 text-primary hover:bg-primary/10 transition-colors shrink-0"
+                      title="Gestionar accesos"
+                    >
+                      <Lock className="w-3 h-3" />
+                      Accesos
+                      {accesosCount > 0 && (
+                        <span className="text-[9px] font-semibold bg-primary/15 text-primary px-1 py-0.5 rounded-full leading-none">
+                          {accesosCount}
+                        </span>
+                      )}
+                    </button>
                     {campos.length > 0 && (
                       <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground shrink-0">
                         <List className="w-3 h-3" />{campos.length}
@@ -1158,7 +1413,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                   </div>
                 )}
 
-                {/* ── Cabecera ──────────────────────────────────────────── */}
+                {/* -- Cabecera -------------------------------------------- */}
                 {isExpanded && <div className={cn(
                   "border-b border-border",
                   isListRow
@@ -1211,7 +1466,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                       )}
                     </div>
 
-                    {/* ─ Menú de acciones ─────────────────────────────── */}
+                    {/* - Menú de acciones ------------------------------- */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0" title="Acciones">
@@ -1234,7 +1489,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => { setAccesosModal(latest.id); setAccSearch(""); setAccFilter("todos"); setAccSelected(new Set()); }}>
+                        <DropdownMenuItem onClick={() => openAccesosModal(latest.id)}>
                           <Lock className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
                           Gestionar accesos
                         </DropdownMenuItem>
@@ -1244,7 +1499,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                             disabled={blockDeactivate}
                             onClick={() => { if (blockDeactivate) return; const idx = definiciones.findIndex(d => d.id === latest.id); if (idx === -1) return; updDef(idx, "estado", latest.estado === "activo" ? "borrador" : "activo"); }}
                             className={latest.estado === "activo" ? "text-yellow-600 focus:text-yellow-700" : "text-green-600 focus:text-green-700"}
-                            title={blockDeactivate ? `Tiene ${defDatos.length} dato(s) — crea otra versión primero` : undefined}
+                            title={blockDeactivate ? `Tiene ${defDatos.length} dato(s) ? crea otra versión primero` : undefined}
                           >
                             <Power className="w-3.5 h-3.5 mr-2" />
                             {latest.estado === "activo" ? "Pasar a borrador" : "Activar"}
@@ -1286,7 +1541,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                     className="font-semibold text-foreground leading-snug w-full bg-transparent outline-none placeholder:italic placeholder:text-muted-foreground hover:bg-muted/30 focus:bg-background focus:px-1.5 focus:rounded focus:border focus:border-primary/40 transition-all text-sm mt-2"
                   />
 
-                  {/* Módulo · Cultivo */}
+                  {/* Módulo ? Cultivo */}
                   <div className="flex items-center gap-1.5 mt-1 text-[11px] text-muted-foreground flex-wrap" onClick={e => e.stopPropagation()}>
                     <span className="shrink-0">{MODULO_OPTIONS.find(m => m.value === latest.modulo)?.label ?? latest.modulo}</span>
                     <span>·</span>
@@ -1300,17 +1555,34 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                         latest.cultivo_id ? "bg-primary/10 text-primary border-primary/20 hover:bg-primary/20" : "bg-muted text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
                       )}
                     >
-                      <option value="">🌐 Global — todos los cultivos</option>
-                      {cardCultivos.map(c => <option key={c.id} value={c.id}>🌿 {c.nombre}</option>)}
+                      <option value="">Global - todos los cultivos</option>
+                      {cardCultivos.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                     </select>
                   </div>
 
-                  {/* Control de acceso — colapsable */}
+                  <div className="mt-2 flex items-center justify-between gap-2" onClick={e => e.stopPropagation()}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openAccesosModal(latest.id)}
+                      className="h-7 px-2.5 text-[11px] border-primary/30 text-primary hover:bg-primary/10"
+                    >
+                      <Lock className="w-3.5 h-3.5 mr-1" />
+                      Gestionar accesos
+                    </Button>
+                    <span className="text-[10px] text-muted-foreground">
+                      {accesosCount > 0
+                        ? `${accesosCount} override${accesosCount > 1 ? "s" : ""} configurado${accesosCount > 1 ? "s" : ""}`
+                        : "Sin overrides configurados"}
+                    </span>
+                  </div>
+
+                  {/* Control de acceso ? colapsable */}
                   <div className="mt-2.5 pt-2 border-t border-border/40" onClick={e => e.stopPropagation()}>
-                    {/* Fila resumen — siempre visible, clic para expandir */}
+                    {/* Fila resumen ? siempre visible, clic para expandir */}
                     <button
                       onClick={() => toggleExpandAcceso(rootId)}
-                      className="flex items-center gap-1.5 w-full group/acc hover:opacity-80 transition-opacity"
+                      className="flex items-center gap-1.5 w-full group/acc hover:bg-primary/5 rounded-md px-1.5 py-1 transition-colors"
                     >
                       <Lock className="w-2.5 h-2.5 text-muted-foreground/50 shrink-0" />
                       <span className={cn(
@@ -1328,7 +1600,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                       )}
                       {accesosCount > 0 && (
                         <span className="text-[10px] text-primary/70 font-medium shrink-0">
-                          · {accesosCount} override{accesosCount > 1 ? "s" : ""}
+                          ? {accesosCount} override{accesosCount > 1 ? "s" : ""}
                         </span>
                       )}
                       <ChevronDown className={cn(
@@ -1361,7 +1633,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                             return (
                               <span key={r} className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 shrink-0">
                                 {rOpt?.short ?? r}
-                                <button onClick={() => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "roles_excluidos", (latest.roles_excluidos ?? []).filter(x => x !== r)); }} className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity leading-none" title={`Quitar exclusión de ${rOpt?.label ?? r}`}>×</button>
+                                <button onClick={() => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "roles_excluidos", (latest.roles_excluidos ?? []).filter(x => x !== r)); }} className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity leading-none" title={`Quitar exclusión de ${rOpt?.label ?? r}`}>?</button>
                               </span>
                             );
                           })}
@@ -1388,12 +1660,12 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                               {accesos.length === 0
                                 ? <span className="text-[9px] text-muted-foreground/50 italic">Sin overrides</span>
                                 : <>
-                                    {nAllow > 0 && <span className="text-[9px] font-medium text-success">✓ {nAllow}</span>}
-                                    {nBlock > 0 && <span className="text-[9px] font-medium text-destructive">✕ {nBlock}</span>}
+                                    {nAllow > 0 && <span className="text-[9px] font-medium text-success">? {nAllow}</span>}
+                                    {nBlock > 0 && <span className="text-[9px] font-medium text-destructive">? {nBlock}</span>}
                                   </>
                               }
-                              <button onClick={() => { setAccesosModal(latest.id); setAccSearch(""); setAccFilter("todos"); setAccSelected(new Set()); }} className="ml-auto text-[9px] font-medium text-primary hover:underline transition-colors shrink-0">
-                                Gestionar accesos →
+                              <button onClick={() => openAccesosModal(latest.id)} className="ml-auto text-[9px] font-medium text-primary hover:underline transition-colors shrink-0">
+                                Gestionar accesos ?
                               </button>
                             </div>
                           );
@@ -1406,7 +1678,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
 
                 {isExpanded && <>
 
-                {/* ── Historial de versiones (expandible) ───────────────── */}
+                {/* -- Historial de versiones (expandible) ----------------- */}
                 {isExpHistory && hasHistory && (
                   <div className={cn(
                     "border-b border-border bg-muted/10",
@@ -1510,7 +1782,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                   </div>
                 )}
 
-                {/* ── Sección de Campos ──────────────────────────────────── */}
+                {/* -- Sección de Campos ------------------------------------ */}
                 <div className="px-4 py-3 flex-1">
                   <button
                     onClick={() => toggleExpandCampos(rootId)}
@@ -1534,58 +1806,59 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                       {campos.length === 0 ? (
                         <p className="text-xs text-muted-foreground italic py-2 px-1">Sin campos configurados.</p>
                       ) : (
-                        campos.sort((a, b) => a.orden - b.orden).map(campo => (
-                          <div
-                            key={campo.id}
-                            className="flex items-center justify-between gap-2 py-1.5 px-2.5 rounded-lg bg-muted/30 hover:bg-muted/60 transition-colors group/campo"
-                          >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              {campo.obligatorio && (
-                                <span className="text-destructive font-bold text-[10px] shrink-0" title="Obligatorio">*</span>
-                              )}
-                              <input
-                                value={campo.nombre}
-                                onChange={e => updParFull(campo.id, { nombre: e.target.value })}
-                                placeholder="sin nombre"
-                                className="text-xs font-medium text-foreground bg-transparent outline-none flex-1 min-w-0 placeholder:italic placeholder:text-muted-foreground hover:bg-muted/50 focus:bg-background focus:px-1.5 focus:rounded focus:border focus:border-primary/40 transition-all"
-                              />
-                              <select
-                                value={campo.tipo_dato}
-                                onChange={e => updParFull(campo.id, { tipo_dato: e.target.value as TipoDato })}
-                                className="text-[10px] text-muted-foreground shrink-0 bg-background border border-border px-1 py-0.5 rounded cursor-pointer hover:border-primary/40 focus:border-primary/60 focus:outline-none transition-colors"
-                              >
-                                {TIPO_DATO_OPTIONS.map(o => (
-                                  <option key={o.value} value={o.value}>{o.label}</option>
-                                ))}
-                              </select>
+                        <div className={cn(
+                          "space-y-1",
+                          hasManyCampos && "max-h-72 overflow-y-auto pr-1"
+                        )}>
+                          {sortedCampos.map(campo => (
+                            <div
+                              key={campo.id}
+                              className="flex items-center justify-between gap-2 py-1.5 px-2.5 rounded-lg bg-muted/30 hover:bg-muted/60 transition-colors group/campo"
+                            >
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                {campo.obligatorio && (
+                                  <span className="text-destructive font-bold text-[10px] shrink-0" title="Obligatorio">*</span>
+                                )}
+                                <span
+                                  className="text-xs font-medium text-foreground bg-background border border-border px-1.5 py-0.5 rounded flex-1 min-w-0 truncate"
+                                  title="El nombre técnico viene del parámetro y no se puede editar aquí"
+                                >
+                                  {campo.nombre.replace(/_/g, " ")}
+                                </span>
+                                <span
+                                  className="text-[10px] text-muted-foreground shrink-0 bg-background border border-border px-1 py-0.5 rounded"
+                                  title="El tipo de dato se define en el parámetro y no se puede editar aquí"
+                                >
+                                  {campo.tipo_dato}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover/campo:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => setConfigCampoId(campo.id)}
+                                  title="Configuración avanzada"
+                                  className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                                >
+                                  <Settings2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    const origIdx = parametros.findIndex(p => p.id === campo.id);
+                                    if (origIdx !== -1) delParByIdx(origIdx);
+                                  }}
+                                  title="Eliminar campo"
+                                  className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover/campo:opacity-100 transition-opacity">
-                              <button
-                                onClick={() => setConfigCampoId(campo.id)}
-                                title="Configuración avanzada"
-                                className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                              >
-                                <Settings2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const origIdx = parametros.findIndex(p => p.id === campo.id);
-                                  if (origIdx !== -1) delParByIdx(origIdx);
-                                }}
-                                title="Eliminar campo"
-                                className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))
+                          ))}
+                        </div>
                       )}
                       <button
                         onClick={() => {
                           setSelectedLibIds(new Set());
                           setCampoSearch("");
-                          setCreateNewCampo(false);
                           setAddCampoModal({ defId: latest.id, rootId });
                           setExpandedCampos(prev => new Set([...prev, rootId]));
                         }}
@@ -1598,58 +1871,57 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                   )}
                 </div>
 
-                {/* ── Sección de Eventos vinculados (resumen compacto) ────── */}
+                {/* -- Sección de Eventos vinculados (resumen compacto) ------ */}
                 <div className={cn(
                   "border-t border-border",
                   isListRow
                     ? "px-6 py-3 border-l-4 border-l-amber-400/40 bg-amber-50/20" // Indentación especial para eventos en lista
                     : "px-4 py-3"
                 )}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                      <span className="text-xs font-medium text-muted-foreground">Eventos</span>
-                      {eventos.length > 0 && (
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        <span className="text-xs font-medium text-muted-foreground">Eventos</span>
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 leading-none">
                           {eventos.length}
                         </span>
-                      )}
-                      {/* chips de preview */}
-                      {eventos.slice(0, 2).map(ev => (
-                        <span
-                          key={ev.id}
-                          className={cn(
-                            "hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full leading-none font-medium",
-                            ev.estado === "activo"
-                              ? "bg-green-100/70 text-green-700 dark:bg-green-900/20 dark:text-green-400"
-                              : "bg-muted text-muted-foreground",
-                          )}
-                        >
-                          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0",
-                            ev.estado === "activo" ? "bg-green-500" : "bg-yellow-400"
-                          )} />
-                          {ev.nombre}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                          {eventosActivos} activo{eventosActivos !== 1 ? "s" : ""}
                         </span>
-                      ))}
-                      {eventos.length > 2 && (
-                        <span className="hidden sm:inline text-[10px] text-muted-foreground/60">
-                          +{eventos.length - 2} más
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
+                          {eventosBorrador} borrador
                         </span>
-                      )}
+                        {eventosLastUpdateLabel && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                            <Clock className="w-2.5 h-2.5" />
+                            últ. actualización {eventosLastUpdateLabel}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <button
-                      onClick={() => {
-                        setEventosSheet({ defId: latest.id, rootId, modulo: latest.modulo, nombre: latest.nombre });
-                        setEventosSheetView("list");
-                        setNewEventoNombre("");
-                        setNewEventoDescripcion("");
-                        setNewEventoEstado("activo");
-                      }}
-                      className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-500/8 px-2 py-1 rounded-md transition-colors"
-                    >
-                      Gestionar
-                      <ChevronRight className="w-3 h-3" />
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[11px]"
+                        onClick={() => openEventosSheetFlow({ defId: latest.id, rootId, modulo: latest.modulo, nombre: latest.nombre }, "list")}
+                      >
+                        Gestionar
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 text-[11px] bg-amber-500 hover:bg-amber-600 text-white"
+                        onClick={() => openEventosSheetFlow({ defId: latest.id, rootId, modulo: latest.modulo, nombre: latest.nombre }, "new")}
+                      >
+                        <Plus className="w-3 h-3 mr-1" />
+                        Nuevo evento
+                      </Button>
+                    </div>
                   </div>
                 </div>
                 </>}
@@ -1657,10 +1929,10 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
             );
           })}
 
-                {/* ── Tarjeta "Nueva definición" dentro del módulo ───────── */}
+                {/* -- Tarjeta "Nueva definición" dentro del módulo --------- */}
                 {viewMode === "card" && (
                 <button
-                  onClick={() => addDef(undefined, modulo)}
+                  onClick={() => openNewDefModal(modulo)}
                   className="border-2 border-dashed border-border rounded-xl p-6 flex flex-col items-center justify-center gap-2.5 text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all min-h-[160px]"
                 >
                   <div className="w-9 h-9 rounded-xl bg-muted/50 flex items-center justify-center">
@@ -1674,11 +1946,11 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                 )}
                 {viewMode === "list" && (
                 <button
-                  onClick={() => addDef(undefined, modulo)}
+                  onClick={() => openNewDefModal(modulo)}
                   className="flex items-center gap-2 w-full px-4 py-2.5 text-xs text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors border-t border-border"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  Nueva definición — {label}
+                  Nueva definición ? {label}
                 </button>
                 )}
               </div>
@@ -1687,7 +1959,533 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         </div>
       )}
 
-      {/* ── Sheet: gestión de eventos ───────────────────────────────────────── */}
+      {/* -- Modal: nueva definición (asistente) ----------------------------- */}
+      <Dialog
+        open={newDefModalOpen}
+        onOpenChange={(open) => {
+          setNewDefModalOpen(open);
+          if (!open) resetNewDefForm();
+        }}
+      >
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-4 h-4 text-primary" />
+              Nueva definición
+            </DialogTitle>
+            <DialogDescription>
+              Completa 3 pasos: básico, configuración avanzada y selección de campos.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-primary">Primero parámetros, luego definición</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {activeParametrosCount} parámetro{activeParametrosCount !== 1 ? "s" : ""} activo{activeParametrosCount !== 1 ? "s" : ""} en Biblioteca.
+                </p>
+              </div>
+              <Button type="button" size="sm" variant="outline" onClick={openBibliotecaFlow}>
+                <BookOpen className="w-3.5 h-3.5 mr-1" />
+                Biblioteca
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setNewDefStep("basico")}
+                className={cn(
+                  "text-xs font-medium px-2.5 py-1 rounded-full border transition-colors",
+                  newDefStep === "basico"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted/40 text-muted-foreground border-border hover:border-primary/40",
+                )}
+              >
+                1. Básico
+              </button>
+              <button
+                type="button"
+                disabled={!newDefAdvancedUnlocked && newDefStep !== "avanzado"}
+                onClick={() => setNewDefStep("avanzado")}
+                className={cn(
+                  "text-xs font-medium px-2.5 py-1 rounded-full border transition-colors",
+                  newDefStep === "avanzado"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted/40 text-muted-foreground border-border hover:border-primary/40",
+                  !newDefAdvancedUnlocked && newDefStep !== "avanzado" && "opacity-50 cursor-not-allowed hover:border-border",
+                )}
+              >
+                2. Avanzado
+              </button>
+              <button
+                type="button"
+                disabled={!newDefCamposUnlocked && newDefStep !== "campos"}
+                onClick={() => setNewDefStep("campos")}
+                className={cn(
+                  "text-xs font-medium px-2.5 py-1 rounded-full border transition-colors",
+                  newDefStep === "campos"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted/40 text-muted-foreground border-border hover:border-primary/40",
+                  !newDefCamposUnlocked && newDefStep !== "campos" && "opacity-50 cursor-not-allowed hover:border-border",
+                )}
+              >
+                3. Campos
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-300"
+                  style={{ width: `${((newDefStepIndex - 1) / 2) * 100}%` }}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[11px]">
+                {[
+                  { id: 1, label: "Básico" },
+                  { id: 2, label: "Avanzado" },
+                  { id: 3, label: "Campos" },
+                ].map(step => {
+                  const isActive = newDefStepIndex === step.id;
+                  const isDone = newDefStepIndex > step.id;
+                  return (
+                    <div key={step.id} className="flex items-center gap-1.5">
+                      <span
+                        className={cn(
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-semibold",
+                          isActive || isDone
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background text-muted-foreground border-border",
+                        )}
+                      >
+                        {step.id}
+                      </span>
+                      <span className={cn(
+                        "truncate",
+                        isActive || isDone ? "text-primary font-medium" : "text-muted-foreground",
+                      )}>
+                        {step.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div key={newDefStep} className="wizard-step-in">
+            {newDefStep === "basico" ? (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wider">Plantilla rápida</Label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {NEW_DEF_TEMPLATES.map(template => {
+                      const active = template.modulo === newDefForm.modulo && template.tipo === newDefForm.tipo;
+                      return (
+                        <button
+                          key={template.id}
+                          type="button"
+                          onClick={() => setNewDefForm(prev => ({
+                            ...prev,
+                            modulo: template.modulo,
+                            tipo: template.tipo,
+                            descripcion: prev.descripcion || template.descripcion,
+                          }))}
+                          className={cn(
+                            "text-left rounded-lg border px-3 py-2 transition-colors",
+                            active
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:border-primary/40 hover:bg-muted/30",
+                          )}
+                        >
+                          <p className="text-sm font-medium text-foreground">{template.label}</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">{template.hint}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                    Nombre del formulario <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    value={newDefForm.nombre}
+                    onChange={e => setNewDefForm(prev => ({ ...prev, nombre: e.target.value }))}
+                    placeholder="Ej. Registro de Cosecha Campo Norte"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">Módulo</Label>
+                    <select
+                      value={newDefForm.modulo}
+                      onChange={e => setNewDefForm(prev => ({ ...prev, modulo: e.target.value }))}
+                      className="w-full h-9 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
+                    >
+                      {MODULO_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">Alcance por cultivo</Label>
+                    <select
+                      value={newDefForm.cultivo_id}
+                      onChange={e => setNewDefForm(prev => ({ ...prev, cultivo_id: e.target.value }))}
+                      className="w-full h-9 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
+                    >
+                      <option value="">Global para todos los cultivos</option>
+                      {cardCultivos.map(c => (
+                        <option key={c.id} value={c.id}>{c.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground mb-1">Resumen rápido</p>
+                  <p>
+                    Nombre: <strong>{newDefForm.nombre.trim() || "(pendiente)"}</strong>
+                  </p>
+                  <p>
+                    Módulo: <strong>{MODULO_OPTIONS.find(m => m.value === newDefForm.modulo)?.label ?? newDefForm.modulo}</strong>
+                  </p>
+                  <p>
+                    Alcance: <strong>{newDefForm.cultivo_id ? (cardCultivos.find(c => c.id === newDefForm.cultivo_id)?.nombre ?? "Cultivo seleccionado") : "Global"}</strong>
+                  </p>
+                </div>
+              </>
+            ) : newDefStep === "avanzado" ? (
+              <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wider">Descripción</Label>
+                  <Input
+                    value={newDefForm.descripcion}
+                    onChange={e => {
+                      setNewDefStep2Completed(false);
+                      setNewDefForm(prev => ({ ...prev, descripcion: e.target.value }));
+                    }}
+                    placeholder="Breve descripción de para qué sirve este formulario"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">Tipo</Label>
+                    <select
+                      value={newDefForm.tipo}
+                      onChange={e => {
+                        setNewDefStep2Completed(false);
+                        setNewDefForm(prev => ({ ...prev, tipo: e.target.value as TipoConfig }));
+                      }}
+                      className="w-full h-9 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
+                    >
+                      {TIPO_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">Estado inicial</Label>
+                    <select
+                      value={newDefForm.estado}
+                      onChange={e => {
+                        setNewDefStep2Completed(false);
+                        setNewDefForm(prev => ({ ...prev, estado: e.target.value as EstadoDef }));
+                      }}
+                      className="w-full h-9 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
+                    >
+                      {ESTADO_OPTIONS.filter(opt => opt.value !== "archivado").map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">Nivel mínimo</Label>
+                    <select
+                      value={newDefForm.nivel_minimo}
+                      onChange={e => {
+                        setNewDefStep2Completed(false);
+                        setNewDefForm(prev => ({ ...prev, nivel_minimo: Number(e.target.value) }));
+                      }}
+                      className="w-full h-9 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
+                    >
+                      {NIVEL_ACCESS_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>{option.icon} {option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wider">Roles excluidos (opcional)</Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ROLE_ACCESS_OPTIONS.map(roleOpt => {
+                      const selected = newDefForm.roles_excluidos.includes(roleOpt.value);
+                      return (
+                        <button
+                          key={roleOpt.value}
+                          type="button"
+                          onClick={() => {
+                            setNewDefStep2Completed(false);
+                            setNewDefForm(prev => ({
+                              ...prev,
+                              roles_excluidos: selected
+                                ? prev.roles_excluidos.filter(r => r !== roleOpt.value)
+                                : [...prev.roles_excluidos, roleOpt.value],
+                            }));
+                          }}
+                          className={cn(
+                            "text-xs px-2 py-1 rounded-full border transition-colors",
+                            selected
+                              ? "bg-destructive/10 text-destructive border-destructive/30"
+                              : "bg-muted/40 text-muted-foreground border-border hover:border-primary/40",
+                          )}
+                        >
+                          {roleOpt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-foreground">Selecciona los campos del formulario</p>
+                    <span className="text-[11px] text-muted-foreground">
+                      {newDefSelectedLibIds.size} seleccionado{newDefSelectedLibIds.size !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                    <input
+                      autoFocus
+                      value={newDefCampoSearch}
+                      onChange={e => setNewDefCampoSearch(e.target.value)}
+                      placeholder="Buscar campos por nombre, código o descripción?"
+                      className="w-full pl-9 pr-8 py-2 text-sm rounded-lg bg-muted/40 border border-border focus:border-primary/50 focus:outline-none focus:bg-background transition-colors"
+                    />
+                    {newDefCampoSearch && (
+                      <button onClick={() => setNewDefCampoSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {["Todos", "Texto", "Número", "Fecha", "Sí/No", "Lista", "Relación"].map(t => {
+                      const meta = TIPO_META[t];
+                      const TIcon = meta?.icon;
+                      const isActive = newDefCampoTypeFilter === t;
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setNewDefCampoTypeFilter(t)}
+                          className={cn(
+                            "flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border transition-all",
+                            isActive
+                              ? t === "Todos"
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : cn(meta?.bg, meta?.color, "border-transparent")
+                              : "bg-muted/40 text-muted-foreground border-border hover:bg-muted/60",
+                          )}
+                        >
+                          {TIcon && <TIcon className="w-2.5 h-2.5" />}
+                          {t}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="max-h-64 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
+                    {(() => {
+                      const filtered = parametrosLib.filter(p =>
+                        p.activo !== false &&
+                        (newDefCampoTypeFilter === "Todos" || p.tipo_dato === newDefCampoTypeFilter) &&
+                        (!newDefCampoSearch ||
+                          p.nombre.toLowerCase().includes(newDefCampoSearch.toLowerCase()) ||
+                          p.descripcion?.toLowerCase().includes(newDefCampoSearch.toLowerCase()) ||
+                          p.codigo?.toLowerCase().includes(newDefCampoSearch.toLowerCase()))
+                      );
+                      if (filtered.length === 0) {
+                        return (
+                          <div className="py-10 text-center space-y-1">
+                            <BookOpen className="w-6 h-6 mx-auto text-muted-foreground/20" />
+                            <p className="text-sm text-muted-foreground">
+                              {newDefCampoSearch ? `Sin resultados para "${newDefCampoSearch}"` : "No hay parámetros disponibles para este filtro."}
+                            </p>
+                            <Button type="button" size="sm" variant="outline" onClick={openBibliotecaFlow}>
+                              <Plus className="w-3.5 h-3.5 mr-1" />
+                              Crear parámetro en Biblioteca
+                            </Button>
+                          </div>
+                        );
+                      }
+                      return filtered.map(lib => {
+                        const meta = TIPO_META[lib.tipo_dato] ?? TIPO_META["Texto"];
+                        const TIcon = meta.icon;
+                        const selected = newDefSelectedLibIds.has(lib.id);
+                        return (
+                          <label
+                            key={lib.id}
+                            className={cn(
+                              "flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors",
+                              selected
+                                ? "bg-primary/8 hover:bg-primary/10"
+                                : "hover:bg-muted/40",
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={e => {
+                                setNewDefSelectedLibIds(prev => {
+                                  const next = new Set(prev);
+                                  e.target.checked ? next.add(lib.id) : next.delete(lib.id);
+                                  return next;
+                                });
+                              }}
+                              className="shrink-0 accent-primary"
+                            />
+                            <div className={cn("w-7 h-7 rounded-md flex items-center justify-center shrink-0", meta.bg)}>
+                              <TIcon className={cn("w-3.5 h-3.5", meta.color)} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-sm font-medium text-foreground">
+                                  {lib.nombre.replace(/_/g, " ")}
+                                </span>
+                                {lib.codigo && (
+                                  <span className="text-[10px] font-mono bg-muted border border-border px-1.5 py-0.5 rounded text-muted-foreground shrink-0">
+                                    {lib.codigo}
+                                  </span>
+                                )}
+                                {lib.unidad_medida && (
+                                  <span className="text-[10px] bg-muted/60 text-muted-foreground px-1.5 py-0.5 rounded shrink-0">
+                                    {lib.unidad_medida}
+                                  </span>
+                                )}
+                              </div>
+                              {lib.descripcion && (
+                                <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{lib.descripcion}</p>
+                              )}
+                            </div>
+                            {selected && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+                          </label>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground mb-1">Checklist final</p>
+                  <p className="flex items-center gap-1.5">
+                    <span>{newDefStep2Completed ? "?" : "?"}</span>
+                    Paso 2 completado
+                  </p>
+                  <p className="flex items-center gap-1.5">
+                    <span>{newDefStep3Completed ? "?" : "?"}</span>
+                    Al menos 1 campo seleccionado
+                  </p>
+                  <p className="flex items-center gap-1.5">
+                    <span>{newDefStep === "campos" ? "?" : "?"}</span>
+                    Estás en paso 3
+                  </p>
+                </div>
+              </div>
+            )}
+            </div>
+
+            <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+              {(() => {
+                if (isSuperAdmin && selectedClienteFilter === null) return "Se creará en vista global (sin filtro de empresa).";
+                if (isSuperAdmin && selectedClienteFilter !== null && selectedProductorFilter !== null) {
+                  const cliente = clientes.find(c => c.id === selectedClienteFilter)?.nombre ?? `#${selectedClienteFilter}`;
+                  const productor = productores.find(p => p.id === selectedProductorFilter)?.nombre ?? `#${selectedProductorFilter}`;
+                  return `Se creará para ${cliente} / ${productor}.`;
+                }
+                if (isSuperAdmin && selectedClienteFilter !== null) {
+                  const cliente = clientes.find(c => c.id === selectedClienteFilter)?.nombre ?? `#${selectedClienteFilter}`;
+                  return `Se creará para la empresa ${cliente}.`;
+                }
+                return "Se creará dentro de tu empresa activa.";
+              })()}
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            {newDefStep === "avanzado" && (
+              <Button variant="ghost" onClick={() => setNewDefStep("basico")}>
+                Volver a básico
+              </Button>
+            )}
+            {newDefStep === "campos" && (
+              <Button variant="ghost" onClick={() => setNewDefStep("avanzado")}>
+                Volver a avanzado
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setNewDefModalOpen(false)}>
+              Cancelar
+            </Button>
+            <div key={`wizard-footer-${newDefStep}`} className="wizard-footer-in flex items-center gap-2">
+              {newDefStep === "basico" && (
+                <Button
+                  variant="default"
+                  onClick={() => {
+                    setNewDefAdvancedUnlocked(true);
+                    setNewDefStep2Completed(false);
+                    setNewDefStep("avanzado");
+                  }}
+                  disabled={!newDefStep1Completed}
+                >
+                  Siguiente: avanzado
+                </Button>
+              )}
+              {newDefStep === "avanzado" && (
+                <Button
+                  variant="default"
+                  onClick={() => {
+                    setNewDefStep2Completed(true);
+                    setNewDefCamposUnlocked(true);
+                    setNewDefStep("campos");
+                  }}
+                >
+                  Siguiente: campos
+                </Button>
+              )}
+              {newDefStep === "campos" && (
+                <Button
+                  onClick={createDefinitionFromWizard}
+                  disabled={
+                    !newDefStep1Completed ||
+                    activeParametrosCount === 0 ||
+                    !newDefStep2Completed ||
+                    !newDefStep3Completed
+                  }
+                >
+                  <Plus className="w-4 h-4 mr-1.5" />
+                  Crear definición
+                </Button>
+              )}
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* -- Sheet: gestión de eventos ----------------------------------------- */}
       <Sheet open={!!eventosSheet} onOpenChange={(o) => { if (!o) setEventosSheet(null); }}>
         <SheetContent
           side="right"
@@ -1696,7 +2494,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
           {eventosSheet && (
             <>
 
-                {/* ── VISTA LISTA ──────────────────────────────────────────── */}
+                {/* -- VISTA LISTA -------------------------------------------- */}
                 {eventosSheetView === "list" ? <div className="flex flex-col h-full">
                   {/* Header */}
                   <div className="px-5 pt-4 pb-3.5 border-b shrink-0 bg-muted/20">
@@ -1713,7 +2511,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                         </div>
                         {sheetEventoFamilies.length > 0 && (
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/12 text-amber-600 leading-none shrink-0">
-                            {sheetEventoFamilies.length}
+                            {filteredSheetEventoFamilies.length}/{sheetEventoFamilies.length}
                           </span>
                         )}
                       </div>
@@ -1724,133 +2522,339 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                         <X className="w-4 h-4" />
                       </button>
                     </div>
+
+                    <div className="mt-3 space-y-2">
+                      <div className="grid grid-cols-3 gap-2 text-[10px] text-muted-foreground">
+                        <div className="rounded-md border border-border/70 bg-background/70 px-2 py-1">
+                          <span className="font-semibold text-foreground">{sheetEventoFamilies.length}</span> total
+                        </div>
+                        <div className="rounded-md border border-green-200 bg-green-50 px-2 py-1 text-green-700">
+                          <span className="font-semibold">{sheetEventoFamilies.filter(({ latest }) => latest.estado === "activo").length}</span> activo(s)
+                        </div>
+                        <div className="rounded-md border border-yellow-200 bg-yellow-50 px-2 py-1 text-yellow-700">
+                          <span className="font-semibold">{sheetEventoFamilies.filter(({ latest }) => latest.estado === "borrador").length}</span> borrador
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
+                        <div className="relative min-w-0">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                          <input
+                            value={eventosSearch}
+                            onChange={e => setEventosSearch(e.target.value)}
+                            placeholder="Buscar evento?"
+                            className="w-full h-8 pl-7 pr-7 text-xs rounded-md bg-background border border-border focus:border-primary/50 focus:outline-none"
+                          />
+                          {eventosSearch && (
+                            <button
+                              onClick={() => setEventosSearch("")}
+                              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                        <select
+                          value={eventosEstadoFilter}
+                          onChange={e => setEventosEstadoFilter(e.target.value as "todos" | "activo" | "borrador" | "archivado")}
+                          className="h-8 text-xs px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
+                        >
+                          <option value="todos">Todos</option>
+                          <option value="activo">Activos</option>
+                          <option value="borrador">Borrador</option>
+                          <option value="archivado">Archivado</option>
+                        </select>
+                        <select
+                          value={eventosSort}
+                          onChange={e => setEventosSort(e.target.value as "recientes" | "nombre")}
+                          className="h-8 text-xs px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
+                        >
+                          <option value="recientes">Recientes</option>
+                          <option value="nombre">Nombre</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Lista de eventos — scrollable */}
+                  {/* Lista de eventos ? scrollable */}
                   <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
                     {sheetEventoFamilies.length === 0 ? (
-                      <div className="flex flex-col items-center gap-3 py-12 text-center">
+                      <div className="flex flex-col items-center gap-3 py-10 text-center">
                         <div className="w-14 h-14 rounded-2xl bg-amber-500/8 flex items-center justify-center">
                           <Zap className="w-7 h-7 text-amber-400/50" />
                         </div>
                         <div>
                           <p className="text-sm font-semibold text-foreground/70">Sin eventos configurados</p>
-                          <p className="text-xs text-muted-foreground mt-1 max-w-[220px] mx-auto leading-relaxed">
-                            Los eventos complementan o documentan cada registro del formulario principal.
+                          <p className="text-xs text-muted-foreground mt-1 max-w-[260px] mx-auto leading-relaxed">
+                            Crea tu primer evento para registrar incidencias o seguimientos del formulario principal.
                           </p>
                         </div>
-                        <button
-                          onClick={() => setEventosSheetView("new")}
+                        <Button
+                          onClick={() => {
+                            resetNewEventoForm();
+                            setEventosSheetView("new");
+                          }}
                           className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 px-3.5 py-2 rounded-lg transition-colors shadow-sm"
                         >
                           <Plus className="w-3.5 h-3.5" />
                           Crear primer evento
-                        </button>
+                        </Button>
+
+                        <div className="w-full pt-1">
+                          <p className="text-[11px] text-muted-foreground mb-1.5">Plantillas rápidas</p>
+                          <div className="flex flex-wrap justify-center gap-1.5">
+                            {EVENTO_TEMPLATES.map(template => (
+                              <button
+                                key={template.id}
+                                onClick={() => applyEventoTemplate(template.id)}
+                                className="text-[11px] px-2 py-1 rounded-md border border-border bg-background hover:border-amber-300 hover:bg-amber-50 transition-colors"
+                              >
+                                {template.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : filteredSheetEventoFamilies.length === 0 ? (
+                      <div className="flex flex-col items-center gap-2 py-10 text-center">
+                        <Search className="w-5 h-5 text-muted-foreground/40" />
+                        <p className="text-sm font-semibold text-foreground/70">Sin resultados con los filtros actuales</p>
+                        <p className="text-xs text-muted-foreground">Prueba quitando filtros o cambiando la búsqueda.</p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setEventosSearch("");
+                            setEventosEstadoFilter("todos");
+                            setEventosSort("recientes");
+                          }}
+                        >
+                          Limpiar filtros
+                        </Button>
                       </div>
                     ) : (
-                      sheetEventoFamilies.map(({ rootId: evRootId, versions: evVersions, latest: ev }) => {
-                        const evIdx            = definiciones.findIndex(d => d.id === ev.id);
-                        const evHasHistory     = evVersions.length > 1;
-                        const evCampos         = parametros.filter(p => p.definicion_id === ev.id).sort((a, b) => a.orden - b.orden);
-                        const isCamposExp      = expandedEvCampos.has(evRootId);
-                        const isHistExp        = expandedEvHistory.has(evRootId);
-                        const evAccesos        = getDefAccesos(ev.id);
-                        // Protección: no desactivar si es la única versión activa con datos
-                        const evDatos          = datos.filter(d => d.definicion_id === ev.id);
-                        const otherLiveEvVers  = evVersions.filter(v => v.id !== ev.id && v.estado !== "archivado");
-                        const evBlockDeactivate= ev.estado === "activo" && otherLiveEvVers.length === 0 && evDatos.length > 0;
+                      filteredSheetEventoFamilies.map(({ rootId: evRootId, versions: evVersions, latest: ev }) => {
+                        const evCamposCount = parametros.filter(p => p.definicion_id === ev.id).length;
+                        const evAccesosCount = getDefAccesos(ev.id).length;
+                        const updatedLabel = ev.updated_at
+                          ? new Date(ev.updated_at).toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" })
+                          : "Sin fecha";
 
                         return (
-                          <div key={ev.id} className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
-
-                            {/* ── Cabecera ── */}
-                            <div className="px-4 pt-3 pb-2.5 border-b border-border bg-muted/20">
-                              {/* Fila 1: badges + menú */}
-                              <div className="flex items-center gap-1.5 mb-2">
-                                <button
-                                  disabled={evBlockDeactivate}
-                                  onClick={() => {
-                                    if (evBlockDeactivate) return;
-                                    if (evIdx !== -1) updDef(evIdx, "estado", ev.estado === "activo" ? "borrador" : "activo");
-                                  }}
-                                  title={evBlockDeactivate ? `Tiene ${evDatos.length} dato(s) — activa otra versión primero` : "Cambiar estado"}
-                                  className={cn(
-                                    "text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5 transition-colors",
-                                    evBlockDeactivate
-                                      ? "opacity-60 cursor-not-allowed"
-                                      : "hover:opacity-80 cursor-pointer",
+                          <div key={ev.id} className="rounded-lg border border-border bg-card px-3 py-2.5 hover:border-primary/30 transition-colors">
+                            <div className="flex items-start gap-2">
+                              <button
+                                onClick={() => openEventoDetail(evRootId, "general")}
+                                className="flex-1 min-w-0 text-left"
+                              >
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className={cn(
+                                    "text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5",
                                     estadoBadge[ev.estado ?? "borrador"],
+                                  )}>
+                                    <EstadoIcon estado={ev.estado ?? "borrador"} />
+                                    {ev.estado ?? "borrador"}
+                                  </span>
+                                  <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded leading-none">
+                                    v{ev.version ?? "1.0"}
+                                  </span>
+                                </div>
+                                <p className="text-sm font-semibold text-foreground mt-1 truncate">{ev.nombre}</p>
+                                <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                                  {ev.descripcion || "Sin descripcion"}
+                                </p>
+                              </button>
+
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                                    <MoreHorizontal className="w-3.5 h-3.5" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-52">
+                                  <DropdownMenuItem onClick={() => openEventoDetail(evRootId, "general")}>Abrir detalle</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => openEventoDetail(evRootId, "campos")}>Ver campos</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => openEventoDetail(evRootId, "historial")}>Ver historial</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => openEventoDetail(evRootId, "accesos")}>Ver accesos</DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onClick={() => openAccesosModal(ev.id)}>
+                                    <Lock className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                                    Gestionar accesos
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+
+                            <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted border border-border">
+                                  <List className="w-2.5 h-2.5" /> {evCamposCount} campo{evCamposCount !== 1 ? "s" : ""}
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted border border-border">
+                                  <History className="w-2.5 h-2.5" /> {evVersions.length} version{evVersions.length !== 1 ? "es" : ""}
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                                  <Lock className="w-2.5 h-2.5" /> {evAccesosCount} acceso{evAccesosCount !== 1 ? "s" : ""}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span>{updatedLabel}</span>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 px-2 text-[10px]"
+                                  onClick={() => openAccesosModal(ev.id)}
+                                >
+                                  Accesos
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="h-6 px-2 text-[10px]"
+                                  onClick={() => openEventoDetail(evRootId, "general")}
+                                >
+                                  Abrir
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Footer fijo */}
+                  {sheetEventoFamilies.length > 0 && (
+                    <div className="px-4 py-3.5 border-t shrink-0 bg-background">
+                      <button
+                        onClick={() => {
+                          resetNewEventoForm();
+                          setEventosSheetView("new");
+                        }}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors shadow-sm"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Nuevo evento
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                : eventosSheetView === "detail" ? (
+                  <div className="flex flex-col h-full">
+                    <div className="px-5 pt-4 pb-3 border-b shrink-0 bg-muted/20">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <button
+                            onClick={() => setEventosSheetView("list")}
+                            className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0"
+                          >
+                            <ChevronDown className="w-4 h-4 rotate-90" />
+                          </button>
+                          <div className="min-w-0">
+                            <h2 className="text-sm font-semibold leading-tight">Detalle de evento</h2>
+                            <p className="text-xs text-muted-foreground leading-tight mt-0.5 truncate">
+                              {selectedEventoFamily?.latest.nombre ?? eventosSheet.nombre}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setEventosSheet(null)}
+                          className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {!selectedEventoFamily ? (
+                      <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-6">
+                        <p className="text-sm font-semibold text-foreground/80">No se encontro el evento</p>
+                        <p className="text-xs text-muted-foreground">Puede haberse eliminado o filtrado.</p>
+                        <Button size="sm" variant="outline" onClick={() => setEventosSheetView("list")}>Volver al listado</Button>
+                      </div>
+                    ) : (() => {
+                      const ev = selectedEventoFamily.latest;
+                      const evRootId = selectedEventoFamily.rootId;
+                      const evVersions = selectedEventoFamily.versions;
+                      const evIdx = definiciones.findIndex(d => d.id === ev.id);
+                      const evHasHistory = evVersions.length > 1;
+                      const evCampos = parametros.filter(p => p.definicion_id === ev.id).sort((a, b) => a.orden - b.orden);
+                      const evAccesos = getDefAccesos(ev.id);
+                      const evDatos = datos.filter(d => d.definicion_id === ev.id);
+                      const otherLiveEvVers = evVersions.filter(v => v.id !== ev.id && v.estado !== "archivado");
+                      const evBlockDeactivate = ev.estado === "activo" && otherLiveEvVers.length === 0 && evDatos.length > 0;
+                      const accAllowed = evAccesos.filter(a => a.habilitado).length;
+                      const accBlocked = evAccesos.filter(a => !a.habilitado).length;
+
+                      return (
+                        <>
+                          <div className="px-4 py-2 border-b shrink-0 bg-background">
+                            <div className="flex items-center gap-1">
+                              {([
+                                ["general", "General"],
+                                ["campos", "Campos"],
+                                ["historial", "Historial"],
+                                ["accesos", "Accesos"],
+                              ] as const).map(([tab, label]) => (
+                                <button
+                                  key={tab}
+                                  onClick={() => setEventosDetailTab(tab)}
+                                  className={cn(
+                                    "px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors",
+                                    eventosDetailTab === tab
+                                      ? "bg-primary text-primary-foreground"
+                                      : "text-muted-foreground hover:text-foreground hover:bg-muted",
                                   )}
                                 >
-                                  <EstadoIcon estado={ev.estado ?? "borrador"} />
-                                  {ev.estado ?? "borrador"}
+                                  {label}
                                 </button>
-                                <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded leading-none">
-                                  v{ev.version ?? "1.0"}
-                                </span>
-                                {evHasHistory && (
-                                  <button
-                                    onClick={() => setCompareEvId(evRootId)}
-                                    className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 leading-none transition-colors"
-                                    title="Ver historial y comparar versiones"
-                                  >
-                                    <History className="w-2.5 h-2.5" />
-                                    {evVersions.length}v
-                                  </button>
-                                )}
-                                {evAccesos.length > 0 && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium leading-none dark:bg-blue-900/20 dark:text-blue-400">
-                                    {evAccesos.length} acceso{evAccesos.length !== 1 ? "s" : ""}
-                                  </span>
-                                )}
-                                <div className="flex-1" />
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <button className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                                      <MoreHorizontal className="w-3.5 h-3.5" />
-                                    </button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end" className="w-52">
-                                    <DropdownMenuItem onClick={() => {
-                                      if (evIdx !== -1) updDef(evIdx, "version", bumpV(ev.version ?? "1.0", "minor"));
-                                    }}>
-                                      <Tag className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
-                                      Subir versión (+0.1)
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => {
-                                      const sourceParamCount = parametros.filter(p => p.definicion_id === ev.id).length;
-                                      const [maj = 1] = (ev.version ?? "1.0").split(".").map(Number);
-                                      setEvConfirmDup({
-                                        rootId: evRootId,
-                                        sourceId: ev.id,
-                                        sourceName: ev.nombre,
-                                        sourceVersion: ev.version ?? "1.0",
-                                        newVersion: `${maj + 1}.0`,
-                                        paramCount: sourceParamCount,
-                                        newName: ev.nombre,
-                                      });
-                                    }}>
-                                      <Copy className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
-                                      Nueva versión mayor
-                                    </DropdownMenuItem>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+                            {eventosDetailTab === "general" && (
+                              <>
+                                <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className={cn(
+                                      "text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5",
+                                      estadoBadge[ev.estado ?? "borrador"],
+                                    )}>
+                                      <EstadoIcon estado={ev.estado ?? "borrador"} />
+                                      {ev.estado ?? "borrador"}
+                                    </span>
+                                    <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded leading-none">
+                                      v{ev.version ?? "1.0"}
+                                    </span>
                                     {evHasHistory && (
-                                      <DropdownMenuItem onClick={() => setCompareEvId(evRootId)}>
-                                        <ArrowLeftRight className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
-                                        Comparar versiones
-                                      </DropdownMenuItem>
+                                      <button
+                                        onClick={() => setCompareEvId(evRootId)}
+                                        className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                                      >
+                                        <History className="w-2.5 h-2.5" />
+                                        {evVersions.length} versiones
+                                      </button>
                                     )}
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={() => {
-                                      setAccesosModal(ev.id);
-                                      setAccSearch("");
-                                      setAccFilter("todos");
-                                      setAccSelected(new Set());
-                                    }}>
-                                      <Lock className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
-                                      Gestionar accesos
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
+                                  </div>
+
+                                  <Input
+                                    value={ev.nombre}
+                                    onChange={e => { if (evIdx !== -1) updDef(evIdx, "nombre", e.target.value); }}
+                                    placeholder="Nombre del evento"
+                                    className="h-8 text-sm font-medium"
+                                  />
+                                  <Input
+                                    value={ev.descripcion ?? ""}
+                                    onChange={e => { if (evIdx !== -1) updDef(evIdx, "descripcion", e.target.value); }}
+                                    placeholder="Descripcion breve"
+                                    className="h-8 text-xs"
+                                  />
+
+                                  <div className="flex items-center gap-2 flex-wrap pt-1">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
                                       disabled={evBlockDeactivate}
                                       onClick={() => {
                                         if (evBlockDeactivate || evIdx === -1) return;
@@ -1872,269 +2876,25 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                                         }
                                         updDef(evIdx, "estado", ev.estado === "activo" ? "borrador" : "activo");
                                       }}
-                                      className={ev.estado === "activo" ? "text-yellow-600 focus:text-yellow-700" : "text-green-600 focus:text-green-700"}
-                                      title={evBlockDeactivate ? `Tiene ${evDatos.length} dato(s) — activa otra versión primero` : undefined}
                                     >
-                                      <Power className="w-3.5 h-3.5 mr-2" />
+                                      <Power className="w-3.5 h-3.5 mr-1" />
                                       {ev.estado === "activo" ? "Pasar a borrador" : "Activar"}
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
                                       onClick={() => {
-                                        const otherVers = evVersions.filter(v => v.id !== ev.id && v.estado !== "archivado");
-                                        setEvArchiveActivateId("");
-                                        setEvArchiveModal({
-                                          defId: ev.id,
-                                          rootId: evRootId,
-                                          nombre: ev.nombre,
-                                          version: ev.version ?? "1.0",
-                                          otherVersions: otherVers,
-                                        });
+                                        if (evIdx !== -1) updDef(evIdx, "version", bumpV(ev.version ?? "1.0", "minor"));
                                       }}
-                                      className="text-amber-600 focus:text-amber-700"
                                     >
-                                      <Archive className="w-3.5 h-3.5 mr-2" />
-                                      Archivar versión
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      className="text-destructive focus:text-destructive"
-                                      onClick={() => { if (evIdx !== -1) delDef(evIdx); }}
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5 mr-2" />
-                                      Eliminar evento
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
-
-                              {/* Nombre editable */}
-                              <input
-                                value={ev.nombre}
-                                onChange={e => { if (evIdx !== -1) updDef(evIdx, "nombre", e.target.value); }}
-                                placeholder="Nombre del evento…"
-                                className="w-full text-sm font-semibold bg-transparent outline-none placeholder:italic placeholder:text-muted-foreground/50 hover:bg-muted/40 focus:bg-background focus:px-2 focus:rounded-md focus:border focus:border-amber-400/50 transition-all"
-                              />
-                              {/* Descripción editable */}
-                              <input
-                                value={ev.descripcion ?? ""}
-                                onChange={e => { if (evIdx !== -1) updDef(evIdx, "descripcion", e.target.value); }}
-                                placeholder="Agrega una descripción…"
-                                className="w-full text-xs text-muted-foreground bg-transparent outline-none placeholder:italic placeholder:text-muted-foreground/40 hover:bg-muted/30 focus:bg-background focus:px-2 focus:rounded-md focus:border focus:border-amber-300/40 transition-all mt-1"
-                              />
-
-                              {/* Última edición */}
-                              {ev.updated_at && (
-                                <p className="text-[10px] text-muted-foreground/50 mt-1.5 flex items-center gap-1">
-                                  <Clock className="w-2.5 h-2.5" />
-                                  Editado {new Date(ev.updated_at).toLocaleDateString("es-CL", { day: "numeric", month: "short", year: "numeric" })}
-                                  {ev.updated_by ? ` · ${ev.updated_by}` : ""}
-                                </p>
-                              )}
-                            </div>
-
-                            {/* ── Sección Campos ── */}
-                            <div className="border-b border-border/60">
-                              <button
-                                onClick={() => toggleEvCampos(evRootId)}
-                                className="flex items-center gap-2 w-full px-4 py-2.5 text-xs hover:bg-muted/40 transition-colors group"
-                              >
-                                <List className="w-3.5 h-3.5 text-primary/60 shrink-0" />
-                                <span className="font-medium text-foreground/80">Campos</span>
-                                <span className={cn(
-                                  "text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none transition-colors",
-                                  isCamposExp ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
-                                )}>
-                                  {evCampos.length}
-                                </span>
-                                <ChevronDown className={cn(
-                                  "ml-auto w-3.5 h-3.5 text-muted-foreground/50 transition-transform duration-200",
-                                  isCamposExp && "rotate-180",
-                                )} />
-                              </button>
-
-                              {isCamposExp && (
-                                <div className="px-4 pb-3 space-y-1">
-                                  {evCampos.length === 0 ? (
-                                    <p className="text-xs text-muted-foreground/60 italic py-1">Sin campos aún.</p>
-                                  ) : (
-                                    evCampos.map(c => (
-                                      <div key={c.id} className="group/campo flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-muted/40 transition-colors">
-                                        <span className={cn(
-                                          "text-[9px] font-bold w-4 h-4 rounded flex items-center justify-center shrink-0",
-                                          c.tipo_dato === "Número" ? "bg-blue-100 text-blue-600" :
-                                          c.tipo_dato === "Fecha"  ? "bg-purple-100 text-purple-600" :
-                                          c.tipo_dato === "Lista"  ? "bg-orange-100 text-orange-600" :
-                                          c.tipo_dato === "Sí/No"  ? "bg-teal-100 text-teal-600" :
-                                          c.tipo_dato === "Foto"   ? "bg-pink-100 text-pink-600" :
-                                          "bg-muted text-muted-foreground",
-                                        )}>
-                                          {c.tipo_dato === "Número" ? "#" : c.tipo_dato === "Fecha" ? "D" : c.tipo_dato === "Lista" ? "▾" : c.tipo_dato === "Sí/No" ? "☑" : c.tipo_dato === "Foto" ? "⌖" : "T"}
-                                        </span>
-                                        <span className="text-xs text-foreground/80 flex-1 min-w-0 truncate">
-                                          {c.etiqueta_personalizada || c.nombre}
-                                        </span>
-                                        {c.obligatorio && (
-                                          <span className="text-[9px] text-amber-500 font-semibold">*</span>
-                                        )}
-                                        <div className="flex gap-0.5 opacity-0 group-hover/campo:opacity-100 transition-opacity shrink-0">
-                                          <button
-                                            onClick={() => setConfigCampoId(c.id)}
-                                            className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                                            title="Configurar"
-                                          >
-                                            <Settings2 className="w-3 h-3" />
-                                          </button>
-                                          <button
-                                            onClick={() => {
-                                              const ci = parametros.findIndex(p => p.id === c.id);
-                                              if (ci !== -1) delParByIdx(ci);
-                                            }}
-                                            className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                                            title="Eliminar campo"
-                                          >
-                                            <Trash2 className="w-3 h-3" />
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ))
-                                  )}
-                                  <button
-                                    onClick={() => {
-                                      setSelectedLibIds(new Set());
-                                      setCampoSearch("");
-                                      setCreateNewCampo(false);
-                                      setAddCampoModal({ defId: ev.id, rootId: ev.id });
-                                    }}
-                                    className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-lg border border-dashed border-primary/30 text-xs text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition-colors mt-1"
-                                  >
-                                    <Plus className="w-3 h-3" />
-                                    Agregar campo
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* ── Sección Historial de edición ── */}
-                            <div>
-                              <button
-                                onClick={() => toggleEvHistory(evRootId)}
-                                className="flex items-center gap-2 w-full px-4 py-2.5 text-xs hover:bg-muted/40 transition-colors group"
-                              >
-                                <History className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
-                                <span className="font-medium text-foreground/70">Historial</span>
-                                <ChevronDown className={cn(
-                                  "ml-auto w-3.5 h-3.5 text-muted-foreground/50 transition-transform duration-200",
-                                  isHistExp && "rotate-180",
-                                )} />
-                              </button>
-
-                              {isHistExp && (
-                                <div className="px-4 pb-3 space-y-2.5">
-                                  {/* Línea de tiempo de versiones */}
-                                  <div className="relative pl-4">
-                                    <div className="absolute left-[7px] top-1.5 bottom-1.5 w-0.5 bg-border/60" />
-                                    <div className="space-y-1.5">
-                                      {evVersions
-                                        .sort((a, b) => {
-                                          const [am = 0, an = 0] = (a.version ?? "1.0").split(".").map(Number);
-                                          const [bm = 0, bn = 0] = (b.version ?? "1.0").split(".").map(Number);
-                                          return am !== bm ? am - bm : an - bn;
-                                        })
-                                        .map(ver => {
-                                          const isCurrent = ver.id === ev.id;
-                                          return (
-                                            <div key={ver.id} className="flex items-start gap-2.5">
-                                              <div className={cn(
-                                                "relative z-10 w-3 h-3 rounded-full border-2 shrink-0 mt-0.5",
-                                                isCurrent
-                                                  ? "bg-primary border-primary"
-                                                  : "bg-background border-border",
-                                              )} />
-                                              <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                  <span className={cn("font-mono text-xs font-semibold", isCurrent ? "text-primary" : "text-muted-foreground")}>
-                                                    v{ver.version ?? "1.0"}
-                                                  </span>
-                                                  <span className={cn(
-                                                    "text-[9px] font-medium px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5",
-                                                    estadoBadge[ver.estado ?? "borrador"],
-                                                  )}>
-                                                    <EstadoIcon estado={ver.estado ?? "borrador"} />
-                                                    {ver.estado}
-                                                  </span>
-                                                  {isCurrent && (
-                                                    <span className="text-[9px] text-primary font-semibold">actual</span>
-                                                  )}
-                                                </div>
-                                                {ver.updated_at && (
-                                                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-                                                    {new Date(ver.updated_at).toLocaleDateString("es-CL", { day: "numeric", month: "short", year: "numeric" })}
-                                                    {ver.updated_by ? ` · ${ver.updated_by}` : ""}
-                                                  </p>
-                                                )}
-                                                {/* Botones de acción por versión */}
-                                                {!isCurrent && ver.estado !== "archivado" && (
-                                                  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                                                    <button
-                                                      onClick={() => {
-                                                        const curActive = evVersions.find(v => v.estado === "activo");
-                                                        if (curActive && curActive.id !== ver.id) {
-                                                          setEvRollbackAction("borrador");
-                                                          setEvRollbackModal({
-                                                            targetId: ver.id,
-                                                            targetVersion: ver.version ?? "1.0",
-                                                            targetNombre: ver.nombre,
-                                                            activeId: curActive.id,
-                                                            activeVersion: curActive.version ?? "1.0",
-                                                            activeNombre: curActive.nombre,
-                                                            rootId: evRootId,
-                                                          });
-                                                        } else {
-                                                          const verIdx = allDefiniciones.findIndex(d => d.id === ver.id);
-                                                          if (verIdx !== -1) updDef(verIdx, "estado", "activo");
-                                                        }
-                                                      }}
-                                                      className="inline-flex items-center gap-1 text-[10px] font-medium text-green-600 hover:text-green-700 bg-green-50 hover:bg-green-100 px-1.5 py-0.5 rounded transition-colors"
-                                                    >
-                                                      <Check className="w-2.5 h-2.5" /> Activar
-                                                    </button>
-                                                    <button
-                                                      onClick={() => {
-                                                        const otherVers = evVersions.filter(v => v.id !== ver.id && v.estado !== "archivado");
-                                                        setEvArchiveActivateId("");
-                                                        setEvArchiveModal({
-                                                          defId: ver.id,
-                                                          rootId: evRootId,
-                                                          nombre: ver.nombre,
-                                                          version: ver.version ?? "1.0",
-                                                          otherVersions: otherVers,
-                                                        });
-                                                      }}
-                                                      className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 px-1.5 py-0.5 rounded transition-colors"
-                                                    >
-                                                      <Archive className="w-2.5 h-2.5" /> Archivar
-                                                    </button>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
-                                    </div>
-                                  </div>
-
-                                  {/* Acciones de versión */}
-                                  <div className="flex items-center gap-2 pt-1 flex-wrap">
-                                    <button
-                                      onClick={() => { if (evIdx !== -1) updDef(evIdx, "version", bumpV(ev.version ?? "1.0", "minor")); }}
-                                      className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted px-2 py-1 rounded-md transition-colors"
-                                    >
-                                      <Tag className="w-3 h-3" />
-                                      +0.1 versión
-                                    </button>
-                                    <button
+                                      <Tag className="w-3.5 h-3.5 mr-1" />
+                                      +0.1 version
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
                                       onClick={() => {
-                                        const sourceParamCount = parametros.filter(p => p.definicion_id === ev.id).length;
+                                        const sourceParamCount = evCampos.length;
                                         const [maj = 1] = (ev.version ?? "1.0").split(".").map(Number);
                                         setEvConfirmDup({
                                           rootId: evRootId,
@@ -2146,169 +2906,347 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                                           newName: ev.nombre,
                                         });
                                       }}
-                                      className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted px-2 py-1 rounded-md transition-colors"
                                     >
-                                      <Copy className="w-3 h-3" />
-                                      Nueva versión mayor
-                                    </button>
-                                    {evHasHistory && (
-                                      <button
-                                        onClick={() => setCompareEvId(evRootId)}
-                                        className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80 bg-primary/8 hover:bg-primary/12 px-2 py-1 rounded-md transition-colors"
-                                      >
-                                        <ArrowLeftRight className="w-3 h-3" />
-                                        Comparar versiones
-                                      </button>
-                                    )}
+                                      <Copy className="w-3.5 h-3.5 mr-1" />
+                                      Nueva version mayor
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        const otherVers = evVersions.filter(v => v.id !== ev.id && v.estado !== "archivado");
+                                        setEvArchiveActivateId("");
+                                        setEvArchiveModal({
+                                          defId: ev.id,
+                                          rootId: evRootId,
+                                          nombre: ev.nombre,
+                                          version: ev.version ?? "1.0",
+                                          otherVersions: otherVers,
+                                        });
+                                      }}
+                                    >
+                                      <Archive className="w-3.5 h-3.5 mr-1" />
+                                      Archivar
+                                    </Button>
                                   </div>
                                 </div>
-                              )}
-                            </div>
+                              </>
+                            )}
+
+                            {eventosDetailTab === "campos" && (
+                              <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs font-semibold text-foreground">Campos del evento</p>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted border border-border">
+                                    {evCampos.length}
+                                  </span>
+                                </div>
+                                <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
+                                  {evCampos.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground">Sin campos configurados.</p>
+                                  ) : (
+                                    evCampos.map(c => (
+                                      <div key={c.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-border/70 bg-background">
+                                        <span className="text-[10px] text-muted-foreground font-mono">{c.tipo_dato}</span>
+                                        <span className="text-xs text-foreground flex-1 min-w-0 truncate">{c.etiqueta_personalizada || c.nombre}</span>
+                                        <button
+                                          onClick={() => setConfigCampoId(c.id)}
+                                          className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                                          title="Configurar"
+                                        >
+                                          <Settings2 className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            const ci = parametros.findIndex(p => p.id === c.id);
+                                            if (ci !== -1) delParByIdx(ci);
+                                          }}
+                                          className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                          title="Eliminar campo"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setSelectedLibIds(new Set());
+                                    setCampoSearch("");
+                                    setAddCampoModal({ defId: ev.id, rootId: ev.id });
+                                  }}
+                                >
+                                  <Plus className="w-3.5 h-3.5 mr-1" />
+                                  Agregar campo
+                                </Button>
+                              </div>
+                            )}
+
+                            {eventosDetailTab === "historial" && (
+                              <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs font-semibold text-foreground">Versiones del evento</p>
+                                  {evHasHistory && (
+                                    <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setCompareEvId(evRootId)}>
+                                      <ArrowLeftRight className="w-3 h-3 mr-1" />
+                                      Comparar
+                                    </Button>
+                                  )}
+                                </div>
+                                <div className="space-y-1.5">
+                                  {[...evVersions]
+                                    .sort((a, b) => {
+                                      const [am = 0, an = 0] = (a.version ?? "1.0").split(".").map(Number);
+                                      const [bm = 0, bn = 0] = (b.version ?? "1.0").split(".").map(Number);
+                                      return bm !== am ? bm - am : bn - an;
+                                    })
+                                    .map(ver => {
+                                      const isCurrent = ver.id === ev.id;
+                                      return (
+                                        <div key={ver.id} className="rounded-md border border-border/70 px-2 py-1.5 bg-background">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="text-xs font-mono text-foreground">v{ver.version ?? "1.0"}</span>
+                                            <span className={cn(
+                                              "text-[9px] font-medium px-1.5 py-0.5 rounded-full leading-none inline-flex items-center gap-0.5",
+                                              estadoBadge[ver.estado ?? "borrador"],
+                                            )}>
+                                              <EstadoIcon estado={ver.estado ?? "borrador"} />
+                                              {ver.estado ?? "borrador"}
+                                            </span>
+                                            {isCurrent && <span className="text-[9px] text-primary font-semibold">actual</span>}
+                                          </div>
+                                          {ver.updated_at && (
+                                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                                              {new Date(ver.updated_at).toLocaleDateString("es-CL", { day: "numeric", month: "short", year: "numeric" })}
+                                            </p>
+                                          )}
+                                          {!isCurrent && ver.estado !== "archivado" && (
+                                            <div className="flex items-center gap-1 mt-1">
+                                              <button
+                                                onClick={() => {
+                                                  const curActive = evVersions.find(v => v.estado === "activo");
+                                                  if (curActive && curActive.id !== ver.id) {
+                                                    setEvRollbackAction("borrador");
+                                                    setEvRollbackModal({
+                                                      targetId: ver.id,
+                                                      targetVersion: ver.version ?? "1.0",
+                                                      targetNombre: ver.nombre,
+                                                      activeId: curActive.id,
+                                                      activeVersion: curActive.version ?? "1.0",
+                                                      activeNombre: curActive.nombre,
+                                                      rootId: evRootId,
+                                                    });
+                                                  } else {
+                                                    const verIdx = allDefiniciones.findIndex(d => d.id === ver.id);
+                                                    if (verIdx !== -1) updDef(verIdx, "estado", "activo");
+                                                  }
+                                                }}
+                                                className="inline-flex items-center gap-1 text-[10px] font-medium text-green-700 bg-green-50 hover:bg-green-100 px-1.5 py-0.5 rounded"
+                                              >
+                                                <Check className="w-2.5 h-2.5" /> Activar
+                                              </button>
+                                              <button
+                                                onClick={() => {
+                                                  const otherVers = evVersions.filter(v => v.id !== ver.id && v.estado !== "archivado");
+                                                  setEvArchiveActivateId("");
+                                                  setEvArchiveModal({
+                                                    defId: ver.id,
+                                                    rootId: evRootId,
+                                                    nombre: ver.nombre,
+                                                    version: ver.version ?? "1.0",
+                                                    otherVersions: otherVers,
+                                                  });
+                                                }}
+                                                className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 px-1.5 py-0.5 rounded"
+                                              >
+                                                <Archive className="w-2.5 h-2.5" /> Archivar
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              </div>
+                            )}
+
+                            {eventosDetailTab === "accesos" && (
+                              <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+                                <div className="grid grid-cols-3 gap-2 text-[10px]">
+                                  <div className="rounded-md border border-border px-2 py-1 bg-muted/40">
+                                    <span className="font-semibold text-foreground">{evAccesos.length}</span> override(s)
+                                  </div>
+                                  <div className="rounded-md border border-green-200 bg-green-50 px-2 py-1 text-green-700">
+                                    <span className="font-semibold">{accAllowed}</span> permitidos
+                                  </div>
+                                  <div className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-red-700">
+                                    <span className="font-semibold">{accBlocked}</span> bloqueados
+                                  </div>
+                                </div>
+
+                                <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
+                                  {evAccesos.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground">Sin reglas especificas. Se aplica acceso por rol.</p>
+                                  ) : (
+                                    evAccesos.map(acc => {
+                                      const user = allUsers.find(u => u.id === acc.usuario_id);
+                                      return (
+                                        <div key={acc.id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md border border-border/70 bg-background">
+                                          <div className="min-w-0">
+                                            <p className="text-xs font-medium truncate">{user?.nombre ?? `Usuario #${acc.usuario_id}`}</p>
+                                            <p className="text-[10px] text-muted-foreground truncate">{acc.justificacion || "Sin justificacion"}</p>
+                                          </div>
+                                          <span className={cn(
+                                            "text-[10px] font-semibold px-1.5 py-0.5 rounded-full",
+                                            acc.habilitado
+                                              ? "bg-green-50 text-green-700 border border-green-200"
+                                              : "bg-red-50 text-red-700 border border-red-200",
+                                          )}>
+                                            {acc.habilitado ? "Permitido" : "Bloqueado"}
+                                          </span>
+                                        </div>
+                                      );
+                                    })
+                                  )}
+                                </div>
+
+                                <Button size="sm" onClick={() => openAccesosModal(ev.id)}>
+                                  <Lock className="w-3.5 h-3.5 mr-1" />
+                                  Gestionar accesos
+                                </Button>
+                              </div>
+                            )}
                           </div>
-                        );
-                      })
-                    )}
+                        </>
+                      );
+                    })()}
                   </div>
+                ) : (
+                  <div className="flex flex-col h-full">
+                    {/* Header con botón volver */}
+                    <div className="px-5 pt-5 pb-4 border-b shrink-0">
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => setEventosSheetView("list")}
+                          className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0"
+                        >
+                          <ChevronDown className="w-4 h-4 rotate-90" />
+                        </button>
+                        <div>
+                          <h2 className="text-sm font-semibold leading-tight">Nuevo evento</h2>
+                          <p className="text-xs text-muted-foreground leading-tight mt-0.5 truncate">
+                            {eventosSheet.nombre}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
 
-                  {/* Footer fijo */}
-                  <div className="px-4 py-3.5 border-t shrink-0 bg-background">
-                    <button
-                      onClick={() => {
-                        setNewEventoNombre("");
-                        setNewEventoDescripcion("");
-                        setNewEventoEstado("activo");
-                        setEventosSheetView("new");
-                      }}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors shadow-sm"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Nuevo evento
-                    </button>
-                  </div>
-                </div>
+                    {/* Formulario ? scrollable */}
+                    <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
 
-                : /* ── VISTA NUEVO EVENTO ──────────────────────────────────── */
-                <div className="flex flex-col h-full">
-                  {/* Header con botón volver */}
-                  <div className="px-5 pt-5 pb-4 border-b shrink-0">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => setEventosSheetView("list")}
-                        className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0"
-                      >
-                        <ChevronDown className="w-4 h-4 rotate-90" />
-                      </button>
-                      <div>
-                        <h2 className="text-sm font-semibold leading-tight">Nuevo evento</h2>
-                        <p className="text-xs text-muted-foreground leading-tight mt-0.5 truncate">
-                          {eventosSheet.nombre}
+                      {/* Info contextual */}
+                      <div className="flex gap-2.5 p-3 rounded-xl bg-amber-500/6 border border-amber-400/20">
+                        <Zap className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          Los eventos son registros secundarios que complementan o documentan cada entrada del formulario principal.
+                        </p>
+                      </div>
+
+                      {/* Nombre */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-foreground/80">
+                          Nombre del evento <span className="text-amber-500">*</span>
+                        </label>
+                        <Input
+                          value={newEventoNombre}
+                          onChange={e => setNewEventoNombre(e.target.value)}
+                          placeholder="ej. Seguimiento semanal, Aplicación de riego"
+                          autoFocus
+                        />
+                      </div>
+
+                      {/* Descripción */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-foreground/80">Descripción</label>
+                        <Input
+                          value={newEventoDescripcion}
+                          onChange={e => setNewEventoDescripcion(e.target.value)}
+                          placeholder="Describe brevemente para qué sirve este evento?"
+                        />
+                      </div>
+
+                      {/* Estado inicial */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-semibold text-foreground/80">Estado inicial</label>
+                        <div className="flex gap-2">
+                          {(["activo", "borrador"] as const).map(est => (
+                            <button
+                              key={est}
+                              onClick={() => setNewEventoEstado(est)}
+                              className={cn(
+                                "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-medium transition-all",
+                                newEventoEstado === est
+                                  ? est === "activo"
+                                    ? "bg-green-50 border-green-300 text-green-700 dark:bg-green-900/20 dark:border-green-700 dark:text-green-400"
+                                    : "bg-yellow-50 border-yellow-300 text-yellow-700 dark:bg-yellow-900/20 dark:border-yellow-700 dark:text-yellow-400"
+                                  : "bg-muted/40 border-border text-muted-foreground hover:bg-muted",
+                              )}
+                            >
+                              <span className={cn(
+                                "w-1.5 h-1.5 rounded-full",
+                                est === "activo" ? "bg-green-500" : "bg-yellow-400",
+                              )} />
+                              {est === "activo" ? "Activo" : "Borrador"}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground/70">
+                          {newEventoEstado === "activo"
+                            ? "Visible y disponible para los usuarios de inmediato."
+                            : "Oculto para los usuarios mientras terminas de configurarlo."}
                         </p>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Formulario — scrollable */}
-                  <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
-
-                    {/* Info contextual */}
-                    <div className="flex gap-2.5 p-3 rounded-xl bg-amber-500/6 border border-amber-400/20">
-                      <Zap className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        Los eventos son registros secundarios que complementan o documentan cada entrada del formulario principal.
-                      </p>
-                    </div>
-
-                    {/* Nombre */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-foreground/80">
-                        Nombre del evento <span className="text-amber-500">*</span>
-                      </label>
-                      <Input
-                        value={newEventoNombre}
-                        onChange={e => setNewEventoNombre(e.target.value)}
-                        placeholder="ej. Seguimiento semanal, Aplicación de riego…"
-                        autoFocus
-                      />
-                    </div>
-
-                    {/* Descripción */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-foreground/80">Descripción</label>
-                      <Input
-                        value={newEventoDescripcion}
-                        onChange={e => setNewEventoDescripcion(e.target.value)}
-                        placeholder="Describe brevemente para qué sirve este evento…"
-                      />
-                    </div>
-
-                    {/* Estado inicial */}
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold text-foreground/80">Estado inicial</label>
-                      <div className="flex gap-2">
-                        {(["activo", "borrador"] as const).map(est => (
-                          <button
-                            key={est}
-                            onClick={() => setNewEventoEstado(est)}
-                            className={cn(
-                              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-medium transition-all",
-                              newEventoEstado === est
-                                ? est === "activo"
-                                  ? "bg-green-50 border-green-300 text-green-700 dark:bg-green-900/20 dark:border-green-700 dark:text-green-400"
-                                  : "bg-yellow-50 border-yellow-300 text-yellow-700 dark:bg-yellow-900/20 dark:border-yellow-700 dark:text-yellow-400"
-                                : "bg-muted/40 border-border text-muted-foreground hover:bg-muted",
-                            )}
-                          >
-                            <span className={cn(
-                              "w-1.5 h-1.5 rounded-full",
-                              est === "activo" ? "bg-green-500" : "bg-yellow-400",
-                            )} />
-                            {est === "activo" ? "Activo" : "Borrador"}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground/70">
-                        {newEventoEstado === "activo"
-                          ? "Visible y disponible para los usuarios de inmediato."
-                          : "Oculto para los usuarios mientras terminas de configurarlo."}
-                      </p>
+                    {/* Footer fijo */}
+                    <div className="px-5 py-4 border-t shrink-0 bg-background flex gap-3">
+                      <Button
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => setEventosSheetView("list")}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        disabled={!newEventoNombre.trim()}
+                        onClick={() => {
+                          addEvento(
+                            eventosSheet.defId,
+                            eventosSheet.modulo,
+                            newEventoNombre.trim(),
+                            newEventoDescripcion.trim(),
+                          );
+                          // Si el estado inicial es borrador, actualizarlo luego
+                          setEventosSheetView("list");
+                        }}
+                        className="flex-1 bg-amber-500 hover:bg-amber-600 text-white"
+                      >
+                        <Zap className="w-4 h-4 mr-1.5" />
+                        Crear evento
+                      </Button>
                     </div>
                   </div>
-
-                  {/* Footer fijo */}
-                  <div className="px-5 py-4 border-t shrink-0 bg-background flex gap-3">
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => setEventosSheetView("list")}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      disabled={!newEventoNombre.trim()}
-                      onClick={() => {
-                        addEvento(
-                          eventosSheet.defId,
-                          eventosSheet.modulo,
-                          newEventoNombre.trim(),
-                          newEventoDescripcion.trim(),
-                        );
-                        // Si el estado inicial es borrador, actualizarlo luego
-                        setEventosSheetView("list");
-                      }}
-                      className="flex-1 bg-amber-500 hover:bg-amber-600 text-white"
-                    >
-                      <Zap className="w-4 h-4 mr-1.5" />
-                      Crear evento
-                    </Button>
-                  </div>
-                </div>}
+                )}
 
             </>
           )}
         </SheetContent>
       </Sheet>
 
-      {/* ── Diálogo: comparar versiones de evento ──────────────────────────── */}
+      {/* -- Diálogo: comparar versiones de evento ---------------------------- */}
       {compareEvId && (
         <VersionDiffDialog
           rootId={compareEvId}
@@ -2317,7 +3255,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         />
       )}
 
-      {/* ── (ELIMINADO) Modal: crear nuevo evento ── reemplazado por Sheet ── */}
+      {/* -- (ELIMINADO) Modal: crear nuevo evento -- reemplazado por Sheet -- */}
       {false && (
         <Dialog open onOpenChange={() => {}}>
           <DialogContent className="max-w-sm">
@@ -2326,14 +3264,14 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         </Dialog>
       )}
 
-      {/* ── Modal: confirmar nueva versión mayor de evento ──────────────────── */}
+      {/* -- Modal: confirmar nueva versión mayor de evento -------------------- */}
       {evConfirmDup && (
         <Dialog open onOpenChange={() => setEvConfirmDup(null)}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Copy className="w-5 h-5 text-amber-500" />
-                ¿Crear nueva versión?
+                Crear nueva versión?
               </DialogTitle>
               <DialogDescription>
                 Se creará <strong>v{evConfirmDup.newVersion}</strong> a partir de &ldquo;{evConfirmDup.sourceName}&rdquo; (v{evConfirmDup.sourceVersion}).
@@ -2345,7 +3283,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               <Input
                 value={evConfirmDup.newName}
                 onChange={e => setEvConfirmDup(prev => prev ? { ...prev, newName: e.target.value } : prev)}
-                placeholder="Nombre del nuevo evento…"
+                placeholder="Nombre del nuevo evento?"
                 className="h-8 text-sm"
                 autoFocus
               />
@@ -2395,7 +3333,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         </Dialog>
       )}
 
-      {/* ── Modal: archivar versión de evento ───────────────────────────────── */}
+      {/* -- Modal: archivar versión de evento --------------------------------- */}
       {evArchiveModal && (
         <Dialog open onOpenChange={() => setEvArchiveModal(null)}>
           <DialogContent className="sm:max-w-md">
@@ -2484,7 +3422,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         </Dialog>
       )}
 
-      {/* ── Modal: regresión de versión de evento ───────────────────────────── */}
+      {/* -- Modal: regresión de versión de evento ----------------------------- */}
       {evRollbackModal && (
         <Dialog open onOpenChange={() => setEvRollbackModal(null)}>
           <DialogContent className="sm:max-w-md">
@@ -2504,7 +3442,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
             {evRollbackModal.activeId && (
               <div className="space-y-2 py-1">
                 <p className="text-xs font-semibold text-foreground uppercase tracking-wide text-muted-foreground">
-                  v{evRollbackModal.activeVersion} — {evRollbackModal.activeNombre}
+                  v{evRollbackModal.activeVersion} ? {evRollbackModal.activeNombre}
                 </p>
                 <div className="space-y-1.5">
                   <label className={cn(
@@ -2590,7 +3528,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         </Dialog>
       )}
 
-      {/* ── Modal: confirmar eliminación de definición ─────────────────────── */}
+      {/* -- Modal: confirmar eliminación de definición ----------------------- */}
       {confirmDelId && (() => {
         const defToDelete = definiciones.find(d => d.id === confirmDelId);
         const camposCount = parametros.filter(p => p.definicion_id === confirmDelId).length;
@@ -2611,8 +3549,8 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               <div className="my-1 px-3 py-2.5 rounded-lg bg-muted/50 border border-border space-y-0.5">
                 <p className="text-sm font-semibold truncate">{defToDelete?.nombre || "(sin nombre)"}</p>
                 <p className="text-xs text-muted-foreground">
-                  v{defToDelete?.version || "1.0"} · {camposCount} campo{camposCount !== 1 ? "s" : ""}
-                  {datosCount > 0 && <span className="text-destructive font-medium"> · {datosCount} datos</span>}
+                  v{defToDelete?.version || "1.0"} ? {camposCount} campo{camposCount !== 1 ? "s" : ""}
+                  {datosCount > 0 && <span className="text-destructive font-medium"> ? {datosCount} datos</span>}
                 </p>
               </div>
               <DialogFooter className="gap-2 sm:gap-0">
@@ -2636,14 +3574,14 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         );
       })()}
 
-      {/* ── Modal: confirmar nueva versión ────────────────────────────────── */}
+      {/* -- Modal: confirmar nueva versión ---------------------------------- */}
       {confirmDup && (
         <Dialog open onOpenChange={() => setConfirmDup(null)}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Copy className="w-5 h-5 text-primary" />
-                ¿Crear nueva versión?
+                Crear nueva versión?
               </DialogTitle>
               <DialogDescription>
                 Se creará <strong>v{confirmDup.newVersion}</strong> a partir de &ldquo;{confirmDup.sourceName}&rdquo; (v{confirmDup.sourceVersion}).
@@ -2655,7 +3593,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               <Input
                 value={confirmDup.newName}
                 onChange={e => setConfirmDup(prev => prev ? { ...prev, newName: e.target.value } : prev)}
-                placeholder="Nombre del nuevo formulario…"
+                placeholder="Nombre del nuevo formulario?"
                 className="h-8 text-sm"
                 autoFocus
               />
@@ -2704,7 +3642,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         </Dialog>
       )}
 
-      {/* ── Diálogo: comparar versiones ───────────────────────────────────── */}
+      {/* -- Diálogo: comparar versiones ------------------------------------- */}
       {compareRootId && (
         <VersionDiffDialog
           rootId={compareRootId}
@@ -2713,7 +3651,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         />
       )}
 
-      {/* ── Modal: Confirmar archivado ────────────────────────────────────── */}
+      {/* -- Modal: Confirmar archivado -------------------------------------- */}
       {archiveModal && (
         <Dialog open onOpenChange={() => setArchiveModal(null)}>
           <DialogContent className="sm:max-w-md">
@@ -2803,7 +3741,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         </Dialog>
       )}
 
-      {/* ── Modal: Rollback / Activar versión anterior ────────────────────── */}
+      {/* -- Modal: Rollback / Activar versión anterior ---------------------- */}
       {rollbackModal && (
         <Dialog open onOpenChange={() => setRollbackModal(null)}>
           <DialogContent className="sm:max-w-md">
@@ -2823,7 +3761,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
             {rollbackModal.activeId && (
               <div className="space-y-2 py-1">
                 <p className="text-xs font-semibold text-foreground uppercase tracking-wide text-muted-foreground">
-                  v{rollbackModal.activeVersion} — {rollbackModal.activeNombre}
+                  v{rollbackModal.activeVersion} ? {rollbackModal.activeNombre}
                 </p>
                 <div className="space-y-1.5">
                   <label className={cn(
@@ -2911,7 +3849,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         </Dialog>
       )}
 
-      {/* ── Modal: Selector desde Biblioteca ─────────────────────────────── */}
+      {/* -- Modal: Selector desde Biblioteca ------------------------------- */}
       <Dialog
         open={!!addCampoModal}
         onOpenChange={open => { if (!open) { setAddCampoModal(null); setCampoTypeFilter("Todos"); } }}
@@ -2923,9 +3861,19 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               Agregar campos al formulario
             </DialogTitle>
             <DialogDescription>
-              Selecciona parámetros de la biblioteca global o crea uno nuevo en blanco.
+              Selecciona parámetros de la biblioteca global para agregarlos al formulario.
             </DialogDescription>
           </DialogHeader>
+
+          <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground flex items-center justify-between gap-2">
+            <span>
+              ¿No encuentras el parámetro? Créalo primero en Biblioteca.
+            </span>
+            <Button type="button" variant="outline" size="sm" onClick={openBibliotecaFlow}>
+              <BookOpen className="w-3.5 h-3.5 mr-1" />
+              Biblioteca
+            </Button>
+          </div>
 
           {/* Buscador */}
           <div className="relative">
@@ -2934,7 +3882,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               autoFocus
               value={campoSearch}
               onChange={e => setCampoSearch(e.target.value)}
-              placeholder="Buscar por nombre, código o descripción…"
+              placeholder="Buscar por nombre, código o descripción?"
               className="w-full pl-9 pr-8 py-2 text-sm rounded-lg bg-muted/40 border border-border focus:border-primary/50 focus:outline-none focus:bg-background transition-colors"
             />
             {campoSearch && (
@@ -2990,6 +3938,10 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                     <p className="text-sm text-muted-foreground">
                       {campoSearch ? `Sin resultados para "${campoSearch}"` : "No hay parámetros de este tipo."}
                     </p>
+                    <Button type="button" size="sm" variant="outline" onClick={openBibliotecaFlow}>
+                      <Plus className="w-3.5 h-3.5 mr-1" />
+                      Crear parámetro en Biblioteca
+                    </Button>
                   </div>
                 );
               }
@@ -3061,35 +4013,12 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
             })()}
           </div>
 
-          {/* Opción: crear nuevo en blanco */}
-          <label className={cn(
-            "flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors cursor-pointer",
-            createNewCampo
-              ? "border-primary/40 bg-primary/8"
-              : "border-dashed border-border hover:border-primary/30 hover:bg-muted/30",
-          )}>
-            <input
-              type="checkbox"
-              checked={createNewCampo}
-              onChange={e => setCreateNewCampo(e.target.checked)}
-              className="shrink-0 accent-primary"
-            />
-            <div className="w-7 h-7 rounded-md border-2 border-dashed border-muted-foreground/40 flex items-center justify-center shrink-0">
-              <Plus className="w-3.5 h-3.5 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Crear campo en blanco</p>
-              <p className="text-[11px] text-muted-foreground/60">Se añadirá un campo vacío para configurar manualmente</p>
-            </div>
-            {createNewCampo && <Check className="w-3.5 h-3.5 text-primary ml-auto shrink-0" />}
-          </label>
-
           <DialogFooter className="gap-2 sm:gap-0 pt-1">
             <Button variant="outline" onClick={() => setAddCampoModal(null)}>
               Cancelar
             </Button>
             <Button
-              disabled={selectedLibIds.size === 0 && !createNewCampo}
+              disabled={selectedLibIds.size === 0}
               onClick={() => {
                 if (!addCampoModal) return;
                 const { defId } = addCampoModal;
@@ -3098,25 +4027,21 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                   const lib = parametrosLib.find(p => p.id === libId);
                   if (lib) addPar(defId, lib.id, lib.nombre);
                 });
-                // Si se pidió uno en blanco, crear el campo vacío
-                if (createNewCampo) {
-                  addPar(defId);
-                }
                 setAddCampoModal(null);
               }}
             >
               <Plus className="w-4 h-4 mr-1.5" />
-              {selectedLibIds.size + (createNewCampo ? 1 : 0) === 0
+              {selectedLibIds.size === 0
                 ? "Agregar"
-                : selectedLibIds.size + (createNewCampo ? 1 : 0) === 1
+                : selectedLibIds.size === 1
                   ? "Agregar 1 campo"
-                  : `Agregar ${selectedLibIds.size + (createNewCampo ? 1 : 0)} campos`}
+                  : `Agregar ${selectedLibIds.size} campos`}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── Drawer: configuración avanzada del campo ──────────────────────── */}
+      {/* -- Drawer: configuración avanzada del campo ------------------------ */}
       <CampoConfigDrawer
         open={!!configCampoId}
         campo={configCampoId ? parametros.find(p => p.id === configCampoId) ?? null : null}
@@ -3127,7 +4052,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         onClose={() => setConfigCampoId(null)}
       />
 
-      {/* ── Dialog: Gestión masiva de accesos de usuario por formulario ─────── */}
+      {/* -- Dialog: Gestión masiva de accesos de usuario por formulario ------- */}
       {(() => {
         const selectedDef = accesosModal ? definiciones.find(d => d.id === accesosModal) : null;
         if (!selectedDef) return null;
@@ -3214,11 +4139,11 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                 </DialogTitle>
                 <DialogDescription className="text-xs mt-0.5">
                   <span className="font-medium text-foreground">{selectedDef.nombre}</span>
-                  {" — "}
+                  {" ? "}
                   <span className="text-success font-medium">{nAllow} permitidos</span>
-                  {" · "}
+                  {" ? "}
                   <span className="text-destructive font-medium">{nBlock} bloqueados</span>
-                  {" · "}
+                  {" ? "}
                   <span className="text-muted-foreground">{nRol} por rol</span>
                 </DialogDescription>
               </DialogHeader>
@@ -3231,7 +4156,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                   <input
                     value={accSearch}
                     onChange={e => setAccSearch(e.target.value)}
-                    placeholder="Buscar usuario…"
+                    placeholder="Buscar usuario?"
                     className="w-full pl-8 pr-7 py-1.5 text-[12px] rounded-md bg-muted/40 border border-border focus:border-primary/50 focus:outline-none transition-colors"
                   />
                   {accSearch && (
@@ -3265,7 +4190,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                 </div>
               </div>
 
-              {/* Bulk action bar — visible when users are selected */}
+              {/* Bulk action bar ? visible when users are selected */}
               {accSelected.size > 0 && (
                 <div className="px-4 py-2 bg-primary/5 border-b border-primary/15 flex items-center gap-2 shrink-0">
                   <span className="text-[11px] font-medium text-primary flex-1">
@@ -3275,19 +4200,19 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                     onClick={bulkAllow}
                     className="text-[10px] font-semibold px-2.5 py-1 rounded-md bg-success text-white hover:bg-success/80 transition-colors flex items-center gap-1"
                   >
-                    ✓ Permitir
+                    ? Permitir
                   </button>
                   <button
                     onClick={bulkBlock}
                     className="text-[10px] font-semibold px-2.5 py-1 rounded-md bg-destructive text-white hover:bg-destructive/80 transition-colors flex items-center gap-1"
                   >
-                    ✕ Bloquear
+                    ? Bloquear
                   </button>
                   <button
                     onClick={bulkClear}
                     className="text-[10px] font-medium px-2.5 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
                   >
-                    ← Por rol
+                    ? Por rol
                   </button>
                 </div>
               )}
@@ -3374,17 +4299,17 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                                 : "bg-destructive/10 text-destructive border-destructive/20"
                               : "bg-muted/60 text-muted-foreground border-border",
                           )}>
-                            {hasOverride ? (acceso!.habilitado ? "✓ Permitido" : "✕ Bloqueado") : "— Por rol"}
+                            {hasOverride ? (acceso!.habilitado ? "? Permitido" : "? Bloqueado") : "? Por rol"}
                           </span>
 
                           {/* Quick actions */}
                           {accSelected.size === 0 && (hasOverride ? (
                             <button
-                              title="Quitar override — volver a reglas de rol"
+                              title="Quitar override ? volver a reglas de rol"
                               onClick={() => removeDefAcceso(acceso!.id)}
                               className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
                             >
-                              ← rol
+                              ? rol
                             </button>
                           ) : (
                             <div className="flex gap-0.5">
@@ -3392,12 +4317,12 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                                 title="Permitir acceso"
                                 onClick={() => addDefAcceso({ definicion_id: selectedDef.id, usuario_id: user.id, habilitado: true, justificacion: "Acceso concedido desde gestión de formularios" })}
                                 className="text-[9px] px-1.5 py-0.5 rounded border border-success/30 text-success hover:bg-success/10 transition-colors font-medium"
-                              >✓</button>
+                              >?</button>
                               <button
                                 title="Bloquear acceso"
                                 onClick={() => addDefAcceso({ definicion_id: selectedDef.id, usuario_id: user.id, habilitado: false, justificacion: "Acceso bloqueado desde gestión de formularios" })}
                                 className="text-[9px] px-1.5 py-0.5 rounded border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors font-medium"
-                              >✕</button>
+                              >?</button>
                             </div>
                           ))}
                         </div>
@@ -3410,7 +4335,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               {/* Footer */}
               <div className="px-4 py-3 border-t border-border flex items-center justify-between shrink-0 bg-muted/20">
                 <p className="text-[10px] text-muted-foreground">
-                  {allUsers.length} usuarios · {allAccesos.length} con override
+                  {allUsers.length} usuarios ? {allAccesos.length} con override
                 </p>
                 {allAccesos.length > 0 && (
                   <button
@@ -3426,7 +4351,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         );
       })()}
 
-      {/* ── Sheet: Biblioteca de Parámetros ──────────────────────────────── */}
+      {/* -- Sheet: Biblioteca de Parámetros -------------------------------- */}
       <Sheet open={showBiblioteca} onOpenChange={setShowBiblioteca}>
         <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
           <SheetHeader className="mb-5">
@@ -3442,7 +4367,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
         </SheetContent>
       </Sheet>
 
-      {/* ── Dialog: Copiar formularios desde otra empresa ──────────────────── */}
+      {/* -- Dialog: Copiar formularios desde otra empresa -------------------- */}
       <Dialog open={showCopyDialog} onOpenChange={open => {
         if (!open) { setCopySourceClienteId(null); setCopySelectedDefs(new Set()); }
         setShowCopyDialog(open);
@@ -3542,7 +4467,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
   );
 }
 
-// ─── Hub de Cultivos ──────────────────────────────────────────────────────────
+// --- Hub de Cultivos ----------------------------------------------------------
 
 function TabCultivos() {
   const {
@@ -3598,7 +4523,7 @@ function TabCultivos() {
     if (!newVar.nombre.trim()) return;
     const id = `v-${Date.now()}`;
     addVariedad(selectedId);
-    // updVariedad needs the id — use a short timeout to let state propagate
+    // updVariedad needs the id ? use a short timeout to let state propagate
     setTimeout(() => {
       const latest = variedades.slice(-1)[0];
       if (latest) {
@@ -3625,10 +4550,10 @@ function TabCultivos() {
     <>
     <div className="space-y-4">
       <InfoBanner storageKey="cultivos">
-        <strong>Cultivos</strong> — gestiona cultivos activos, sus variedades y qué formularios aplican sólo a ese cultivo o a todos.
+        <strong>Cultivos</strong> ? gestiona cultivos activos, sus variedades y qué formularios aplican sólo a ese cultivo o a todos.
       </InfoBanner>
 
-      {/* ── Banner empresa filtrada (super_admin) ─────────────────────── */}
+      {/* -- Banner empresa filtrada (super_admin) ----------------------- */}
       {empresaCtxNombre && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-900/10 dark:border-amber-700/30 text-amber-700 dark:text-amber-400 text-xs">
           <Building2 className="w-3.5 h-3.5 shrink-0" />
@@ -3636,10 +4561,10 @@ function TabCultivos() {
         </div>
       )}
 
-      {/* ── Layout master / detail ─────────────────────────────────────── */}
+      {/* -- Layout master / detail --------------------------------------- */}
       <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4 items-start">
 
-        {/* ───────────────── SIDEBAR: lista de cultivos ──────────────── */}
+        {/* ----------------- SIDEBAR: lista de cultivos ---------------- */}
         <div className="bg-card rounded-xl border border-border overflow-hidden flex flex-col">
 
           {/* Sidebar header */}
@@ -3664,7 +4589,7 @@ function TabCultivos() {
               <input
                 value={searchCultivo}
                 onChange={e => setSearchCultivo(e.target.value)}
-                placeholder="Buscar cultivo…"
+                placeholder="Buscar cultivo?"
                 className="w-full pl-7 pr-5 py-1 text-[11px] rounded-md bg-muted/40 border border-transparent focus:border-primary/50 focus:bg-background focus:outline-none transition-colors"
               />
               {searchCultivo && (
@@ -3743,7 +4668,7 @@ function TabCultivos() {
           )}
         </div>
 
-        {/* ───────────────── DETALLE: cultivo seleccionado ───────────── */}
+        {/* ----------------- DETALLE: cultivo seleccionado ------------- */}
         {!cultivo ? (
           <div className="bg-card rounded-xl border border-border flex flex-col items-center justify-center py-16 gap-3">
             <Leaf className="w-10 h-10 text-muted-foreground/20" />
@@ -3751,7 +4676,7 @@ function TabCultivos() {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* ── Header del cultivo con tabs ──────────────────────────────── */}
+            {/* -- Header del cultivo con tabs -------------------------------- */}
             <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -3845,7 +4770,7 @@ function TabCultivos() {
                     value={cultivo.descripcion}
                     onChange={e => updCultivo(cultivo.id, "descripcion", e.target.value)}
                     className="h-8 text-sm"
-                    placeholder="Especie, variedad…"
+                    placeholder="Especie, variedad?"
                     readOnly={!isSuperAdmin}
                     disabled={!isSuperAdmin}
                   />
@@ -3853,7 +4778,7 @@ function TabCultivos() {
               </div>
             </div>
 
-            {/* ── Sección 2: Variedades ────────────────────────────────── */}
+            {/* -- Sección 2: Variedades ---------------------------------- */}
             <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -3893,7 +4818,7 @@ function TabCultivos() {
                       {v.codigo && (
                         <span className="text-[9px] font-mono opacity-60">[{v.codigo}]</span>
                       )}
-                      {/* Hover actions — solo super_admin */}
+                      {/* Hover actions ? solo super_admin */}
                       {isSuperAdmin && (
                       <div className="flex items-center gap-0.5 ml-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
@@ -3960,7 +4885,7 @@ function TabCultivos() {
 
                 {/* TAB: Medidas */}
                 <TabsContent value="medidas" className="p-4 space-y-4 m-0">
-            {/* ── Sección 3: Medidas y Unidades ───────────────────────────── */}
+            {/* -- Sección 3: Medidas y Unidades ----------------------------- */}
             <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border bg-muted/20">
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -3976,7 +4901,7 @@ function TabCultivos() {
                   </label>
                   <div className="flex rounded-lg border border-border overflow-hidden">
                     {(["ha", "m2", "acres"] as const).map((opt) => {
-                      const labels: Record<string, string> = { ha: "ha", m2: "m²", acres: "acres" };
+                      const labels: Record<string, string> = { ha: "ha", m2: "m?", acres: "acres" };
                       const titles: Record<string, string> = { ha: "Hectáreas", m2: "Metros cuadrados", acres: "Acres" };
                       const active = (cultivo.unidad_superficie ?? "ha") === opt;
                       return (
@@ -4052,7 +4977,7 @@ function TabCultivos() {
                     <span className="text-xs text-muted-foreground">pl/ha</span>
                     {!!cultivo.marco_plantacion && cultivo.marco_plantacion > 0 && (
                       <span className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded-md border border-border">
-                        ≈ {(cultivo.marco_plantacion / 10000).toFixed(2)} pl/m²
+                        ? {(cultivo.marco_plantacion / 10000).toFixed(2)} pl/m?
                       </span>
                     )}
                   </div>
@@ -4063,7 +4988,7 @@ function TabCultivos() {
 
                 {/* TAB: Calibres */}
                 <TabsContent value="calibres" className="p-4 space-y-4 m-0">
-            {/* ── Sección 4: Calibres ──────────────────────────────────────── */}
+            {/* -- Sección 4: Calibres ---------------------------------------- */}
             <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -4208,7 +5133,7 @@ function TabCultivos() {
                             />
                             {cal.mm_min !== undefined && cal.mm_max !== undefined && (
                               <span className="text-[10px] text-muted-foreground/60 flex-shrink-0 hidden xl:block">
-                                {cal.mm_min}–{cal.mm_max} {cultivo.unidad_calibre ?? "mm"}
+                                {cal.mm_min}?{cal.mm_max} {cultivo.unidad_calibre ?? "mm"}
                               </span>
                             )}
                           </div>
@@ -4242,7 +5167,7 @@ function TabCultivos() {
                           <span className={cn("w-2 h-2 rounded-full", DOT_COLORS[idx % DOT_COLORS.length])} />
                           <span className="font-medium">{cal.nombre}</span>
                           {cal.mm_min !== undefined && cal.mm_max !== undefined && (
-                            <span>{cal.mm_min}–{cal.mm_max}{cultivo.unidad_calibre ?? "mm"}</span>
+                            <span>{cal.mm_min}?{cal.mm_max}{cultivo.unidad_calibre ?? "mm"}</span>
                           )}
                         </span>
                       );
@@ -4255,7 +5180,7 @@ function TabCultivos() {
 
                 {/* TAB: Estructura */}
                 <TabsContent value="estructura" className="p-4 space-y-4 m-0">
-            {/* ── Sección 5: Estructura de Campo ──────────────────────────── */}
+            {/* -- Sección 5: Estructura de Campo ---------------------------- */}
             <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -4311,7 +5236,7 @@ function TabCultivos() {
                   <p className="text-xs text-muted-foreground">Sin estructura configurada.</p>
                   {canEditCultivo && (
                     <p className="text-[10px] text-muted-foreground/60">
-                      Usa "Cargar plantilla" para la jerarquía estándar.
+                      Usa "Cargar plantilla" para la jerarquéa estándar.
                     </p>
                   )}
                 </div>
@@ -4436,7 +5361,7 @@ function TabCultivos() {
                   {(cultivo.estructura ?? []).some(n => n.activo) && (
                     <div className="mx-4 mb-4 mt-3 px-3 py-2.5 rounded-lg bg-sky-50 border border-sky-100 dark:bg-sky-950/20 dark:border-sky-900/40">
                       <p className="text-[10px] font-semibold text-sky-700 dark:text-sky-400 uppercase tracking-wider mb-2">
-                        Jerarquía activa
+                        Jerarquéa activa
                       </p>
                       <div className="flex items-center gap-1 flex-wrap">
                         {(cultivo.estructura ?? [])
@@ -4461,7 +5386,7 @@ function TabCultivos() {
               )}
             </div>
 
-            {/* ── Sección 5: Mapa visual del campo ───────────────────────────────────── */}
+            {/* -- Sección 5: Mapa visual del campo ------------------------------------- */}
             {(cultivo.estructura ?? []).some(n => n.activo) && (
               <div className="rounded-lg border bg-card text-card-foreground overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
@@ -4494,7 +5419,7 @@ function TabCultivos() {
         )}
       </div>
 
-      {/* ── Modal: crear nuevo cultivo ────────────────────────────────────── */}
+      {/* -- Modal: crear nuevo cultivo -------------------------------------- */}
       <Dialog open={showAddCultivo} onOpenChange={open => {
         if (!open) { setNewCultivoForm({ nombre: "", codigo: "", descripcion: "" }); }
         setShowAddCultivo(open);
@@ -4518,7 +5443,7 @@ function TabCultivos() {
               <Input
                 value={newCultivoForm.nombre}
                 onChange={e => setNewCultivoForm(p => ({ ...p, nombre: e.target.value }))}
-                placeholder="ej. Fresas, Tomates, Lechugas…"
+                placeholder="ej. Fresas, Tomates, Lechugas?"
                 autoFocus
                 onKeyDown={e => { if (e.key === "Enter") handleCreateCultivo(); }}
               />
@@ -4538,7 +5463,7 @@ function TabCultivos() {
               <Input
                 value={newCultivoForm.descripcion}
                 onChange={e => setNewCultivoForm(p => ({ ...p, descripcion: e.target.value }))}
-                placeholder="Variedad, especie, notas…"
+                placeholder="Variedad, especie, notas?"
                 onKeyDown={e => { if (e.key === "Enter") handleCreateCultivo(); }}
               />
             </div>
@@ -4560,7 +5485,7 @@ function TabCultivos() {
   );
 }
 
-// ─── TabEmpresas ──────────────────────────────────────────────────────────────
+// --- TabEmpresas --------------------------------------------------------------
 // Solo super_admin puede crear/editar/eliminar clientes y productores.
 // Un cliente puede tener múltiples productores; los productores no ven datos de otros.
 
@@ -4577,7 +5502,7 @@ function TabEmpresas() {
   const currentClienteId   = currentUser?.clienteId   ?? null;
   const currentProductorId = currentUser?.productorId ?? null;
 
-  // ── Toggle cultivo para un cliente ─────────────────────────────────────────
+  // -- Toggle cultivo para un cliente -----------------------------------------
   // clientes_ids vacío = global (todos lo ven). Al desmarcar un global
   // se vuelve explícito para todos los demás clientes.
   const toggleCultivoCliente = (cultivoId: string, clienteId: number, checked: boolean) => {
@@ -4587,7 +5512,7 @@ function TabEmpresas() {
       updCultivoClientes(cultivoId, [...currentIds, clienteId]);
     } else {
       if (currentIds.length === 0) {
-        // Era global → lo hacemos explícito para todos excepto este cliente
+        // Era global ? lo hacemos explícito para todos excepto este cliente
         updCultivoClientes(cultivoId, clientes.filter(c => c.id !== clienteId).map(c => c.id));
       } else {
         updCultivoClientes(cultivoId, currentIds.filter(id => id !== clienteId));
@@ -4595,7 +5520,7 @@ function TabEmpresas() {
     }
   };
 
-  // ── Toggle cultivo para un productor ───────────────────────────────────────
+  // -- Toggle cultivo para un productor ---------------------------------------
   const toggleCultivoProductor = (cultivoId: string, productorId: number, checked: boolean) => {
     const cultivo    = allCultivos.find(c => c.id === cultivoId);
     const currentIds = cultivo?.productores_ids ?? [];
@@ -4610,7 +5535,7 @@ function TabEmpresas() {
     }
   };
 
-  // ── Toggle variedad para un cliente ─────────────────────────────────────────
+  // -- Toggle variedad para un cliente -----------------------------------------
   const toggleVariedadCliente = (variedadId: string, clienteId: number, checked: boolean) => {
     const variedad   = allVariedades.find(v => v.id === variedadId);
     const currentIds = variedad?.clientes_ids ?? [];
@@ -4625,7 +5550,7 @@ function TabEmpresas() {
     }
   };
 
-  // ── Toggle variedad para un productor ──────────────────────────────────────
+  // -- Toggle variedad para un productor --------------------------------------
   const toggleVariedadProductor = (variedadId: string, productorId: number, checked: boolean) => {
     const variedad   = allVariedades.find(v => v.id === variedadId);
     const currentIds = variedad?.productores_ids ?? [];
@@ -4640,7 +5565,7 @@ function TabEmpresas() {
     }
   };
 
-  // ── Estado de búsqueda y expansión ─────────────────────────────────────────
+  // -- Estado de búsqueda y expansión -----------------------------------------
   const [search,              setSearch]              = useState("");
   // No super_admin: auto-expand su única empresa
   const [expandedId,          setExpandedId]          = useState<number | null>(
@@ -4648,23 +5573,23 @@ function TabEmpresas() {
   );
   const [activeSubTab,        setActiveSubTab]        = useState<"cultivos" | "productores">("productores");
 
-  // ── Estado formularios clientes ─────────────────────────────────────────────
+  // -- Estado formularios clientes ---------------------------------------------
   const [showAddCliente,      setShowAddCliente]      = useState(false);
   const [clienteForm,         setClienteForm]         = useState(EMPTY_EMPRESA);
   const [editCliente,         setEditCliente]         = useState<typeof clientes[0] | null>(null);
   const [confirmDelCliente,   setConfirmDelCliente]   = useState<number | null>(null);
 
-  // ── Estado formularios productores ─────────────────────────────────────────
+  // -- Estado formularios productores -----------------------------------------
   const [showAddProd,         setShowAddProd]         = useState<number | null>(null); // clienteId
   const [prodForm,            setProdForm]            = useState(EMPTY_EMPRESA);
   const [editProductor,       setEditProductor]       = useState<typeof productores[0] | null>(null);
   const [confirmDelProductor, setConfirmDelProductor] = useState<number | null>(null);
 
-  // ── Helpers de validación ───────────────────────────────────────────────────
+  // -- Helpers de validación ---------------------------------------------------
   const validEmpresa = (f: typeof EMPTY_EMPRESA) =>
     f.nombre.trim().length > 0 && f.ruc.trim().length > 0 && f.pais.trim().length > 0;
 
-  // ── CRUD clientes ──────────────────────────────────────────────────────────
+  // -- CRUD clientes ----------------------------------------------------------
   const handleSaveCliente = () => {
     if (!validEmpresa(clienteForm)) return;
     const payload = { nombre: clienteForm.nombre.trim(), ruc: clienteForm.ruc.trim(), pais: clienteForm.pais.trim(), direccion: clienteForm.direccion?.trim() || undefined };
@@ -4685,7 +5610,7 @@ function TabEmpresas() {
     setConfirmDelCliente(null);
   };
 
-  // ── CRUD productores ───────────────────────────────────────────────────────
+  // -- CRUD productores -------------------------------------------------------
   const handleSaveProductor = () => {
     if (!validEmpresa(prodForm)) return;
     const payload = { nombre: prodForm.nombre.trim(), ruc: prodForm.ruc.trim(), pais: prodForm.pais.trim(), direccion: prodForm.direccion?.trim() || undefined };
@@ -4704,7 +5629,7 @@ function TabEmpresas() {
     setConfirmDelProductor(null);
   };
 
-  // ── Filtrado ───────────────────────────────────────────────────────────────
+  // -- Filtrado ---------------------------------------------------------------
   // No super_admin: solo ven su propia empresa
   const baseClientes = isSuperAdmin
     ? clientes
@@ -4716,7 +5641,7 @@ function TabEmpresas() {
     c.ruc.toLowerCase().includes(search.toLowerCase())
   );
 
-  // ── Vista perfil para cliente_admin y productor ─────────────────────────
+  // -- Vista perfil para cliente_admin y productor -------------------------
   if (!isSuperAdmin) {
     const miCliente = clientes.find(c => c.id === currentClienteId);
     const miProductor = isProductor
@@ -4751,7 +5676,7 @@ function TabEmpresas() {
           </div>
         ) : (
           <>
-            {/* ── Header de perfil ─────────────────────────────────────── */}
+            {/* -- Header de perfil --------------------------------------- */}
             <div className="rounded-xl border bg-card overflow-hidden">
               {/* Banner decorativo */}
               <div className="h-16 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent" />
@@ -4801,7 +5726,7 @@ function TabEmpresas() {
               </div>
             </div>
 
-            {/* ── Cultivos y Variedades ────────────────────────────────── */}
+            {/* -- Cultivos y Variedades ---------------------------------- */}
             <div className="rounded-xl border bg-card p-5">
               <div className="flex items-center gap-2 mb-4">
                 <Leaf className="w-4 h-4 text-emerald-600" />
@@ -4853,7 +5778,7 @@ function TabEmpresas() {
               )}
             </div>
 
-            {/* ── Productores integrados (solo cliente_admin) ──────────── */}
+            {/* -- Productores integrados (solo cliente_admin) ------------ */}
             {isClienteAdmin && (
               <div className="rounded-xl border bg-card p-5">
                 <div className="flex items-center gap-2 mb-4">
@@ -4919,11 +5844,11 @@ function TabEmpresas() {
   return (
     <div className="space-y-4">
       <InfoBanner storageKey="empresas">
-        <strong>Empresas</strong> — gestiona clientes de la plataforma y sus productores internos.
+        <strong>Empresas</strong> ? gestiona clientes de la plataforma y sus productores internos.
         Solo el <strong>superadministrador</strong> puede crear, editar o eliminar empresas y productores.
       </InfoBanner>
 
-      {/* ── Barra superior — solo super_admin ───────────────────────────── */}
+      {/* -- Barra superior ? solo super_admin ----------------------------- */}
       {isSuperAdmin && (
         <div className="flex items-center gap-3">
           <div className="relative flex-1 max-w-sm">
@@ -4931,7 +5856,7 @@ function TabEmpresas() {
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Buscar empresa o RUC…"
+              placeholder="Buscar empresa o RUC?"
               className="w-full pl-8 pr-8 py-1.5 text-sm rounded-lg bg-muted/50 border border-border focus:border-primary/50 focus:outline-none transition-colors"
             />
             {search && (
@@ -4946,7 +5871,7 @@ function TabEmpresas() {
         </div>
       )}
 
-      {/* ── Lista de clientes ─────────────────────────────────────────────── */}
+      {/* -- Lista de clientes ----------------------------------------------- */}
       {filteredClientes.length === 0 ? (
         <div className="bg-card rounded-xl border border-border py-16 flex flex-col items-center gap-3 text-muted-foreground">
           <Building2 className="w-10 h-10 opacity-20" />
@@ -4968,7 +5893,7 @@ function TabEmpresas() {
             return (
               <div key={cliente.id} className="bg-card rounded-xl border border-border overflow-hidden">
 
-                {/* ── Fila del cliente ──────────────────────────────────────── */}
+                {/* -- Fila del cliente ---------------------------------------- */}
                 <div className={cn(
                   "flex items-center gap-3 px-4 py-3 transition-colors",
                   isExpanded && "bg-muted/30",
@@ -4981,18 +5906,18 @@ function TabEmpresas() {
                   {/* Info */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">{cliente.nombre}</p>
-                    <p className="text-xs text-muted-foreground">{cliente.ruc} · {cliente.pais}</p>
+                    <p className="text-xs text-muted-foreground">{cliente.ruc} ? {cliente.pais}</p>
                   </div>
 
                   {/* Badges + acciones */}
                   <div className="flex items-center gap-2 shrink-0">
-                    {/* Productor count — super_admin ve total; cliente_admin ve total; productor no lo ve */}
+                    {/* Productor count ? super_admin ve total; cliente_admin ve total; productor no lo ve */}
                     {!isProductor && (
                       <span className="hidden sm:inline text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
                         {allProdCount} productor{allProdCount !== 1 ? "es" : ""}
                       </span>
                     )}
-                    {/* Cultivos — solo super_admin ve la configuración */}
+                    {/* Cultivos ? solo super_admin ve la configuración */}
                     {isSuperAdmin && (
                       <span className={cn(
                         "text-[11px] px-2 py-0.5 rounded-full font-medium",
@@ -5025,7 +5950,7 @@ function TabEmpresas() {
                       </div>
                     )}
 
-                    {/* Expand toggle — solo super_admin puede colapsar; otros siempre expandido */}
+                    {/* Expand toggle ? solo super_admin puede colapsar; otros siempre expandido */}
                     {isSuperAdmin ? (
                       <button
                         onClick={() => { setExpandedId(isExpanded ? null : cliente.id); if (!isExpanded) setActiveSubTab("productores"); }}
@@ -5040,11 +5965,11 @@ function TabEmpresas() {
                   </div>
                 </div>
 
-                {/* ── Panel expandible con sub-tabs ──────────────────────── */}
+                {/* -- Panel expandible con sub-tabs ------------------------ */}
                 {isExpanded && (
                   <div className="border-t border-border bg-muted/10">
 
-                    {/* ── Sub-tab nav ──────────────────────────────────────── */}
+                    {/* -- Sub-tab nav ---------------------------------------- */}
                     {isSuperAdmin && (
                       <div className="flex border-b border-border/50">
                         <button
@@ -5085,9 +6010,9 @@ function TabEmpresas() {
                       </div>
                     )}
 
-                    {/* ══════════════════════════════════════════════════════ */}
+                    {/* ------------------------------------------------------ */}
                     {/* SUB-TAB: Cultivos y Variedades                       */}
-                    {/* ══════════════════════════════════════════════════════ */}
+                    {/* ------------------------------------------------------ */}
                     {isSuperAdmin && activeSubTab === "cultivos" && (
                       <div className="p-4 space-y-3">
                         {allCultivos.length === 0 ? (
@@ -5189,9 +6114,9 @@ function TabEmpresas() {
                       </div>
                     )}
 
-                    {/* ══════════════════════════════════════════════════════ */}
+                    {/* ------------------------------------------------------ */}
                     {/* SUB-TAB: Productores                                 */}
-                    {/* ══════════════════════════════════════════════════════ */}
+                    {/* ------------------------------------------------------ */}
                     {(!isSuperAdmin || activeSubTab === "productores") && (
                       <div>
                         {/* Header productores */}
@@ -5247,7 +6172,7 @@ function TabEmpresas() {
                                           </span>
                                         )}
                                       </div>
-                                      <p className="text-xs text-muted-foreground">{prod.ruc} · {prod.pais}</p>
+                                      <p className="text-xs text-muted-foreground">{prod.ruc} ? {prod.pais}</p>
                                     </div>
                                     {isSuperAdmin && (
                                       <span className={cn(
@@ -5279,7 +6204,7 @@ function TabEmpresas() {
                                     )}
                                   </div>
 
-                                  {/* ── Cultivos + Variedades por productor (super_admin) ─── */}
+                                  {/* -- Cultivos + Variedades por productor (super_admin) --- */}
                                   {isSuperAdmin && cultivosHabilitados.length > 0 && (
                                     <div className="px-4 pb-3 ml-10 space-y-2.5">
                                       {cultivosHabilitados.map(c => {
@@ -5364,7 +6289,7 @@ function TabEmpresas() {
         </div>
       )}
 
-      {/* ── Dialog: Agregar / Editar cliente ──────────────────────────────── */}
+      {/* -- Dialog: Agregar / Editar cliente -------------------------------- */}
       <Dialog open={showAddCliente} onOpenChange={open => { if (!open) { setShowAddCliente(false); setEditCliente(null); setClienteForm(EMPTY_EMPRESA); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -5402,7 +6327,7 @@ function TabEmpresas() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Dialog: Agregar / Editar productor ────────────────────────────── */}
+      {/* -- Dialog: Agregar / Editar productor ------------------------------ */}
       <Dialog open={showAddProd !== null} onOpenChange={open => { if (!open) { setShowAddProd(null); setEditProductor(null); setProdForm(EMPTY_EMPRESA); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -5442,7 +6367,7 @@ function TabEmpresas() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Dialog: Confirmar eliminación de cliente ──────────────────────── */}
+      {/* -- Dialog: Confirmar eliminación de cliente ------------------------ */}
       <Dialog open={confirmDelCliente !== null} onOpenChange={open => { if (!open) setConfirmDelCliente(null); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -5450,7 +6375,7 @@ function TabEmpresas() {
               <Trash2 className="w-4 h-4" /> Eliminar empresa
             </DialogTitle>
             <DialogDescription>
-              Esta acción eliminará <strong>{clientes.find(c => c.id === confirmDelCliente)?.nombre}</strong> y todos sus productores internos.
+              Esta acción eliminar? <strong>{clientes.find(c => c.id === confirmDelCliente)?.nombre}</strong> y todos sus productores internos.
               Esta operación no se puede deshacer.
             </DialogDescription>
           </DialogHeader>
@@ -5463,7 +6388,7 @@ function TabEmpresas() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Dialog: Confirmar eliminación de productor ────────────────────── */}
+      {/* -- Dialog: Confirmar eliminación de productor ---------------------- */}
       <Dialog open={confirmDelProductor !== null} onOpenChange={open => { if (!open) setConfirmDelProductor(null); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -5471,7 +6396,7 @@ function TabEmpresas() {
               <Trash2 className="w-4 h-4" /> Eliminar productor
             </DialogTitle>
             <DialogDescription>
-              Esta acción eliminará <strong>{productores.find(p => p.id === confirmDelProductor)?.nombre}</strong>.
+              Esta acción eliminar? <strong>{productores.find(p => p.id === confirmDelProductor)?.nombre}</strong>.
               Esta operación no se puede deshacer.
             </DialogDescription>
           </DialogHeader>
@@ -5487,13 +6412,13 @@ function TabEmpresas() {
   );
 }
 
-// ─── Tab Usuarios ─────────────────────────────────────────────────────────────
+// --- Tab Usuarios -------------------------------------------------------------
 
 const rolConfig: Record<string, { icon: React.ElementType; color: string }> = {
   "Super Admin":   { icon: ShieldCheck, color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" },
   "Cliente Admin": { icon: Shield,      color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
   "Productor":     { icon: SproutIcon,  color: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
-  "Jefe de Área":  { icon: Briefcase,   color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
+  "Jefe de área":  { icon: Briefcase,   color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
   "Supervisor":    { icon: Eye,         color: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400" },
   "Lector":        { icon: BookOpenAlt, color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400" },
 };
@@ -5502,7 +6427,7 @@ const roleNameMap: Record<UserRoleT, string> = {
   super_admin:   "Super Admin",
   cliente_admin: "Cliente Admin",
   productor:     "Productor",
-  jefe_area:     "Jefe de Área",
+  jefe_area:     "Jefe de área",
   supervisor:    "Supervisor",
   lector:        "Lector",
 };
@@ -5565,13 +6490,13 @@ function TabUsuarios() {
         productorId:  u.productorId,
         activo:       u.activo !== false,
         area_asignada: u.area_asignada,
-        empresa:      u.clienteId ? clientes.find(c => c.id === u.clienteId)?.nombre ?? "—" : "Plataforma",
+        empresa:      u.clienteId ? clientes.find(c => c.id === u.clienteId)?.nombre ?? "?" : "Plataforma",
         estado:       (u.activo !== false ? "Activo" : "Inactivo") as "Activo" | "Inactivo",
-        ultimoAcceso: "—",
+        ultimoAcceso: "?",
       })),
   [contextUsers, clientes, myLevel, isSuperAdmin, currentClienteId]);
 
-  // Local role overrides — lets us edit roles inline without a real backend
+  // Local role overrides ? lets us edit roles inline without a real backend
   const [userRoleMap, setUserRoleMap] = useState<Map<number, UserRoleT>>(() => new Map());
 
   // Selection (single for detail panel)
@@ -5585,7 +6510,7 @@ function TabUsuarios() {
   const [bulkDefIds, setBulkDefIds] = useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = useState<"permitir" | "bloquear">("permitir");
 
-  // ── Crear / Editar usuario ─────────────────────────────────────────────────
+  // -- Crear / Editar usuario -------------------------------------------------
   const [userModal, setUserModal] = useState(false);
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [formNombre, setFormNombre] = useState("");
@@ -5703,7 +6628,7 @@ function TabUsuarios() {
         const existingOv = existingOvs.find(o => o.modulo === mod.value && o.accion === accion);
 
         if (isDisabled) {
-          // Módulo desactivado → bloquear cada acción
+          // Módulo desactivado ? bloquear cada acción
           if (!existingOv || existingOv.habilitado) {
             if (existingOv) removeOverride(existingOv.id);
             addOverride({
@@ -5715,7 +6640,7 @@ function TabUsuarios() {
             });
           }
         } else {
-          // Módulo activado → quitar bloqueos previos de este flujo
+          // Módulo activado ? quitar bloqueos previos de este flujo
           if (existingOv && !existingOv.habilitado && existingOv.justificacion === "Módulo restringido al crear/editar usuario") {
             removeOverride(existingOv.id);
           }
@@ -5766,7 +6691,7 @@ function TabUsuarios() {
   const users = useMemo(() =>
     BASE_USERS.map(u => {
       const roleKey = userRoleMap.get(u.id) ?? u.roleKey;
-      const empresa = u.clienteId ? clientes.find(c => c.id === u.clienteId)?.nombre ?? "—" : "Plataforma";
+      const empresa = u.clienteId ? clientes.find(c => c.id === u.clienteId)?.nombre ?? "?" : "Plataforma";
       return { ...u, roleKey, rol: roleNameMap[roleKey], nivel: ROLE_LEVELS[roleKey], empresa };
     }),
   [BASE_USERS, userRoleMap, clientes]);
@@ -5810,7 +6735,7 @@ function TabUsuarios() {
   };
 
   // Toggle override from matrix cell
-  // Reglas (§6 informe): solo puedes OTORGAR permisos que TÚ mismo tienes.
+  // Reglas (?6 informe): solo puedes OTORGAR permisos que Tú mismo tienes.
   // Bloquear (habilitado: false) siempre está permitido sobre subordinados.
   const canGrantAction = (modulo: string, accion: ActionPermission): boolean => {
     if (isSuperAdmin) return true;
@@ -5821,7 +6746,7 @@ function TabUsuarios() {
     if (!selectedUser) return;
     const existing = userOverrides.find(ov => ov.modulo === modulo && ov.accion === accion);
     if (existing) {
-      // Quitar override existente — siempre permitido
+      // Quitar override existente ? siempre permitido
       removeOverride(existing.id);
     } else {
       const baseHas  = getRoleBasePermissions(selectedUser.roleKey, modulo).includes(accion);
@@ -5848,7 +6773,7 @@ function TabUsuarios() {
   // Sort arrow indicator
   const SortArrow = ({ col }: { col: SortKey }) => (
     <span className={cn("ml-1 text-[9px]", sortBy === col ? "text-primary" : "opacity-30")}>
-      {sortBy === col ? (sortDir === "asc" ? "▲" : "▼") : "⇅"}
+      {sortBy === col ? (sortDir === "asc" ? "?" : "?") : "?"}
     </span>
   );
 
@@ -5869,11 +6794,11 @@ function TabUsuarios() {
   return (
     <div className="space-y-4">
       <InfoBanner storageKey="usuarios">
-        <strong>Gestión de Usuarios</strong> — administra roles y configura permisos especiales
+        <strong>Gestión de Usuarios</strong> ? administra roles y configura permisos especiales
         por módulo y acción. Haz clic en un usuario para abrir su matriz de permisos.
       </InfoBanner>
 
-      {/* ── Banner empresa filtrada (super_admin) ─────────────────────── */}
+      {/* -- Banner empresa filtrada (super_admin) ----------------------- */}
       {isSuperAdmin && empresaCtxId && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-900/10 dark:border-amber-700/30 text-amber-700 dark:text-amber-400 text-xs">
           <Building2 className="w-3.5 h-3.5 shrink-0" />
@@ -5881,7 +6806,7 @@ function TabUsuarios() {
         </div>
       )}
 
-      {/* ── Toolbar ───────────────────────────────────────────────────────── */}
+      {/* -- Toolbar --------------------------------------------------------- */}
       <div className="flex items-center gap-2 flex-wrap">
         {/* Search */}
         <div className="relative min-w-[200px] flex-1 max-w-sm">
@@ -5889,7 +6814,7 @@ function TabUsuarios() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Buscar nombre o email…"
+            placeholder="Buscar nombre o email?"
             className="w-full pl-9 pr-8 py-2 text-sm rounded-lg bg-muted/40 border border-border focus:border-primary/50 focus:outline-none focus:bg-background transition-colors"
           />
           {search && (
@@ -5938,7 +6863,7 @@ function TabUsuarios() {
         )}
       </div>
 
-      {/* ── Bulk action bar ─────────────────────────────────────────────── */}
+      {/* -- Bulk action bar ----------------------------------------------- */}
       {checkedIds.size > 0 && (
         <div className="flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-lg px-4 py-2 animate-in slide-in-from-top-1">
           <CheckSquare className="w-4 h-4 text-primary shrink-0" />
@@ -5965,10 +6890,10 @@ function TabUsuarios() {
         </div>
       )}
 
-      {/* ── Body: table + detail panel ────────────────────────────────────── */}
+      {/* -- Body: table + detail panel -------------------------------------- */}
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-5 items-start">
 
-        {/* ── Sortable paginated table ────────────────────────────────────── */}
+        {/* -- Sortable paginated table -------------------------------------- */}
         <div className="bg-card rounded-xl border border-border overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -6015,7 +6940,7 @@ function TabUsuarios() {
                   className="text-left px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide cursor-pointer hover:text-foreground select-none hidden lg:table-cell"
                   onClick={() => handleSort("ultimoAcceso")}
                 >
-                  Último acceso <SortArrow col="ultimoAcceso" />
+                  último acceso <SortArrow col="ultimoAcceso" />
                 </th>
                 <th className="text-center px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-12">
                   Esp.
@@ -6149,7 +7074,7 @@ function TabUsuarios() {
                           {overrideCount}
                         </span>
                       ) : (
-                        <span className="text-xs text-muted-foreground/30">—</span>
+                        <span className="text-xs text-muted-foreground/30">?</span>
                       )}
                     </td>
 
@@ -6189,7 +7114,7 @@ function TabUsuarios() {
             </tbody>
           </table>
 
-          {/* ── Pagination footer ──────────────────────────────────────── */}
+          {/* -- Pagination footer ---------------------------------------- */}
           {filtered.length > 0 && (
             <div className="px-4 py-2 border-t border-border flex items-center justify-between gap-3 bg-muted/20 flex-wrap">
               {/* Page size */}
@@ -6207,12 +7132,12 @@ function TabUsuarios() {
               {/* Page controls */}
               <div className="flex items-center gap-1">
                 <span className="text-[11px] text-muted-foreground mr-1.5">
-                  {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filtered.length)} / {filtered.length}
+                  {(page - 1) * pageSize + 1}?{Math.min(page * pageSize, filtered.length)} / {filtered.length}
                 </span>
                 <button onClick={() => setPage(1)} disabled={page === 1}
-                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">«</button>
+                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">?</button>
                 <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">‹</button>
+                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">?</button>
                 {pageChips.map(p => (
                   <button
                     key={p}
@@ -6226,15 +7151,15 @@ function TabUsuarios() {
                   >{p}</button>
                 ))}
                 <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">›</button>
+                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">?</button>
                 <button onClick={() => setPage(totalPages)} disabled={page === totalPages}
-                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">»</button>
+                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">?</button>
               </div>
             </div>
           )}
         </div>
 
-        {/* ── Perfil de acceso ─────────────────────────────────────────────── */}
+        {/* -- Perfil de acceso ----------------------------------------------- */}
         <div className="bg-card rounded-xl border border-border overflow-hidden sticky top-4 flex flex-col max-h-[calc(100vh-140px)]">
 
           {/* Header */}
@@ -6274,7 +7199,7 @@ function TabUsuarios() {
 
             return (
               <>
-                {/* ── Tarjeta de usuario ──────────────────────────────── */}
+                {/* -- Tarjeta de usuario -------------------------------- */}
                 <div className="px-4 py-4 border-b border-border shrink-0 space-y-3">
                   <div className="flex items-center gap-3">
                     <div className={cn(
@@ -6298,7 +7223,7 @@ function TabUsuarios() {
                       {(() => { const Ic = rolConfig[selectedUser.rol]?.icon ?? Shield; return <Ic className="w-3 h-3" />; })()}
                       {selectedUser.rol}
                     </span>
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg bg-primary/10 text-primary" title="Nivel jerárquico (1=Lector … 6=Super Admin)">
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg bg-primary/10 text-primary" title="Nivel jerárquico (1=Lector ? 6=Super Admin)">
                       Nv.{selectedUser.nivel}
                       <span className="flex gap-0.5">
                         {Array.from({ length: 6 }).map((_, i) => (
@@ -6314,7 +7239,7 @@ function TabUsuarios() {
                       <ShieldAlert className="w-3.5 h-3.5 text-primary/60 shrink-0" />
                       <span className="text-[11px] text-primary/80 flex-1">
                         {userOverrides.length > 0 && <><strong>{userOverrides.length}</strong> override{userOverrides.length !== 1 ? "s" : ""} de módulo</>}
-                        {userOverrides.length > 0 && accesosDelUsuario.length > 0 && " · "}
+                        {userOverrides.length > 0 && accesosDelUsuario.length > 0 && " ? "}
                         {accesosDelUsuario.length > 0 && <><strong>{accesosDelUsuario.length}</strong> de formulario</>}
                       </span>
                       <button
@@ -6325,11 +7250,11 @@ function TabUsuarios() {
                       </button>
                     </div>
                   ) : (
-                    <p className="text-[11px] text-muted-foreground/50 italic">Sin overrides — acceso según rol</p>
+                    <p className="text-[11px] text-muted-foreground/50 italic">Sin overrides - acceso según rol</p>
                   )}
                 </div>
 
-                {/* ── Leyenda + Búsqueda ──────────────────────────────── */}
+                {/* -- Leyenda + Búsqueda -------------------------------- */}
                 <div className="px-4 py-3 border-b border-border bg-muted/10 shrink-0 space-y-2.5">
                   {/* Leyenda simplificada */}
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1">
@@ -6356,7 +7281,7 @@ function TabUsuarios() {
                     <input
                       value={panelSearch}
                       onChange={e => setPanelSearch(e.target.value)}
-                      placeholder="Buscar módulo o formulario…"
+                      placeholder="Buscar módulo o formulario?"
                       className="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg bg-background border border-border focus:border-primary/50 focus:outline-none transition-colors"
                     />
                     {panelSearch && (
@@ -6367,7 +7292,7 @@ function TabUsuarios() {
                   </div>
                 </div>
 
-                {/* ── Módulos y formularios ───────────────────────────── */}
+                {/* -- Módulos y formularios ----------------------------- */}
                 <div className="overflow-y-auto flex-1">
                   {MODULO_OPTIONS.map(mod => {
                     const modDefs = definiciones.filter(d => d.modulo === mod.value && d.estado === "activo");
@@ -6447,10 +7372,10 @@ function TabUsuarios() {
                                 <div className="flex-1 min-w-0">
                                   <p
                                     className="text-xs font-medium text-foreground truncate"
-                                    title={def.nombre + (blockReason ? ` — ${blockReason}` : "")}
+                                    title={def.nombre + (blockReason ? ` ? ${blockReason}` : "")}
                                   >
                                     {def.nombre}
-                                    {def.cultivo_id && <span className="ml-1 text-primary/50">🌿</span>}
+                                    {def.cultivo_id && <span className="ml-1 text-primary/50">??</span>}
                                   </p>
                                   {/* Badges secundarios solo si hay restricciones */}
                                   {((def.nivel_minimo ?? 1) > 1 || !notExcl) && (
@@ -6490,17 +7415,17 @@ function TabUsuarios() {
                                     )}
                                   >
                                     {ovAcceso
-                                      ? ovAcceso.habilitado ? "✓ override" : "✕ bloqueado"
-                                      : roleOK ? "✓ por rol" : "✗ sin acceso"
+                                      ? ovAcceso.habilitado ? "? override" : "? bloqueado"
+                                      : roleOK ? "? por rol" : "? sin acceso"
                                     }
                                   </span>
                                   {ovAcceso ? (
                                     <button
                                       onClick={() => removeDefAcceso(ovAcceso.id)}
-                                      title="Quitar override — volver a reglas del rol"
+                                      title="Quitar override ? volver a reglas del rol"
                                       className="text-[10px] px-2 py-0.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
                                     >
-                                      ↩ rol
+                                      ? rol
                                     </button>
                                   ) : roleOK ? (
                                     <button
@@ -6534,7 +7459,7 @@ function TabUsuarios() {
         </div>
       </div>
 
-      {/* ── Matrix quick-add modal ─────────────────────────────────────────── */}
+      {/* -- Matrix quick-add modal ------------------------------------------- */}
       <Dialog open={!!matrixModal} onOpenChange={open => { if (!open) setMatrixModal(null); }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -6546,7 +7471,7 @@ function TabUsuarios() {
               {matrixModal && selectedUser && (() => {
                 const mod = ALL_MODULES.find(m => m.value === matrixModal.modulo)?.label;
                 const act = ALL_ACTIONS.find(a => a.value === matrixModal.accion)?.label;
-                return `${selectedUser.nombre} · ${act} en ${mod}`;
+                return `${selectedUser.nombre} ? ${act} en ${mod}`;
               })()}
             </DialogDescription>
           </DialogHeader>
@@ -6555,7 +7480,7 @@ function TabUsuarios() {
             <div className="space-y-4 py-1">
               {/* Habilitado toggle */}
               <div className="flex items-center justify-between">
-                <Label className="text-xs">¿Permitir esta acción?</Label>
+                <Label className="text-xs">?Permitir esta acción?</Label>
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={matrixModal.habilitado}
@@ -6582,14 +7507,14 @@ function TabUsuarios() {
                 );
               })()}
 
-              {/* Informes — guía rápida de permisos (solo cuando módulo = informes) */}
+              {/* Informes ? guía rápida de permisos (solo cuando módulo = informes) */}
               {matrixModal?.modulo === "informes" && (() => {
                 const info = INFORMES_ACCION_INFO[matrixModal.accion];
                 if (!info) return null;
                 return (
                   <div className="rounded-lg border border-blue-200 bg-blue-50/60 dark:border-blue-700/40 dark:bg-blue-900/10 p-3 space-y-1.5">
                     <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-400 flex items-center gap-1.5 uppercase tracking-wide">
-                      <FileText className="w-3 h-3" /> Informes — qué hace esta acción
+                      <FileText className="w-3 h-3" /> Informes ? qué hace esta acción
                     </p>
                     <div className="flex items-start gap-2">
                       <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-800/40 text-blue-700 dark:text-blue-300 text-[9px] font-bold flex items-center justify-center shrink-0 mt-0.5">
@@ -6656,7 +7581,7 @@ function TabUsuarios() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Bulk assign formularios modal ──────────────────────────────────── */}
+      {/* -- Bulk assign formularios modal ------------------------------------ */}
       <Dialog open={bulkModal} onOpenChange={open => { if (!open) setBulkModal(false); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -6697,7 +7622,7 @@ function TabUsuarios() {
                       : "border-border text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  ✓ Permitir
+                  ? Permitir
                 </button>
                 <button
                   onClick={() => setBulkAction("bloquear")}
@@ -6708,7 +7633,7 @@ function TabUsuarios() {
                       : "border-border text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  ✕ Bloquear
+                  ? Bloquear
                 </button>
               </div>
             </div>
@@ -6802,7 +7727,7 @@ function TabUsuarios() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Dialog Crear / Editar Usuario ──────────────────────────────────── */}
+      {/* -- Dialog Crear / Editar Usuario ------------------------------------ */}
       <Dialog open={userModal} onOpenChange={setUserModal}>
         <DialogContent className="max-w-4xl max-h-[92vh] overflow-hidden flex flex-col">
           <DialogHeader>
@@ -6820,7 +7745,7 @@ function TabUsuarios() {
           <div className="flex-1 overflow-y-auto py-2">
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
 
-              {/* ── Columna izquierda: formulario ─────────────────────── */}
+              {/* -- Columna izquierda: formulario ----------------------- */}
               <div className="space-y-5">
 
                 {/* Sección 1: Datos personales */}
@@ -7007,7 +7932,7 @@ function TabUsuarios() {
                         }}
                         className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                       >
-                        <option value="">— Sin asignar (Plataforma) —</option>
+                        <option value="">? Sin asignar (Plataforma) ?</option>
                         {clientes.map(c => (
                           <option key={c.id} value={c.id}>{c.nombre}</option>
                         ))}
@@ -7017,7 +7942,7 @@ function TabUsuarios() {
                     <div className="space-y-1.5">
                       <Label className="text-xs font-medium">Empresa</Label>
                       <div className="h-9 bg-muted/40 rounded-md px-3 py-2 flex items-center text-sm text-muted-foreground">
-                        {clientes.find(c => c.id === currentClienteId)?.nombre ?? "—"}
+                        {clientes.find(c => c.id === currentClienteId)?.nombre ?? "?"}
                       </div>
                     </div>
                   ) : null}
@@ -7034,7 +7959,7 @@ function TabUsuarios() {
                         onChange={e => setFormProductorId(e.target.value ? Number(e.target.value) : "")}
                         className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                       >
-                        <option value="">— Sin productor —</option>
+                        <option value="">? Sin productor ?</option>
                         {formProductores.map(p => (
                           <option key={p.id} value={p.id}>{p.nombre}</option>
                         ))}
@@ -7045,9 +7970,9 @@ function TabUsuarios() {
                     </div>
                   )}
 
-                  {/* Área asignada */}
+                  {/* área asignada */}
                   <div className="space-y-1.5">
-                    <Label htmlFor="usr-area" className="text-xs font-medium">Área asignada</Label>
+                    <Label htmlFor="usr-area" className="text-xs font-medium">área asignada</Label>
                     <Input
                       id="usr-area"
                       value={formAreaAsignada}
@@ -7072,7 +7997,7 @@ function TabUsuarios() {
                 </div>
               </div>
 
-              {/* ── Columna derecha: vista previa ─────────────────────── */}
+              {/* -- Columna derecha: vista previa ----------------------- */}
               <div className="hidden lg:block space-y-3">
                 <div className="sticky top-0 space-y-3">
                   <div className="flex items-center gap-2 pb-2 border-b">
@@ -7112,7 +8037,7 @@ function TabUsuarios() {
                           <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                           <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Empresa</span>
                           <span className="ml-auto text-xs font-medium truncate">
-                            {clientes.find(c => c.id === (isSuperAdmin ? formClienteId : currentClienteId))?.nombre ?? "—"}
+                            {clientes.find(c => c.id === (isSuperAdmin ? formClienteId : currentClienteId))?.nombre ?? "?"}
                           </span>
                         </div>
                       )}
@@ -7122,7 +8047,7 @@ function TabUsuarios() {
                           <Tractor className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                           <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Productor</span>
                           <span className="ml-auto text-xs font-medium truncate">
-                            {formProductores.find(p => p.id === formProductorId)?.nombre ?? "—"}
+                            {formProductores.find(p => p.id === formProductorId)?.nombre ?? "?"}
                           </span>
                         </div>
                       )}
@@ -7130,7 +8055,7 @@ function TabUsuarios() {
                       {formAreaAsignada.trim() && (
                         <div className="flex items-center gap-2">
                           <Briefcase className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Área</span>
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">área</span>
                           <span className="ml-auto text-xs font-medium truncate">
                             {formAreaAsignada}
                           </span>
@@ -7205,7 +8130,7 @@ function TabUsuarios() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Dialog Confirmar Activación/Desactivación ───────────────────────── */}
+      {/* -- Dialog Confirmar Activación/Desactivación ------------------------- */}
       <Dialog open={deleteConfirm !== null} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -7272,7 +8197,7 @@ function TabUsuarios() {
   );
 }
 
-// ─── Componente principal ─────────────────────────────────────────────────────
+// --- Componente principal -----------------------------------------------------
 
 const Configuracion = () => {
   const [searchParams] = useSearchParams();
@@ -7285,10 +8210,10 @@ const Configuracion = () => {
 
   const [showSistema, setShowSistema] = useState(false);
 
-  // ── Tema y branding ───────────────────────────────────────────────────────
+  // -- Tema y branding -------------------------------------------------------
   const { theme, saveTheme, toggleDarkMode } = useTheme();
 
-  // Draft local — los cambios de color/nombre solo se aplican al hacer "Guardar"
+  // Draft local ? los cambios de color/nombre solo se aplican al hacer "Guardar"
   const [draft, setDraft] = useState({
     colorPrimario:   theme.colorPrimario,
     colorSecundario: theme.colorSecundario,
@@ -7342,7 +8267,7 @@ const Configuracion = () => {
     <MainLayout>
       <PageHeader
         title="Configuración"
-        description={`Cultivos, formularios y usuarios — ${currentClienteName}`}
+        description={`Cultivos, formularios y usuarios ? ${currentClienteName}`}
         actions={
           <Button
             variant="outline"
@@ -7416,7 +8341,7 @@ const Configuracion = () => {
         </TabsContent>
       </Tabs>
 
-      {/* ═══ Sheet: Ajustes del sistema ══════════════════════════════════════ */}
+      {/* --- Sheet: Ajustes del sistema -------------------------------------- */}
       <Sheet open={showSistema} onOpenChange={setShowSistema}>
         <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
           <SheetHeader className="mb-6">
@@ -7549,7 +8474,7 @@ const Configuracion = () => {
                 Avanzado
               </h3>
               <div className="space-y-4">
-                {/* Modo oscuro — controlado */}
+                {/* Modo oscuro ? controlado */}
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-foreground">Modo Oscuro</p>
@@ -7581,3 +8506,5 @@ const Configuracion = () => {
 };
 
 export default Configuracion;
+
+

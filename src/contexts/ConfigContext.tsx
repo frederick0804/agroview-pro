@@ -9,12 +9,26 @@ import { createContext, useContext, useState, useMemo, type ReactNode } from "re
 import {
   DEFINICIONES, PARAMETROS, DATOS_DEMO, PARAMETROS_LIBRARY, CULTIVOS, VARIEDADES, SNAPSHOTS_DEMO,
   ACCESOS_DEFINICION_DEMO,
-  type ModDef, type ModParam, type ModDato, type Parametro, type TipoDato, type EstadoDef,
+  type ModDef, type ModParam, type ModDato, type Parametro, type TipoDato, type TipoConfig, type EstadoDef,
   type Cultivo, type Variedad, type DefSnapshot, type DefinicionAccesoUsuario,
 } from "@/config/moduleDefinitions";
 import { useRole, ROLE_LEVELS } from "@/contexts/RoleContext";
 
 // ─── Tipos del contexto ───────────────────────────────────────────────────────
+
+interface AddDefInput {
+  cultivoId?: string;
+  modulo?: string;
+  clienteIdOverride?: number;
+  productorIdOverride?: number;
+  tipo?: TipoConfig;
+  nombre?: string;
+  descripcion?: string;
+  version?: string;
+  estado?: EstadoDef;
+  nivel_minimo?: number;
+  roles_excluidos?: string[];
+}
 
 interface ConfigContextType {
   // ── Biblioteca global de parámetros (Parametros) ──
@@ -26,7 +40,7 @@ interface ConfigContextType {
   // ── Definiciones (Definicion_registro) ──
   definiciones: ModDef[];
   allDefiniciones: ModDef[];                                           // sin filtro (solo super_admin)
-  addDef: (cultivoId?: string, modulo?: string, clienteIdOverride?: number, productorIdOverride?: number) => void;
+  addDef: (input?: AddDefInput) => ModDef;
   addEvento: (registroDefId: string, modulo: string, nombre?: string, descripcion?: string) => void;
   updDef: (rowIndex: number, key: keyof ModDef, value: unknown) => void;
   delDef: (rowIndex: number) => void;
@@ -35,7 +49,7 @@ interface ConfigContextType {
 
   // ── Campos (Campos_configurados) ──
   parametros: ModParam[];
-  addPar: (defId: string, parametroId?: string, nombre?: string) => void;
+  addPar: (defId: string, parametroId: string, nombre?: string) => void;
   updParByIdx: (absIdx: number, key: keyof ModParam, value: unknown) => void;
   updParFull: (id: string, updated: Partial<ModParam>) => void;
   delParByIdx: (absIdx: number) => void;
@@ -190,21 +204,25 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   // ── Definiciones ──────────────────────────────────────────────────────────
 
-  const addDef = (cultivoId?: string, modulo?: string, clienteIdOverride?: number, productorIdOverride?: number) =>
-    setDefiniciones(prev => [...prev, {
+  const addDef = (input?: AddDefInput): ModDef => {
+    const newDef: ModDef = {
       id: String(Date.now()),
-      tipo: "personalizado" as const,
-      nombre: "",
-      descripcion: "",
-      version: "1.0",
-      nivel_minimo: 1,
-      roles_excluidos: [],
-      modulo: modulo ?? "cultivo",
-      estado: "borrador" as EstadoDef,
-      cultivo_id: cultivoId,
-      cliente_id: clienteIdOverride ?? currentClienteId,
-      productor_id: productorIdOverride ?? currentProductorId,
-    }]);
+      tipo: input?.tipo ?? "personalizado",
+      nombre: input?.nombre ?? "",
+      descripcion: input?.descripcion ?? "",
+      version: input?.version ?? "1.0",
+      nivel_minimo: input?.nivel_minimo ?? 1,
+      roles_excluidos: input?.roles_excluidos ?? [],
+      modulo: input?.modulo ?? "cultivo",
+      estado: input?.estado ?? "borrador",
+      cultivo_id: input?.cultivoId,
+      cliente_id: input?.clienteIdOverride ?? currentClienteId,
+      productor_id: input?.productorIdOverride ?? currentProductorId,
+    };
+
+    setDefiniciones(prev => [...prev, newDef]);
+    return newDef;
+  };
 
   const addEvento = (registroDefId: string, modulo: string, nombre?: string, descripcion?: string) => {
     const registro = allDefiniciones.find(d => d.id === registroDefId);
@@ -312,10 +330,17 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   // ── Campos (Campos_configurados) ──────────────────────────────────────────
 
-  const addPar = (defId: string, parametroId = "", nombre = "") => {
+  const addPar = (defId: string, parametroId: string, nombre = "") => {
+    if (!parametroId) return;
+    const libParam = parametrosLib.find(p => p.id === parametroId);
+    if (!libParam) return;
+
     const count = parametros.filter(p => p.definicion_id === defId).length;
-    // Si se pasó un parametro_id, buscar el tipo_dato en la biblioteca
-    const libParam = parametroId ? parametrosLib.find(p => p.id === parametroId) : undefined;
+
+    // Evita duplicar el mismo parámetro en una definición.
+    const alreadyExists = parametros.some(p => p.definicion_id === defId && p.parametro_id === parametroId);
+    if (alreadyExists) return;
+
     setParametros(prev => [...prev, {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       definicion_id: defId,
@@ -332,10 +357,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     if (!par) return;
     setParametros(prev => prev.map(p => {
       if (p.id !== par.id) return p;
-      if (k === "nombre") {
-        const libParam = parametrosLib.find(lp => lp.nombre === String(v));
-        return { ...p, nombre: String(v), tipo_dato: libParam?.tipo_dato ?? p.tipo_dato };
-      }
+      if (k === "tipo_dato") return p;
+      if (k === "nombre") return p;
       return { ...p, [k]: v };
     }));
   };
@@ -347,7 +370,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   };
 
   const updParFull = (id: string, updated: Partial<ModParam>) =>
-    setParametros(prev => prev.map(p => p.id === id ? { ...p, ...updated } : p));
+    setParametros(prev => prev.map(p => {
+      if (p.id !== id) return p;
+      const safeUpdated = { ...updated };
+      if ("nombre" in safeUpdated) delete safeUpdated.nombre;
+      if ("tipo_dato" in safeUpdated) delete safeUpdated.tipo_dato;
+      return { ...p, ...safeUpdated };
+    }));
 
   // ── Datos ─────────────────────────────────────────────────────────────────
 
