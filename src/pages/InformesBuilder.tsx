@@ -291,6 +291,27 @@ export interface PlantillaConfig {
 
 export type AgregacionTipo = "suma" | "promedio" | "mediana";
 
+export type ColSpan = "full" | "half" | "third" | "two-thirds";
+
+export interface TipografiaBloque {
+  fuente: string;       // CSS font-family string
+  tamano: number;       // pt value, e.g. 10
+  encabezadoBold: boolean;
+  encabezadoItalic: boolean;
+  cuerpoBold: boolean;
+  cuerpoItalic: boolean;
+}
+
+export interface TextoBloque {
+  id: string;
+  tipo: "texto";
+  subtipo: "observaciones" | "conclusiones" | "descripcion" | "libre";
+  titulo?: string;
+  contenido: string;
+  colSpan?: ColSpan;
+  tipografia?: TipografiaBloque;
+}
+
 export interface GraficoBloque {
   id: string;
   tipo: "grafico";
@@ -307,6 +328,10 @@ export interface GraficoBloque {
   mostrarTooltip: boolean;
   camposCalculados?: CampoCalculado[];
   filtrosJerarquia?: Record<string, string[]>;
+  colSpan?: ColSpan;
+  observaciones?: string;
+  conclusiones?: string;
+  tipografia?: TipografiaBloque;
 }
 
 export interface TablaBloque {
@@ -339,9 +364,13 @@ export interface TablaBloque {
     filasPorPagina: number;
     mostrarControles: boolean;
   };
+  colSpan?: ColSpan;
+  observaciones?: string;
+  conclusiones?: string;
+  tipografia?: TipografiaBloque;
 }
 
-export type ReporteBloque = GraficoBloque | TablaBloque;
+export type ReporteBloque = GraficoBloque | TablaBloque | TextoBloque;
 
 export interface BuilderConfig {
   id?: string;
@@ -631,6 +660,15 @@ const PALETAS = [
   { id: "agroworkin", nombre: "Agroworkin", colors: ["#22c55e", "#15803d", "#86efac", "#4ade80", "#166534"] },
   { id: "mono",       nombre: "Gris",       colors: ["#1e293b", "#475569", "#64748b", "#94a3b8", "#cbd5e1"] },
 ];
+
+const DEFAULT_TIPOGRAFIA: TipografiaBloque = {
+  fuente: "Calibri, sans-serif",
+  tamano: 10,
+  encabezadoBold: true,
+  encabezadoItalic: false,
+  cuerpoBold: false,
+  cuerpoItalic: false,
+};
 
 // --------- Tipos de gráfico ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -1225,20 +1263,21 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
   }
 
   const est = bloque.estilos;
-  const fontFamily = est?.fuente ?? "Calibri, sans-serif";
-  const fontSizeMap = { xs: "10px", sm: "12px", base: "14px", lg: "16px" };
-  const fontSize = fontSizeMap[est?.tamañoFuente ?? "sm"];
+  const t = bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
+  const fontFamily = t.fuente;
+  const ptToFontSize = (pt: number) => `${pt}px`; // approximate: 1pt ≈ 1px at screen
+  const fontSize = ptToFontSize(t.tamano);
   const thStyle: React.CSSProperties = {
     fontFamily,
     fontSize,
-    fontWeight: est?.encabezadoBold !== false ? "bold" : "normal",
-    fontStyle: est?.encabezadoItalic ? "italic" : "normal",
+    fontWeight: t.encabezadoBold ? "bold" : "normal",
+    fontStyle: t.encabezadoItalic ? "italic" : "normal",
   };
   const tdStyle: React.CSSProperties = {
     fontFamily,
     fontSize,
-    fontWeight: est?.cuerpoBold ? "bold" : "normal",
-    fontStyle: est?.cuerpoItalic ? "italic" : "normal",
+    fontWeight: t.cuerpoBold ? "bold" : "normal",
+    fontStyle: t.cuerpoItalic ? "italic" : "normal",
   };
 
   return (
@@ -1312,6 +1351,140 @@ function TablaBloqueView({ bloque, colors }: { bloque: TablaBloque; colors: stri
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// --------- SUBTIPO_STYLES (module-level so accessible from Textos tab) ----------------------------------------
+
+const SUBTIPO_STYLES: Record<TextoBloque["subtipo"], { bg: string; border: string; label: string; icon: string }> = {
+  observaciones: { bg: "bg-amber-50",  border: "border-amber-200",  label: "Observaciones", icon: "📝" },
+  conclusiones:  { bg: "bg-blue-50",   border: "border-blue-200",   label: "Conclusiones",  icon: "✅" },
+  descripcion:   { bg: "bg-muted/30",  border: "border-border",     label: "Descripción",   icon: "ℹ️" },
+  libre:         { bg: "bg-muted/10",  border: "border-border/50",  label: "",              icon: "" },
+};
+
+function TextoBloqueView({ bloque }: { bloque: TextoBloque }) {
+  const s = SUBTIPO_STYLES[bloque.subtipo];
+  const t = bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
+  const fontFamily = t.fuente;
+  const fontSize = `${t.tamano}pt`;
+  return (
+    <div className={cn("h-full rounded border p-3 flex flex-col gap-1", s.bg, s.border)}>
+      {(bloque.titulo || s.label) && (
+        <p className="text-xs font-semibold text-foreground" style={{ fontFamily, fontWeight: t.encabezadoBold ? "bold" : "normal", fontStyle: t.encabezadoItalic ? "italic" : "normal" }}>
+          {s.icon && <span className="mr-1">{s.icon}</span>}
+          {bloque.titulo || s.label}
+        </p>
+      )}
+      <p className="text-xs text-foreground/80 leading-relaxed flex-1" style={{ fontFamily, fontSize, fontWeight: t.cuerpoBold ? "bold" : "normal", fontStyle: t.cuerpoItalic ? "italic" : "normal" }}>
+        {bloque.contenido || <span className="italic opacity-40">Sin contenido...</span>}
+      </p>
+    </div>
+  );
+}
+
+// --------- TipografiaPanel & ColSpanPicker - reusable typography/layout controls --------------------------------
+
+const FONT_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "Calibri, sans-serif",        label: "Calibri" },
+  { value: "Arial, sans-serif",          label: "Arial" },
+  { value: "'Times New Roman', serif",   label: "Times New Roman" },
+  { value: "Georgia, serif",             label: "Georgia" },
+  { value: "'Trebuchet MS', sans-serif", label: "Trebuchet MS" },
+  { value: "'Courier New', monospace",   label: "Courier New" },
+];
+const PT_OPTIONS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 36];
+
+interface TipografiaPanelProps {
+  tipografia: TipografiaBloque;
+  onChange: (t: TipografiaBloque) => void;
+}
+function TipografiaPanel({ tipografia: t, onChange }: TipografiaPanelProps) {
+  const upd = (patch: Partial<TipografiaBloque>) => onChange({ ...t, ...patch });
+  return (
+    <div className="space-y-2.5">
+      <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+        <Type className="w-3 h-3" /> Tipografía
+      </Label>
+      {/* Font family */}
+      <div className="space-y-1">
+        <span className="text-[10px] text-muted-foreground">Fuente</span>
+        <select
+          value={t.fuente}
+          onChange={e => upd({ fuente: e.target.value })}
+          className="w-full h-7 text-xs rounded border border-border bg-background px-2 focus:outline-none focus:ring-1 focus:ring-primary"
+          style={{ fontFamily: t.fuente }}
+        >
+          {FONT_OPTIONS.map(f => (
+            <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
+          ))}
+        </select>
+      </div>
+      {/* Font size */}
+      <div className="space-y-1">
+        <span className="text-[10px] text-muted-foreground">Tamaño</span>
+        <div className="flex items-center gap-1.5">
+          <select
+            value={t.tamano}
+            onChange={e => upd({ tamano: Number(e.target.value) })}
+            className="h-7 text-xs rounded border border-border bg-background px-2 focus:outline-none focus:ring-1 focus:ring-primary flex-1"
+          >
+            {PT_OPTIONS.map(pt => (
+              <option key={pt} value={pt}>{pt}pt</option>
+            ))}
+          </select>
+          <span className="text-[10px] text-muted-foreground shrink-0" style={{ fontFamily: t.fuente, fontSize: Math.min(t.tamano, 14) }}>Aa</span>
+        </div>
+      </div>
+      {/* Encabezado style */}
+      <div className="space-y-1">
+        <span className="text-[10px] text-muted-foreground">Encabezado</span>
+        <div className="flex gap-1">
+          <button onClick={() => upd({ encabezadoBold: !t.encabezadoBold })} className={cn("flex-1 py-1 rounded border text-[11px] font-bold transition-all", t.encabezadoBold ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40")}>N</button>
+          <button onClick={() => upd({ encabezadoItalic: !t.encabezadoItalic })} className={cn("flex-1 py-1 rounded border text-[11px] italic transition-all", t.encabezadoItalic ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40")}>K</button>
+        </div>
+      </div>
+      {/* Body style */}
+      <div className="space-y-1">
+        <span className="text-[10px] text-muted-foreground">Cuerpo</span>
+        <div className="flex gap-1">
+          <button onClick={() => upd({ cuerpoBold: !t.cuerpoBold })} className={cn("flex-1 py-1 rounded border text-[11px] font-bold transition-all", t.cuerpoBold ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40")}>N</button>
+          <button onClick={() => upd({ cuerpoItalic: !t.cuerpoItalic })} className={cn("flex-1 py-1 rounded border text-[11px] italic transition-all", t.cuerpoItalic ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40")}>K</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ColSpanPicker({ value, onChange }: { value: ColSpan; onChange: (v: ColSpan) => void }) {
+  const opts: Array<{ v: ColSpan; label: string; title: string }> = [
+    { v: "full",       label: "■",   title: "Ancho completo" },
+    { v: "two-thirds", label: "⅔",   title: "Dos tercios" },
+    { v: "half",       label: "½",   title: "Mitad" },
+    { v: "third",      label: "⅓",   title: "Un tercio" },
+  ];
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+        <Grid3x3 className="w-3 h-3" /> Ancho en la página
+      </Label>
+      <div className="grid grid-cols-4 gap-1">
+        {opts.map(o => (
+          <button
+            key={o.v}
+            title={o.title}
+            onClick={() => onChange(o.v)}
+            className={cn(
+              "py-1.5 rounded border text-[13px] transition-all",
+              value === o.v
+                ? "border-primary bg-primary/10 text-primary font-bold"
+                : "border-border text-muted-foreground hover:border-primary/40"
+            )}
+          >{o.label}</button>
+        ))}
+      </div>
+      <p className="text-[10px] text-muted-foreground">Combina bloques en la misma fila usando anchos complementarios (½ + ½, ⅔ + ⅓)</p>
     </div>
   );
 }
@@ -1744,7 +1917,7 @@ function FiltroEstructuraEditor({ filtros, onChange }: FiltroEstructuraEditorPro
 
 export function InformesBuilder({ informe, existingConfig, onClose, onSave }: InformesBuilderProps) {
   // Tab del builder simplificado
-  const [builderTab, setBuilderTab] = useState<"basico" | "graficos" | "tablas" | "avanzado">("basico");
+  const [builderTab, setBuilderTab] = useState<"basico" | "graficos" | "tablas" | "textos" | "avanzado">("basico");
   const pageContainerRef = useRef<HTMLDivElement>(null);
   const [pageContainerW, setPageContainerW] = useState(860);
   const [pageContainerH, setPageContainerH] = useState(700);
@@ -1813,7 +1986,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     setConfig((prev) => ({ ...prev, [key]: val }));
   }, []);
 
-  const updBloque = useCallback((id: string, updates: Partial<GraficoBloque> | Partial<TablaBloque>) => {
+  const updBloque = useCallback((id: string, updates: Partial<GraficoBloque> | Partial<TablaBloque> | Partial<TextoBloque>) => {
     setConfig((prev) => ({
       ...prev,
       bloques: prev.bloques.map((b) =>
@@ -1826,7 +1999,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     setConfig((prev) => ({
       ...prev,
       bloques: prev.bloques.map((b) => {
-        if (b.id !== bloqueId) return b;
+        if (b.id !== bloqueId || b.tipo === "texto") return b;
         const has = b.fuentesSeleccionadas.includes(fuenteId);
         return {
           ...b,
@@ -1966,7 +2139,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
   const selectedBloque = config.bloques.find((b) => b.id === selectedBloqueId) ?? null;
 
   const selectedCampos = useMemo((): CampoInfo[] => {
-    if (!selectedBloque) return [];
+    if (!selectedBloque || selectedBloque.tipo === "texto") return [];
     const allFuentes = Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes);
     const selected = allFuentes.filter((f) => selectedBloque.fuentesSeleccionadas.includes(f.id));
     const all = selected.flatMap((f) => f.campos);
@@ -2077,11 +2250,12 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
 
           {/* Tab navigation */}
           <div className="border-b border-border bg-card">
-            <div className="flex">
+            <div className="flex overflow-x-auto">
               {[
                 { id: "basico", label: "Básico", icon: Type },
                 { id: "graficos", label: "Gráficos", icon: BarChart2, count: grafCount },
                 { id: "tablas", label: "Tablas", icon: Table2, count: tablaCount },
+                { id: "textos", label: "Textos", icon: FileText, count: config.bloques.filter(b => b.tipo === "texto").length },
                 { id: "avanzado", label: "Diseño", icon: Palette },
               ].map((tab) => {
                 const TabIcon = tab.icon;
@@ -2089,9 +2263,9 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => setBuilderTab(tab.id as any)}
+                    onClick={() => setBuilderTab(tab.id as "basico" | "graficos" | "tablas" | "textos" | "avanzado")}
                     className={cn(
-                      "flex-1 flex items-center justify-center gap-1.5 py-3 px-2 text-xs font-medium transition-colors border-b-2",
+                      "flex-1 flex items-center justify-center gap-1.5 py-3 px-2 text-xs font-medium transition-colors border-b-2 whitespace-nowrap",
                       isActive
                         ? "border-primary text-primary bg-primary/5"
                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -2462,6 +2636,42 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             ))}
                           </div>
                         </div>
+                        {/* Ancho en página */}
+                        <ColSpanPicker
+                          value={selectedGrafico.colSpan ?? "full"}
+                          onChange={(v) => updBloque(selectedGrafico.id, { colSpan: v })}
+                        />
+                        {/* Tipografía */}
+                        <TipografiaPanel
+                          tipografia={selectedGrafico.tipografia ?? DEFAULT_TIPOGRAFIA}
+                          onChange={(t) => updBloque(selectedGrafico.id, { tipografia: t })}
+                        />
+                        {/* Observaciones */}
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                            <FileText className="w-3 h-3" /> Observaciones y conclusiones
+                          </Label>
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-muted-foreground">Observaciones</span>
+                            <Textarea
+                              value={selectedGrafico.observaciones ?? ""}
+                              onChange={e => updBloque(selectedGrafico.id, { observaciones: e.target.value })}
+                              placeholder="Notas u observaciones sobre este gráfico..."
+                              className="text-xs min-h-[48px] resize-none"
+                              rows={2}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-muted-foreground">Conclusiones</span>
+                            <Textarea
+                              value={selectedGrafico.conclusiones ?? ""}
+                              onChange={e => updBloque(selectedGrafico.id, { conclusiones: e.target.value })}
+                              placeholder="Conclusiones derivadas de este gráfico..."
+                              className="text-xs min-h-[48px] resize-none"
+                              rows={2}
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -2680,110 +2890,165 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             </div>
                           </div>
                         )}
-                      {/* Tipografía */}
-                      {(() => {
-                        const tb = selectedBloque as TablaBloque;
-                        const est = tb.estilos ?? { mostrarBordes: true, alternarFilas: true, tamañoFuente: "sm" as const, alineacion: "left" as const, compacta: false };
-                        const FONTS = [
-                          { value: "Calibri, sans-serif", label: "Calibri" },
-                          { value: "Arial, sans-serif", label: "Arial" },
-                          { value: "'Times New Roman', serif", label: "Times New Roman" },
-                          { value: "Georgia, serif", label: "Georgia" },
-                          { value: "'Trebuchet MS', sans-serif", label: "Trebuchet MS" },
-                          { value: "'Courier New', monospace", label: "Courier New" },
-                        ];
-                        const upd = (patch: Partial<typeof est>) =>
-                          updBloque(tb.id, { estilos: { ...est, ...patch } });
-                        return (
-                          <div className="space-y-2.5">
-                            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                              <Type className="w-3 h-3" /> Tipografía
-                            </Label>
-                            {/* Font family */}
-                            <div className="space-y-1">
-                              <span className="text-[10px] text-muted-foreground">Fuente</span>
-                              <select
-                                value={est.fuente ?? "Calibri, sans-serif"}
-                                onChange={e => upd({ fuente: e.target.value })}
-                                className="w-full h-7 text-xs rounded border border-border bg-background px-2 focus:outline-none focus:ring-1 focus:ring-primary"
-                                style={{ fontFamily: est.fuente ?? "Calibri, sans-serif" }}
-                              >
-                                {FONTS.map(f => (
-                                  <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
-                                ))}
-                              </select>
-                            </div>
-                            {/* Font size */}
-                            <div className="space-y-1">
-                              <span className="text-[10px] text-muted-foreground">Tamaño</span>
-                              <div className="flex gap-1">
-                                {(["xs", "sm", "base", "lg"] as const).map((sz) => (
-                                  <button key={sz}
-                                    onClick={() => upd({ tamañoFuente: sz })}
-                                    className={cn(
-                                      "flex-1 py-1 rounded border text-[10px] transition-all",
-                                      est.tamañoFuente === sz
-                                        ? "border-primary bg-primary/10 text-primary font-medium"
-                                        : "border-border text-muted-foreground hover:border-primary/40"
-                                    )}
-                                  >{sz === "xs" ? "8pt" : sz === "sm" ? "10pt" : sz === "base" ? "12pt" : "14pt"}</button>
-                                ))}
-                              </div>
-                            </div>
-                            {/* Encabezado */}
-                            <div className="space-y-1">
-                              <span className="text-[10px] text-muted-foreground">Encabezado</span>
-                              <div className="flex gap-1">
-                                <button
-                                  onClick={() => upd({ encabezadoBold: !est.encabezadoBold })}
-                                  className={cn(
-                                    "flex-1 py-1 rounded border text-[11px] font-bold transition-all",
-                                    est.encabezadoBold !== false
-                                      ? "border-primary bg-primary/10 text-primary"
-                                      : "border-border text-muted-foreground hover:border-primary/40"
-                                  )}
-                                >N</button>
-                                <button
-                                  onClick={() => upd({ encabezadoItalic: !est.encabezadoItalic })}
-                                  className={cn(
-                                    "flex-1 py-1 rounded border text-[11px] italic transition-all",
-                                    est.encabezadoItalic
-                                      ? "border-primary bg-primary/10 text-primary"
-                                      : "border-border text-muted-foreground hover:border-primary/40"
-                                  )}
-                                >K</button>
-                              </div>
-                            </div>
-                            {/* Cuerpo */}
-                            <div className="space-y-1">
-                              <span className="text-[10px] text-muted-foreground">Cuerpo</span>
-                              <div className="flex gap-1">
-                                <button
-                                  onClick={() => upd({ cuerpoBold: !est.cuerpoBold })}
-                                  className={cn(
-                                    "flex-1 py-1 rounded border text-[11px] font-bold transition-all",
-                                    est.cuerpoBold
-                                      ? "border-primary bg-primary/10 text-primary"
-                                      : "border-border text-muted-foreground hover:border-primary/40"
-                                  )}
-                                >N</button>
-                                <button
-                                  onClick={() => upd({ cuerpoItalic: !est.cuerpoItalic })}
-                                  className={cn(
-                                    "flex-1 py-1 rounded border text-[11px] italic transition-all",
-                                    est.cuerpoItalic
-                                      ? "border-primary bg-primary/10 text-primary"
-                                      : "border-border text-muted-foreground hover:border-primary/40"
-                                  )}
-                                >K</button>
-                              </div>
-                            </div>
+                        {/* Ancho en página */}
+                        <ColSpanPicker
+                          value={(selectedBloque as TablaBloque).colSpan ?? "full"}
+                          onChange={(v) => updBloque(selectedBloque!.id, { colSpan: v })}
+                        />
+                        {/* Tipografía */}
+                        <TipografiaPanel
+                          tipografia={(selectedBloque as TablaBloque).tipografia ?? { ...DEFAULT_TIPOGRAFIA, ...((selectedBloque as TablaBloque).estilos?.fuente ? { fuente: (selectedBloque as TablaBloque).estilos!.fuente! } : {}) }}
+                          onChange={(t) => updBloque(selectedBloque!.id, { tipografia: t })}
+                        />
+                        {/* Observaciones */}
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                            <FileText className="w-3 h-3" /> Observaciones y conclusiones
+                          </Label>
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-muted-foreground">Observaciones</span>
+                            <Textarea
+                              value={(selectedBloque as TablaBloque).observaciones ?? ""}
+                              onChange={e => updBloque(selectedBloque!.id, { observaciones: e.target.value })}
+                              placeholder="Notas u observaciones sobre esta tabla..."
+                              className="text-xs min-h-[48px] resize-none"
+                              rows={2}
+                            />
                           </div>
-                        );
-                      })()}
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-muted-foreground">Conclusiones</span>
+                            <Textarea
+                              value={(selectedBloque as TablaBloque).conclusiones ?? ""}
+                              onChange={e => updBloque(selectedBloque!.id, { conclusiones: e.target.value })}
+                              placeholder="Conclusiones derivadas de esta tabla..."
+                              className="text-xs min-h-[48px] resize-none"
+                              rows={2}
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* TAB: Textos */}
+              {builderTab === "textos" && (
+                <div className="space-y-4">
+                  {/* Header */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      BLOQUES DE TEXTO ({config.bloques.filter(b => b.tipo === "texto").length})
+                    </span>
+                    <button
+                      onClick={() => {
+                        const newBloque: TextoBloque = {
+                          id: `texto_${Date.now()}`,
+                          tipo: "texto",
+                          subtipo: "libre",
+                          titulo: "",
+                          contenido: "",
+                          colSpan: "full",
+                          tipografia: { ...DEFAULT_TIPOGRAFIA },
+                        };
+                        setConfig(prev => ({ ...prev, bloques: [...prev.bloques, newBloque] }));
+                        setSelectedBloqueId(newBloque.id);
+                      }}
+                      className="flex items-center gap-1 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Nueva
+                    </button>
+                  </div>
+
+                  {config.bloques.filter(b => b.tipo === "texto").length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 gap-3 text-muted-foreground/40 border border-dashed rounded-lg">
+                      <FileText className="w-10 h-10" />
+                      <div className="text-center">
+                        <p className="text-sm font-medium">Sin bloques de texto</p>
+                        <p className="text-xs">Agrega observaciones, conclusiones o descripciones</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const newBloque: TextoBloque = {
+                            id: `texto_${Date.now()}`,
+                            tipo: "texto",
+                            subtipo: "observaciones",
+                            titulo: "",
+                            contenido: "",
+                            colSpan: "full",
+                            tipografia: { ...DEFAULT_TIPOGRAFIA },
+                          };
+                          setConfig(prev => ({ ...prev, bloques: [...prev.bloques, newBloque] }));
+                          setSelectedBloqueId(newBloque.id);
+                        }}
+                        className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors"
+                      >
+                        <Plus className="w-4 h-4" /> Agregar primer bloque de texto
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {config.bloques.filter(b => b.tipo === "texto").map(bloque => {
+                        const tb = bloque as TextoBloque;
+                        const isSelected = selectedBloqueId === tb.id;
+                        return (
+                          <div
+                            key={tb.id}
+                            onClick={() => setSelectedBloqueId(isSelected ? null : tb.id)}
+                            className={cn("p-2.5 rounded-lg border cursor-pointer transition-all", isSelected ? "border-primary/50 bg-primary/5 ring-1 ring-primary/20" : "border-border hover:border-border/80 bg-muted/5")}
+                          >
+                            <div className="flex items-center gap-2">
+                              <FileText className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                              <span className="text-xs font-medium text-foreground truncate flex-1">{tb.titulo || SUBTIPO_STYLES[tb.subtipo]?.label || "Bloque de texto"}</span>
+                              <span className="text-[9px] text-muted-foreground shrink-0">{tb.colSpan ?? "full"}</span>
+                              <button onClick={e => { e.stopPropagation(); setConfig(prev => ({ ...prev, bloques: prev.bloques.filter(b => b.id !== tb.id) })); setSelectedBloqueId(null); }} className="p-0.5 rounded text-muted-foreground/40 hover:text-destructive transition-colors shrink-0"><Trash2 className="w-3 h-3" /></button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Inline editor for selected text block */}
+                  {(() => {
+                    const selectedTexto = config.bloques.find(b => b.id === selectedBloqueId && b.tipo === "texto") as TextoBloque | undefined;
+                    if (!selectedTexto) return null;
+                    return (
+                      <div className="rounded-lg border-2 border-primary/20 bg-primary/3 overflow-hidden">
+                        <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 border-b border-primary/15">
+                          <FileText className="w-3.5 h-3.5 text-primary shrink-0" />
+                          <span className="text-xs font-semibold text-primary truncate flex-1">Editando: {selectedTexto.titulo || "Bloque de texto"}</span>
+                        </div>
+                        <div className="p-3 space-y-3">
+                          {/* Subtipo */}
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-muted-foreground">Tipo de bloque</Label>
+                            <div className="grid grid-cols-2 gap-1">
+                              {(["observaciones", "conclusiones", "descripcion", "libre"] as const).map(sub => (
+                                <button key={sub} onClick={() => updBloque(selectedTexto.id, { subtipo: sub })}
+                                  className={cn("py-1.5 rounded border text-[10px] capitalize transition-all", selectedTexto.subtipo === sub ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground hover:border-primary/40")}
+                                >{sub === "libre" ? "Libre" : sub.charAt(0).toUpperCase() + sub.slice(1)}</button>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Título */}
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-muted-foreground">Título (opcional)</Label>
+                            <Input value={selectedTexto.titulo ?? ""} onChange={e => updBloque(selectedTexto.id, { titulo: e.target.value })} placeholder="Ej. Observaciones del período" className="h-7 text-xs" />
+                          </div>
+                          {/* Contenido */}
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-muted-foreground">Contenido</Label>
+                            <Textarea value={selectedTexto.contenido} onChange={e => updBloque(selectedTexto.id, { contenido: e.target.value })} placeholder="Escribe el contenido del bloque..." className="text-xs min-h-[80px] resize-none" rows={4} />
+                          </div>
+                          {/* ColSpan */}
+                          <ColSpanPicker value={selectedTexto.colSpan ?? "full"} onChange={v => updBloque(selectedTexto.id, { colSpan: v })} />
+                          {/* Tipografía */}
+                          <TipografiaPanel tipografia={selectedTexto.tipografia ?? DEFAULT_TIPOGRAFIA} onChange={t => updBloque(selectedTexto.id, { tipografia: t })} />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -3194,17 +3459,23 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                   const TABLE_DATA_ROWS = 6;
                   const TABLE_H = BLOCK_LABEL_H + 28 + TABLE_DATA_ROWS * TABLE_ROW_H + 8; // ~228px
 
+                  const TEXT_BLOCK_H = 120;
                   const chartCount = config.bloques.filter(b => b.tipo === "grafico").length;
                   const tableCount = config.bloques.filter(b => b.tipo === "tabla").length;
+                  const textCount = config.bloques.filter(b => b.tipo === "texto").length;
                   const totalTableH = tableCount * TABLE_H;
+                  const totalTextH = textCount * TEXT_BLOCK_H;
                   const totalGaps = Math.max(0, config.bloques.length - 1) * GAP;
-                  const remainingForCharts = Math.max(0, totalBlocksArea - totalTableH - totalGaps);
+                  const remainingForCharts = Math.max(0, totalBlocksArea - totalTableH - totalTextH - totalGaps);
                   const chartH = chartCount > 0
                     ? Math.min(MAX_CHART_H, Math.max(160, Math.floor(remainingForCharts / chartCount)))
                     : 0;
 
-                  const blockHeight = (b: typeof config.bloques[number]) =>
-                    b.tipo === "grafico" ? chartH : TABLE_H;
+                  const blockHeight = (b: ReporteBloque): number => {
+                    if (b.tipo === "texto") return TEXT_BLOCK_H;
+                    if (b.tipo === "grafico") return chartH;
+                    return TABLE_H;
+                  };
 
                   // ── Paginate: greedy pack blocks onto pages ───────────────────
                   const pages: typeof config.bloques[] = [];
@@ -3293,10 +3564,10 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                               </div>
                             )}
 
-                            {/* ── BLOCKS ── */}
-                            <div className="flex-1 flex flex-col overflow-hidden" style={{ gap: GAP, marginTop: 12 }}>
+                            {/* ── BLOCKS (flex-wrap grid) ── */}
+                            <div className="flex flex-wrap overflow-hidden" style={{ gap: GAP, marginTop: 12, flex: 1, alignContent: "flex-start" }}>
                               {pageBlocks.length === 0 ? (
-                                <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground/30 border border-dashed rounded text-sm">
+                                <div className="w-full flex flex-col items-center justify-center text-muted-foreground/30 border border-dashed rounded text-sm" style={{ height: totalBlocksArea }}>
                                   <Layers className="w-8 h-8 mb-2" />
                                   <p>Sin bloques</p>
                                 </div>
@@ -3305,39 +3576,70 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                   const allPrevPages = pages.slice(0, pageIdx);
                                   const globalIdx = allPrevPages.reduce((s, p) => s + p.length, 0) + idx;
                                   const bh = blockHeight(bloque);
-                                  const contentH = bh - BLOCK_LABEL_H;
-                                  // Tables: scale to fit neatly; charts: scale a bit more
-                                  const innerScale = bloque.tipo === "tabla" ? 0.55 : 0.45;
+                                  const span = bloque.colSpan ?? "full";
+                                  const blockW = span === "full" ? "100%"
+                                    : span === "half" ? `calc(50% - ${GAP / 2}px)`
+                                    : span === "third" ? `calc(33.33% - ${GAP * 2 / 3}px)`
+                                    : `calc(66.67% - ${GAP / 3}px)`; // two-thirds
+                                  const innerScale = bloque.tipo === "tabla" ? 0.55 : bloque.tipo === "texto" ? 1 : 0.45;
                                   const invScale = 1 / innerScale;
                                   return (
                                     <div
                                       key={bloque.id}
-                                      onClick={() => { setSelectedBloqueId(bloque.id); setBuilderTab(bloque.tipo === "grafico" ? "graficos" : "tablas"); }}
-                                      className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors shrink-0"
-                                      style={{ height: bh }}
-                                    >
-                                      <div className="flex items-center gap-2 px-3 border-b border-border/40 bg-muted/20" style={{ height: BLOCK_LABEL_H }}>
-                                        {bloque.tipo === "grafico"
-                                          ? <BarChart2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                          : <Table2 className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                                      onClick={() => {
+                                        if (bloque.tipo !== "texto") {
+                                          setSelectedBloqueId(bloque.id);
+                                          setBuilderTab(bloque.tipo === "grafico" ? "graficos" : "tablas");
+                                        } else {
+                                          setSelectedBloqueId(bloque.id);
+                                          setBuilderTab("textos");
                                         }
-                                        <span className="text-sm font-medium text-foreground truncate">
-                                          {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${globalIdx + 1}` : `Tabla ${globalIdx + 1}`)}
-                                        </span>
-                                      </div>
-                                      <div className="relative overflow-hidden" style={{ height: contentH }}>
-                                        <div style={{
-                                          transform: `scale(${innerScale})`,
-                                          transformOrigin: "top left",
-                                          width: `${invScale * 100}%`,
-                                          height: `${invScale * 100}%`,
-                                        }}>
-                                          {bloque.tipo === "grafico"
-                                            ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} />
-                                            : <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} />
-                                          }
+                                      }}
+                                      style={{ width: blockW, height: bh, flexShrink: 0 }}
+                                    >
+                                      {bloque.tipo === "texto" ? (
+                                        <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full">
+                                          <TextoBloqueView bloque={bloque as TextoBloque} />
                                         </div>
-                                      </div>
+                                      ) : (
+                                        <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full">
+                                          {/* Block label row */}
+                                          <div className="flex items-center gap-2 px-3 border-b border-border/40 bg-muted/20" style={{ height: BLOCK_LABEL_H }}>
+                                            {bloque.tipo === "grafico"
+                                              ? <BarChart2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                              : <Table2 className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                                            }
+                                            <span className="text-sm font-medium text-foreground truncate">
+                                              {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${globalIdx + 1}` : `Tabla ${globalIdx + 1}`)}
+                                            </span>
+                                          </div>
+                                          {/* Block content */}
+                                          <div className="relative overflow-hidden" style={{ height: bh - BLOCK_LABEL_H }}>
+                                            <div style={{
+                                              transform: `scale(${innerScale})`,
+                                              transformOrigin: "top left",
+                                              width: `${invScale * 100}%`,
+                                              height: `${invScale * 100}%`,
+                                            }}>
+                                              {bloque.tipo === "grafico"
+                                                ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} />
+                                                : <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} />
+                                              }
+                                            </div>
+                                          </div>
+                                          {/* Per-block observations/conclusions */}
+                                          {(bloque.observaciones || bloque.conclusiones) && (
+                                            <div className="px-2 py-1 bg-amber-50/50 border-t border-amber-200/50 space-y-0.5">
+                                              {bloque.observaciones && (
+                                                <p className="text-[9px] text-amber-800"><span className="font-semibold">Obs: </span>{bloque.observaciones}</p>
+                                              )}
+                                              {bloque.conclusiones && (
+                                                <p className="text-[9px] text-blue-800"><span className="font-semibold">Conc: </span>{bloque.conclusiones}</p>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
                                   );
                                 })
@@ -3446,16 +3748,23 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       <div className="px-4 py-2.5 border-b border-border/60 flex items-center gap-2">
                         {bloque.tipo === "grafico" ? (
                           <BarChart2 className="w-3.5 h-3.5 text-blue-500" />
-                        ) : (
+                        ) : bloque.tipo === "tabla" ? (
                           <Table2 className="w-3.5 h-3.5 text-purple-500" />
+                        ) : (
+                          <FileText className="w-3.5 h-3.5 text-amber-500" />
                         )}
                         <span className="text-xs font-semibold flex-1">
-                          {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${idx + 1}` : `Tabla ${idx + 1}`)}
+                          {bloque.tipo === "texto"
+                            ? ((bloque as TextoBloque).titulo || SUBTIPO_STYLES[(bloque as TextoBloque).subtipo]?.label || `Texto ${idx + 1}`)
+                            : (bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${idx + 1}` : `Tabla ${idx + 1}`))
+                          }
                         </span>
                         <span className="text-[9px] text-muted-foreground">
                           {bloque.tipo === "grafico"
                             ? TIPOS_GRAFICO.find((t) => t.id === (bloque as GraficoBloque).tipoGrafico)?.label
-                            : `${(bloque as TablaBloque).fuentesSeleccionadas.length} fuente${(bloque as TablaBloque).fuentesSeleccionadas.length !== 1 ? "s" : ""}`
+                            : bloque.tipo === "tabla"
+                              ? `${(bloque as TablaBloque).fuentesSeleccionadas.length} fuente${(bloque as TablaBloque).fuentesSeleccionadas.length !== 1 ? "s" : ""}`
+                              : (bloque as TextoBloque).subtipo
                           }
                         </span>
                         {isSelected && (
@@ -3463,12 +3772,14 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                         )}
                       </div>
 
-                      {/* Block content - chart or table */}
-                      <div className={cn(bloque.tipo === "grafico" ? "h-52" : "h-44", "p-4")}>
+                      {/* Block content - chart, table or text */}
+                      <div className={cn(bloque.tipo === "grafico" ? "h-52" : bloque.tipo === "texto" ? "h-24" : "h-44", "p-4")}>
                         {bloque.tipo === "grafico" ? (
                           <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} />
-                        ) : (
+                        ) : bloque.tipo === "tabla" ? (
                           <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} />
+                        ) : (
+                          <TextoBloqueView bloque={bloque as TextoBloque} />
                         )}
                       </div>
 
@@ -3476,7 +3787,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       <div className="px-4 py-2 border-t border-border/40 flex items-center gap-2 bg-muted/20">
                         <Shuffle className="w-3 h-3 text-muted-foreground/40" />
                         <span className="text-[10px] text-muted-foreground/50">
-                          Datos simulados - Haz clic para editar este bloque
+                          {bloque.tipo === "texto" ? "Haz clic para editar este bloque" : "Datos simulados - Haz clic para editar este bloque"}
                         </span>
                       </div>
                     </div>
