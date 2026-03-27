@@ -3080,21 +3080,44 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                   const sectionsH = hasSections ? 60 : 0;
                   const GAP = 8; // gap between blocks
                   const BLOCK_LABEL_H = 32;
-                  const MIN_BLOCK_H = 120;
-                  // Ideal block height: split available space evenly, min 120px
                   const totalBlocksArea = naturalH - pad.top - pad.bottom - headerH - footerH - sectionsH - 12;
-                  const idealBlockH = config.bloques.length > 0
-                    ? Math.max(MIN_BLOCK_H, Math.floor((totalBlocksArea - GAP * (config.bloques.length - 1)) / config.bloques.length))
-                    : totalBlocksArea;
+                  // ── Type-aware block heights ─────────────────────────────────
+                  // Tables: compact (label + col header + N data rows)
+                  // Charts: fill remaining space, capped at MAX_CHART_H
+                  const MAX_CHART_H = 320;
+                  const TABLE_ROW_H = 22;
+                  const TABLE_DATA_ROWS = 6;
+                  const TABLE_H = BLOCK_LABEL_H + 28 + TABLE_DATA_ROWS * TABLE_ROW_H + 8; // ~228px
 
-                  // ── Paginate blocks ──────────────────────────────────────────
-                  // Determine how many blocks fit per page
-                  const blocksPerPage = Math.max(1, Math.floor((totalBlocksArea + GAP) / (idealBlockH + GAP)));
-                  // Group blocks into pages
+                  const chartCount = config.bloques.filter(b => b.tipo === "grafico").length;
+                  const tableCount = config.bloques.filter(b => b.tipo === "tabla").length;
+                  const totalTableH = tableCount * TABLE_H;
+                  const totalGaps = Math.max(0, config.bloques.length - 1) * GAP;
+                  const remainingForCharts = Math.max(0, totalBlocksArea - totalTableH - totalGaps);
+                  const chartH = chartCount > 0
+                    ? Math.min(MAX_CHART_H, Math.max(160, Math.floor(remainingForCharts / chartCount)))
+                    : 0;
+
+                  const blockHeight = (b: typeof config.bloques[number]) =>
+                    b.tipo === "grafico" ? chartH : TABLE_H;
+
+                  // ── Paginate: greedy pack blocks onto pages ───────────────────
                   const pages: typeof config.bloques[] = [];
-                  for (let i = 0; i < Math.max(1, config.bloques.length); i += blocksPerPage) {
-                    pages.push(config.bloques.slice(i, i + blocksPerPage));
+                  let currentPage: typeof config.bloques = [];
+                  let currentH = 0;
+                  for (const bloque of config.bloques.length > 0 ? config.bloques : []) {
+                    const bh = blockHeight(bloque);
+                    const gapAdd = currentPage.length > 0 ? GAP : 0;
+                    if (currentPage.length > 0 && currentH + gapAdd + bh > totalBlocksArea) {
+                      pages.push(currentPage);
+                      currentPage = [bloque];
+                      currentH = bh;
+                    } else {
+                      currentPage.push(bloque);
+                      currentH += gapAdd + bh;
+                    }
                   }
+                  if (currentPage.length > 0 || config.bloques.length === 0) pages.push(currentPage);
                   const totalPages = pages.length;
 
                   // ── Render a single page ─────────────────────────────────────
@@ -3174,13 +3197,19 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                 </div>
                               ) : (
                                 pageBlocks.map((bloque, idx) => {
-                                  const globalIdx = pageIdx * blocksPerPage + idx;
+                                  const allPrevPages = pages.slice(0, pageIdx);
+                                  const globalIdx = allPrevPages.reduce((s, p) => s + p.length, 0) + idx;
+                                  const bh = blockHeight(bloque);
+                                  const contentH = bh - BLOCK_LABEL_H;
+                                  // Tables: scale to fit neatly; charts: scale a bit more
+                                  const innerScale = bloque.tipo === "tabla" ? 0.55 : 0.45;
+                                  const invScale = 1 / innerScale;
                                   return (
                                     <div
                                       key={bloque.id}
                                       onClick={() => { setSelectedBloqueId(bloque.id); setBuilderTab(bloque.tipo === "grafico" ? "graficos" : "tablas"); }}
                                       className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors shrink-0"
-                                      style={{ height: idealBlockH }}
+                                      style={{ height: bh }}
                                     >
                                       <div className="flex items-center gap-2 px-3 border-b border-border/40 bg-muted/20" style={{ height: BLOCK_LABEL_H }}>
                                         {bloque.tipo === "grafico"
@@ -3191,8 +3220,13 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                           {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${globalIdx + 1}` : `Tabla ${globalIdx + 1}`)}
                                         </span>
                                       </div>
-                                      <div className="relative overflow-hidden" style={{ height: idealBlockH - BLOCK_LABEL_H }}>
-                                        <div style={{ transform: "scale(0.45)", transformOrigin: "top left", width: "222%", height: "222%" }}>
+                                      <div className="relative overflow-hidden" style={{ height: contentH }}>
+                                        <div style={{
+                                          transform: `scale(${innerScale})`,
+                                          transformOrigin: "top left",
+                                          width: `${invScale * 100}%`,
+                                          height: `${invScale * 100}%`,
+                                        }}>
                                           {bloque.tipo === "grafico"
                                             ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} />
                                             : <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} />
