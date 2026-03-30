@@ -4339,7 +4339,7 @@ const Informes = () => {
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {canEditInformeTemplate(previewInforme) && previewInforme.builderConfig && (
+                {canCreate && previewInforme.builderConfig && (
                   <Button
                     size="sm"
                     variant="outline"

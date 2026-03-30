@@ -289,6 +289,8 @@ export interface PlantillaConfig {
   };
   // Grid layout — keyed by bloqueId, value is the column width for that block
   layoutConfig?: Record<string, ColSpan>;
+  // Block height in natural preview px — keyed by bloqueId
+  alturaBloques?: Record<string, number>;
   // Global visual style applied to ALL tables in the report
   estiloTablas?: {
     mostrarBordes: boolean;
@@ -341,8 +343,6 @@ export interface GraficoBloque {
   mostrarTooltip: boolean;
   camposCalculados?: CampoCalculado[];
   filtrosJerarquia?: Record<string, string[]>;
-  observaciones?: string;
-  conclusiones?: string;
   tipografia?: TipografiaBloque;
 }
 
@@ -376,8 +376,6 @@ export interface TablaBloque {
     filasPorPagina: number;
     mostrarControles: boolean;
   };
-  observaciones?: string;
-  conclusiones?: string;
   tipografia?: TipografiaBloque;
 }
 
@@ -681,6 +679,59 @@ const DEFAULT_TIPOGRAFIA: TipografiaBloque = {
   cuerpoItalic: false,
 };
 
+const BLOCK_HEIGHT_DEFAULT: Record<ReporteBloque["tipo"], number> = {
+  grafico: 220,
+  tabla: 228,
+  texto: 120,
+};
+
+const BLOCK_HEIGHT_MIN: Record<ReporteBloque["tipo"], number> = {
+  grafico: 140,
+  tabla: 140,
+  texto: 90,
+};
+
+const BLOCK_HEIGHT_MAX: Record<ReporteBloque["tipo"], number> = {
+  grafico: 520,
+  tabla: 520,
+  texto: 320,
+};
+
+const FUENTE_CAMPO_LABEL: Record<FuenteCampo, string> = {
+  finca: "Finca",
+  cultivo: "Cultivo",
+  variedad: "Variedad",
+  ubicacion: "Ubicación",
+  superficie: "Superficie",
+  productor: "Productor",
+  custom: "Manual",
+};
+
+function getCampoEncabezadoPreviewValue(campo: CampoEncabezado): string | null {
+  if (campo.auto && campo.fuente !== "custom") {
+    return `Auto: ${FUENTE_CAMPO_LABEL[campo.fuente]}`;
+  }
+  const manual = campo.valor?.trim();
+  return manual ? manual : null;
+}
+
+function clampBlockHeight(tipo: ReporteBloque["tipo"], value: number): number {
+  const min = BLOCK_HEIGHT_MIN[tipo];
+  const max = BLOCK_HEIGHT_MAX[tipo];
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function resolveBlockHeight(
+  bloque: ReporteBloque,
+  alturaBloques?: Record<string, number>,
+): number {
+  const configured = alturaBloques?.[bloque.id];
+  if (typeof configured !== "number" || Number.isNaN(configured)) {
+    return BLOCK_HEIGHT_DEFAULT[bloque.tipo];
+  }
+  return clampBlockHeight(bloque.tipo, configured);
+}
+
 // --------- Tipos de gráfico ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 const TIPOS_GRAFICO: { id: TipoGrafico; label: string; icon: React.ElementType; desc: string }[] = [
@@ -699,6 +750,18 @@ function stableVal(seed: string, min: number, max: number): number {
   let h = 0;
   for (let i = 0; i < seed.length; i++) { h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0; }
   return min + Math.abs(h) % (max - min);
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace("#", "");
+  const expanded = clean.length === 3
+    ? clean.split("").map((c) => c + c).join("")
+    : clean;
+  const num = parseInt(expanded, 16);
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 const DIM_VALUES: Record<string, string[]> = {
@@ -847,6 +910,19 @@ function migrateConfig(cfg: unknown): BuilderConfig {
     titulo: (c.titulo as string) || (c.nombre as string) || "",
     subtitulo: (c.subtitulo as string) || "",
     plantilla: c.plantilla as PlantillaConfig | undefined,
+  };
+}
+
+function sanitizeLegacyBlockNotes(builder: BuilderConfig): BuilderConfig {
+  return {
+    ...builder,
+    bloques: builder.bloques.map((bloque) => {
+      if (bloque.tipo === "grafico" || bloque.tipo === "tabla") {
+        const { observaciones: _obs, conclusiones: _conc, ...rest } = bloque as any;
+        return rest as ReporteBloque;
+      }
+      return bloque;
+    }),
   };
 }
 
@@ -1152,14 +1228,6 @@ function GraficoBloqueView({ bloque, colors, estiloPlantilla }: { bloque: Grafic
   );
 }
 
-// ─── Module band colors ────────────────────────────────────────────────────────
-const MODULE_BAND_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  "Laboratorio / Vivero": { bg: "bg-violet-50",  text: "text-violet-800",  border: "border-b-violet-400" },
-  "Siembra":              { bg: "bg-emerald-50", text: "text-emerald-800", border: "border-b-emerald-400" },
-  "Cosecha":              { bg: "bg-amber-50",   text: "text-amber-800",   border: "border-b-amber-400" },
-  "Poscosecha":           { bg: "bg-blue-50",    text: "text-blue-800",    border: "border-b-blue-400" },
-};
-
 function TablaBloqueView({ bloque, colors, estiloPlantilla }: { bloque: TablaBloque; colors: string[]; estiloPlantilla?: PlantillaConfig["estiloTablas"] }) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes), []);
   const groupByKeys = bloque.groupBy ?? [];
@@ -1206,6 +1274,21 @@ function TablaBloqueView({ bloque, colors, estiloPlantilla }: { bloque: TablaBlo
     }
     return result;
   }, [bloque.fuentesSeleccionadas]);
+
+  // Theme-aware module colors so changing palette updates tables too.
+  const moduleThemeColor = useMemo((): Record<string, string> => {
+    const orderedModules: string[] = [];
+    for (const id of cols) {
+      const m = colModuleKey[id];
+      if (!m || orderedModules.includes(m)) continue;
+      orderedModules.push(m);
+    }
+    const map: Record<string, string> = {};
+    orderedModules.forEach((m, i) => {
+      map[m] = colors[i % colors.length];
+    });
+    return map;
+  }, [cols, colModuleKey, colors]);
 
   // Build colspan bands for the super-header row
   type ModuleBand = { key: string; label: string; span: number; isDim: boolean };
@@ -1313,7 +1396,7 @@ function TablaBloqueView({ bloque, colors, estiloPlantilla }: { bloque: TablaBlo
           {hasMultipleModules && (
             <tr>
               {moduleBands.map((band) => {
-                const mc = MODULE_BAND_COLORS[band.label];
+                const mc = !band.isDim ? moduleThemeColor[band.label] : undefined;
                 return (
                   <th
                     key={band.key}
@@ -1324,11 +1407,18 @@ function TablaBloqueView({ bloque, colors, estiloPlantilla }: { bloque: TablaBlo
                       band.isDim
                         ? "bg-muted/20 border-b-border text-transparent select-none"
                         : mc
-                          ? `${mc.bg} ${mc.text} ${mc.border}`
+                          ? ""
                           : "bg-muted/40 text-muted-foreground border-b-border",
                       cellBorder,
                     )}
-                    style={{ fontFamily }}
+                    style={mc
+                      ? {
+                        fontFamily,
+                        color: mc,
+                        backgroundColor: hexToRgba(mc, 0.12),
+                        borderBottomColor: mc,
+                      }
+                      : { fontFamily }}
                   >
                     {band.isDim ? "" : band.label}
                   </th>
@@ -1345,18 +1435,24 @@ function TablaBloqueView({ bloque, colors, estiloPlantilla }: { bloque: TablaBlo
               const agr = (bloque.agregaciones?.[id] ?? "suma") as AgregacionTipo;
               const agrSymbol = agr === "suma" ? "Σ" : agr === "promedio" ? "⌀" : "~";
               const isGroupKey = groupByKeys.includes(id);
-              const mc = !isGroupKey && isMetric ? MODULE_BAND_COLORS[colModuleKey[id] ?? ""] : undefined;
+              const mc = !isGroupKey && isMetric ? moduleThemeColor[colModuleKey[id] ?? ""] : undefined;
               return (
                 <th
                   key={id}
                   className={cn(
                     "border-b border-border whitespace-nowrap",
                     thPad, cellAlign, cellBorder,
-                    mc ? `${mc.bg} ${mc.text}` : "bg-muted/50",
+                    mc ? "" : "bg-muted/50",
                   )}
                   style={{
                     ...thStyle,
-                    ...(!mc && i > 0 && !isGroupKey ? { color: colors[i % colors.length] } : {}),
+                    ...(mc
+                      ? {
+                        backgroundColor: hexToRgba(mc, 0.14),
+                        color: mc,
+                        borderBottomColor: mc,
+                      }
+                      : (!isGroupKey && i > 0 ? { color: colors[i % colors.length] } : {})),
                   }}
                 >
                   {groupByKeys.length > 0 && isMetric ? `${agrSymbol} ${displayLabel}` : displayLabel}
@@ -1982,6 +2078,15 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
   const [selectedBloqueId, setSelectedBloqueId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [resizeDrag, setResizeDrag] = useState<{
+    bloqueId: string;
+    tipo: ReporteBloque["tipo"];
+    startY: number;
+    startHeight: number;
+    scale: number;
+  } | null>(null);
+  const suppressBlockOpenRef = useRef(false);
+  const resizeMovedRef = useRef(false);
 
   const defaultConfig: BuilderConfig = {
     id: informe?.id,
@@ -2016,13 +2121,15 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
       piePagina: "",
       margenes: { superior: 20, inferior: 20, izquierdo: 15, derecho: 15 },
       formato: { tamañoPagina: "A4", orientacion: "portrait", numeracionPaginas: true, posicionNumeracion: "footer" },
+      layoutConfig: {},
+      alturaBloques: {},
       estiloTablas: { mostrarBordes: true, alternarFilas: true, alineacion: "left", compacta: false, tipografia: { ...DEFAULT_TIPOGRAFIA } },
       estiloGraficos: { tipografia: { ...DEFAULT_TIPOGRAFIA } },
     },
   };
 
   const [config, setConfig] = useState<BuilderConfig>(() =>
-    existingConfig ? migrateConfig(existingConfig) : defaultConfig,
+    sanitizeLegacyBlockNotes(existingConfig ? migrateConfig(existingConfig) : defaultConfig),
   );
 
   const upd = useCallback(<K extends keyof BuilderConfig>(key: K, val: BuilderConfig[K]) => {
@@ -2144,6 +2251,102 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     setSelectedBloqueId((prev) => (prev === id ? null : prev));
   }, []);
 
+  const moveBloqueOrden = useCallback((bloqueId: string, dir: "first" | "up" | "down" | "last") => {
+    setConfig((prev) => {
+      const from = prev.bloques.findIndex((b) => b.id === bloqueId);
+      if (from < 0) return prev;
+      let to = from;
+      if (dir === "first") to = 0;
+      if (dir === "up") to = Math.max(0, from - 1);
+      if (dir === "down") to = Math.min(prev.bloques.length - 1, from + 1);
+      if (dir === "last") to = prev.bloques.length - 1;
+      if (to === from) return prev;
+      const next = [...prev.bloques];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return { ...prev, bloques: next };
+    });
+  }, []);
+
+  const updateCampoEncabezado = useCallback((campoId: string, patch: Partial<CampoEncabezado>) => {
+    setConfig((prev) => {
+      const plantilla = prev.plantilla as PlantillaConfig;
+      const campos = plantilla.encabezado.campos.map((c) => (c.id === campoId ? { ...c, ...patch } : c));
+      return {
+        ...prev,
+        plantilla: {
+          ...plantilla,
+          encabezado: {
+            ...plantilla.encabezado,
+            campos,
+          },
+        },
+      };
+    });
+  }, []);
+
+  const moveCampoEncabezado = useCallback((campoId: string, dir: "up" | "down") => {
+    setConfig((prev) => {
+      const plantilla = prev.plantilla as PlantillaConfig;
+      const campos = [...plantilla.encabezado.campos];
+      const from = campos.findIndex((c) => c.id === campoId);
+      if (from < 0) return prev;
+      const to = dir === "up" ? Math.max(0, from - 1) : Math.min(campos.length - 1, from + 1);
+      if (from === to) return prev;
+      const [moved] = campos.splice(from, 1);
+      campos.splice(to, 0, moved);
+      return {
+        ...prev,
+        plantilla: {
+          ...plantilla,
+          encabezado: {
+            ...plantilla.encabezado,
+            campos,
+          },
+        },
+      };
+    });
+  }, []);
+
+  const addCampoEncabezado = useCallback(() => {
+    const nuevo: CampoEncabezado = {
+      id: `custom_${Date.now()}`,
+      label: "Dato adicional",
+      fuente: "custom",
+      auto: false,
+      valor: "",
+    };
+    setConfig((prev) => {
+      const plantilla = prev.plantilla as PlantillaConfig;
+      return {
+        ...prev,
+        plantilla: {
+          ...plantilla,
+          encabezado: {
+            ...plantilla.encabezado,
+            campos: [...plantilla.encabezado.campos, nuevo],
+          },
+        },
+      };
+    });
+  }, []);
+
+  const removeCampoEncabezado = useCallback((campoId: string) => {
+    setConfig((prev) => {
+      const plantilla = prev.plantilla as PlantillaConfig;
+      return {
+        ...prev,
+        plantilla: {
+          ...plantilla,
+          encabezado: {
+            ...plantilla.encabezado,
+            campos: plantilla.encabezado.campos.filter((c) => c.id !== campoId),
+          },
+        },
+      };
+    });
+  }, []);
+
   // Template functions
 
   const resetTemplate = useCallback(() => {
@@ -2225,7 +2428,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     setTimeout(() => {
       setSaving(false);
       setSaved(true);
-      onSave(config);
+      onSave(sanitizeLegacyBlockNotes(config));
       setTimeout(() => setSaved(false), 3000);
     }, 900);
   };
@@ -2233,6 +2436,76 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
   const bloqueCount = config.bloques.length;
   const grafCount = config.bloques.filter((b) => b.tipo === "grafico").length;
   const tablaCount = config.bloques.filter((b) => b.tipo === "tabla").length;
+
+  const setBloqueHeight = useCallback((bloqueId: string, tipo: ReporteBloque["tipo"], px: number) => {
+    const clamped = clampBlockHeight(tipo, px);
+    setConfig((prev) => {
+      if (!prev.plantilla) return prev;
+      const plantilla = prev.plantilla as PlantillaConfig;
+      const current = plantilla.alturaBloques ?? {};
+      if (current[bloqueId] === clamped) return prev;
+      return {
+        ...prev,
+        plantilla: {
+          ...plantilla,
+          alturaBloques: {
+            ...current,
+            [bloqueId]: clamped,
+          },
+        },
+      };
+    });
+  }, []);
+
+  const startBloqueResize = useCallback((
+    e: { clientY: number; preventDefault: () => void; stopPropagation: () => void },
+    bloqueId: string,
+    tipo: ReporteBloque["tipo"],
+    startHeight: number,
+    scale = 1,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    suppressBlockOpenRef.current = true;
+    resizeMovedRef.current = false;
+    setSelectedBloqueId(bloqueId);
+    setResizeDrag({ bloqueId, tipo, startY: e.clientY, startHeight, scale: scale > 0 ? scale : 1 });
+  }, []);
+
+  useEffect(() => {
+    if (!resizeDrag) return;
+
+    const prevCursor = document.body.style.cursor;
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.cursor = "ns-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (ev: MouseEvent) => {
+      const delta = (ev.clientY - resizeDrag.startY) / resizeDrag.scale;
+      if (Math.abs(delta) > 1) resizeMovedRef.current = true;
+      setBloqueHeight(resizeDrag.bloqueId, resizeDrag.tipo, resizeDrag.startHeight + delta);
+    };
+
+    let releaseTimer = 0;
+    const onUp = () => {
+      setResizeDrag(null);
+      releaseTimer = window.setTimeout(() => {
+        suppressBlockOpenRef.current = false;
+        resizeMovedRef.current = false;
+      }, 140);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      if (releaseTimer) window.clearTimeout(releaseTimer);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
+    };
+  }, [resizeDrag, setBloqueHeight]);
 
   return (
     <div className="fixed inset-0 z-50 bg-background flex flex-col">
@@ -2666,7 +2939,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             )}
                             {[
                               { key: "mostrarLeyenda" as const, label: "Mostrar leyenda" },
-                              { key: "mostrarGrid" as const, label: "Mostrar grilla" },
+                              { key: "mostrarGrid" as const, label: "Mostrar cuadrícula" },
                               { key: "mostrarTooltip" as const, label: "Mostrar tooltip" },
                             ].map(({ key, label }) => (
                               <div key={key} className="flex items-center justify-between">
@@ -2677,32 +2950,6 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                 />
                               </div>
                             ))}
-                          </div>
-                        </div>
-                        {/* Observaciones */}
-                        <div className="space-y-1.5">
-                          <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                            <FileText className="w-3 h-3" /> Observaciones y conclusiones
-                          </Label>
-                          <div className="space-y-1">
-                            <span className="text-[10px] text-muted-foreground">Observaciones</span>
-                            <Textarea
-                              value={selectedGrafico.observaciones ?? ""}
-                              onChange={e => updBloque(selectedGrafico.id, { observaciones: e.target.value })}
-                              placeholder="Notas u observaciones sobre este gráfico..."
-                              className="text-xs min-h-[48px] resize-none"
-                              rows={2}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <span className="text-[10px] text-muted-foreground">Conclusiones</span>
-                            <Textarea
-                              value={selectedGrafico.conclusiones ?? ""}
-                              onChange={e => updBloque(selectedGrafico.id, { conclusiones: e.target.value })}
-                              placeholder="Conclusiones derivadas de este gráfico..."
-                              className="text-xs min-h-[48px] resize-none"
-                              rows={2}
-                            />
                           </div>
                         </div>
                       </div>
@@ -2923,32 +3170,6 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             </div>
                           </div>
                         )}
-                        {/* Observaciones */}
-                        <div className="space-y-1.5">
-                          <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                            <FileText className="w-3 h-3" /> Observaciones y conclusiones
-                          </Label>
-                          <div className="space-y-1">
-                            <span className="text-[10px] text-muted-foreground">Observaciones</span>
-                            <Textarea
-                              value={(selectedBloque as TablaBloque).observaciones ?? ""}
-                              onChange={e => updBloque(selectedBloque!.id, { observaciones: e.target.value })}
-                              placeholder="Notas u observaciones sobre esta tabla..."
-                              className="text-xs min-h-[48px] resize-none"
-                              rows={2}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <span className="text-[10px] text-muted-foreground">Conclusiones</span>
-                            <Textarea
-                              value={(selectedBloque as TablaBloque).conclusiones ?? ""}
-                              onChange={e => updBloque(selectedBloque!.id, { conclusiones: e.target.value })}
-                              placeholder="Conclusiones derivadas de esta tabla..."
-                              className="text-xs min-h-[48px] resize-none"
-                              rows={2}
-                            />
-                          </div>
-                        </div>
                       </div>
                     </div>
                   )}
@@ -3198,6 +3419,106 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                           className="h-7 text-xs"
                         />
                       </div>
+                      <div className="space-y-2 pt-2 border-t border-border/60">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Datos del encabezado</span>
+                          <button
+                            onClick={addCampoEncabezado}
+                            className="h-6 px-2 rounded border border-border text-[10px] text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors flex items-center gap-1"
+                            title="Agregar dato adicional"
+                          >
+                            <Plus className="w-3 h-3" /> Agregar
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {((config.plantilla as PlantillaConfig).encabezado.campos ?? []).map((campo, idx, all) => (
+                            <div key={campo.id} className="rounded border border-border bg-muted/5 p-2 space-y-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-muted-foreground w-5 text-center">{idx + 1}</span>
+                                <Input
+                                  value={campo.label}
+                                  onChange={(e) => updateCampoEncabezado(campo.id, { label: e.target.value })}
+                                  className="h-7 text-xs"
+                                  placeholder="Nombre del campo"
+                                />
+                                <button
+                                  onClick={() => moveCampoEncabezado(campo.id, "up")}
+                                  disabled={idx === 0}
+                                  className="w-7 h-7 rounded border border-border text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-30"
+                                  title="Subir campo"
+                                >
+                                  <MoveUp className="w-3 h-3 mx-auto" />
+                                </button>
+                                <button
+                                  onClick={() => moveCampoEncabezado(campo.id, "down")}
+                                  disabled={idx === all.length - 1}
+                                  className="w-7 h-7 rounded border border-border text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-30"
+                                  title="Bajar campo"
+                                >
+                                  <MoveDown className="w-3 h-3 mx-auto" />
+                                </button>
+                                {campo.fuente === "custom" && (
+                                  <button
+                                    onClick={() => removeCampoEncabezado(campo.id)}
+                                    className="w-7 h-7 rounded border border-border text-muted-foreground hover:border-destructive/40 hover:text-destructive"
+                                    title="Eliminar dato adicional"
+                                  >
+                                    <Trash2 className="w-3 h-3 mx-auto" />
+                                  </button>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-1 gap-2">
+                                <div className="space-y-1">
+                                  <span className="text-[10px] text-muted-foreground">Fuente de datos</span>
+                                  <div className="flex flex-wrap gap-1">
+                                    {(["finca", "cultivo", "variedad", "ubicacion", "superficie", "productor", "custom"] as FuenteCampo[]).map((opt) => (
+                                      <button
+                                        key={opt}
+                                        onClick={() => updateCampoEncabezado(campo.id, {
+                                          fuente: opt,
+                                          auto: opt === "custom" ? false : campo.auto,
+                                        })}
+                                        className={cn(
+                                          "h-6 px-2 rounded border text-[10px] transition-colors",
+                                          campo.fuente === opt
+                                            ? "border-primary bg-primary/10 text-primary"
+                                            : "border-border text-muted-foreground hover:border-primary/30",
+                                        )}
+                                      >
+                                        {FUENTE_CAMPO_LABEL[opt]}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-muted-foreground">Tomar valor automático</span>
+                                    <Switch
+                                      checked={campo.fuente === "custom" ? false : campo.auto}
+                                      onCheckedChange={(v) => updateCampoEncabezado(campo.id, { auto: v })}
+                                      disabled={campo.fuente === "custom"}
+                                      className="scale-75"
+                                    />
+                                  </div>
+                                  {campo.fuente !== "custom" && campo.auto && (
+                                    <p className="text-[10px] text-primary/80">
+                                      Fuente actual: {FUENTE_CAMPO_LABEL[campo.fuente]}
+                                    </p>
+                                  )}
+                                  {(!campo.auto || campo.fuente === "custom") && (
+                                    <Input
+                                      value={campo.valor}
+                                      onChange={(e) => updateCampoEncabezado(campo.id, { valor: e.target.value })}
+                                      className="h-7 text-xs"
+                                      placeholder="Valor manual para mostrar"
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -3238,7 +3559,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                         <Grid3x3 className="w-3.5 h-3.5" /> Disposición en página
                       </Label>
                       <p className="text-[10px] text-muted-foreground leading-relaxed">
-                        Define el ancho de cada bloque. Combina anchos complementarios (½ + ½, ⅔ + ⅓) para colocarlos en la misma fila.
+                        Define el orden y ancho de cada bloque. El orden aquí se refleja en la preview en vivo.
                       </p>
                       <div className="space-y-1.5">
                         {config.bloques.map((bloque, idx) => {
@@ -3259,6 +3580,40 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                 {bloque.tipo === "tabla"   && <Table2    className="w-3 h-3 text-purple-500 shrink-0" />}
                                 {bloque.tipo === "texto"   && <FileText  className="w-3 h-3 text-amber-500 shrink-0" />}
                                 <span className="text-[11px] text-foreground truncate">{label}</span>
+                              </div>
+                              <div className="flex gap-0.5 shrink-0">
+                                <button
+                                  onClick={() => moveBloqueOrden(bloque.id, "first")}
+                                  disabled={idx === 0}
+                                  className="w-7 h-6 rounded border text-[11px] transition-all border-border text-muted-foreground hover:border-primary/40 disabled:opacity-30"
+                                  title="Mover al inicio"
+                                >
+                                  <ChevronUp className="w-3 h-3 mx-auto" />
+                                </button>
+                                <button
+                                  onClick={() => moveBloqueOrden(bloque.id, "up")}
+                                  disabled={idx === 0}
+                                  className="w-7 h-6 rounded border text-[11px] transition-all border-border text-muted-foreground hover:border-primary/40 disabled:opacity-30"
+                                  title="Subir"
+                                >
+                                  <MoveUp className="w-3 h-3 mx-auto" />
+                                </button>
+                                <button
+                                  onClick={() => moveBloqueOrden(bloque.id, "down")}
+                                  disabled={idx === config.bloques.length - 1}
+                                  className="w-7 h-6 rounded border text-[11px] transition-all border-border text-muted-foreground hover:border-primary/40 disabled:opacity-30"
+                                  title="Bajar"
+                                >
+                                  <MoveDown className="w-3 h-3 mx-auto" />
+                                </button>
+                                <button
+                                  onClick={() => moveBloqueOrden(bloque.id, "last")}
+                                  disabled={idx === config.bloques.length - 1}
+                                  className="w-7 h-6 rounded border text-[11px] transition-all border-border text-muted-foreground hover:border-primary/40 disabled:opacity-30"
+                                  title="Mover al final"
+                                >
+                                  <ChevronDown className="w-3 h-3 mx-auto" />
+                                </button>
                               </div>
                               <div className="flex gap-0.5 shrink-0">
                                 {opts.map(o => (
@@ -3353,10 +3708,10 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                     </div>
                   </div>
 
-                  {/* Apariencia global de tablas */}
+                  {/* Estilo global de tablas */}
                   <div className="space-y-2">
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                      <Table2 className="w-3.5 h-3.5" /> Apariencia de tablas
+                      <Table2 className="w-3.5 h-3.5" /> Estilo global de tablas
                     </Label>
                     <div className="p-3 rounded-lg border border-border bg-muted/5 space-y-3">
                       {(() => {
@@ -3391,10 +3746,10 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                     </div>
                   </div>
 
-                  {/* Apariencia global de gráficos */}
+                  {/* Estilo global de gráficos */}
                   <div className="space-y-2">
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                      <BarChart2 className="w-3.5 h-3.5" /> Apariencia de gráficos
+                      <BarChart2 className="w-3.5 h-3.5" /> Estilo global de gráficos
                     </Label>
                     <div className="p-3 rounded-lg border border-border bg-muted/5">
                       {(() => {
@@ -3506,7 +3861,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                     right: (margenes.derecho ?? 15) * mm2px,
                   };
                   const colorBorde = enc.colorBorde ?? "#cc0000";
-                  const campos = enc.campos ?? [];
+                  const campos: CampoEncabezado[] = Array.isArray(enc.campos) ? enc.campos : [];
                   const today = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
                   const hasSections = (pl?.incluirNotas || pl?.incluirConclusiones || pl?.incluirFirma);
 
@@ -3517,79 +3872,205 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                   const GAP = 8; // gap between blocks
                   const BLOCK_LABEL_H = 32;
                   const totalBlocksArea = naturalH - pad.top - pad.bottom - headerH - footerH - sectionsH - 12;
-                  // ── Type-aware block heights ─────────────────────────────────
-                  // Tables: compact (label + col header + N data rows)
-                  // Charts: fill remaining space, capped at MAX_CHART_H
-                  const MAX_CHART_H = 320;
-                  const TABLE_ROW_H = 22;
-                  const TABLE_DATA_ROWS = 6;
-                  const TABLE_H = BLOCK_LABEL_H + 28 + TABLE_DATA_ROWS * TABLE_ROW_H + 8; // ~228px
+                  const blockHeight = (b: ReporteBloque): number =>
+                    resolveBlockHeight(b, pl?.alturaBloques);
 
-                  const TEXT_BLOCK_H = 120;
-                  const chartCount = config.bloques.filter(b => b.tipo === "grafico").length;
-                  const tableCount = config.bloques.filter(b => b.tipo === "tabla").length;
-                  const textCount = config.bloques.filter(b => b.tipo === "texto").length;
-                  const totalTableH = tableCount * TABLE_H;
-                  const totalTextH = textCount * TEXT_BLOCK_H;
-                  const totalGaps = Math.max(0, config.bloques.length - 1) * GAP;
-                  const remainingForCharts = Math.max(0, totalBlocksArea - totalTableH - totalTextH - totalGaps);
-                  const chartH = chartCount > 0
-                    ? Math.min(MAX_CHART_H, Math.max(160, Math.floor(remainingForCharts / chartCount)))
-                    : 0;
-
-                  const blockHeight = (b: ReporteBloque): number => {
-                    if (b.tipo === "texto") return TEXT_BLOCK_H;
-                    if (b.tipo === "grafico") return chartH;
-                    return TABLE_H;
+                  // ── Group blocks into persistent lanes (supports stacking like 1/3 + 2/3, then more 2/3) ──
+                  const SPAN_FRAC: Record<ColSpan, number> = { full: 1, "two-thirds": 2 / 3, half: 0.5, third: 1 / 3 };
+                  const spanForBlock = (b: ReporteBloque): number => SPAN_FRAC[pl?.layoutConfig?.[b.id] ?? "full"];
+                  const spanWidth = (frac: number): string => {
+                    if (Math.abs(frac - 1) < 0.001) return "100%";
+                    if (Math.abs(frac - 2 / 3) < 0.001) return `calc(66.67% - ${GAP / 3}px)`;
+                    if (Math.abs(frac - 0.5) < 0.001) return `calc(50% - ${GAP / 2}px)`;
+                    if (Math.abs(frac - 1 / 3) < 0.001) return `calc(33.33% - ${(GAP * 2) / 3}px)`;
+                    return `${(frac * 100).toFixed(2)}%`;
                   };
 
-                  // ── Group blocks into visual rows (by colSpan fractions) ───────
-                  const SPAN_FRAC: Record<ColSpan, number> = { full: 1, "two-thirds": 2/3, half: 0.5, third: 1/3 };
-                  const blockRows: ReporteBloque[][] = (() => {
-                    const rows: ReporteBloque[][] = [];
-                    let cur: ReporteBloque[] = [];
-                    let sum = 0;
-                    for (const b of config.bloques) {
-                      const frac = SPAN_FRAC[pl?.layoutConfig?.[b.id] ?? "full"];
-                      if (cur.length > 0 && sum + frac > 1.001) {
-                        rows.push(cur);
-                        cur = [b]; sum = frac;
-                      } else {
-                        cur.push(b); sum += frac;
-                        if (sum >= 0.999) { rows.push(cur); cur = []; sum = 0; }
-                      }
-                    }
-                    if (cur.length > 0) rows.push(cur);
-                    return rows;
-                  })();
-                  // Row height = max of heights of blocks in that row
-                  const rowHeight = (row: ReporteBloque[]) => Math.max(...row.map(b => blockHeight(b)));
+                  type Lane = { frac: number; blocks: ReporteBloque[] };
+                  type LayoutGroup =
+                    | { kind: "full"; block: ReporteBloque }
+                    | { kind: "row"; blocks: ReporteBloque[] }
+                    | { kind: "lanes"; lanes: Lane[] };
 
-                  // ── Paginate by rows ──────────────────────────────────────────
-                  const pages: ReporteBloque[][][] = [];
-                  let currentPage: ReporteBloque[][] = [];
+                  const laneHeight = (lane: Lane): number => {
+                    const stacked = lane.blocks.reduce((acc, b) => acc + blockHeight(b), 0);
+                    return stacked + GAP * Math.max(0, lane.blocks.length - 1);
+                  };
+
+                  const groupHeight = (group: LayoutGroup): number => {
+                    if (group.kind === "full") return blockHeight(group.block);
+                    if (group.kind === "row") return Math.max(...group.blocks.map(blockHeight));
+                    return Math.max(...group.lanes.map(laneHeight));
+                  };
+
+                  const layoutGroups: LayoutGroup[] = (() => {
+                    const groups: LayoutGroup[] = [];
+                    let i = 0;
+                    while (i < config.bloques.length) {
+                      const first = config.bloques[i];
+                      const firstFrac = spanForBlock(first);
+
+                      if (firstFrac >= 0.999) {
+                        groups.push({ kind: "full", block: first });
+                        i += 1;
+                        continue;
+                      }
+
+                      // Build a base row until it fills 100% (or we cannot continue).
+                      const base: ReporteBloque[] = [];
+                      let sum = 0;
+                      while (i < config.bloques.length) {
+                        const b = config.bloques[i];
+                        const frac = spanForBlock(b);
+                        if (frac >= 0.999 || sum + frac > 1.001) break;
+                        base.push(b);
+                        sum += frac;
+                        i += 1;
+                        if (sum >= 0.999) break;
+                      }
+
+                      if (base.length === 0) {
+                        groups.push({ kind: "full", block: first });
+                        i += 1;
+                        continue;
+                      }
+
+                      // If row is incomplete, keep standard row behavior.
+                      if (sum < 0.999) {
+                        groups.push({ kind: "row", blocks: base });
+                        continue;
+                      }
+
+                      // Row completed: convert to persistent lanes and stack next blocks by matching width.
+                      const lanes: Lane[] = base.map((b) => ({ frac: spanForBlock(b), blocks: [b] }));
+
+                      while (i < config.bloques.length) {
+                        const candidate = config.bloques[i];
+                        const candidateFrac = spanForBlock(candidate);
+                        if (candidateFrac >= 0.999) break;
+
+                        const matchingLaneIdx = lanes
+                          .map((lane, idx) => ({ idx, ok: Math.abs(lane.frac - candidateFrac) < 0.001 }))
+                          .filter((x) => x.ok)
+                          .map((x) => x.idx);
+
+                        if (matchingLaneIdx.length === 0) break;
+
+                        // Place in the shortest matching lane to keep columns balanced.
+                        let target = matchingLaneIdx[0];
+                        let minH = Number.POSITIVE_INFINITY;
+                        for (const idx of matchingLaneIdx) {
+                          const h = laneHeight(lanes[idx]);
+                          if (h < minH) {
+                            minH = h;
+                            target = idx;
+                          }
+                        }
+
+                        lanes[target].blocks.push(candidate);
+                        i += 1;
+                      }
+
+                      groups.push({ kind: "lanes", lanes });
+                    }
+                    return groups;
+                  })();
+
+                  // ── Paginate by layout groups ─────────────────────────────────
+                  const pages: LayoutGroup[][] = [];
+                  let currentPage: LayoutGroup[] = [];
                   let currentH = 0;
-                  for (const row of blockRows.length > 0 ? blockRows : [[]]) {
-                    const rh = rowHeight(row);
+                  for (const group of layoutGroups) {
+                    const gh = groupHeight(group);
                     const gapAdd = currentPage.length > 0 ? GAP : 0;
-                    if (currentPage.length > 0 && currentH + gapAdd + rh > totalBlocksArea) {
+                    if (currentPage.length > 0 && currentH + gapAdd + gh > totalBlocksArea) {
                       pages.push(currentPage);
-                      currentPage = [row];
-                      currentH = rh;
+                      currentPage = [group];
+                      currentH = gh;
                     } else {
-                      currentPage.push(row);
-                      currentH += gapAdd + rh;
+                      currentPage.push(group);
+                      currentH += gapAdd + gh;
                     }
                   }
-                  if (currentPage.length > 0 || blockRows.length === 0) pages.push(currentPage);
+                  if (currentPage.length > 0 || layoutGroups.length === 0) pages.push(currentPage);
                   const totalPages = pages.length;
+                  const blockOrder = new Map(config.bloques.map((b, idx) => [b.id, idx]));
+
+                  const renderPageBlock = (bloque: ReporteBloque) => {
+                    const globalIdx = blockOrder.get(bloque.id) ?? 0;
+                    const innerScale = bloque.tipo === "tabla" ? 0.55 : bloque.tipo === "texto" ? 1 : 0.45;
+                    const invScale = 1 / innerScale;
+                    const currentHeight = blockHeight(bloque);
+                    const isResizing = resizeDrag?.bloqueId === bloque.id;
+                    return (
+                      <div
+                        onClick={(ev) => {
+                          if (suppressBlockOpenRef.current) {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            return;
+                          }
+                          setSelectedBloqueId(bloque.id);
+                          setBuilderTab(bloque.tipo === "grafico" ? "graficos" : bloque.tipo === "tabla" ? "tablas" : "textos");
+                        }}
+                        className="w-full h-full relative group"
+                      >
+                        {bloque.tipo === "texto" ? (
+                          <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full">
+                            <TextoBloqueView bloque={bloque as TextoBloque} />
+                          </div>
+                        ) : (
+                          <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full flex flex-col">
+                            {/* Block label row */}
+                            <div className="flex items-center gap-2 px-3 border-b border-border/40 bg-muted/20 shrink-0" style={{ height: BLOCK_LABEL_H }}>
+                              {bloque.tipo === "grafico"
+                                ? <BarChart2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                : <Table2 className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                              }
+                              <span className="text-sm font-medium text-foreground truncate">
+                                {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${globalIdx + 1}` : `Tabla ${globalIdx + 1}`)}
+                              </span>
+                            </div>
+                            {/* Block content */}
+                            <div className="relative overflow-hidden flex-1">
+                              <div style={{
+                                transform: `scale(${innerScale})`,
+                                transformOrigin: "top left",
+                                width: `${invScale * 100}%`,
+                                height: `${invScale * 100}%`,
+                              }}>
+                                {bloque.tipo === "grafico"
+                                  ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} estiloPlantilla={(pl as any)?.estiloGraficos} />
+                                  : <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} estiloPlantilla={(pl as any)?.estiloTablas} />
+                                }
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        <div
+                          onMouseDown={(e) => startBloqueResize(e, bloque.id, bloque.tipo, currentHeight, renderScale)}
+                          onClick={(e) => e.stopPropagation()}
+                          className={cn(
+                            "absolute bottom-0 left-0 right-0 z-20 h-2 cursor-ns-resize transition-colors",
+                            isResizing ? "bg-primary/20" : "bg-transparent hover:bg-primary/10",
+                          )}
+                          title="Arrastra el borde inferior para cambiar el alto"
+                        >
+                          <div
+                            className={cn(
+                              "mx-auto mt-[2px] h-[2px] w-20 rounded-full transition-colors",
+                              isResizing ? "bg-primary/70" : "bg-border/80 group-hover:bg-primary/40",
+                            )}
+                          />
+                        </div>
+                      </div>
+                    );
+                  };
 
                   // ── Render a single page ─────────────────────────────────────
-                  const renderPage = (pageRows: ReporteBloque[][], pageIdx: number) => {
+                  const renderPage = (pageGroups: LayoutGroup[], pageIdx: number) => {
                     const isLastPage = pageIdx === totalPages - 1;
                     const showSections = hasSections && isLastPage;
-                    // Flat list of blocks on this page (for globalIdx computation)
-                    const pageBlocks = pageRows.flat();
 
                     return (
                       <div key={pageIdx} className="shrink-0" style={{ width: dispW, height: dispH }}>
@@ -3624,10 +4105,10 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                 </div>
                                 {campos.length > 0 && (
                                   <div className="flex flex-wrap gap-x-4 mt-2 text-sm">
-                                    {campos.slice(0, 6).map((c: any) => (
+                                    {campos.slice(0, 6).map((c) => (
                                       <span key={c.id} className="text-muted-foreground">
                                         <span className="font-medium text-foreground">{c.label}:</span>{" "}
-                                        {c.valor || <span className="italic opacity-40">—</span>}
+                                        {getCampoEncabezadoPreviewValue(c) || <span className="italic opacity-40">—</span>}
                                       </span>
                                     ))}
                                   </div>
@@ -3635,11 +4116,6 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                 {enc.mostrarLinea !== false && (
                                   <div className="rounded-full mt-2" style={{ height: 3, backgroundColor: colorBorde }} />
                                 )}
-                                <div className="flex gap-1 mt-1">
-                                  {paleta.colors.map((c, i) => (
-                                    <div key={i} className="rounded-full flex-1 h-1" style={{ backgroundColor: c }} />
-                                  ))}
-                                </div>
                               </div>
                             ) : (
                               /* Continuation header on pages 2+ */
@@ -3653,85 +4129,51 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                               </div>
                             )}
 
-                            {/* ── BLOCKS (row-based grid, uniform row height) ── */}
+                            {/* ── BLOCKS (persistent lanes per width) ── */}
                             <div className="flex flex-col overflow-hidden" style={{ gap: GAP, marginTop: 12, flex: 1 }}>
-                              {pageRows.length === 0 ? (
+                              {pageGroups.length === 0 ? (
                                 <div className="w-full flex flex-col items-center justify-center text-muted-foreground/30 border border-dashed rounded text-sm" style={{ height: totalBlocksArea }}>
                                   <Layers className="w-8 h-8 mb-2" />
                                   <p>Sin bloques</p>
                                 </div>
                               ) : (
-                                pageRows.map((rowBlocks, rowIdx) => {
-                                  const rh = rowHeight(rowBlocks);
-                                  // globalIdx offset: count all blocks on previous pages + previous rows on this page
-                                  const prevPagesBlockCount = pages.slice(0, pageIdx).reduce((s, p) => s + p.reduce((rs, r) => rs + r.length, 0), 0);
-                                  const prevRowsBlockCount = pageRows.slice(0, rowIdx).reduce((s, r) => s + r.length, 0);
-                                  return (
-                                    <div key={rowIdx} className="flex shrink-0" style={{ height: rh, gap: GAP }}>
-                                      {rowBlocks.map((bloque, idx) => {
-                                        const globalIdx = prevPagesBlockCount + prevRowsBlockCount + idx;
-                                        const span: ColSpan = pl?.layoutConfig?.[bloque.id] ?? "full";
-                                        const blockW = span === "full" ? "100%"
-                                          : span === "half" ? `calc(50% - ${GAP / 2}px)`
-                                          : span === "third" ? `calc(33.33% - ${GAP * 2 / 3}px)`
-                                          : `calc(66.67% - ${GAP / 3}px)`;
-                                        const innerScale = bloque.tipo === "tabla" ? 0.55 : bloque.tipo === "texto" ? 1 : 0.45;
-                                        const invScale = 1 / innerScale;
-                                        return (
-                                          <div
-                                            key={bloque.id}
-                                            onClick={() => {
-                                              setSelectedBloqueId(bloque.id);
-                                              setBuilderTab(bloque.tipo === "grafico" ? "graficos" : bloque.tipo === "tabla" ? "tablas" : "textos");
-                                            }}
-                                            style={{ width: blockW, height: "100%", flexShrink: 0 }}
-                                          >
-                                            {bloque.tipo === "texto" ? (
-                                              <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full">
-                                                <TextoBloqueView bloque={bloque as TextoBloque} />
-                                              </div>
-                                            ) : (
-                                              <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full flex flex-col">
-                                                {/* Block label row */}
-                                                <div className="flex items-center gap-2 px-3 border-b border-border/40 bg-muted/20 shrink-0" style={{ height: BLOCK_LABEL_H }}>
-                                                  {bloque.tipo === "grafico"
-                                                    ? <BarChart2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                                    : <Table2    className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                                                  }
-                                                  <span className="text-sm font-medium text-foreground truncate">
-                                                    {bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${globalIdx + 1}` : `Tabla ${globalIdx + 1}`)}
-                                                  </span>
-                                                </div>
-                                                {/* Block content — flex-1 so it fills uniform row height */}
-                                                <div className="relative overflow-hidden flex-1">
-                                                  <div style={{
-                                                    transform: `scale(${innerScale})`,
-                                                    transformOrigin: "top left",
-                                                    width: `${invScale * 100}%`,
-                                                    height: `${invScale * 100}%`,
-                                                  }}>
-                                                    {bloque.tipo === "grafico"
-                                                      ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} estiloPlantilla={(pl as any)?.estiloGraficos} />
-                                                      : <TablaBloqueView   bloque={bloque as TablaBloque}   colors={paleta.colors} estiloPlantilla={(pl as any)?.estiloTablas} />
-                                                    }
-                                                  </div>
-                                                </div>
-                                                {/* Per-block observations/conclusions */}
-                                                {(bloque.observaciones || bloque.conclusiones) && (
-                                                  <div className="px-2 py-1 bg-amber-50/50 border-t border-amber-200/50 space-y-0.5 shrink-0">
-                                                    {bloque.observaciones && (
-                                                      <p className="text-[9px] text-amber-800"><span className="font-semibold">Obs: </span>{bloque.observaciones}</p>
-                                                    )}
-                                                    {bloque.conclusiones && (
-                                                      <p className="text-[9px] text-blue-800"><span className="font-semibold">Conc: </span>{bloque.conclusiones}</p>
-                                                    )}
-                                                  </div>
-                                                )}
-                                              </div>
-                                            )}
+                                pageGroups.map((group, groupIdx) => {
+                                  const gh = groupHeight(group);
+                                  if (group.kind === "full") {
+                                    return (
+                                      <div key={`${group.kind}-${groupIdx}`} className="shrink-0" style={{ height: gh }}>
+                                        {renderPageBlock(group.block)}
+                                      </div>
+                                    );
+                                  }
+
+                                  if (group.kind === "row") {
+                                    return (
+                                      <div key={`${group.kind}-${groupIdx}`} className="flex shrink-0" style={{ height: gh, gap: GAP }}>
+                                        {group.blocks.map((bloque) => (
+                                          <div key={bloque.id} style={{ width: spanWidth(spanForBlock(bloque)), height: "100%", flexShrink: 0 }}>
+                                            {renderPageBlock(bloque)}
                                           </div>
-                                        );
-                                      })}
+                                        ))}
+                                      </div>
+                                    );
+                                  }
+
+                                  return (
+                                    <div key={`${group.kind}-${groupIdx}`} className="flex shrink-0" style={{ height: gh, gap: GAP }}>
+                                      {group.lanes.map((lane, laneIdx) => (
+                                        <div
+                                          key={`${group.kind}-${groupIdx}-lane-${laneIdx}`}
+                                          className="flex flex-col"
+                                          style={{ width: spanWidth(lane.frac), height: "100%", flexShrink: 0, gap: GAP }}
+                                        >
+                                          {lane.blocks.map((bloque) => (
+                                            <div key={bloque.id} className="shrink-0" style={{ height: blockHeight(bloque) }}>
+                                              {renderPageBlock(bloque)}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ))}
                                     </div>
                                   );
                                 })
@@ -3772,7 +4214,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                     );
                   };
 
-                  return <>{pages.map((pageRows, pageIdx) => renderPage(pageRows, pageIdx))}</>;
+                  return <>{pages.map((pageGroups, pageIdx) => renderPage(pageGroups, pageIdx))}</>;
                 })()}
               </div>
             </div>
@@ -3827,6 +4269,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
               ) : (
                 config.bloques.map((bloque, idx) => {
                   const isSelected = selectedBloqueId === bloque.id;
+                  const currentHeight = resolveBlockHeight(bloque, (config.plantilla as any)?.alturaBloques);
                   return (
                     <div
                       key={bloque.id}
@@ -3865,7 +4308,15 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       </div>
 
                       {/* Block content - chart, table or text */}
-                      <div className={cn(bloque.tipo === "grafico" ? "h-52" : bloque.tipo === "texto" ? "h-24" : "h-44", "p-4")}>
+                      <div
+                        className="p-4"
+                        style={{
+                          height: Math.max(
+                            96,
+                            Math.round(currentHeight * 0.75),
+                          ),
+                        }}
+                      >
                         {bloque.tipo === "grafico" ? (
                           <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} estiloPlantilla={(config.plantilla as any)?.estiloGraficos} />
                         ) : bloque.tipo === "tabla" ? (
@@ -3997,7 +4448,7 @@ function GraphicCard({ bloque, index, isSelected, onSelect, onDelete, onUpdate }
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">Leyenda</Badge>
             )}
             {bloque.mostrarGrid && (
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">Grid</Badge>
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">Cuadrícula</Badge>
             )}
             {bloque.camposCalculados && bloque.camposCalculados.length > 0 && (
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
