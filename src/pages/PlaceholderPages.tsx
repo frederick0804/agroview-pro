@@ -20,7 +20,7 @@ import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { parseValores, type TipoDato, type ModDato, type ModParam, type ModDef, type Cultivo } from "@/config/moduleDefinitions";
 import { IaAnalysisPanel } from "@/components/dashboard/IaAnalysisPanel";
-import { getDataEntryMode, type DataEntryMode } from "@/lib/dataEntryMode";
+import { getDataEntryMode, DATA_ENTRY_MODE_EVENT, type DataEntryMode } from "@/lib/dataEntryMode";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -248,6 +248,28 @@ function DynamicDefTable({
   const canEdit   = hasPermission(moduloKey, "editar");
   const canDelete = hasPermission(moduloKey, "eliminar");
 
+  // ── Form modal state (must be before any early return — rules of hooks) ──────
+  const buildEmptyFormValues = () => {
+    const next: Record<string, string> = {};
+    params.forEach(p => { next[p.nombre] = ""; });
+    return next;
+  };
+
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [formFecha, setFormFecha] = useState(() => new Date().toISOString().slice(0, 10));
+  const [formValues, setFormValues] = useState<Record<string, string>>(() => buildEmptyFormValues());
+  const [formError, setFormError] = useState<string | null>(null);
+  const [editingDatoId, setEditingDatoId] = useState<string | null>(null);
+
+  const paramsSignature = params.map(p => p.id).join("|");
+
+  useEffect(() => {
+    setFormFecha(new Date().toISOString().slice(0, 10));
+    setFormValues(buildEmptyFormValues());
+    setFormError(null);
+    setEditingDatoId(null);
+  }, [defId, paramsSignature]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!def) return null;
 
   // Definiciones de eventos relacionadas a esta definición (registro padre)
@@ -402,27 +424,6 @@ function DynamicDefTable({
   const handleAdd = canAddRecord
     ? () => { addDato(defId, !def.cultivo_id ? filterCultivoId : undefined); }
     : undefined;
-
-  const buildEmptyFormValues = () => {
-    const next: Record<string, string> = {};
-    params.forEach(p => { next[p.nombre] = ""; });
-    return next;
-  };
-
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [formFecha, setFormFecha] = useState(() => new Date().toISOString().slice(0, 10));
-  const [formValues, setFormValues] = useState<Record<string, string>>(() => buildEmptyFormValues());
-  const [formError, setFormError] = useState<string | null>(null);
-  const [editingDatoId, setEditingDatoId] = useState<string | null>(null);
-
-  const paramsSignature = params.map(p => p.id).join("|");
-
-  useEffect(() => {
-    setFormFecha(new Date().toISOString().slice(0, 10));
-    setFormValues(buildEmptyFormValues());
-    setFormError(null);
-    setEditingDatoId(null);
-  }, [defId, paramsSignature]);
 
   const handleFieldChange = (field: string, value: string) => {
     setHasPendingChanges(true);
@@ -1367,6 +1368,12 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
 
   useEffect(() => {
     setEntryMode(getDataEntryMode(currentUser?.id ?? null));
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    const handler = () => setEntryMode(getDataEntryMode(currentUser?.id ?? null));
+    window.addEventListener(DATA_ENTRY_MODE_EVENT, handler);
+    return () => window.removeEventListener(DATA_ENTRY_MODE_EVENT, handler);
   }, [currentUser?.id]);
 
   // All module keys this page covers (primary + any merged sub-modules)
