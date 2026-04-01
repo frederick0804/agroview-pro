@@ -554,10 +554,10 @@ export const DATOS_DEMO: ModDato[] = [
   { id: "d7",  definicion_id: "4", cultivo_id: "c-01", referencia: "Pedro Soto / entrada",  fecha: "2025-03-06", valores: '{"empleado_id":"12345678","tipo_marca":"entrada","hora":"07:42","ubicacion_gps":"Bloque A-1"}' },
   { id: "d8",  definicion_id: "4", cultivo_id: "c-02", referencia: "Carmen Díaz / entrada", fecha: "2025-03-06", valores: '{"empleado_id":"11222333","tipo_marca":"entrada","hora":"07:45","ubicacion_gps":"Bloque Arándano"}' },
   // def 5 — Laboratorio (global) — etiquetados por cultivo del análisis
-  { id: "d9",  definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0112", fecha: "2025-01-28", valores: '{"muestra":"LAB-0112","tipo_prueba":"Brix","resultado":"12.5","unidad":"°Brix","estado":"Completado"}' },
-  { id: "d10", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0113", fecha: "2025-01-28", valores: '{"muestra":"LAB-0113","tipo_prueba":"pH Suelo","resultado":"6.2","unidad":"pH","estado":"Completado"}' },
-  { id: "d11", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0114", fecha: "2025-01-29", valores: '{"muestra":"LAB-0114","tipo_prueba":"Conductividad","resultado":"1.8","unidad":"dS/m","estado":"Completado"}' },
-  { id: "d12", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0115", fecha: "2025-01-30", valores: '{"muestra":"LAB-0115","tipo_prueba":"Firmeza","resultado":"3.2","unidad":"N","estado":"En proceso"}' },
+  { id: "d9",  definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0112", fecha: "2025-01-28", valores: '{"muestra":"LAB-0112","tipo_prueba":"Brix","cultivo":"Fresas","resultado":"12.5","unidad":"°Brix","estado":"Completado"}' },
+  { id: "d10", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0113", fecha: "2025-01-28", valores: '{"muestra":"LAB-0113","tipo_prueba":"pH Suelo","cultivo":"Fresas","resultado":"6.2","unidad":"pH","estado":"Completado"}' },
+  { id: "d11", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0114", fecha: "2025-01-29", valores: '{"muestra":"LAB-0114","tipo_prueba":"Conductividad","cultivo":"Arándanos","resultado":"1.8","unidad":"dS/m","estado":"Completado"}' },
+  { id: "d12", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0115", fecha: "2025-01-30", valores: '{"muestra":"LAB-0115","tipo_prueba":"Firmeza","cultivo":"Arándanos","resultado":"3.2","unidad":"N","estado":"En proceso"}' },
   // def 6 — Calibres Fresa (específico c-01)
   { id: "d13", definicion_id: "6", referencia: "Premium",  fecha: "2025-01-10", valores: '{"nombre":"Premium","mm_minimo":28,"mm_maximo":32,"peso_g_minimo":18}' },
   { id: "d14", definicion_id: "6", referencia: "Selecta",  fecha: "2025-01-10", valores: '{"nombre":"Selecta","mm_minimo":24,"mm_maximo":28,"peso_g_minimo":14}' },

@@ -5,6 +5,7 @@ import { MainLayout }  from "@/components/layout/MainLayout";
 import { PageHeader }  from "@/components/layout/PageHeader";
 import { EditableTable, Column } from "@/components/tables/EditableTable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input }   from "@/components/ui/input";
 import { Label }   from "@/components/ui/label";
 import { Button }  from "@/components/ui/button";
@@ -27,7 +28,7 @@ import {
   Trash2, Info, CheckCircle2, Check, Clock, Archive, Leaf, Search, Copy, History,
   ChevronDown, RotateCcw, Power, XCircle, LayoutList, ArrowLeftRight, Lock, CheckSquare, Square, ListFilter, Zap,
   Ruler, Scale, Network, ChevronRight, ArrowUp, ArrowDown, Map as MapIcon, MoreHorizontal, Tag,
-  Hash, ToggleLeft, Image as ImageIcon, Link2, UserX, UserCheck,
+  Hash, ToggleLeft, Image as ImageIcon, Link2, UserX, UserCheck, SlidersHorizontal,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { useTheme, DEFAULT_THEME } from "@/contexts/ThemeContext";
@@ -673,7 +674,7 @@ function LibParamForm({
 // Hub central: tarjetas de formularios con campos inline, biblioteca en Sheet,
 // gestión de versiones y configuración avanzada de campos.
 
-function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) => void }) {
+function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?: (v: boolean) => void; highlightDefId?: string }) {
   const {
     definiciones, allDefiniciones, parametros, datos, cultivos, allCultivos, parametrosLib,
     addDef, addEvento, updDef, delDef, dupDef, copyDefToClient,
@@ -732,6 +733,38 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
   const [showCopyDialog,        setShowCopyDialog]        = useState(false);
   const [copySourceClienteId,   setCopySourceClienteId]   = useState<number | null>(null);
   const [copySelectedDefs,      setCopySelectedDefs]      = useState<Set<string>>(new Set());
+
+  // ── Highlight: formulario resaltado al llegar desde "Editar campos" ─────────
+  const [highlightedRootId, setHighlightedRootId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightRowRef   = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!highlightDefId || allDefiniciones.length === 0) return;
+    // Resolve rootId from defId
+    const def = allDefiniciones.find(d => d.id === highlightDefId);
+    if (!def) return;
+    const rootId = def.origen_id ?? def.id;
+    // Auto-expand in both view modes
+    setExpandedCampos(prev => new Set(prev).add(rootId));
+    setListExpandedRows(prev => new Set(prev).add(rootId));
+    setHighlightedRootId(rootId);
+    // Clear highlight after 4 s
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => setHighlightedRootId(null), 4000);
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  // Only run once on mount / when allDefiniciones first loads
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightDefId, allDefiniciones.length > 0]);
+
+  // Scroll to highlighted row once it appears in DOM
+  useEffect(() => {
+    if (!highlightedRootId || !highlightRowRef.current) return;
+    const el = highlightRowRef.current;
+    setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "center" }), 120);
+  }, [highlightedRootId]);
 
   // Reset productor cuando cambia el cliente
   useEffect(() => {
@@ -1134,20 +1167,41 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               <Layers className="w-3.5 h-3.5" />
             </button>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setShowBiblioteca(true)}>
-            <BookOpen className="w-4 h-4 mr-1.5" />
-            Biblioteca
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" onClick={() => setShowBiblioteca(true)}>
+                <BookOpen className="w-4 h-4 mr-1.5" />
+                Biblioteca
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Biblioteca de parametros reutilizables para tus formularios.
+            </TooltipContent>
+          </Tooltip>
           {isSuperAdmin && selectedClienteFilter !== null && (
-            <Button variant="outline" size="sm" onClick={() => setShowCopyDialog(true)}>
-              <Copy className="w-4 h-4 mr-1.5" />
-              Copiar desde empresa
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" onClick={() => setShowCopyDialog(true)}>
+                  <Copy className="w-4 h-4 mr-1.5" />
+                  Copiar desde empresa
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Duplica formularios existentes desde otra empresa a la seleccionada.
+              </TooltipContent>
+            </Tooltip>
           )}
-          <Button size="sm" onClick={() => openNewDefModal()}>
-            <Plus className="w-4 h-4 mr-1.5" />
-            Nueva definición
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="sm" onClick={() => openNewDefModal()}>
+                <Plus className="w-4 h-4 mr-1.5" />
+                Nueva definición
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Crea un nuevo formulario y define sus campos.
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -1319,18 +1373,51 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
             const isListRow  = viewMode === "list";
             const isExpanded = isListRow ? listExpandedRows.has(rootId) : true;
 
+            const isHighlighted = highlightedRootId === rootId;
             return (
-              <div key={rootId} className={cn(
-                "flex flex-col",
-                isListRow
-                  ? cn(
-                      "bg-card transition-all duration-200",
-                      isExpanded
-                        ? "shadow-sm border border-border/60 rounded-lg mb-2" // Contenedor expandido con bordes redondeados y sombra
-                        : "hover:bg-muted/10 border-b border-border/20" // Fila compacta con hover sutil
-                    )
-                  : "bg-card border border-border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow",
-              )}>
+              <div
+                key={rootId}
+                ref={isHighlighted ? highlightRowRef : undefined}
+                className={cn(
+                  "flex flex-col transition-all duration-300",
+                  isListRow
+                    ? cn(
+                        "bg-card transition-all duration-200",
+                        isExpanded
+                          ? "shadow-sm border rounded-lg mb-2"
+                          : "hover:bg-muted/10 border-b border-border/20",
+                        isHighlighted && isExpanded
+                          ? "border-primary/50 shadow-[0_0_0_2px_hsl(var(--primary)/0.25),0_4px_16px_hsl(var(--primary)/0.30)]"
+                          : isExpanded
+                            ? "border-border/60"
+                            : "",
+                      )
+                    : cn(
+                        "bg-card border rounded-xl overflow-hidden shadow-sm hover:shadow-md",
+                        isHighlighted
+                          ? "border-primary/50 shadow-[0_0_0_2px_hsl(var(--primary)/0.25),0_4px_20px_hsl(var(--primary)/0.30)]"
+                          : "border-border",
+                      ),
+                )}
+              >
+
+                {/* -- Highlight banner (formulario seleccionado desde "Editar campos") -- */}
+                {isHighlighted && (
+                  <div className={cn(
+                    "flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-t-lg",
+                    "bg-primary/10 text-primary border-b border-primary/20",
+                    "animate-in slide-in-from-top-1 duration-300",
+                  )}>
+                    <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+                    Editando campos de este formulario
+                    <button
+                      onClick={() => setHighlightedRootId(null)}
+                      className="ml-auto text-primary/60 hover:text-primary transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
 
                 {/* -- Compact list row (solo en modo lista) --------------- */}
                 {isListRow && (
@@ -1338,8 +1425,8 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                     className={cn(
                       "flex items-center gap-2 px-4 py-2.5 cursor-pointer group/row select-none transition-colors",
                       isExpanded
-                        ? "bg-primary/5 border-b border-primary/20 rounded-t-lg" // Header expandido con fondo especial
-                        : "hover:bg-muted/30" // Hover normal para items colapsados
+                        ? cn("border-b", isHighlighted ? "bg-primary/5 border-primary/20 rounded-t-lg" : "bg-primary/5 border-primary/20 rounded-t-lg")
+                        : "hover:bg-muted/30",
                     )}
                     onClick={() => toggleListRow(rootId)}
                   >
@@ -1986,10 +2073,17 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                   {activeParametrosCount} parámetro{activeParametrosCount !== 1 ? "s" : ""} activo{activeParametrosCount !== 1 ? "s" : ""} en Biblioteca.
                 </p>
               </div>
-              <Button type="button" size="sm" variant="outline" onClick={openBibliotecaFlow}>
-                <BookOpen className="w-3.5 h-3.5 mr-1" />
-                Biblioteca
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" size="sm" variant="outline" onClick={openBibliotecaFlow}>
+                    <BookOpen className="w-3.5 h-3.5 mr-1" />
+                    Biblioteca
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Abre la biblioteca de parametros base para agregar campos al formulario.
+                </TooltipContent>
+              </Tooltip>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
@@ -2052,22 +2146,36 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                   const isDone = newDefStepIndex > step.id;
                   return (
                     <div key={step.id} className="flex items-center gap-1.5">
-                      <span
-                        className={cn(
-                          "inline-flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-semibold",
-                          isActive || isDone
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-background text-muted-foreground border-border",
-                        )}
-                      >
-                        {step.id}
-                      </span>
-                      <span className={cn(
-                        "truncate",
-                        isActive || isDone ? "text-primary font-medium" : "text-muted-foreground",
-                      )}>
-                        {step.label}
-                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-[11px]"
+                            onClick={() => openEventosSheetFlow({ defId: latest.id, rootId, modulo: latest.modulo, nombre: latest.nombre }, "list")}
+                          >
+                            Gestionar
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Ver y editar todos los eventos asociados a este formulario.
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="sm"
+                            className="h-7 text-[11px] bg-amber-500 hover:bg-amber-600 text-white"
+                            onClick={() => openEventosSheetFlow({ defId: latest.id, rootId, modulo: latest.modulo, nombre: latest.nombre }, "new")}
+                          >
+                            <Plus className="w-3 h-3 mr-1" />
+                            Nuevo evento
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Crea un formulario hijo de tipo evento para este registro.
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                   );
                 })}
@@ -8202,7 +8310,10 @@ function TabUsuarios() {
 const Configuracion = () => {
   const [searchParams] = useSearchParams();
   const validTabs      = ["cultivos", "formularios", "usuarios"];
-  const initialTab     = validTabs.includes(searchParams.get("tab") ?? "") ? (searchParams.get("tab") ?? "cultivos") : "cultivos";
+  // "campos" is an alias for "formularios" used by the "Editar campos del formulario" button
+  const rawTab         = searchParams.get("tab") ?? "";
+  const initialTab     = rawTab === "campos" ? "formularios" : validTabs.includes(rawTab) ? rawTab : "cultivos";
+  const highlightDefId = searchParams.get("def") ?? undefined;
 
   const [activeTab, setActiveTab] = useState(initialTab);
   const { hasPendingChanges: hasPending, setHasPendingChanges: setHasPending } = useConfig();
@@ -8331,7 +8442,7 @@ const Configuracion = () => {
           <TabCultivos />
         </TabsContent>
         <TabsContent value="formularios">
-          <TabFormularios onPendingChange={setHasPending} />
+          <TabFormularios onPendingChange={setHasPending} highlightDefId={highlightDefId} />
         </TabsContent>
         <TabsContent value="empresas">
           <TabEmpresas />

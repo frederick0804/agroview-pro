@@ -2087,6 +2087,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
   } | null>(null);
   const suppressBlockOpenRef = useRef(false);
   const resizeMovedRef = useRef(false);
+  const [encDragIdx, setEncDragIdx] = useState<number | null>(null);
+  const [encDropIdx, setEncDropIdx] = useState<number | null>(null);
 
   const defaultConfig: BuilderConfig = {
     id: informe?.id,
@@ -2344,6 +2346,17 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
           },
         },
       };
+    });
+  }, []);
+
+  const reorderCamposEncabezado = useCallback((fromIdx: number, toIdx: number) => {
+    if (fromIdx === toIdx) return;
+    setConfig((prev) => {
+      const plantilla = prev.plantilla as PlantillaConfig;
+      const campos = [...plantilla.encabezado.campos];
+      const [moved] = campos.splice(fromIdx, 1);
+      campos.splice(toIdx, 0, moved);
+      return { ...prev, plantilla: { ...plantilla, encabezado: { ...plantilla.encabezado, campos } } };
     });
   }, []);
 
@@ -3419,104 +3432,102 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                           className="h-7 text-xs"
                         />
                       </div>
+                      {/* ── Datos del encabezado — drag & drop ─────── */}
                       <div className="space-y-2 pt-2 border-t border-border/60">
                         <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Datos del encabezado</span>
+                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                            Datos del encabezado
+                          </span>
                           <button
                             onClick={addCampoEncabezado}
                             className="h-6 px-2 rounded border border-border text-[10px] text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors flex items-center gap-1"
-                            title="Agregar dato adicional"
                           >
                             <Plus className="w-3 h-3" /> Agregar
                           </button>
                         </div>
-                        <div className="space-y-2">
-                          {((config.plantilla as PlantillaConfig).encabezado.campos ?? []).map((campo, idx, all) => (
-                            <div key={campo.id} className="rounded border border-border bg-muted/5 p-2 space-y-2">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] text-muted-foreground w-5 text-center">{idx + 1}</span>
-                                <Input
-                                  value={campo.label}
-                                  onChange={(e) => updateCampoEncabezado(campo.id, { label: e.target.value })}
-                                  className="h-7 text-xs"
-                                  placeholder="Nombre del campo"
-                                />
-                                <button
-                                  onClick={() => moveCampoEncabezado(campo.id, "up")}
-                                  disabled={idx === 0}
-                                  className="w-7 h-7 rounded border border-border text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-30"
-                                  title="Subir campo"
-                                >
-                                  <MoveUp className="w-3 h-3 mx-auto" />
-                                </button>
-                                <button
-                                  onClick={() => moveCampoEncabezado(campo.id, "down")}
-                                  disabled={idx === all.length - 1}
-                                  className="w-7 h-7 rounded border border-border text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-30"
-                                  title="Bajar campo"
-                                >
-                                  <MoveDown className="w-3 h-3 mx-auto" />
-                                </button>
-                                {campo.fuente === "custom" && (
+                        <p className="text-[9px] text-muted-foreground/60 flex items-center gap-1">
+                          <GripVertical className="w-3 h-3" /> Arrastra para reordenar · los cambios se reflejan en tiempo real
+                        </p>
+                        <div className="space-y-1">
+                          {((config.plantilla as PlantillaConfig).encabezado.campos ?? []).map((campo, idx) => {
+                            const isDragging  = encDragIdx === idx;
+                            const isDropTarget = encDropIdx === idx && encDragIdx !== null && encDragIdx !== idx;
+                            return (
+                              <div
+                                key={campo.id}
+                                draggable
+                                onDragStart={(e) => {
+                                  e.dataTransfer.effectAllowed = "move";
+                                  setEncDragIdx(idx);
+                                }}
+                                onDragOver={(e) => {
+                                  e.preventDefault();
+                                  e.dataTransfer.dropEffect = "move";
+                                  setEncDropIdx(idx);
+                                }}
+                                onDrop={(e) => {
+                                  e.preventDefault();
+                                  if (encDragIdx !== null) reorderCamposEncabezado(encDragIdx, idx);
+                                  setEncDragIdx(null);
+                                  setEncDropIdx(null);
+                                }}
+                                onDragEnd={() => { setEncDragIdx(null); setEncDropIdx(null); }}
+                                className={cn(
+                                  "rounded-lg border bg-card transition-all select-none",
+                                  isDragging   ? "opacity-40 border-dashed border-primary/40" : "border-border",
+                                  isDropTarget ? "border-primary shadow-sm shadow-primary/20 translate-y-[-1px]" : "",
+                                )}
+                              >
+                                {/* ── Header row ── */}
+                                <div className="flex items-center gap-1.5 px-2 py-1.5">
+                                  <GripVertical className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0 cursor-grab active:cursor-grabbing" />
+                                  {/* Editable label */}
+                                  <input
+                                    value={campo.label}
+                                    onChange={(e) => updateCampoEncabezado(campo.id, { label: e.target.value })}
+                                    className="flex-1 min-w-0 text-xs bg-transparent border-0 outline-none focus:bg-muted/30 focus:ring-0 rounded px-1 py-0.5 text-foreground placeholder:text-muted-foreground/50"
+                                    placeholder="Nombre del campo"
+                                  />
+                                  {/* Source badge — click to cycle source */}
+                                  <button
+                                    title="Clic para cambiar fuente de datos"
+                                    onClick={() => {
+                                      const opts: FuenteCampo[] = ["finca","cultivo","variedad","ubicacion","superficie","productor","custom"];
+                                      const next = opts[(opts.indexOf(campo.fuente) + 1) % opts.length];
+                                      updateCampoEncabezado(campo.id, { fuente: next, auto: next !== "custom" });
+                                    }}
+                                    className="shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full border transition-colors hover:border-primary/50 hover:text-primary"
+                                    style={{
+                                      background: campo.fuente === "custom" ? "rgb(var(--muted)/0.4)" : "rgb(var(--primary)/0.07)",
+                                      borderColor: campo.fuente === "custom" ? "rgb(var(--border))" : "rgb(var(--primary)/0.25)",
+                                      color: campo.fuente === "custom" ? "rgb(var(--muted-foreground))" : "rgb(var(--primary))",
+                                    }}
+                                  >
+                                    {FUENTE_CAMPO_LABEL[campo.fuente]}
+                                  </button>
+                                  {/* Delete — always visible, but for system fields shows a hide toggle */}
                                   <button
                                     onClick={() => removeCampoEncabezado(campo.id)}
-                                    className="w-7 h-7 rounded border border-border text-muted-foreground hover:border-destructive/40 hover:text-destructive"
-                                    title="Eliminar dato adicional"
+                                    title={campo.fuente === "custom" ? "Eliminar campo" : "Quitar del encabezado"}
+                                    className="w-5 h-5 shrink-0 flex items-center justify-center rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors"
                                   >
-                                    <Trash2 className="w-3 h-3 mx-auto" />
+                                    <X className="w-3 h-3" />
                                   </button>
-                                )}
-                              </div>
-                              <div className="grid grid-cols-1 gap-2">
-                                <div className="space-y-1">
-                                  <span className="text-[10px] text-muted-foreground">Fuente de datos</span>
-                                  <div className="flex flex-wrap gap-1">
-                                    {(["finca", "cultivo", "variedad", "ubicacion", "superficie", "productor", "custom"] as FuenteCampo[]).map((opt) => (
-                                      <button
-                                        key={opt}
-                                        onClick={() => updateCampoEncabezado(campo.id, {
-                                          fuente: opt,
-                                          auto: opt === "custom" ? false : campo.auto,
-                                        })}
-                                        className={cn(
-                                          "h-6 px-2 rounded border text-[10px] transition-colors",
-                                          campo.fuente === opt
-                                            ? "border-primary bg-primary/10 text-primary"
-                                            : "border-border text-muted-foreground hover:border-primary/30",
-                                        )}
-                                      >
-                                        {FUENTE_CAMPO_LABEL[opt]}
-                                      </button>
-                                    ))}
-                                  </div>
                                 </div>
-                                <div className="space-y-1">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[10px] text-muted-foreground">Tomar valor automático</span>
-                                    <Switch
-                                      checked={campo.fuente === "custom" ? false : campo.auto}
-                                      onCheckedChange={(v) => updateCampoEncabezado(campo.id, { auto: v })}
-                                      disabled={campo.fuente === "custom"}
-                                      className="scale-75"
-                                    />
-                                  </div>
-                                  {campo.fuente !== "custom" && campo.auto && (
-                                    <p className="text-[10px] text-primary/80">
-                                      Fuente actual: {FUENTE_CAMPO_LABEL[campo.fuente]}
-                                    </p>
-                                  )}
-                                  {(!campo.auto || campo.fuente === "custom") && (
-                                    <Input
+                                {/* ── Manual value row (only when not auto) ── */}
+                                {(!campo.auto || campo.fuente === "custom") && (
+                                  <div className="px-2 pb-1.5">
+                                    <input
                                       value={campo.valor}
                                       onChange={(e) => updateCampoEncabezado(campo.id, { valor: e.target.value })}
-                                      className="h-7 text-xs"
-                                      placeholder="Valor manual para mostrar"
+                                      className="w-full text-[11px] bg-muted/30 border border-border/60 rounded px-2 py-1 outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
+                                      placeholder="Valor fijo para mostrar…"
                                     />
-                                  )}
-                                </div>
+                                  </div>
+                                )}
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
@@ -4104,9 +4115,23 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                   {enc.mostrarFecha && <p className="text-muted-foreground text-sm shrink-0">{today}</p>}
                                 </div>
                                 {campos.length > 0 && (
-                                  <div className="flex flex-wrap gap-x-4 mt-2 text-sm">
-                                    {campos.slice(0, 6).map((c) => (
-                                      <span key={c.id} className="text-muted-foreground">
+                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-2 text-sm">
+                                    {campos.map((c, ci) => (
+                                      <span
+                                        key={c.id}
+                                        draggable
+                                        onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; setEncDragIdx(ci); }}
+                                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setEncDropIdx(ci); }}
+                                        onDrop={(e) => { e.preventDefault(); if (encDragIdx !== null) reorderCamposEncabezado(encDragIdx, ci); setEncDragIdx(null); setEncDropIdx(null); }}
+                                        onDragEnd={() => { setEncDragIdx(null); setEncDropIdx(null); }}
+                                        title="Arrastra para reordenar"
+                                        className={cn(
+                                          "text-muted-foreground cursor-grab active:cursor-grabbing select-none transition-all rounded px-0.5",
+                                          encDragIdx === ci  ? "opacity-40" : "",
+                                          encDropIdx === ci && encDragIdx !== null && encDragIdx !== ci
+                                            ? "ring-1 ring-primary/60 bg-primary/5" : "",
+                                        )}
+                                      >
                                         <span className="font-medium text-foreground">{c.label}:</span>{" "}
                                         {getCampoEncabezadoPreviewValue(c) || <span className="italic opacity-40">—</span>}
                                       </span>

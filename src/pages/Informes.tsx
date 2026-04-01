@@ -1572,13 +1572,24 @@ function DetailPanel({
 
   // ── Lógica de filtrado jerárquico contextual por roles ────────────────────
 
+  // Cliente efectivo para filtros/exportación: cliente_admin siempre queda fijado a su empresa.
+  const clienteSeleccionadoEfectivo = useMemo(() => {
+    if (currentUser?.role === "cliente_admin" && currentUser.clienteId !== undefined) {
+      return String(currentUser.clienteId);
+    }
+    return clienteSeleccionado;
+  }, [currentUser, clienteSeleccionado]);
+
   // Auto-configurar filtros según el rol del usuario
   useEffect(() => {
     if (!currentUser) return;
 
-    // Para cliente_admin: auto-seleccionar su cliente
-    if (currentUser.role === "cliente_admin" && clienteSeleccionado === "todos") {
-      setClienteSeleccionado(String(currentUser.clienteId));
+    // Para cliente_admin: fijar SIEMPRE su cliente (hard lock, evita override manual)
+    if (currentUser.role === "cliente_admin") {
+      const ownClienteId = String(currentUser.clienteId);
+      if (clienteSeleccionado !== ownClienteId) {
+        setClienteSeleccionado(ownClienteId);
+      }
     }
 
     // Para productor: auto-seleccionar su cliente y productor
@@ -1592,10 +1603,13 @@ function DetailPanel({
     }
   }, [currentUser, clienteSeleccionado, productorSeleccionado]);
 
+  const getProductorClienteId = (p: any): number | undefined => p?.clienteId ?? p?.cliente_id;
+
   const productoresFiltrados = useMemo(() => {
-    if (clienteSeleccionado === "todos") return productores;
-    return productores.filter(p => p.cliente_id === parseInt(clienteSeleccionado));
-  }, [clienteSeleccionado, productores]);
+    if (clienteSeleccionadoEfectivo === "todos") return productores;
+    const clienteId = parseInt(clienteSeleccionadoEfectivo, 10);
+    return productores.filter(p => getProductorClienteId(p) === clienteId);
+  }, [clienteSeleccionadoEfectivo, productores]);
 
   // Productores disponibles según el rol
   const productoresDisponibles = useMemo(() => {
@@ -1608,7 +1622,7 @@ function DetailPanel({
 
     // Cliente admin ve solo productores de su empresa
     if (currentUser.role === "cliente_admin") {
-      return productores.filter(p => p.cliente_id === currentUser.clienteId);
+      return productores.filter(p => getProductorClienteId(p) === currentUser.clienteId);
     }
 
     // Productor no ve selector de productores (solo el suyo)
@@ -1644,11 +1658,11 @@ function DetailPanel({
 
   // Resetear productor si cambia cliente
   useEffect(() => {
-    if (clienteSeleccionado !== "todos") {
+    if (clienteSeleccionadoEfectivo !== "todos") {
       const productoExists = productoresDisponibles.some(p => p.id === productorSeleccionado);
       if (!productoExists) setProductorSeleccionado("todos");
     }
-  }, [clienteSeleccionado, productoresDisponibles, productorSeleccionado]);
+  }, [clienteSeleccionadoEfectivo, productoresDisponibles, productorSeleccionado]);
 
   // Definiciones relacionadas con la categoría del informe
   const definicionesDisponibles = useMemo(() => {
@@ -1720,7 +1734,7 @@ function DetailPanel({
       formato,
       periodo,
       organizacion: {
-        clienteId: clienteSeleccionado !== "todos" ? clienteSeleccionado : null,
+        clienteId: clienteSeleccionadoEfectivo !== "todos" ? clienteSeleccionadoEfectivo : null,
         productorId: productorSeleccionado !== "todos" ? productorSeleccionado : null,
       },
       cultivoId: cultivoSeleccionado !== "todos" ? cultivoSeleccionado : null,
@@ -1765,7 +1779,7 @@ function DetailPanel({
       filtrosAutomaticos = {
         periodo,
         organizacion: {
-          clienteId: clienteSeleccionado !== "todos" ? clienteSeleccionado : null,
+          clienteId: clienteSeleccionadoEfectivo !== "todos" ? clienteSeleccionadoEfectivo : null,
           productorId: productorSeleccionado !== "todos" ? productorSeleccionado : null,
         },
         cultivoId: cultivoSeleccionado !== "todos" ? cultivoSeleccionado : null,
