@@ -199,6 +199,41 @@ const TEMPLATE_DEFINITIONS = {
 
 type TemplateId = keyof typeof TEMPLATE_DEFINITIONS;
 
+type DesignSectionId =
+  | "paleta"
+  | "logo"
+  | "encabezado"
+  | "contenido"
+  | "disposicion"
+  | "formato"
+  | "margenes"
+  | "tablas"
+  | "graficos";
+
+const DESIGN_SECTION_ORDER: DesignSectionId[] = [
+  "paleta",
+  "logo",
+  "encabezado",
+  "contenido",
+  "disposicion",
+  "formato",
+  "margenes",
+  "tablas",
+  "graficos",
+];
+
+const DESIGN_SECTION_LABELS: Record<DesignSectionId, string> = {
+  paleta: "Paleta de colores",
+  logo: "Logo e imágenes",
+  encabezado: "Encabezado",
+  contenido: "Contenido del informe",
+  disposicion: "Disposición en página",
+  formato: "Formato de página",
+  margenes: "Márgenes",
+  tablas: "Estilo global de tablas",
+  graficos: "Estilo global de gráficos",
+};
+
 // --------- Tipos ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 export type TipoGrafico =
@@ -215,6 +250,14 @@ interface CampoInfo {
   label: string;
   tipo: "dimension" | "metrica";
   unidad?: string;
+  modulo?: string;
+  fuenteId?: string;
+  fuenteLabel?: string;
+  origenes?: Array<{
+    modulo: string;
+    fuenteId: string;
+    fuenteLabel: string;
+  }>;
 }
 
 interface FuenteInfo {
@@ -238,16 +281,15 @@ interface CampoCalculado {
   unidad?: string;
 }
 
-export type FuenteCampo =
-  | "finca" | "cultivo" | "variedad" | "ubicacion"
-  | "superficie" | "productor" | "custom";
+// productor/periodo/semana → valor automático del sistema; custom → valor manual fijo
+export type FuenteCampo = "productor" | "periodo" | "semana" | "custom";
 
 export interface CampoEncabezado {
   id: string;
-  label: string;       // nombre del campo (editable)
-  fuente: FuenteCampo; // dato del sistema o custom
-  auto: boolean;       // true = sistema, false = valor manual
-  valor: string;       // valor manual si auto=false
+  label: string;          // nombre editable del campo
+  fuente: FuenteCampo;    // fuente del dato
+  valor: string;          // valor manual (solo cuando fuente === "custom")
+  zona: "datos" | "meta"; // "datos" = franja inferior; "meta" = tabla lateral derecha
 }
 
 export interface PlantillaConfig {
@@ -335,6 +377,7 @@ export interface GraficoBloque {
   fuentesSeleccionadas: string[];
   dimension: string;
   metricas: string[];
+
   agregaciones?: Record<string, AgregacionTipo>;
   tipoGrafico: TipoGrafico;
   apilado: boolean;
@@ -698,21 +741,23 @@ const BLOCK_HEIGHT_MAX: Record<ReporteBloque["tipo"], number> = {
 };
 
 const FUENTE_CAMPO_LABEL: Record<FuenteCampo, string> = {
-  finca: "Finca",
-  cultivo: "Cultivo",
-  variedad: "Variedad",
-  ubicacion: "Ubicación",
-  superficie: "Superficie",
   productor: "Productor",
-  custom: "Manual",
+  periodo:   "Período",
+  semana:    "Semana",
+  custom:    "Manual",
+};
+
+// Demo values shown in the page preview
+const FUENTE_DEMO_VALUE: Record<FuenteCampo, string> = {
+  productor: "Aaazuli",
+  periodo:   "2026-03-09 al 2026-03-15",
+  semana:    "2611",
+  custom:    "",
 };
 
 function getCampoEncabezadoPreviewValue(campo: CampoEncabezado): string | null {
-  if (campo.auto && campo.fuente !== "custom") {
-    return `Auto: ${FUENTE_CAMPO_LABEL[campo.fuente]}`;
-  }
-  const manual = campo.valor?.trim();
-  return manual ? manual : null;
+  if (campo.fuente !== "custom") return FUENTE_DEMO_VALUE[campo.fuente];
+  return campo.valor?.trim() || null;
 }
 
 function clampBlockHeight(tipo: ReporteBloque["tipo"], value: number): number {
@@ -764,13 +809,32 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+function aggregateMetricValues(values: number[], mode: AgregacionTipo): number {
+  if (values.length === 0) return 0;
+  if (mode === "promedio") {
+    const avg = values.reduce((acc, v) => acc + v, 0) / values.length;
+    return Number(avg.toFixed(2));
+  }
+  if (mode === "mediana") {
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 === 0) {
+      return Number(((sorted[mid - 1] + sorted[mid]) / 2).toFixed(2));
+    }
+    return Number(sorted[mid].toFixed(2));
+  }
+  return Number(values.reduce((acc, v) => acc + v, 0).toFixed(2));
+}
+
 const DIM_VALUES: Record<string, string[]> = {
   semana:     ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"],
   mes:        ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago"],
   fecha:      ["01/03", "05/03", "10/03", "15/03", "20/03", "25/03", "30/03"],
   fecha_ingreso: ["01/03", "05/03", "10/03", "15/03", "20/03", "25/03", "30/03"],
   semanas:    ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"],
+  bloque:     ["A1", "A2", "B1", "B2", "C1", "C2"],
   variedad:   ["Biloxi", "O'Neal", "Festival", "Camarosa", "Emerald"],
+  calibre:    ["Super Jumbo", "Jumbo", "Extra", "Mini", "Fruta Roja", "Descarte", "Desecho"],
   operario:   ["J. Pérez", "M. López", "R. Silva", "P. Torres", "C. Gómez"],
   sector:     ["Sector A", "Sector B", "Sector C", "Sector D"],
   camara:     ["Cámara 1", "Cámara 2", "Cámara 3", "Cámara 4"],
@@ -1228,9 +1292,19 @@ function GraficoBloqueView({ bloque, colors, estiloPlantilla }: { bloque: Grafic
   );
 }
 
-function TablaBloqueView({ bloque, colors, estiloPlantilla }: { bloque: TablaBloque; colors: string[]; estiloPlantilla?: PlantillaConfig["estiloTablas"] }) {
+function TablaBloqueView({
+  bloque,
+  colors,
+  estiloPlantilla,
+  onReorderColumns,
+}: {
+  bloque: TablaBloque;
+  colors: string[];
+  estiloPlantilla?: PlantillaConfig["estiloTablas"];
+  onReorderColumns?: (orderedColumnIds: string[]) => void;
+}) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes), []);
-  const groupByKeys = bloque.groupBy ?? [];
+  const groupByKeys = useMemo(() => bloque.groupBy ?? [], [bloque.groupBy]);
 
   const camposDisponibles = useMemo((): CampoInfo[] => {
     const selected = allFuentes.filter((f) => bloque.fuentesSeleccionadas.includes(f.id));
@@ -1253,13 +1327,29 @@ function TablaBloqueView({ bloque, colors, estiloPlantilla }: { bloque: TablaBlo
     } else {
       base = camposDisponibles.slice(0, 5).map((c) => c.id);
     }
-    // Pin all groupBy keys as first columns
+    // Ensure group keys are included, but keep manual order when already present.
     if (groupByKeys.length > 0) {
-      const validKeys = groupByKeys.filter(id => camposDisponibles.some(c => c.id === id));
-      base = [...validKeys, ...base.filter((id) => !groupByKeys.includes(id))];
+      const missingGroupKeys = groupByKeys.filter(
+        (id) => camposDisponibles.some((c) => c.id === id) && !base.includes(id),
+      );
+      base = [...missingGroupKeys, ...base];
     }
     return base;
   }, [bloque.columnas, groupByKeys, camposDisponibles]);
+
+  const [dragColId, setDragColId] = useState<string | null>(null);
+  const [dropColId, setDropColId] = useState<string | null>(null);
+
+  const handleDropReorderColumn = useCallback((targetId: string) => {
+    if (!onReorderColumns || !dragColId || dragColId === targetId) return;
+    const from = cols.indexOf(dragColId);
+    const to = cols.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    const next = [...cols];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onReorderColumns(next);
+  }, [onReorderColumns, dragColId, cols]);
 
   // Map each column to its parent module name (for the color band header)
   const colModuleKey = useMemo((): Record<string, string> => {
@@ -1316,45 +1406,218 @@ function TablaBloqueView({ bloque, colors, estiloPlantilla }: { bloque: TablaBlo
     return moduleSet.size > 1;
   }, [cols, colModuleKey, groupByKeys, camposDisponibles]);
 
-  const mockRows = useMemo(() => {
-    if (cols.length === 0) return [];
-    const dimForRows = groupByKeys[0] || cols.find(id => camposDisponibles.find(c => c.id === id)?.tipo === "dimension") || "semana";
-    const labels = (DIM_VALUES[dimForRows] ?? ["Item 1","Item 2","Item 3","Item 4","Item 5","Item 6"]).slice(0, 6);
-    return labels.map((rowLabel) => {
+  const metricColumnIds = useMemo(
+    () => cols.filter((id) => camposDisponibles.find((c) => c.id === id)?.tipo === "metrica"),
+    [cols, camposDisponibles],
+  );
+
+  const dataRows = useMemo(() => {
+    if (cols.length === 0) return [] as Array<Record<string, string | number>>;
+    const activeGroupKeys = groupByKeys.filter((id) => cols.includes(id));
+
+    // Non-grouped table: one dimension axis as before.
+    if (activeGroupKeys.length === 0) {
+      const dimForRows = cols.find(id => camposDisponibles.find(c => c.id === id)?.tipo === "dimension") || "semana";
+      const labels = (DIM_VALUES[dimForRows] ?? ["Item 1", "Item 2", "Item 3", "Item 4", "Item 5", "Item 6"]).slice(0, 6);
+      return labels.map((rowLabel) => {
+        const row: Record<string, string | number> = {};
+        for (const id of cols) {
+          const campo = camposDisponibles.find((c) => c.id === id);
+          if (!campo) continue;
+          if (campo.tipo === "dimension") {
+            if (id === dimForRows) row[id] = rowLabel;
+            else {
+              const opts = DIM_VALUES[id] ?? ["—"];
+              const idx = Math.abs(stableVal(`${rowLabel}-${id}`, 0, Math.max(opts.length, 1))) % Math.max(opts.length, 1);
+              row[id] = opts[idx] ?? "-";
+            }
+          } else {
+            const [lo, hi] = METRIC_RANGES[id] ?? [100, 1000];
+            let val = stableVal(`${rowLabel}-${id}`, lo, hi);
+            if (id === "ph") val = +(val / 10).toFixed(1);
+            else if (id === "conductividad_electrica") val = +(val / 10).toFixed(2);
+            else if (["temp_min", "temp_max", "temp_media"].includes(id)) val = +(val).toFixed(1);
+            row[id] = val;
+          }
+        }
+        return row;
+      });
+    }
+
+    // Grouped table: generate deterministic combinations for hierarchy-like rows.
+    const valuePools = activeGroupKeys.map((id, level) => {
+      const defaults = [
+        `${LABEL_MAP[id] ?? id} 1`,
+        `${LABEL_MAP[id] ?? id} 2`,
+        `${LABEL_MAP[id] ?? id} 3`,
+      ];
+      const opts = (DIM_VALUES[id] ?? defaults).map((v) => String(v));
+      const size = level === 0 ? Math.min(3, opts.length) : Math.min(2, opts.length);
+      return opts.slice(0, Math.max(size, 1));
+    });
+
+    const combinations: Array<Record<string, string>> = [];
+    const walk = (level: number, acc: Record<string, string>) => {
+      if (combinations.length >= 18) return;
+      if (level >= activeGroupKeys.length) {
+        combinations.push(acc);
+        return;
+      }
+      const key = activeGroupKeys[level];
+      for (const value of valuePools[level]) {
+        walk(level + 1, { ...acc, [key]: value });
+        if (combinations.length >= 18) break;
+      }
+    };
+    walk(0, {});
+
+    return combinations.map((combo, idx) => {
       const row: Record<string, string | number> = {};
+      const seedBase = activeGroupKeys.map((k) => combo[k]).join("|");
+
       for (const id of cols) {
         const campo = camposDisponibles.find((c) => c.id === id);
         if (!campo) continue;
         if (campo.tipo === "dimension") {
-          if (id === dimForRows) row[id] = rowLabel;
-          else {
+          if (combo[id]) {
+            row[id] = combo[id];
+          } else {
             const opts = DIM_VALUES[id] ?? ["—"];
-            row[id] = opts[Math.abs(stableVal(rowLabel + id, 0, opts.length)) % opts.length];
+            const idxOpt = Math.abs(stableVal(`${seedBase}-${idx}-${id}`, 0, Math.max(opts.length, 1))) % Math.max(opts.length, 1);
+            row[id] = opts[idxOpt] ?? "-";
           }
         } else {
           const [lo, hi] = METRIC_RANGES[id] ?? [100, 1000];
-          let val = stableVal(`${rowLabel}-${id}`, lo, hi);
-          // Apply aggregation simulation when groupBy is active
-          if (groupByKeys.length > 0) {
-            const agr = (bloque.agregaciones?.[id] ?? "suma") as AgregacionTipo;
-            if (agr === "suma") {
-              const count = 3 + Math.abs(stableVal(`${rowLabel}-count`, 0, 5));
-              val = val * count;
-            } else if (agr === "mediana") {
-              val = Math.round((val + stableVal(`${rowLabel}-${id}-med`, lo, hi)) / 2);
-            }
-            // promedio: keep val as-is (represents average)
+          let val = stableVal(`${seedBase}-${id}`, lo, hi);
+          const agr = (bloque.agregaciones?.[id] ?? "suma") as AgregacionTipo;
+          if (agr === "suma") {
+            const factor = 1 + Math.abs(stableVal(`${seedBase}-${id}-factor`, 1, 4));
+            val = val * factor;
+          } else if (agr === "mediana") {
+            val = Math.round((val + stableVal(`${seedBase}-${id}-med`, lo, hi)) / 2);
           }
           if (id === "ph") val = +(val / 10).toFixed(1);
           else if (id === "conductividad_electrica") val = +(val / 10).toFixed(2);
-          else if (["temp_min","temp_max","temp_media"].includes(id)) val = +(val).toFixed(1);
+          else if (["temp_min", "temp_max", "temp_media"].includes(id)) val = +(val).toFixed(1);
           row[id] = val;
         }
       }
+
       return row;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cols.join(","), groupByKeys.join(","), bloque.agregaciones, camposDisponibles]);
+
+  type DisplayRow = {
+    kind: "data" | "subtotal" | "grand-total";
+    key: string;
+    values: Record<string, string | number>;
+  };
+
+  const displayRows = useMemo((): DisplayRow[] => {
+    const activeGroupKeys = groupByKeys.filter((id) => cols.includes(id));
+    const sortedData = [...dataRows].sort((a, b) => {
+      for (const key of activeGroupKeys) {
+        const av = String(a[key] ?? "");
+        const bv = String(b[key] ?? "");
+        const cmp = av.localeCompare(bv, "es", { numeric: true, sensitivity: "base" });
+        if (cmp !== 0) return cmp;
+      }
+      return 0;
+    });
+
+    const dataOnly: DisplayRow[] = sortedData.map((row, i) => ({
+      kind: "data",
+      key: `row_${i}`,
+      values: row,
+    }));
+
+    if (activeGroupKeys.length <= 1 || metricColumnIds.length === 0) return dataOnly;
+
+    const out: DisplayRow[] = [];
+    const prefixKeys = activeGroupKeys.slice(0, -1);
+    const subtotalLabelKey = activeGroupKeys[activeGroupKeys.length - 1];
+
+    let bucket: Array<Record<string, string | number>> = [];
+    let bucketSig = "";
+
+    const emitSubtotal = () => {
+      if (bucket.length === 0) return;
+      const subtotal: Record<string, string | number> = {};
+      for (const id of cols) {
+        if (metricColumnIds.includes(id)) {
+          const nums = bucket
+            .map((r) => Number(r[id]))
+            .filter((n) => Number.isFinite(n));
+          const agr = (bloque.agregaciones?.[id] ?? "suma") as AgregacionTipo;
+          subtotal[id] = aggregateMetricValues(nums, agr);
+        } else if (prefixKeys.includes(id)) {
+          subtotal[id] = bucket[0][id] ?? "";
+        } else {
+          subtotal[id] = "";
+        }
+      }
+      subtotal[subtotalLabelKey] = "TOTAL";
+      out.push({ kind: "subtotal", key: `subtotal_${bucketSig}_${out.length}`, values: subtotal });
+    };
+
+    sortedData.forEach((row, i) => {
+      const sig = prefixKeys.map((k) => String(row[k] ?? "")).join("||");
+      if (bucket.length > 0 && sig !== bucketSig) {
+        emitSubtotal();
+        bucket = [];
+      }
+      out.push({ kind: "data", key: `row_${i}_${sig}`, values: row });
+      bucket.push(row);
+      bucketSig = sig;
+    });
+    emitSubtotal();
+
+    if (sortedData.length > 1) {
+      const grandTotal: Record<string, string | number> = {};
+      for (const id of cols) {
+        if (metricColumnIds.includes(id)) {
+          const nums = sortedData
+            .map((r) => Number(r[id]))
+            .filter((n) => Number.isFinite(n));
+          const agr = (bloque.agregaciones?.[id] ?? "suma") as AgregacionTipo;
+          grandTotal[id] = aggregateMetricValues(nums, agr);
+        } else {
+          grandTotal[id] = "";
+        }
+      }
+      const labelCol = cols.find((id) => !metricColumnIds.includes(id));
+      if (labelCol) grandTotal[labelCol] = "TOTAL GENERAL";
+      out.push({ kind: "grand-total", key: "grand_total", values: grandTotal });
+    }
+
+    return out;
+  }, [dataRows, cols, groupByKeys, metricColumnIds, bloque.agregaciones]);
+
+  type RenderRow = DisplayRow & { displayValues: Record<string, string | number> };
+
+  const rowsForRender = useMemo((): RenderRow[] => {
+    let prevData: Record<string, string | number> | null = null;
+    return displayRows.map((row) => {
+      if (row.kind !== "data") {
+        prevData = null;
+        return { ...row, displayValues: { ...row.values } };
+      }
+
+      const displayValues: Record<string, string | number> = { ...row.values };
+      groupByKeys.forEach((key, idx) => {
+        if (!Object.prototype.hasOwnProperty.call(displayValues, key)) return;
+        if (!prevData) return;
+        const sameChain = groupByKeys
+          .slice(0, idx + 1)
+          .every((k) => String(prevData?.[k] ?? "") === String(row.values[k] ?? ""));
+        if (sameChain) displayValues[key] = "";
+      });
+
+      prevData = row.values;
+      return { ...row, displayValues };
+    });
+  }, [displayRows, groupByKeys]);
 
   if (cols.length === 0) {
     return (
@@ -1387,9 +1650,25 @@ function TablaBloqueView({ bloque, colors, estiloPlantilla }: { bloque: TablaBlo
     fontWeight: t.cuerpoBold ? "bold" : "normal",
     fontStyle:  t.cuerpoItalic ? "italic" : "normal",
   };
+  const activeGroupKeys = groupByKeys.filter((id) => cols.includes(id));
 
   return (
     <div className="overflow-auto h-full" style={{ fontFamily }}>
+      {activeGroupKeys.length > 0 && (
+        <div className="mb-2 px-1 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Agrupado por</span>
+          {activeGroupKeys.map((id, idx) => (
+            <div key={`group_path_${id}`} className="inline-flex items-center gap-1">
+              <Badge variant="outline" className="h-5 px-1.5 text-[9px] font-semibold uppercase tracking-wide">
+                {camposDisponibles.find((c) => c.id === id)?.label ?? LABEL_MAP[id] ?? id}
+              </Badge>
+              {idx < activeGroupKeys.length - 1 && (
+                <ChevronRight className="w-3 h-3 text-muted-foreground/60" />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       <table className={cn("w-full", est.mostrarBordes ? "border-collapse border border-border/40" : "border-collapse")} style={{ fontSize }}>
         <thead>
           {/* ── Module band row (only when 2+ modules) ── */}
@@ -1436,13 +1715,42 @@ function TablaBloqueView({ bloque, colors, estiloPlantilla }: { bloque: TablaBlo
               const agrSymbol = agr === "suma" ? "Σ" : agr === "promedio" ? "⌀" : "~";
               const isGroupKey = groupByKeys.includes(id);
               const mc = !isGroupKey && isMetric ? moduleThemeColor[colModuleKey[id] ?? ""] : undefined;
+              const canReorder = Boolean(onReorderColumns) && cols.length > 1;
+              const isDropTarget = dropColId === id && dragColId !== null && dragColId !== id;
               return (
                 <th
                   key={id}
+                  draggable={canReorder}
+                  onDragStart={(e) => {
+                    if (!canReorder) return;
+                    e.dataTransfer.effectAllowed = "move";
+                    setDragColId(id);
+                    setDropColId(id);
+                  }}
+                  onDragOver={(e) => {
+                    if (!canReorder) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDropColId(id);
+                  }}
+                  onDrop={(e) => {
+                    if (!canReorder) return;
+                    e.preventDefault();
+                    handleDropReorderColumn(id);
+                    setDragColId(null);
+                    setDropColId(null);
+                  }}
+                  onDragEnd={() => {
+                    setDragColId(null);
+                    setDropColId(null);
+                  }}
                   className={cn(
                     "border-b border-border whitespace-nowrap",
                     thPad, cellAlign, cellBorder,
                     mc ? "" : "bg-muted/50",
+                    canReorder ? "cursor-move select-none" : "",
+                    dragColId === id ? "opacity-60" : "",
+                    isDropTarget ? "ring-1 ring-primary/60" : "",
                   )}
                   style={{
                     ...thStyle,
@@ -1462,25 +1770,38 @@ function TablaBloqueView({ bloque, colors, estiloPlantilla }: { bloque: TablaBlo
           </tr>
         </thead>
         <tbody>
-          {mockRows.map((row, ri) => (
+          {rowsForRender.map((row, ri) => (
             <tr
-              key={ri}
+              key={row.key}
               className={cn(
                 "border-b border-border/40",
-                est.alternarFilas && ri % 2 !== 0 && "bg-muted/20",
+                row.kind === "subtotal" && "bg-muted/35",
+                row.kind === "grand-total" && "bg-primary/10 border-primary/30",
+                row.kind === "data" && est.alternarFilas && ri % 2 !== 0 && "bg-muted/20",
               )}
             >
-              {cols.map((id) => (
-                <td
-                  key={id}
-                  className={cn("text-foreground whitespace-nowrap", cellPad, cellAlign, cellBorder)}
-                  style={tdStyle}
-                >
-                  {typeof row[id] === "number"
-                    ? (row[id] as number).toLocaleString("es-CL")
-                    : (row[id] ?? "-")}
-                </td>
-              ))}
+              {cols.map((id) => {
+                const raw = row.displayValues[id];
+                return (
+                  <td
+                    key={id}
+                    className={cn(
+                      "text-foreground whitespace-nowrap",
+                      cellPad,
+                      cellAlign,
+                      cellBorder,
+                      row.kind !== "data" && "font-semibold",
+                    )}
+                    style={tdStyle}
+                  >
+                    {typeof raw === "number"
+                      ? raw.toLocaleString("es-CL")
+                      : raw === ""
+                        ? ""
+                        : (raw ?? "-")}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
@@ -1750,7 +2071,7 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChan
   const addCalculo = (tipo: "formula" | "agregacion") => {
     const newCalc: CampoCalculado = {
       id: `calc_${Date.now()}`,
-      label: tipo === "formula" ? `Cálculo ${camposCalculados.length + 1}` : `Agrupación ${camposCalculados.length + 1}`,
+      label: tipo === "formula" ? `Cálculo ${camposCalculados.length + 1}` : `Cálculo agrupado ${camposCalculados.length + 1}`,
       tipo,
       operacion: "/",
       campoA: metricFields[0]?.token ?? "",
@@ -1775,7 +2096,7 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChan
     <div className="space-y-2">
       {camposCalculados.length === 0 && (
         <p className="text-[10px] text-muted-foreground italic py-1">
-          Ningún cálculo definido. Agrega una fórmula o agrupación.
+          Ningún cálculo definido. Agrega una fórmula o un cálculo agrupado.
         </p>
       )}
       {camposCalculados.map((calc, i) => (
@@ -1854,7 +2175,7 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChan
               {/* Aggregation mode */}
               {/* Agrupar por (dimension) - Multi-select */}
               <div className="space-y-1">
-                <label className="text-[10px] text-muted-foreground font-medium">Agrupar por (campos dimensión)</label>
+                <label className="text-[10px] text-muted-foreground font-medium">Agrupar para cálculo (dimensiones)</label>
                 <div className="space-y-1">
                   {/* Selected chips */}
                   {(calc.agruparPor && calc.agruparPor.length > 0) && (
@@ -1889,7 +2210,7 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChan
                     }}
                     className="w-full h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
                   >
-                    <option value="">+ Agregar campo de agrupación</option>
+                    <option value="">+ Agregar dimensión al cálculo</option>
                     {dimFields
                       .filter(f => !(calc.agruparPor || []).includes(f.token))
                       .map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
@@ -1901,7 +2222,7 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChan
               </div>
               {/* Campo a agregar (metric) */}
               <div className="space-y-0.5">
-                <label className="text-[10px] text-muted-foreground font-medium">Campo a agregar (métrica)</label>
+                <label className="text-[10px] text-muted-foreground font-medium">Métrica a resumir (solo cálculo)</label>
                 <select
                   value={calc.campoAgregado ?? ""}
                   onChange={e => updCalc(calc.id, { campoAgregado: e.target.value })}
@@ -1913,7 +2234,7 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChan
               </div>
               {/* Operación de agregación */}
               <div className="space-y-0.5">
-                <label className="text-[10px] text-muted-foreground font-medium">Operación de agregación</label>
+                <label className="text-[10px] text-muted-foreground font-medium">Cómo resumir la métrica</label>
                 <div className="grid grid-cols-3 gap-1">
                   {AGG_OPTIONS.map(op => (
                     <button key={op.value}
@@ -1931,6 +2252,9 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChan
                     </button>
                   ))}
                 </div>
+                <p className="text-[9px] text-muted-foreground">
+                  Esta agrupación no ordena filas de la tabla; solo calcula un campo derivado.
+                </p>
               </div>
               {/* Preview */}
               <div className="flex items-center gap-2">
@@ -1960,7 +2284,7 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChan
             metricFields.length < 1
               ? "border-border/40 text-muted-foreground/40 cursor-not-allowed"
               : "border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20 hover:border-violet-400")}>
-          <Sigma className="w-3 h-3" /> + Agrupación
+          <Sigma className="w-3 h-3" /> + Cálculo agrupado
         </button>
       </div>
     </div>
@@ -2087,6 +2411,11 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
   } | null>(null);
   const suppressBlockOpenRef = useRef(false);
   const resizeMovedRef = useRef(false);
+  const [encDragIdx, setEncDragIdx] = useState<number | null>(null);
+  const [encDropIdx, setEncDropIdx] = useState<number | null>(null);
+  const [tablaColDragId, setTablaColDragId] = useState<string | null>(null);
+  const [tablaColDropId, setTablaColDropId] = useState<string | null>(null);
+  const [designFocusSection, setDesignFocusSection] = useState<DesignSectionId | "all">("encabezado");
 
   const defaultConfig: BuilderConfig = {
     id: informe?.id,
@@ -2103,13 +2432,13 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
         mostrarEmpresa: true, mostrarFecha: true, textoPersonalizado: "",
         colorBorde: "#cc0000",
         campos: [
-          { id: "finca",      label: "Finca",      fuente: "finca",      auto: true, valor: "" },
-          { id: "cultivo",    label: "Cultivo",    fuente: "cultivo",    auto: true, valor: "" },
-          { id: "variedad",   label: "Variedad",   fuente: "variedad",   auto: true, valor: "" },
-          { id: "ubicacion",  label: "Ubicación",  fuente: "ubicacion",  auto: true, valor: "" },
-          { id: "superficie", label: "Superficie", fuente: "superficie", auto: true, valor: "" },
-          { id: "productor",  label: "Productor",  fuente: "productor",  auto: true, valor: "" },
-        ],
+          { id: "d_productor", label: "Productor",       fuente: "productor", valor: "",         zona: "datos" },
+          { id: "d_periodo",   label: "Fecha del",       fuente: "periodo",   valor: "",         zona: "datos" },
+          { id: "d_semana",    label: "Semana",          fuente: "semana",    valor: "",         zona: "datos" },
+          { id: "m_codigo",    label: "Código",          fuente: "custom",    valor: "CC-RE-01", zona: "meta"  },
+          { id: "m_revision",  label: "Revisión",        fuente: "custom",    valor: "1",        zona: "meta"  },
+          { id: "m_fecha",     label: "Fecha de inicio", fuente: "custom",    valor: "",         zona: "meta"  },
+        ] as CampoEncabezado[],
         altura: "md",
         posicionLogo: "left",
         mostrarLinea: true,
@@ -2181,6 +2510,19 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
         const tb = b as TablaBloque;
         const has = tb.columnas.includes(columnaId);
         return { ...tb, columnas: has ? tb.columnas.filter((c) => c !== columnaId) : [...tb.columnas, columnaId] } as ReporteBloque;
+      }),
+    }));
+  }, []);
+
+  const setTablaColumnOrder = useCallback((bloqueId: string, orderedColumnIds: string[]) => {
+    setConfig((prev) => ({
+      ...prev,
+      bloques: prev.bloques.map((b) => {
+        if (b.id !== bloqueId || b.tipo !== "tabla") return b;
+        const tb = b as TablaBloque;
+        const orderedUnique = orderedColumnIds.filter((id, idx, arr) => id && arr.indexOf(id) === idx);
+        const rest = tb.columnas.filter((id) => !orderedUnique.includes(id));
+        return { ...tb, columnas: [...orderedUnique, ...rest] } as ReporteBloque;
       }),
     }));
   }, []);
@@ -2308,13 +2650,13 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     });
   }, []);
 
-  const addCampoEncabezado = useCallback(() => {
+  const addCampoEncabezado = useCallback((zona: "datos" | "meta" = "datos") => {
     const nuevo: CampoEncabezado = {
       id: `custom_${Date.now()}`,
-      label: "Dato adicional",
+      label: "Nuevo campo",
       fuente: "custom",
-      auto: false,
       valor: "",
+      zona,
     };
     setConfig((prev) => {
       const plantilla = prev.plantilla as PlantillaConfig;
@@ -2344,6 +2686,17 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
           },
         },
       };
+    });
+  }, []);
+
+  const reorderCamposEncabezado = useCallback((fromIdx: number, toIdx: number) => {
+    if (fromIdx === toIdx) return;
+    setConfig((prev) => {
+      const plantilla = prev.plantilla as PlantillaConfig;
+      const campos = [...plantilla.encabezado.campos];
+      const [moved] = campos.splice(fromIdx, 1);
+      campos.splice(toIdx, 0, moved);
+      return { ...prev, plantilla: { ...plantilla, encabezado: { ...plantilla.encabezado, campos } } };
     });
   }, []);
 
@@ -2386,25 +2739,105 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
 
   const selectedCampos = useMemo((): CampoInfo[] => {
     if (!selectedBloque || selectedBloque.tipo === "texto") return [];
-    const allFuentes = Object.values(MODULOS_FUENTES).flatMap((m) => m.fuentes);
-    const selected = allFuentes.filter((f) => selectedBloque.fuentesSeleccionadas.includes(f.id));
-    const all = selected.flatMap((f) => f.campos);
-    const seen = new Set<string>();
-    const base = all.filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
+    const selectedFuentesConOrigen = Object.entries(MODULOS_FUENTES).flatMap(([modulo, modDef]) =>
+      modDef.fuentes
+        .filter((f) => selectedBloque.fuentesSeleccionadas.includes(f.id))
+        .map((fuente) => ({ modulo, fuente })),
+    );
+
+    const mergedByField = new Map<string, CampoInfo>();
+
+    selectedFuentesConOrigen.forEach(({ modulo, fuente }) => {
+      fuente.campos.forEach((campo) => {
+        const origen = {
+          modulo,
+          fuenteId: fuente.id,
+          fuenteLabel: fuente.label,
+        };
+
+        const existing = mergedByField.get(campo.id);
+        if (!existing) {
+          mergedByField.set(campo.id, {
+            ...campo,
+            modulo,
+            fuenteId: fuente.id,
+            fuenteLabel: fuente.label,
+            origenes: [origen],
+          });
+          return;
+        }
+
+        const alreadyIncluded = (existing.origenes ?? []).some(
+          (o) => o.fuenteId === fuente.id && o.modulo === modulo,
+        );
+        if (!alreadyIncluded) {
+          existing.origenes = [...(existing.origenes ?? []), origen];
+        }
+      });
+    });
+
+    const base = Array.from(mergedByField.values());
+
     // Add calculated fields as metrics
     const calcFields: CampoInfo[] = (selectedBloque.camposCalculados ?? []).map(cc => ({
       id: cc.id,
       label: cc.label || `Cálculo`,
       tipo: "metrica" as const,
       unidad: cc.unidad,
+      modulo: "Cálculos",
+      fuenteLabel: "Derivado",
+      origenes: [{ modulo: "Cálculos", fuenteId: "calculado", fuenteLabel: "Derivado" }],
     }));
     return [...base, ...calcFields];
   }, [selectedBloque]);
 
-  const selectedDimensiones = selectedCampos.filter((c) => c.tipo === "dimension");
-  const selectedMetricsDisp = selectedCampos.filter((c) => c.tipo === "metrica");
+  const selectedCamposSorted = useMemo(
+    () => [...selectedCampos].sort((a, b) => {
+      const moduloA = a.modulo ?? "";
+      const moduloB = b.modulo ?? "";
+      if (moduloA !== moduloB) return moduloA.localeCompare(moduloB, "es");
+      return a.label.localeCompare(b.label, "es");
+    }),
+    [selectedCampos],
+  );
+
   const selectedGrafico = selectedBloque?.tipo === "grafico" ? selectedBloque as GraficoBloque : null;
   const selectedTabla = selectedBloque?.tipo === "tabla" ? selectedBloque as TablaBloque : null;
+
+  const selectedFuentesResumen = useMemo(() => {
+    if (!selectedBloque || selectedBloque.tipo !== "tabla") return [] as Array<{ modulo: string; total: number }>;
+    const tablaBloque = selectedBloque as TablaBloque;
+
+    const counts = new Map<string, number>();
+    Object.entries(MODULOS_FUENTES).forEach(([modulo, modDef]) => {
+      const total = modDef.fuentes.filter((f) => tablaBloque.fuentesSeleccionadas.includes(f.id)).length;
+      if (total > 0) counts.set(modulo, total);
+    });
+
+    return Array.from(counts.entries())
+      .map(([modulo, total]) => ({ modulo, total }))
+      .sort((a, b) => a.modulo.localeCompare(b.modulo, "es"));
+  }, [selectedBloque]);
+
+  const selectedDimensiones = selectedCampos.filter((c) => c.tipo === "dimension");
+  const selectedMetricsDisp = selectedCampos.filter((c) => c.tipo === "metrica");
+
+  const selectedTablaOrderedColumnIds = useMemo(() => {
+    if (!selectedTabla) return [];
+    const validIds = new Set(selectedCampos.map((c) => c.id));
+    const base = selectedTabla.columnas.length > 0
+      ? selectedTabla.columnas.filter((id) => validIds.has(id))
+      : selectedCampos.slice(0, 5).map((c) => c.id);
+    const missingGroupKeys = (selectedTabla.groupBy ?? []).filter((id) => validIds.has(id) && !base.includes(id));
+    return [...missingGroupKeys, ...base];
+  }, [selectedTabla, selectedCampos]);
+
+  const selectedTablaOrderedCampos = useMemo(() => {
+    const map = new Map(selectedCampos.map((c) => [c.id, c]));
+    return selectedTablaOrderedColumnIds
+      .map((id) => map.get(id))
+      .filter((c): c is CampoInfo => Boolean(c));
+  }, [selectedCampos, selectedTablaOrderedColumnIds]);
 
   function updPlantilla(key: keyof PlantillaConfig, val: PlantillaConfig[keyof PlantillaConfig]) {
     setConfig((prev) => ({
@@ -2607,74 +3040,6 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
               {/* TAB: Básico */}
               {builderTab === "basico" && (
                 <div className="space-y-4">
-                  {/* Presets/Templates section */}
-                  <div className="space-y-3">
-                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      Plantillas predefinidas
-                    </Label>
-                    <div className="grid gap-2">
-                      {/* Quick templates */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => applyTemplate("rendimiento_semanal")}
-                          className="p-3 text-left border rounded-lg hover:border-primary/40 hover:bg-muted/30 transition-colors group"
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <TrendingUp className="w-4 h-4 text-green-500" />
-                            <span className="text-sm font-medium">Rendimiento Semanal</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground">Gráfico de líneas con métricas de cosecha por semana</p>
-                        </button>
-
-                        <button
-                          onClick={() => applyTemplate("comparativo_productores")}
-                          className="p-3 text-left border rounded-lg hover:border-primary/40 hover:bg-muted/30 transition-colors group"
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <BarChart2 className="w-4 h-4 text-blue-500" />
-                            <span className="text-sm font-medium">Comparativo Productores</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground">Gráfico de barras comparando productores</p>
-                        </button>
-
-                        <button
-                          onClick={() => applyTemplate("analisis_laboratorio")}
-                          className="p-3 text-left border rounded-lg hover:border-primary/40 hover:bg-muted/30 transition-colors group"
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <FlaskConical className="w-4 h-4 text-purple-500" />
-                            <span className="text-sm font-medium">Análisis Laboratorio</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground">Tabla con resultados de análisis y métricas</p>
-                        </button>
-
-                        <button
-                          onClick={() => applyTemplate("dashboard_completo")}
-                          className="p-3 text-left border rounded-lg hover:border-primary/40 hover:bg-muted/30 transition-colors group"
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <Layers className="w-4 h-4 text-orange-500" />
-                            <span className="text-sm font-medium">Dashboard Completo</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground">Múltiples gráficos y tablas variadas</p>
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-2 pt-1 border-t border-border/50">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => resetTemplate()}
-                          className="text-xs h-7"
-                        >
-                          <X className="w-3 h-3 mr-1" />
-                          Empezar en blanco
-                        </Button>
-                        <span className="text-xs text-muted-foreground">o selecciona una plantilla arriba</span>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Existing fields */}
                   <div className="space-y-1">
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
@@ -2787,45 +3152,51 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                           />
                         </div>
                         {/* Fuentes */}
-                        <div className="space-y-2">
-                          <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                            <Database className="w-3 h-3" /> Fuentes de datos
-                            {selectedGrafico.fuentesSeleccionadas.length > 0 && (
-                              <span className="ml-auto text-[9px] font-normal normal-case">
-                                {selectedGrafico.fuentesSeleccionadas.length} seleccionada{selectedGrafico.fuentesSeleccionadas.length !== 1 ? "s" : ""}
-                              </span>
-                            )}
-                          </Label>
-                          <FuenteSelector
-                            fuentesSeleccionadas={selectedGrafico.fuentesSeleccionadas}
-                            onFuenteToggle={(id) => toggleFuenteBloque(selectedGrafico.id, id)}
-                          />
-                        </div>
-                        {/* Cálculos cruzados */}
-                        {selectedGrafico.fuentesSeleccionadas.length > 0 && (
-                          <div className="space-y-2">
-                            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                              <Calculator className="w-3 h-3 text-violet-500" />
-                              <span className="text-violet-700 dark:text-violet-300">Cálculos cruzados</span>
-                              {(selectedGrafico.camposCalculados?.length ?? 0) > 0 && (
-                                <span className="ml-auto text-[9px] font-normal normal-case text-violet-500">
-                                  {selectedGrafico.camposCalculados!.length} definido{selectedGrafico.camposCalculados!.length !== 1 ? "s" : ""}
-                                </span>
-                              )}
-                            </Label>
-                            <CamposCalculadosEditor
-                              camposCalculados={selectedGrafico.camposCalculados ?? []}
+                        <details open className="rounded-lg border border-border/70 bg-card/40 overflow-hidden group">
+                          <summary className="list-none cursor-pointer px-2.5 py-2 flex items-center gap-2">
+                            <Database className="w-3 h-3 text-muted-foreground" />
+                            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex-1">Fuentes de datos</span>
+                            <span className="text-[9px] text-muted-foreground">
+                              {selectedGrafico.fuentesSeleccionadas.length} seleccionada{selectedGrafico.fuentesSeleccionadas.length !== 1 ? "s" : ""}
+                            </span>
+                            <ChevronDown className="w-3 h-3 text-muted-foreground transition-transform group-open:rotate-180" />
+                          </summary>
+                          <div className="px-2.5 pb-2.5 border-t border-border/60">
+                            <FuenteSelector
                               fuentesSeleccionadas={selectedGrafico.fuentesSeleccionadas}
-                              onChange={(calcs) => updBloque(selectedGrafico.id, { camposCalculados: calcs })}
+                              onFuenteToggle={(id) => toggleFuenteBloque(selectedGrafico.id, id)}
                             />
                           </div>
+                        </details>
+                        {/* Cálculos cruzados */}
+                        {selectedGrafico.fuentesSeleccionadas.length > 0 && (
+                          <details className="rounded-lg border border-violet-200/70 bg-violet-50/20 overflow-hidden group">
+                            <summary className="list-none cursor-pointer px-2.5 py-2 flex items-center gap-2">
+                              <Calculator className="w-3 h-3 text-violet-500" />
+                              <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 uppercase tracking-wide flex-1">Cálculos cruzados</span>
+                              <span className="text-[9px] text-violet-500">
+                                {selectedGrafico.camposCalculados?.length ?? 0}
+                              </span>
+                              <ChevronDown className="w-3 h-3 text-violet-500 transition-transform group-open:rotate-180" />
+                            </summary>
+                            <div className="px-2.5 pb-2.5 border-t border-violet-200/60">
+                              <CamposCalculadosEditor
+                                camposCalculados={selectedGrafico.camposCalculados ?? []}
+                                fuentesSeleccionadas={selectedGrafico.fuentesSeleccionadas}
+                                onChange={(calcs) => updBloque(selectedGrafico.id, { camposCalculados: calcs })}
+                              />
+                            </div>
+                          </details>
                         )}
                         {/* Dimensión y métricas */}
                         {selectedCampos.length > 0 && (
-                          <div className="space-y-2">
-                            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                              <SlidersHorizontal className="w-3 h-3" /> Dimensión y métricas
-                            </Label>
+                          <details open className="rounded-lg border border-border/70 bg-card/40 overflow-hidden group">
+                            <summary className="list-none cursor-pointer px-2.5 py-2 flex items-center gap-2">
+                              <SlidersHorizontal className="w-3 h-3 text-muted-foreground" />
+                              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex-1">Dimensión y métricas</span>
+                              <ChevronDown className="w-3 h-3 text-muted-foreground transition-transform group-open:rotate-180" />
+                            </summary>
+                            <div className="px-2.5 pb-2.5 border-t border-border/60 space-y-2">
                             <div className="space-y-1">
                               <Label className="text-[11px] text-muted-foreground">Eje X / Agrupación</Label>
                               <div className="flex flex-wrap gap-1">
@@ -2901,13 +3272,17 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                 })}
                               </div>
                             </div>
-                          </div>
+                            </div>
+                          </details>
                         )}
                         {/* Tipo de gráfico */}
-                        <div className="space-y-2">
-                          <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                            <BarChart2 className="w-3 h-3" /> Tipo de gráfico
-                          </Label>
+                        <details className="rounded-lg border border-border/70 bg-card/40 overflow-hidden group">
+                          <summary className="list-none cursor-pointer px-2.5 py-2 flex items-center gap-2">
+                            <BarChart2 className="w-3 h-3 text-muted-foreground" />
+                            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex-1">Tipo de gráfico</span>
+                            <ChevronDown className="w-3 h-3 text-muted-foreground transition-transform group-open:rotate-180" />
+                          </summary>
+                          <div className="px-2.5 pb-2.5 border-t border-border/60 space-y-2">
                           <div className="grid grid-cols-4 gap-1.5">
                             {TIPOS_GRAFICO.map((t) => {
                               const TIcon = t.icon;
@@ -2951,7 +3326,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                               </div>
                             ))}
                           </div>
-                        </div>
+                          </div>
+                        </details>
                       </div>
                     </div>
                   )}
@@ -3021,45 +3397,58 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                           />
                         </div>
                         {/* Fuentes */}
-                        <div className="space-y-2">
-                          <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                            <Database className="w-3 h-3" /> Fuentes de datos
-                            {selectedTabla.fuentesSeleccionadas.length > 0 && (
-                              <span className="ml-auto text-[9px] font-normal normal-case">
-                                {selectedTabla.fuentesSeleccionadas.length} seleccionada{selectedTabla.fuentesSeleccionadas.length !== 1 ? "s" : ""}
-                              </span>
-                            )}
-                          </Label>
-                          <FuenteSelector
-                            fuentesSeleccionadas={selectedTabla.fuentesSeleccionadas}
-                            onFuenteToggle={(id) => toggleFuenteBloque(selectedTabla.id, id)}
-                          />
-                        </div>
-                        {/* Cálculos cruzados */}
-                        {selectedTabla.fuentesSeleccionadas.length > 0 && (
-                          <div className="space-y-2">
-                            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                              <Calculator className="w-3 h-3 text-violet-500" />
-                              <span className="text-violet-700 dark:text-violet-300">Cálculos cruzados</span>
-                              {(selectedTabla.camposCalculados?.length ?? 0) > 0 && (
-                                <span className="ml-auto text-[9px] font-normal normal-case text-violet-500">
-                                  {selectedTabla.camposCalculados!.length} definido{selectedTabla.camposCalculados!.length !== 1 ? "s" : ""}
-                                </span>
-                              )}
-                            </Label>
-                            <CamposCalculadosEditor
-                              camposCalculados={selectedTabla.camposCalculados ?? []}
+                        <details open className="rounded-lg border border-border/70 bg-card/40 overflow-hidden group">
+                          <summary className="list-none cursor-pointer px-2.5 py-2 flex items-center gap-2">
+                            <Database className="w-3 h-3 text-muted-foreground" />
+                            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex-1">Fuentes de datos</span>
+                            <span className="text-[9px] text-muted-foreground">
+                              {selectedTabla.fuentesSeleccionadas.length} seleccionada{selectedTabla.fuentesSeleccionadas.length !== 1 ? "s" : ""}
+                            </span>
+                            <ChevronDown className="w-3 h-3 text-muted-foreground transition-transform group-open:rotate-180" />
+                          </summary>
+                          <div className="px-2.5 pb-2.5 border-t border-border/60">
+                            <FuenteSelector
                               fuentesSeleccionadas={selectedTabla.fuentesSeleccionadas}
-                              onChange={(calcs) => updBloque(selectedTabla.id, { camposCalculados: calcs })}
+                              onFuenteToggle={(id) => toggleFuenteBloque(selectedTabla.id, id)}
                             />
                           </div>
+                        </details>
+                        {/* Cálculos cruzados */}
+                        {selectedTabla.fuentesSeleccionadas.length > 0 && (
+                          <details className="rounded-lg border border-violet-200/70 bg-violet-50/20 overflow-hidden group">
+                            <summary className="list-none cursor-pointer px-2.5 py-2 flex items-center gap-2">
+                              <Calculator className="w-3 h-3 text-violet-500" />
+                              <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 uppercase tracking-wide flex-1">Cálculos cruzados</span>
+                              <span className="text-[9px] text-violet-500">
+                                {selectedTabla.camposCalculados?.length ?? 0}
+                              </span>
+                              <ChevronDown className="w-3 h-3 text-violet-500 transition-transform group-open:rotate-180" />
+                            </summary>
+                            <div className="px-2.5 pb-2.5 border-t border-violet-200/60">
+                              <CamposCalculadosEditor
+                                camposCalculados={selectedTabla.camposCalculados ?? []}
+                                fuentesSeleccionadas={selectedTabla.fuentesSeleccionadas}
+                                onChange={(calcs) => updBloque(selectedTabla.id, { camposCalculados: calcs })}
+                              />
+                            </div>
+                          </details>
                         )}
                         {/* Tabla: Agrupar por (multi-select) */}
                         {selectedTabla && selectedDimensiones.length > 0 && (
-                          <div className="space-y-1">
-                            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                              <Sigma className="w-3 h-3" /> Agrupar por
-                            </Label>
+                          <details
+                            open={(selectedTabla.groupBy?.length ?? 0) > 0}
+                            className="rounded-lg border border-border/70 bg-card/40 overflow-hidden group"
+                          >
+                            <summary className="list-none cursor-pointer px-2.5 py-2 flex items-center gap-2">
+                              <Sigma className="w-3 h-3 text-muted-foreground" />
+                              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex-1">Agrupar filas de la tabla</span>
+                              <span className="text-[9px] text-muted-foreground">{selectedTabla.groupBy?.length ?? 0}</span>
+                              <ChevronDown className="w-3 h-3 text-muted-foreground transition-transform group-open:rotate-180" />
+                            </summary>
+                            <div className="px-2.5 pb-2.5 border-t border-border/60 space-y-1">
+                            <p className="text-[10px] text-muted-foreground">
+                              Esta agrupación sí cambia la estructura visible de la tabla y sus subtotales.
+                            </p>
                             <div className="flex flex-wrap gap-1 items-center">
                               {selectedDimensiones.map((d) => {
                                 const isActive = (selectedTabla.groupBy ?? []).includes(d.id);
@@ -3090,22 +3479,133 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             </div>
                             {(selectedTabla.groupBy?.length ?? 0) > 0 && (
                               <p className="text-[10px] text-primary/70">
-                                Agrupado por: <strong>{(selectedTabla.groupBy ?? []).map(id => selectedDimensiones.find(d => d.id === id)?.label ?? id).join(" + ")}</strong>
+                                Jerarquía: <strong>{(selectedTabla.groupBy ?? []).map(id => selectedDimensiones.find(d => d.id === id)?.label ?? id).join(" → ")}</strong>
                               </p>
                             )}
-                          </div>
+                            {(selectedTabla.groupBy?.length ?? 1) > 1 && (
+                              <p className="text-[10px] text-muted-foreground">
+                                El primer nivel abre el grupo y el último nivel queda como detalle.
+                              </p>
+                            )}
+                            </div>
+                          </details>
                         )}
                         {/* Columnas */}
-                        {selectedCampos.length > 0 && (
-                          <div className="space-y-2">
-                            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                              <AlignLeft className="w-3 h-3" /> Columnas a mostrar
-                            </Label>
+                        {selectedCamposSorted.length > 0 && (
+                          <details open className="rounded-lg border border-border/70 bg-card/40 overflow-hidden group">
+                            <summary className="list-none cursor-pointer px-2.5 py-2 flex items-center gap-2">
+                              <AlignLeft className="w-3 h-3 text-muted-foreground" />
+                              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex-1">Columnas a mostrar</span>
+                              <span className="text-[9px] text-muted-foreground">
+                                {selectedTabla.columnas.length > 0 ? selectedTabla.columnas.length : selectedCamposSorted.length} visibles
+                              </span>
+                              <ChevronDown className="w-3 h-3 text-muted-foreground transition-transform group-open:rotate-180" />
+                            </summary>
+                            <div className="px-2.5 pb-2.5 border-t border-border/60 space-y-2">
+                            {selectedFuentesResumen.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {selectedFuentesResumen.map((item) => (
+                                  <span
+                                    key={item.modulo}
+                                    className="text-[9px] px-1.5 py-0.5 rounded-full border border-border bg-card text-muted-foreground"
+                                  >
+                                    {item.modulo} · {item.total} fuente{item.total !== 1 ? "s" : ""}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {selectedTablaOrderedCampos.length > 1 && (
+                              <div className="rounded-lg border border-border/70 bg-muted/20 p-2 space-y-1.5">
+                                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                                  <GripVertical className="w-3 h-3" /> Orden de visualización
+                                </p>
+                                <p className="text-[10px] text-muted-foreground">
+                                  Arrastra para ordenar cómo se muestran las columnas en la tabla.
+                                </p>
+                                <div className="space-y-1">
+                                  {selectedTablaOrderedCampos.map((campo, idx) => {
+                                    const isGroupByField = (selectedTabla.groupBy ?? []).includes(campo.id);
+                                    const isDropTarget = tablaColDropId === campo.id && tablaColDragId !== null && tablaColDragId !== campo.id;
+                                    return (
+                                      <div
+                                        key={`order_${campo.id}`}
+                                        draggable
+                                        onDragStart={(e) => {
+                                          e.dataTransfer.effectAllowed = "move";
+                                          setTablaColDragId(campo.id);
+                                          setTablaColDropId(campo.id);
+                                        }}
+                                        onDragOver={(e) => {
+                                          e.preventDefault();
+                                          e.dataTransfer.dropEffect = "move";
+                                          setTablaColDropId(campo.id);
+                                        }}
+                                        onDrop={(e) => {
+                                          e.preventDefault();
+                                          if (!selectedTabla || !tablaColDragId || tablaColDragId === campo.id) {
+                                            setTablaColDragId(null);
+                                            setTablaColDropId(null);
+                                            return;
+                                          }
+                                          const from = selectedTablaOrderedColumnIds.indexOf(tablaColDragId);
+                                          const to = selectedTablaOrderedColumnIds.indexOf(campo.id);
+                                          if (from >= 0 && to >= 0) {
+                                            const next = [...selectedTablaOrderedColumnIds];
+                                            const [moved] = next.splice(from, 1);
+                                            next.splice(to, 0, moved);
+                                            setTablaColumnOrder(selectedTabla.id, next);
+                                          }
+                                          setTablaColDragId(null);
+                                          setTablaColDropId(null);
+                                        }}
+                                        onDragEnd={() => {
+                                          setTablaColDragId(null);
+                                          setTablaColDropId(null);
+                                        }}
+                                        className={cn(
+                                          "flex items-center gap-2 px-2 py-1.5 rounded border bg-background text-xs",
+                                          "cursor-move select-none",
+                                          tablaColDragId === campo.id ? "opacity-60" : "",
+                                          isDropTarget ? "border-primary ring-1 ring-primary/50" : "border-border",
+                                        )}
+                                        title="Arrastra para reordenar"
+                                      >
+                                        <GripVertical className="w-3 h-3 text-muted-foreground/50 shrink-0" />
+                                        <span className="text-[10px] text-muted-foreground font-mono w-5 shrink-0">{idx + 1}</span>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="truncate">{campo.label}</p>
+                                          {(campo.origenes?.length ?? 0) > 0 && (
+                                            <div className="mt-0.5 flex flex-wrap gap-1">
+                                              {campo.origenes!.slice(0, 1).map((origen) => (
+                                                <span
+                                                  key={`${campo.id}_${origen.fuenteId}`}
+                                                  className="text-[8px] px-1 py-0.5 rounded border border-border/80 bg-muted/20 text-muted-foreground"
+                                                >
+                                                  {origen.modulo} · {origen.fuenteLabel}
+                                                </span>
+                                              ))}
+                                              {(campo.origenes?.length ?? 0) > 1 && (
+                                                <span className="text-[8px] px-1 py-0.5 rounded border border-border/80 bg-muted/20 text-muted-foreground">
+                                                  +{(campo.origenes?.length ?? 1) - 1}
+                                                </span>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                        {isGroupByField && (
+                                          <span className="text-[9px] text-primary font-semibold bg-primary/10 px-1 rounded shrink-0">agrup.</span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
                             <p className="text-[10px] text-muted-foreground">
                               Sin selección = todas las disponibles.
                             </p>
                             <div className="space-y-1">
-                              {selectedCampos.map((campo) => {
+                              {selectedCamposSorted.map((campo) => {
                                 const isOn = selectedTabla.columnas.includes(campo.id) || (selectedTabla.groupBy ?? []).includes(campo.id);
                                 const isGroupByField = (selectedTabla.groupBy ?? []).includes(campo.id);
                                 const isMetrica = campo.tipo === "metrica";
@@ -3129,7 +3629,26 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                         isOn ? "bg-primary" : "border border-muted-foreground/30")}>
                                         {isOn && <Check className="w-2 h-2 text-primary-foreground" />}
                                       </div>
-                                      <span className="text-xs flex-1">{campo.label}</span>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs truncate">{campo.label}</p>
+                                        {(campo.origenes?.length ?? 0) > 0 && (
+                                          <div className="mt-0.5 flex flex-wrap gap-1">
+                                            {campo.origenes!.slice(0, 2).map((origen) => (
+                                              <span
+                                                key={`${campo.id}_${origen.fuenteId}`}
+                                                className="text-[8px] px-1 py-0.5 rounded border border-border/80 bg-muted/20 text-muted-foreground"
+                                              >
+                                                {origen.modulo} · {origen.fuenteLabel}
+                                              </span>
+                                            ))}
+                                            {(campo.origenes?.length ?? 0) > 2 && (
+                                              <span className="text-[8px] px-1 py-0.5 rounded border border-border/80 bg-muted/20 text-muted-foreground">
+                                                +{(campo.origenes?.length ?? 2) - 2}
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
                                       {isGroupByField && (
                                         <span className="text-[9px] text-primary font-semibold bg-primary/10 px-1 rounded shrink-0">agrup.</span>
                                       )}
@@ -3168,7 +3687,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                 );
                               })}
                             </div>
-                          </div>
+                            </div>
+                          </details>
                         )}
                       </div>
                     </div>
@@ -3296,7 +3816,43 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
               {builderTab === "avanzado" && (
                 <div className="space-y-5">
 
+                  <div className="rounded-lg border border-border bg-card/40 p-2.5 space-y-1.5">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Editor por partes</p>
+                    <div className="grid grid-cols-3 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setDesignFocusSection("all")}
+                        className={cn(
+                          "h-7 px-2 rounded-md border text-[10px] font-medium transition-colors",
+                          designFocusSection === "all"
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border text-muted-foreground hover:text-foreground hover:border-primary/30"
+                        )}
+                      >
+                        Todo
+                      </button>
+                      {DESIGN_SECTION_ORDER.map((sectionId) => (
+                        <button
+                          key={sectionId}
+                          type="button"
+                          onClick={() => setDesignFocusSection(sectionId)}
+                          className={cn(
+                            "h-7 px-2 rounded-md border text-[10px] font-medium transition-colors truncate",
+                            designFocusSection === sectionId
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border text-muted-foreground hover:text-foreground hover:border-primary/30"
+                          )}
+                          title={DESIGN_SECTION_LABELS[sectionId]}
+                        >
+                          {DESIGN_SECTION_LABELS[sectionId]}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">Pulsa una sección para trabajar con foco; usa Todo cuando quieras ver el panel completo.</p>
+                  </div>
+
                   {/* Paleta de colores */}
+                  {(designFocusSection === "all" || designFocusSection === "paleta") && (
                   <div className="space-y-2">
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
                       <Palette className="w-3.5 h-3.5" /> Paleta de colores
@@ -3319,8 +3875,10 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       ))}
                     </div>
                   </div>
+                  )}
 
                   {/* Logo e Imágenes */}
+                  {(designFocusSection === "all" || designFocusSection === "logo") && (
                   <div className="space-y-2">
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
                       <Image className="w-3.5 h-3.5" /> Logo e imágenes
@@ -3364,8 +3922,10 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       </div>
                     </div>
                   </div>
+                  )}
 
                   {/* Encabezado del documento */}
+                  {(designFocusSection === "all" || designFocusSection === "encabezado") && (
                   <div className="space-y-2">
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
                       <LayoutTemplate className="w-3.5 h-3.5" /> Encabezado
@@ -3419,108 +3979,96 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                           className="h-7 text-xs"
                         />
                       </div>
+                      {/* ── Campos del encabezado ─────── */}
                       <div className="space-y-2 pt-2 border-t border-border/60">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Datos del encabezado</span>
-                          <button
-                            onClick={addCampoEncabezado}
-                            className="h-6 px-2 rounded border border-border text-[10px] text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors flex items-center gap-1"
-                            title="Agregar dato adicional"
-                          >
-                            <Plus className="w-3 h-3" /> Agregar
-                          </button>
-                        </div>
-                        <div className="space-y-2">
-                          {((config.plantilla as PlantillaConfig).encabezado.campos ?? []).map((campo, idx, all) => (
-                            <div key={campo.id} className="rounded border border-border bg-muted/5 p-2 space-y-2">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] text-muted-foreground w-5 text-center">{idx + 1}</span>
-                                <Input
-                                  value={campo.label}
-                                  onChange={(e) => updateCampoEncabezado(campo.id, { label: e.target.value })}
-                                  className="h-7 text-xs"
-                                  placeholder="Nombre del campo"
-                                />
-                                <button
-                                  onClick={() => moveCampoEncabezado(campo.id, "up")}
-                                  disabled={idx === 0}
-                                  className="w-7 h-7 rounded border border-border text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-30"
-                                  title="Subir campo"
-                                >
-                                  <MoveUp className="w-3 h-3 mx-auto" />
-                                </button>
-                                <button
-                                  onClick={() => moveCampoEncabezado(campo.id, "down")}
-                                  disabled={idx === all.length - 1}
-                                  className="w-7 h-7 rounded border border-border text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-30"
-                                  title="Bajar campo"
-                                >
-                                  <MoveDown className="w-3 h-3 mx-auto" />
-                                </button>
-                                {campo.fuente === "custom" && (
+                        {/* Section headers */}
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {(["datos", "meta"] as const).map((z) => {
+                            const zonaCampos = ((config.plantilla as PlantillaConfig).encabezado.campos ?? []).filter(c => (c.zona ?? "datos") === z);
+                            return (
+                              <div key={z} className="space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                                    {z === "datos" ? "Franja inferior" : "Tabla lateral"}
+                                  </span>
                                   <button
-                                    onClick={() => removeCampoEncabezado(campo.id)}
-                                    className="w-7 h-7 rounded border border-border text-muted-foreground hover:border-destructive/40 hover:text-destructive"
-                                    title="Eliminar dato adicional"
+                                    onClick={() => addCampoEncabezado(z)}
+                                    className="h-5 px-1.5 rounded border border-border text-[9px] text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors flex items-center gap-0.5"
                                   >
-                                    <Trash2 className="w-3 h-3 mx-auto" />
+                                    <Plus className="w-2.5 h-2.5" />
                                   </button>
-                                )}
-                              </div>
-                              <div className="grid grid-cols-1 gap-2">
+                                </div>
                                 <div className="space-y-1">
-                                  <span className="text-[10px] text-muted-foreground">Fuente de datos</span>
-                                  <div className="flex flex-wrap gap-1">
-                                    {(["finca", "cultivo", "variedad", "ubicacion", "superficie", "productor", "custom"] as FuenteCampo[]).map((opt) => (
-                                      <button
-                                        key={opt}
-                                        onClick={() => updateCampoEncabezado(campo.id, {
-                                          fuente: opt,
-                                          auto: opt === "custom" ? false : campo.auto,
-                                        })}
+                                  {zonaCampos.map((campo, idx) => {
+                                    const allCampos = (config.plantilla as PlantillaConfig).encabezado.campos ?? [];
+                                    const globalIdx = allCampos.findIndex(c => c.id === campo.id);
+                                    const isDragging   = encDragIdx === globalIdx;
+                                    const isDropTarget = encDropIdx === globalIdx && encDragIdx !== null && encDragIdx !== globalIdx;
+                                    return (
+                                      <div
+                                        key={campo.id}
+                                        draggable
+                                        onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; setEncDragIdx(globalIdx); }}
+                                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setEncDropIdx(globalIdx); }}
+                                        onDrop={(e) => { e.preventDefault(); if (encDragIdx !== null) reorderCamposEncabezado(encDragIdx, globalIdx); setEncDragIdx(null); setEncDropIdx(null); }}
+                                        onDragEnd={() => { setEncDragIdx(null); setEncDropIdx(null); }}
                                         className={cn(
-                                          "h-6 px-2 rounded border text-[10px] transition-colors",
-                                          campo.fuente === opt
-                                            ? "border-primary bg-primary/10 text-primary"
-                                            : "border-border text-muted-foreground hover:border-primary/30",
+                                          "rounded border bg-card transition-all select-none",
+                                          isDragging    ? "opacity-40 border-dashed border-primary/40" : "border-border",
+                                          isDropTarget  ? "border-primary/60 bg-primary/5" : "",
                                         )}
                                       >
-                                        {FUENTE_CAMPO_LABEL[opt]}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                                <div className="space-y-1">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[10px] text-muted-foreground">Tomar valor automático</span>
-                                    <Switch
-                                      checked={campo.fuente === "custom" ? false : campo.auto}
-                                      onCheckedChange={(v) => updateCampoEncabezado(campo.id, { auto: v })}
-                                      disabled={campo.fuente === "custom"}
-                                      className="scale-75"
-                                    />
-                                  </div>
-                                  {campo.fuente !== "custom" && campo.auto && (
-                                    <p className="text-[10px] text-primary/80">
-                                      Fuente actual: {FUENTE_CAMPO_LABEL[campo.fuente]}
-                                    </p>
-                                  )}
-                                  {(!campo.auto || campo.fuente === "custom") && (
-                                    <Input
-                                      value={campo.valor}
-                                      onChange={(e) => updateCampoEncabezado(campo.id, { valor: e.target.value })}
-                                      className="h-7 text-xs"
-                                      placeholder="Valor manual para mostrar"
-                                    />
+                                        <div className="flex items-center gap-1 px-1.5 py-1">
+                                          <GripVertical className="w-3 h-3 text-muted-foreground/30 shrink-0 cursor-grab" />
+                                          <input
+                                            value={campo.label}
+                                            onChange={(e) => updateCampoEncabezado(campo.id, { label: e.target.value })}
+                                            className="flex-1 min-w-0 text-[11px] bg-transparent border-0 outline-none focus:bg-muted/30 rounded px-0.5 text-foreground"
+                                            placeholder="Etiqueta"
+                                          />
+                                          {/* Fuente selector */}
+                                          <select
+                                            value={campo.fuente}
+                                            onChange={(e) => updateCampoEncabezado(campo.id, { fuente: e.target.value as FuenteCampo, valor: "" })}
+                                            className="text-[9px] border border-border rounded px-1 py-0.5 bg-background text-muted-foreground shrink-0"
+                                          >
+                                            <option value="productor">Productor</option>
+                                            <option value="periodo">Período</option>
+                                            <option value="semana">Semana</option>
+                                            <option value="custom">Manual</option>
+                                          </select>
+                                          <button
+                                            onClick={() => removeCampoEncabezado(campo.id)}
+                                            className="w-4 h-4 shrink-0 flex items-center justify-center rounded text-muted-foreground/40 hover:text-destructive transition-colors"
+                                          >
+                                            <X className="w-2.5 h-2.5" />
+                                          </button>
+                                        </div>
+                                        {campo.fuente === "custom" && (
+                                          <div className="px-1.5 pb-1">
+                                            <input
+                                              value={campo.valor}
+                                              onChange={(e) => updateCampoEncabezado(campo.id, { valor: e.target.value })}
+                                              className="w-full text-[10px] bg-muted/30 border border-border/60 rounded px-1.5 py-0.5 outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
+                                              placeholder="Valor fijo…"
+                                            />
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                  {zonaCampos.length === 0 && (
+                                    <p className="text-[9px] text-muted-foreground/40 text-center py-1.5 border border-dashed border-border/40 rounded">Sin campos</p>
                                   )}
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
                   </div>
+                  )}
 
                   {/* Contenido del informe */}
                   <div className="space-y-2">
@@ -3528,18 +4076,17 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       <FileText className="w-3.5 h-3.5" /> Contenido del informe
                     </Label>
                     <div className="space-y-2 p-3 rounded-lg border border-border bg-muted/10">
-                      {(["incluirNotas", "incluirConclusiones", "incluirFirma"] as const).map((key) => (
-                        <div key={key} className="flex items-center justify-between">
-                          <span className="text-xs">
-                            {key === "incluirNotas" ? "Sección de notas" : key === "incluirConclusiones" ? "Sección de conclusiones" : "Firma del responsable"}
-                          </span>
-                          <Switch
-                            checked={((config.plantilla as any)?.[key]) ?? false}
-                            onCheckedChange={(v) => updPlantilla(key, v)}
-                            className="scale-75"
-                          />
-                        </div>
-                      ))}
+                      <p className="text-[10px] text-muted-foreground border border-border/50 rounded px-2 py-1.5 bg-muted/20">
+                        Notas y conclusiones se gestionan con los bloques de texto en la pestaña Textos.
+                      </p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs">Firma del responsable</span>
+                        <Switch
+                          checked={((config.plantilla as any)?.incluirFirma) ?? false}
+                          onCheckedChange={(v) => updPlantilla("incluirFirma", v)}
+                          className="scale-75"
+                        />
+                      </div>
                       <div className="space-y-1 pt-1">
                         <span className="text-[11px] text-muted-foreground">Pie de página</span>
                         <Textarea
@@ -3861,9 +4408,11 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                     right: (margenes.derecho ?? 15) * mm2px,
                   };
                   const colorBorde = enc.colorBorde ?? "#cc0000";
-                  const campos: CampoEncabezado[] = Array.isArray(enc.campos) ? enc.campos : [];
+                  const todosLosCampos: CampoEncabezado[] = Array.isArray(enc.campos) ? enc.campos : [];
+                  const datosCampos = todosLosCampos.filter(c => (c.zona ?? "datos") === "datos");
+                  const metaCampos  = todosLosCampos.filter(c => c.zona === "meta");
                   const today = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
-                  const hasSections = (pl?.incluirNotas || pl?.incluirConclusiones || pl?.incluirFirma);
+                  const hasSections = !!pl?.incluirFirma;
 
                   // Fixed heights (natural px)
                   const headerH = enc.altura === "sm" ? 80 : enc.altura === "lg" ? 140 : 110;
@@ -4041,7 +4590,14 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                               }}>
                                 {bloque.tipo === "grafico"
                                   ? <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} estiloPlantilla={(pl as any)?.estiloGraficos} />
-                                  : <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} estiloPlantilla={(pl as any)?.estiloTablas} />
+                                  : (
+                                    <TablaBloqueView
+                                      bloque={bloque as TablaBloque}
+                                      colors={paleta.colors}
+                                      estiloPlantilla={(pl as any)?.estiloTablas}
+                                      onReorderColumns={(nextCols) => setTablaColumnOrder(bloque.id, nextCols)}
+                                    />
+                                  )
                                 }
                               </div>
                             </div>
@@ -4085,36 +4641,53 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             {/* ── HEADER (only page 1) ── */}
                             {pageIdx === 0 ? (
                               <div className="shrink-0" style={{ height: headerH }}>
+                                {/* Top row: logo + title + meta table */}
                                 <div className={cn("flex items-start gap-3", enc.posicionLogo === "right" && "flex-row-reverse")}>
                                   {config.mostrarLogo && (
                                     <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shrink-0">
                                       <Globe className="w-7 h-7 text-primary-foreground" />
                                     </div>
                                   )}
-                                  <div className="flex-1 min-w-0">
+                                  <div className="flex-1 min-w-0 text-center">
                                     {enc.mostrarEmpresa && (
-                                      <p className="font-bold text-foreground text-lg leading-tight truncate">AgroWorkin SA</p>
+                                      <p className="font-bold text-foreground text-base leading-tight truncate">{config.nombre || "Nuevo informe"}</p>
                                     )}
-                                    <p className="font-semibold text-foreground text-base leading-tight truncate">
-                                      {config.titulo || config.nombre || "Nuevo informe"}
-                                    </p>
-                                    {config.subtitulo && <p className="text-muted-foreground text-sm truncate">{config.subtitulo}</p>}
-                                    {enc.textoPersonalizado && <p className="text-muted-foreground text-sm truncate">{enc.textoPersonalizado}</p>}
+                                    {!enc.mostrarEmpresa && (
+                                      <p className="font-bold text-foreground text-base leading-tight truncate">{config.titulo || config.nombre || "Nuevo informe"}</p>
+                                    )}
+                                    {config.subtitulo && <p className="text-muted-foreground text-xs truncate">{config.subtitulo}</p>}
+                                    {enc.textoPersonalizado && <p className="text-muted-foreground text-xs truncate">{enc.textoPersonalizado}</p>}
                                   </div>
-                                  {enc.mostrarFecha && <p className="text-muted-foreground text-sm shrink-0">{today}</p>}
+                                  {/* Meta campos — right table */}
+                                  {metaCampos.length > 0 && (
+                                    <table className="shrink-0 border-collapse text-[9px]" style={{ border: "1px solid #999" }}>
+                                      <tbody>
+                                        {metaCampos.map((c) => (
+                                          <tr key={c.id} style={{ borderBottom: "1px solid #ccc" }}>
+                                            <td className="font-bold uppercase px-2 py-0.5 whitespace-nowrap" style={{ borderRight: "1px solid #ccc" }}>{c.label}:</td>
+                                            <td className="px-2 py-0.5 whitespace-nowrap">{getCampoEncabezadoPreviewValue(c) || "—"}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                  {metaCampos.length === 0 && enc.mostrarFecha && (
+                                    <p className="text-muted-foreground text-xs shrink-0">{today}</p>
+                                  )}
                                 </div>
-                                {campos.length > 0 && (
-                                  <div className="flex flex-wrap gap-x-4 mt-2 text-sm">
-                                    {campos.slice(0, 6).map((c) => (
-                                      <span key={c.id} className="text-muted-foreground">
-                                        <span className="font-medium text-foreground">{c.label}:</span>{" "}
-                                        {getCampoEncabezadoPreviewValue(c) || <span className="italic opacity-40">—</span>}
+                                {/* Datos campos — bottom strip */}
+                                {datosCampos.length > 0 && (
+                                  <div className="flex flex-wrap gap-x-6 gap-y-0.5 mt-1.5 text-xs border-t border-border/30 pt-1">
+                                    {datosCampos.map((c) => (
+                                      <span key={c.id} className="text-foreground">
+                                        <span className="font-bold uppercase">{c.label}:</span>{" "}
+                                        <span className="underline">{getCampoEncabezadoPreviewValue(c) || "—"}</span>
                                       </span>
                                     ))}
                                   </div>
                                 )}
                                 {enc.mostrarLinea !== false && (
-                                  <div className="rounded-full mt-2" style={{ height: 3, backgroundColor: colorBorde }} />
+                                  <div className="rounded-full mt-1" style={{ height: 3, backgroundColor: colorBorde }} />
                                 )}
                               </div>
                             ) : (
@@ -4183,18 +4756,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             {/* ── SECTIONS (last page only) ── */}
                             {showSections && (
                               <div className="shrink-0 flex gap-3 mt-2">
-                                {pl?.incluirNotas && (
-                                  <div className="flex-1 border border-dashed border-border/50 rounded px-2 py-1 text-sm">
-                                    <span className="font-medium text-foreground">Notas</span>
-                                  </div>
-                                )}
-                                {pl?.incluirConclusiones && (
-                                  <div className="flex-1 border border-dashed border-border/50 rounded px-2 py-1 text-sm">
-                                    <span className="font-medium text-foreground">Conclusiones</span>
-                                  </div>
-                                )}
                                 {pl?.incluirFirma && (
-                                  <div className="flex-1 border-t-2 border-foreground/30 px-2 text-sm">
+                                  <div className="w-1/4 min-w-[140px] border-t-2 border-foreground/30 px-2 text-sm">
                                     <span className="text-muted-foreground">Firma del responsable</span>
                                   </div>
                                 )}
@@ -4320,7 +4883,12 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                         {bloque.tipo === "grafico" ? (
                           <GraficoBloqueView bloque={bloque as GraficoBloque} colors={paleta.colors} estiloPlantilla={(config.plantilla as any)?.estiloGraficos} />
                         ) : bloque.tipo === "tabla" ? (
-                          <TablaBloqueView bloque={bloque as TablaBloque} colors={paleta.colors} estiloPlantilla={(config.plantilla as any)?.estiloTablas} />
+                          <TablaBloqueView
+                            bloque={bloque as TablaBloque}
+                            colors={paleta.colors}
+                            estiloPlantilla={(config.plantilla as any)?.estiloTablas}
+                            onReorderColumns={(nextCols) => setTablaColumnOrder(bloque.id, nextCols)}
+                          />
                         ) : (
                           <TextoBloqueView bloque={bloque as TextoBloque} />
                         )}

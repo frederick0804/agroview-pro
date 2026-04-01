@@ -33,7 +33,7 @@ interface NavItem {
 // ─── Items de navegación ──────────────────────────────────────────────────────
 
 const navItems: NavItem[] = [
-  { label: "Dashboard",           icon: LayoutDashboard, path: "/",                 modulo: "dashboard",         iconColor: "text-sky-400" },
+  { label: "Dashboard",           icon: LayoutDashboard, path: "/",                 modulo: "dashboard",         iconColor: "text-sky-400", excludedRoles: ["supervisor", "lector"] },
   { label: "Laboratorio",         icon: FlaskConical,    path: "/laboratorio",      modulo: "laboratorio",       iconColor: "text-violet-400" },
   { label: "Vivero",              icon: Sprout,          path: "/vivero",           modulo: "vivero",            iconColor: "text-emerald-400" },
   { label: "Cultivo",             icon: Leaf,            path: "/cultivo",          modulo: "cultivo",           iconColor: "text-green-400" },

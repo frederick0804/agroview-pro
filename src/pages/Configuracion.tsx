@@ -5,6 +5,7 @@ import { MainLayout }  from "@/components/layout/MainLayout";
 import { PageHeader }  from "@/components/layout/PageHeader";
 import { EditableTable, Column } from "@/components/tables/EditableTable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input }   from "@/components/ui/input";
 import { Label }   from "@/components/ui/label";
 import { Button }  from "@/components/ui/button";
@@ -27,7 +28,7 @@ import {
   Trash2, Info, CheckCircle2, Check, Clock, Archive, Leaf, Search, Copy, History,
   ChevronDown, RotateCcw, Power, XCircle, LayoutList, ArrowLeftRight, Lock, CheckSquare, Square, ListFilter, Zap,
   Ruler, Scale, Network, ChevronRight, ArrowUp, ArrowDown, Map as MapIcon, MoreHorizontal, Tag,
-  Hash, ToggleLeft, Image as ImageIcon, Link2, UserX, UserCheck,
+  Hash, ToggleLeft, Image as ImageIcon, Link2, UserX, UserCheck, SlidersHorizontal,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { useTheme, DEFAULT_THEME } from "@/contexts/ThemeContext";
@@ -673,7 +674,7 @@ function LibParamForm({
 // Hub central: tarjetas de formularios con campos inline, biblioteca en Sheet,
 // gestión de versiones y configuración avanzada de campos.
 
-function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) => void }) {
+function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?: (v: boolean) => void; highlightDefId?: string }) {
   const {
     definiciones, allDefiniciones, parametros, datos, cultivos, allCultivos, parametrosLib,
     addDef, addEvento, updDef, delDef, dupDef, copyDefToClient,
@@ -732,6 +733,38 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
   const [showCopyDialog,        setShowCopyDialog]        = useState(false);
   const [copySourceClienteId,   setCopySourceClienteId]   = useState<number | null>(null);
   const [copySelectedDefs,      setCopySelectedDefs]      = useState<Set<string>>(new Set());
+
+  // ── Highlight: formulario resaltado al llegar desde "Editar campos" ─────────
+  const [highlightedRootId, setHighlightedRootId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightRowRef   = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!highlightDefId || allDefiniciones.length === 0) return;
+    // Resolve rootId from defId
+    const def = allDefiniciones.find(d => d.id === highlightDefId);
+    if (!def) return;
+    const rootId = def.origen_id ?? def.id;
+    // Auto-expand in both view modes
+    setExpandedCampos(prev => new Set(prev).add(rootId));
+    setListExpandedRows(prev => new Set(prev).add(rootId));
+    setHighlightedRootId(rootId);
+    // Clear highlight after 4 s
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => setHighlightedRootId(null), 4000);
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  // Only run once on mount / when allDefiniciones first loads
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightDefId, allDefiniciones.length > 0]);
+
+  // Scroll to highlighted row once it appears in DOM
+  useEffect(() => {
+    if (!highlightedRootId || !highlightRowRef.current) return;
+    const el = highlightRowRef.current;
+    setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "center" }), 120);
+  }, [highlightedRootId]);
 
   // Reset productor cuando cambia el cliente
   useEffect(() => {
@@ -1134,20 +1167,41 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               <Layers className="w-3.5 h-3.5" />
             </button>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setShowBiblioteca(true)}>
-            <BookOpen className="w-4 h-4 mr-1.5" />
-            Biblioteca
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" onClick={() => setShowBiblioteca(true)}>
+                <BookOpen className="w-4 h-4 mr-1.5" />
+                Biblioteca
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Biblioteca de parametros reutilizables para tus formularios.
+            </TooltipContent>
+          </Tooltip>
           {isSuperAdmin && selectedClienteFilter !== null && (
-            <Button variant="outline" size="sm" onClick={() => setShowCopyDialog(true)}>
-              <Copy className="w-4 h-4 mr-1.5" />
-              Copiar desde empresa
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" onClick={() => setShowCopyDialog(true)}>
+                  <Copy className="w-4 h-4 mr-1.5" />
+                  Copiar desde empresa
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Duplica formularios existentes desde otra empresa a la seleccionada.
+              </TooltipContent>
+            </Tooltip>
           )}
-          <Button size="sm" onClick={() => openNewDefModal()}>
-            <Plus className="w-4 h-4 mr-1.5" />
-            Nueva definición
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="sm" onClick={() => openNewDefModal()}>
+                <Plus className="w-4 h-4 mr-1.5" />
+                Nueva definición
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Crea un nuevo formulario y define sus campos.
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -1319,18 +1373,51 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
             const isListRow  = viewMode === "list";
             const isExpanded = isListRow ? listExpandedRows.has(rootId) : true;
 
+            const isHighlighted = highlightedRootId === rootId;
             return (
-              <div key={rootId} className={cn(
-                "flex flex-col",
-                isListRow
-                  ? cn(
-                      "bg-card transition-all duration-200",
-                      isExpanded
-                        ? "shadow-sm border border-border/60 rounded-lg mb-2" // Contenedor expandido con bordes redondeados y sombra
-                        : "hover:bg-muted/10 border-b border-border/20" // Fila compacta con hover sutil
-                    )
-                  : "bg-card border border-border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow",
-              )}>
+              <div
+                key={rootId}
+                ref={isHighlighted ? highlightRowRef : undefined}
+                className={cn(
+                  "flex flex-col transition-all duration-300",
+                  isListRow
+                    ? cn(
+                        "bg-card transition-all duration-200",
+                        isExpanded
+                          ? "shadow-sm border rounded-lg mb-2"
+                          : "hover:bg-muted/10 border-b border-border/20",
+                        isHighlighted && isExpanded
+                          ? "border-primary/50 shadow-[0_0_0_2px_hsl(var(--primary)/0.25),0_4px_16px_hsl(var(--primary)/0.30)]"
+                          : isExpanded
+                            ? "border-border/60"
+                            : "",
+                      )
+                    : cn(
+                        "bg-card border rounded-xl overflow-hidden shadow-sm hover:shadow-md",
+                        isHighlighted
+                          ? "border-primary/50 shadow-[0_0_0_2px_hsl(var(--primary)/0.25),0_4px_20px_hsl(var(--primary)/0.30)]"
+                          : "border-border",
+                      ),
+                )}
+              >
+
+                {/* -- Highlight banner (formulario seleccionado desde "Editar campos") -- */}
+                {isHighlighted && (
+                  <div className={cn(
+                    "flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-t-lg",
+                    "bg-primary/10 text-primary border-b border-primary/20",
+                    "animate-in slide-in-from-top-1 duration-300",
+                  )}>
+                    <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+                    Editando campos de este formulario
+                    <button
+                      onClick={() => setHighlightedRootId(null)}
+                      className="ml-auto text-primary/60 hover:text-primary transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
 
                 {/* -- Compact list row (solo en modo lista) --------------- */}
                 {isListRow && (
@@ -1338,8 +1425,8 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                     className={cn(
                       "flex items-center gap-2 px-4 py-2.5 cursor-pointer group/row select-none transition-colors",
                       isExpanded
-                        ? "bg-primary/5 border-b border-primary/20 rounded-t-lg" // Header expandido con fondo especial
-                        : "hover:bg-muted/30" // Hover normal para items colapsados
+                        ? cn("border-b", isHighlighted ? "bg-primary/5 border-primary/20 rounded-t-lg" : "bg-primary/5 border-primary/20 rounded-t-lg")
+                        : "hover:bg-muted/30",
                     )}
                     onClick={() => toggleListRow(rootId)}
                   >
@@ -1986,10 +2073,17 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                   {activeParametrosCount} parámetro{activeParametrosCount !== 1 ? "s" : ""} activo{activeParametrosCount !== 1 ? "s" : ""} en Biblioteca.
                 </p>
               </div>
-              <Button type="button" size="sm" variant="outline" onClick={openBibliotecaFlow}>
-                <BookOpen className="w-3.5 h-3.5 mr-1" />
-                Biblioteca
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" size="sm" variant="outline" onClick={openBibliotecaFlow}>
+                    <BookOpen className="w-3.5 h-3.5 mr-1" />
+                    Biblioteca
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Abre la biblioteca de parametros base para agregar campos al formulario.
+                </TooltipContent>
+              </Tooltip>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
@@ -2035,78 +2129,55 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               </button>
             </div>
 
-            <div className="space-y-1">
-              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+            {/* Step progress bar + circles */}
+            <div className="space-y-2">
+              <div className="relative flex items-center">
+                {/* Track */}
+                <div className="absolute left-0 right-0 h-0.5 bg-muted top-1/2 -translate-y-1/2" />
                 <div
-                  className="h-full rounded-full bg-primary transition-all duration-300"
+                  className="absolute left-0 h-0.5 bg-primary transition-all duration-300 top-1/2 -translate-y-1/2"
                   style={{ width: `${((newDefStepIndex - 1) / 2) * 100}%` }}
                 />
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-[11px]">
-                {[
-                  { id: 1, label: "Básico" },
-                  { id: 2, label: "Avanzado" },
-                  { id: 3, label: "Campos" },
-                ].map(step => {
-                  const isActive = newDefStepIndex === step.id;
-                  const isDone = newDefStepIndex > step.id;
-                  return (
-                    <div key={step.id} className="flex items-center gap-1.5">
-                      <span
-                        className={cn(
-                          "inline-flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-semibold",
-                          isActive || isDone
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-background text-muted-foreground border-border",
-                        )}
-                      >
-                        {step.id}
-                      </span>
-                      <span className={cn(
-                        "truncate",
-                        isActive || isDone ? "text-primary font-medium" : "text-muted-foreground",
-                      )}>
-                        {step.label}
-                      </span>
-                    </div>
-                  );
-                })}
+                {/* Circles */}
+                <div className="relative z-10 flex justify-between w-full">
+                  {[
+                    { id: 1, label: "Básico" },
+                    { id: 2, label: "Avanzado" },
+                    { id: 3, label: "Campos" },
+                  ].map(step => {
+                    const isActive = newDefStepIndex === step.id;
+                    const isDone   = newDefStepIndex > step.id;
+                    return (
+                      <div key={step.id} className="flex flex-col items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (step.id === 1) setNewDefStep("basico");
+                            else if (step.id === 2 && newDefAdvancedUnlocked) setNewDefStep("avanzado");
+                            else if (step.id === 3 && newDefCamposUnlocked) setNewDefStep("campos");
+                          }}
+                          className={cn(
+                            "w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all",
+                            isDone   ? "bg-primary border-primary text-primary-foreground" :
+                            isActive ? "bg-primary border-primary text-primary-foreground ring-2 ring-primary/30" :
+                                       "bg-background border-muted-foreground/30 text-muted-foreground",
+                          )}
+                        >
+                          {isDone ? <Check className="w-3.5 h-3.5" /> : step.id}
+                        </button>
+                        <span className={cn("text-[10px] font-medium", isActive ? "text-primary" : "text-muted-foreground")}>
+                          {step.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
             <div key={newDefStep} className="wizard-step-in">
             {newDefStep === "basico" ? (
               <>
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground uppercase tracking-wider">Plantilla rápida</Label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {NEW_DEF_TEMPLATES.map(template => {
-                      const active = template.modulo === newDefForm.modulo && template.tipo === newDefForm.tipo;
-                      return (
-                        <button
-                          key={template.id}
-                          type="button"
-                          onClick={() => setNewDefForm(prev => ({
-                            ...prev,
-                            modulo: template.modulo,
-                            tipo: template.tipo,
-                            descripcion: prev.descripcion || template.descripcion,
-                          }))}
-                          className={cn(
-                            "text-left rounded-lg border px-3 py-2 transition-colors",
-                            active
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:border-primary/40 hover:bg-muted/30",
-                          )}
-                        >
-                          <p className="text-sm font-medium text-foreground">{template.label}</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">{template.hint}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground uppercase tracking-wider">
                     Nombre del formulario <span className="text-destructive">*</span>
@@ -2391,19 +2462,20 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
                 </div>
 
                 <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
-                  <p className="font-medium text-foreground mb-1">Checklist final</p>
-                  <p className="flex items-center gap-1.5">
-                    <span>{newDefStep2Completed ? "?" : "?"}</span>
-                    Paso 2 completado
-                  </p>
-                  <p className="flex items-center gap-1.5">
-                    <span>{newDefStep3Completed ? "?" : "?"}</span>
-                    Al menos 1 campo seleccionado
-                  </p>
-                  <p className="flex items-center gap-1.5">
-                    <span>{newDefStep === "campos" ? "?" : "?"}</span>
-                    Estás en paso 3
-                  </p>
+                  <p className="font-medium text-foreground mb-2">Checklist final</p>
+                  {[
+                    { ok: newDefStep2Completed,      label: "Paso 2 completado" },
+                    { ok: newDefStep3Completed,      label: "Al menos 1 campo seleccionado" },
+                    { ok: newDefStep === "campos",   label: "Estás en paso 3" },
+                  ].map(({ ok, label }) => (
+                    <p key={label} className="flex items-center gap-1.5 mb-1">
+                      {ok
+                        ? <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                        : <div className="w-3.5 h-3.5 rounded-full border border-muted-foreground/40 shrink-0" />
+                      }
+                      <span className={ok ? "text-foreground" : ""}>{label}</span>
+                    </p>
+                  ))}
                 </div>
               </div>
             )}
@@ -4335,7 +4407,7 @@ function TabFormularios({ onPendingChange }: { onPendingChange?: (v: boolean) =>
               {/* Footer */}
               <div className="px-4 py-3 border-t border-border flex items-center justify-between shrink-0 bg-muted/20">
                 <p className="text-[10px] text-muted-foreground">
-                  {allUsers.length} usuarios ? {allAccesos.length} con override
+                  {allUsers.length} usuarios &middot; {allAccesos.length} con override
                 </p>
                 {allAccesos.length > 0 && (
                   <button
@@ -4550,7 +4622,7 @@ function TabCultivos() {
     <>
     <div className="space-y-4">
       <InfoBanner storageKey="cultivos">
-        <strong>Cultivos</strong> ? gestiona cultivos activos, sus variedades y qué formularios aplican sólo a ese cultivo o a todos.
+        <strong>Cultivos</strong> &middot; gestiona cultivos activos, sus variedades y qué formularios aplican sólo a ese cultivo o a todos.
       </InfoBanner>
 
       {/* -- Banner empresa filtrada (super_admin) ----------------------- */}
@@ -5844,7 +5916,7 @@ function TabEmpresas() {
   return (
     <div className="space-y-4">
       <InfoBanner storageKey="empresas">
-        <strong>Empresas</strong> ? gestiona clientes de la plataforma y sus productores internos.
+        <strong>Empresas</strong> &middot; gestiona clientes de la plataforma y sus productores internos.
         Solo el <strong>superadministrador</strong> puede crear, editar o eliminar empresas y productores.
       </InfoBanner>
 
@@ -8202,7 +8274,10 @@ function TabUsuarios() {
 const Configuracion = () => {
   const [searchParams] = useSearchParams();
   const validTabs      = ["cultivos", "formularios", "usuarios"];
-  const initialTab     = validTabs.includes(searchParams.get("tab") ?? "") ? (searchParams.get("tab") ?? "cultivos") : "cultivos";
+  // "campos" is an alias for "formularios" used by the "Editar campos del formulario" button
+  const rawTab         = searchParams.get("tab") ?? "";
+  const initialTab     = rawTab === "campos" ? "formularios" : validTabs.includes(rawTab) ? rawTab : "cultivos";
+  const highlightDefId = searchParams.get("def") ?? undefined;
 
   const [activeTab, setActiveTab] = useState(initialTab);
   const { hasPendingChanges: hasPending, setHasPendingChanges: setHasPending } = useConfig();
@@ -8267,7 +8342,7 @@ const Configuracion = () => {
     <MainLayout>
       <PageHeader
         title="Configuración"
-        description={`Cultivos, formularios y usuarios ? ${currentClienteName}`}
+        description={`Cultivos, formularios y usuarios \u00B7 ${currentClienteName}`}
         actions={
           <Button
             variant="outline"
@@ -8331,7 +8406,7 @@ const Configuracion = () => {
           <TabCultivos />
         </TabsContent>
         <TabsContent value="formularios">
-          <TabFormularios onPendingChange={setHasPending} />
+          <TabFormularios onPendingChange={setHasPending} highlightDefId={highlightDefId} />
         </TabsContent>
         <TabsContent value="empresas">
           <TabEmpresas />
@@ -8486,7 +8561,6 @@ const Configuracion = () => {
                 {[
                   { label: "Notificaciones por Email", desc: "Recibir alertas importantes por correo",     checked: true  },
                   { label: "Auto-guardado",            desc: "Guardar cambios automáticamente en tablas",  checked: true  },
-                  { label: "Multi-tenant activo",      desc: "Habilitar aislamiento de datos por empresa", checked: true  },
                 ].map(item => (
                   <div key={item.label} className="flex items-center justify-between gap-4">
                     <div className="min-w-0">

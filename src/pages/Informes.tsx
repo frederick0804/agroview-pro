@@ -1,10 +1,11 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { InformesBuilder, type BuilderConfig, type CampoEncabezado, type FuenteCampo } from "./InformesBuilder";
+import { InformesBuilder, type BuilderConfig, type GraficoBloque, type ReporteBloque, type TablaBloque, type TextoBloque } from "./InformesBuilder";
 import { InformeVersionDialog } from "@/components/dashboard/InformeVersionDialog";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -38,7 +39,6 @@ import {
   Clock,
   Archive,
   Play,
-  History,
   Info,
   FileSpreadsheet,
   FileBarChart,
@@ -66,6 +66,9 @@ import {
   RotateCcw,
   ArrowLeftRight,
   Copy,
+  Sparkles,
+  Bot,
+  PenLine,
 } from "lucide-react";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -131,6 +134,26 @@ interface InformeGeneracion {
   estado: EstadoGeneracion;
   registros_procesados?: number;
   tiempo_ms?: number;
+}
+
+type TextoBloqueDetalle = TextoBloque & {
+  ordenGlobal: number;
+  referencia: string;
+  tituloVista: string;
+};
+
+interface PreviewSnapshot {
+  seed: string;
+  generatedAt: string;
+  periodoLabel: string;
+  clienteLabel: string;
+  productorLabel: string;
+  cultivoLabel: string;
+  definicionesLabel: string;
+  estructuraLabel: string;
+  registros: number;
+  lotes: number;
+  cumplimiento: number;
 }
 
 // ─── Datos demo ───────────────────────────────────────────────────────────────
@@ -793,6 +816,36 @@ function formatMs(ms: number) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function toDateInputValue(date: Date): string {
+  const y = date.getFullYear();
+  const m = `${date.getMonth() + 1}`.padStart(2, "0");
+  const d = `${date.getDate()}`.padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function toLocalDateKey(value: string): string {
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return "";
+  return toDateInputValue(dt);
+}
+
+function hashText(value: string): number {
+  let h = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    h = (h * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return h;
+}
+
+function normalizeFieldLabel(value: string): string {
+  if (!value) return "Campo";
+  return value
+    .replace(/[_.-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 // ─── NavItem ──────────────────────────────────────────────────────────────────
 
 interface NavItemProps {
@@ -1061,11 +1114,13 @@ function GeneracionRow({
   informeNombre,
   categoriaCfg,
   onClick,
+  onDownload,
 }: {
   gen: InformeGeneracion;
   informeNombre: string;
   categoriaCfg: (typeof CATEGORIA_CONFIG)[CategoriaInforme];
   onClick?: () => void;
+  onDownload?: (gen: InformeGeneracion) => void;
 }) {
   const CatIcon = categoriaCfg.icon;
   const estadoCfg: Record<EstadoGeneracion, { label: string; color: string; icon: React.ElementType }> = {
@@ -1128,6 +1183,17 @@ function GeneracionRow({
           <span>{(gen.tiempo_ms / 1000).toFixed(1)}s</span>
         )}
       </div>
+
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDownload?.(gen);
+        }}
+        className="h-7 px-2 rounded-md border border-border text-[10px] text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-muted/50 transition-colors flex items-center gap-1"
+        title="Descargar"
+      >
+        <Download className="w-3 h-3" /> Descargar
+      </button>
     </div>
   );
 }
@@ -1488,7 +1554,6 @@ function VersionesTabContent({
 
 interface DetailPanelProps {
   informe: Informe;
-  generaciones: InformeGeneracion[];
   canAccess: boolean;
   canExport: boolean;
   canCreate: boolean;
@@ -1505,7 +1570,6 @@ interface DetailPanelProps {
 
 function DetailPanel({
   informe,
-  generaciones,
   canAccess,
   canExport,
   canCreate,
@@ -1528,6 +1592,165 @@ function DetailPanel({
   const [fechaHasta, setFechaHasta] = useState(new Date().toISOString().split("T")[0]);
   const [generando, setGenerando] = useState(false);
   const [generacionOk, setGeneracionOk] = useState(false);
+  const [generandoIA, setGenerandoIA] = useState(false);
+  const [pendienteGuardar, setPendienteGuardar] = useState(false);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [textoBloqueValues, setTextoBloqueValues] = useState<Record<string, string>>({});
+  const [aiFilledIds, setAiFilledIds] = useState<Set<string>>(new Set());
+  const [previewSnapshot, setPreviewSnapshot] = useState<PreviewSnapshot | null>(null);
+  const [bloqueTextoActivoId, setBloqueTextoActivoId] = useState<string | null>(null);
+  const previewBlocksScrollRef = useRef<HTMLDivElement>(null);
+  const previewBlockRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const SUBTIPO_TEXTO_LABEL: Record<TextoBloque["subtipo"], string> = {
+    observaciones: "Observacion",
+    conclusiones: "Conclusion",
+    descripcion: "Descripcion",
+    libre: "Texto libre",
+  };
+
+  // Text blocks derived from template
+  const textBloques = useMemo(() =>
+    (informe.builderConfig?.bloques ?? []).filter((b): b is TextoBloque => b.tipo === "texto"),
+    [informe.builderConfig]
+  );
+
+  const textBloquesDetalle = useMemo<TextoBloqueDetalle[]>(() => {
+    const totals: Record<TextoBloque["subtipo"], number> = {
+      observaciones: 0,
+      conclusiones: 0,
+      descripcion: 0,
+      libre: 0,
+    };
+    textBloques.forEach((tb) => {
+      totals[tb.subtipo] += 1;
+    });
+
+    const counters: Record<TextoBloque["subtipo"], number> = {
+      observaciones: 0,
+      conclusiones: 0,
+      descripcion: 0,
+      libre: 0,
+    };
+
+    return textBloques.map((tb, idx) => {
+      counters[tb.subtipo] += 1;
+      const referenciaBase = SUBTIPO_TEXTO_LABEL[tb.subtipo];
+      const referencia = totals[tb.subtipo] > 1
+        ? `${referenciaBase} ${counters[tb.subtipo]}`
+        : referenciaBase;
+      const titulo = tb.titulo?.trim();
+
+      return {
+        ...tb,
+        ordenGlobal: idx + 1,
+        referencia,
+        tituloVista: titulo || referencia,
+      };
+    });
+  }, [textBloques]);
+
+  const textBloquesDetalleById = useMemo(
+    () => new Map(textBloquesDetalle.map((tb) => [tb.id, tb])),
+    [textBloquesDetalle],
+  );
+
+  useEffect(() => {
+    if (!pendienteGuardar) return;
+    if (textBloquesDetalle.length === 0) {
+      setBloqueTextoActivoId(null);
+      return;
+    }
+
+    if (!bloqueTextoActivoId || !textBloquesDetalleById.has(bloqueTextoActivoId)) {
+      setBloqueTextoActivoId(textBloquesDetalle[0].id);
+    }
+  }, [pendienteGuardar, bloqueTextoActivoId, textBloquesDetalle, textBloquesDetalleById]);
+
+  useEffect(() => {
+    if (pendienteGuardar) {
+      setPreviewModalOpen(true);
+    }
+  }, [pendienteGuardar]);
+
+  const handleTextoBloqueChange = (bloqueId: string, value: string) => {
+    setTextoBloqueValues((prev) => ({ ...prev, [bloqueId]: value }));
+    setBloqueTextoActivoId(bloqueId);
+  };
+
+  const setPreviewBlockRef = (bloqueId: string) => (el: HTMLDivElement | null) => {
+    previewBlockRefs.current[bloqueId] = el;
+  };
+
+  const scrollToPreviewBlock = (bloqueId: string, behavior: ScrollBehavior = "smooth") => {
+    const container = previewBlocksScrollRef.current;
+    const target = previewBlockRefs.current[bloqueId];
+    if (!container || !target) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const nextTop = container.scrollTop + (targetRect.top - containerRect.top) - 12;
+    container.scrollTo({ top: Math.max(0, nextTop), behavior });
+  };
+
+  useEffect(() => {
+    if (!previewModalOpen || !bloqueTextoActivoId) return;
+    const frame = requestAnimationFrame(() => {
+      scrollToPreviewBlock(bloqueTextoActivoId, "smooth");
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [previewModalOpen, bloqueTextoActivoId]);
+
+  // Simulated AI content per subtipo
+  const AI_DEMO_CONTENT: Record<string, string> = {
+    observaciones: "Se observa un desempeño dentro de los parámetros esperados para el período analizado. Las variables monitoreadas presentan estabilidad con leves fluctuaciones atribuibles a condiciones climáticas estacionales. Se recomienda mantener el protocolo actual.",
+    conclusiones: "Los resultados obtenidos son consistentes con los objetivos planteados. El análisis confirma una tendencia positiva en los indicadores clave. Se sugiere continuar con el seguimiento mensual y ajustar los umbrales de alerta según los datos más recientes.",
+    descripcion: "El presente informe consolida la información recopilada durante el período de evaluación, integrando datos de múltiples fuentes para ofrecer una visión integral del estado operativo actual.",
+    libre: "Contenido generado automáticamente con base en los datos disponibles del período. Este campo puede ser editado según los requerimientos específicos del reporte.",
+  };
+
+  const buildDraftTextFromData = (subtipo: TextoBloque["subtipo"], snap: PreviewSnapshot) => {
+    if (subtipo === "observaciones") {
+      return `Durante ${snap.periodoLabel} se procesaron ${snap.registros} registros para ${snap.cultivoLabel}. El cumplimiento estimado fue de ${snap.cumplimiento}% con ${snap.lotes} lotes incluidos.`;
+    }
+    if (subtipo === "conclusiones") {
+      return `Los datos consolidados del cliente ${snap.clienteLabel} muestran estabilidad operacional. Se recomienda validar excepciones puntuales y continuar con seguimiento en el siguiente corte.`;
+    }
+    if (subtipo === "descripcion") {
+      return `Reporte generado para cliente ${snap.clienteLabel}, productor ${snap.productorLabel} y cultivo ${snap.cultivoLabel}. Definiciones aplicadas: ${snap.definicionesLabel}.`;
+    }
+    return `Texto base generado desde datos operativos (${snap.generatedAt}). Puedes editar este contenido antes de guardar el informe.`;
+  };
+
+  const handleGenerarIA = () => {
+    if (!canExport) return;
+    setGenerandoIA(true);
+    setGeneracionOk(false);
+    setPendienteGuardar(false);
+    // Simulate AI thinking (1.8s), then fill fields and transition to pre-save
+    setTimeout(() => {
+      const filled: Record<string, string> = {};
+      const filledIds = new Set<string>();
+      textBloques.forEach(b => {
+        const content = AI_DEMO_CONTENT[b.subtipo] ?? AI_DEMO_CONTENT.libre;
+        filled[b.id] = content;
+        filledIds.add(b.id);
+      });
+      setPreviewSnapshot(buildPreviewSnapshot());
+      setTextoBloqueValues(prev => ({ ...prev, ...filled }));
+      setAiFilledIds(filledIds);
+      setGenerandoIA(false);
+      setBloqueTextoActivoId(textBloques[0]?.id ?? null);
+      setPendienteGuardar(true);
+    }, 1800);
+  };
+
+  const handleGuardar = () => {
+    setPendienteGuardar(false);
+    setPreviewModalOpen(false);
+    setGeneracionOk(true);
+    setTimeout(() => setGeneracionOk(false), 4000);
+  };
 
   // ── Filtros avanzados ──────────────────────────────────────────────────────
   const [granularidad, setGranularidad] = useState<"dia" | "semana" | "mes" | "trimestre" | "año">("mes");
@@ -1572,13 +1795,24 @@ function DetailPanel({
 
   // ── Lógica de filtrado jerárquico contextual por roles ────────────────────
 
+  // Cliente efectivo para filtros/exportación: cliente_admin siempre queda fijado a su empresa.
+  const clienteSeleccionadoEfectivo = useMemo(() => {
+    if (currentUser?.role === "cliente_admin" && currentUser.clienteId !== undefined) {
+      return String(currentUser.clienteId);
+    }
+    return clienteSeleccionado;
+  }, [currentUser, clienteSeleccionado]);
+
   // Auto-configurar filtros según el rol del usuario
   useEffect(() => {
     if (!currentUser) return;
 
-    // Para cliente_admin: auto-seleccionar su cliente
-    if (currentUser.role === "cliente_admin" && clienteSeleccionado === "todos") {
-      setClienteSeleccionado(String(currentUser.clienteId));
+    // Para cliente_admin: fijar SIEMPRE su cliente (hard lock, evita override manual)
+    if (currentUser.role === "cliente_admin") {
+      const ownClienteId = String(currentUser.clienteId);
+      if (clienteSeleccionado !== ownClienteId) {
+        setClienteSeleccionado(ownClienteId);
+      }
     }
 
     // Para productor: auto-seleccionar su cliente y productor
@@ -1592,10 +1826,13 @@ function DetailPanel({
     }
   }, [currentUser, clienteSeleccionado, productorSeleccionado]);
 
+  const getProductorClienteId = (p: any): number | undefined => p?.clienteId ?? p?.cliente_id;
+
   const productoresFiltrados = useMemo(() => {
-    if (clienteSeleccionado === "todos") return productores;
-    return productores.filter(p => p.cliente_id === parseInt(clienteSeleccionado));
-  }, [clienteSeleccionado, productores]);
+    if (clienteSeleccionadoEfectivo === "todos") return productores;
+    const clienteId = parseInt(clienteSeleccionadoEfectivo, 10);
+    return productores.filter(p => getProductorClienteId(p) === clienteId);
+  }, [clienteSeleccionadoEfectivo, productores]);
 
   // Productores disponibles según el rol
   const productoresDisponibles = useMemo(() => {
@@ -1608,7 +1845,7 @@ function DetailPanel({
 
     // Cliente admin ve solo productores de su empresa
     if (currentUser.role === "cliente_admin") {
-      return productores.filter(p => p.cliente_id === currentUser.clienteId);
+      return productores.filter(p => getProductorClienteId(p) === currentUser.clienteId);
     }
 
     // Productor no ve selector de productores (solo el suyo)
@@ -1644,11 +1881,11 @@ function DetailPanel({
 
   // Resetear productor si cambia cliente
   useEffect(() => {
-    if (clienteSeleccionado !== "todos") {
+    if (clienteSeleccionadoEfectivo !== "todos") {
       const productoExists = productoresDisponibles.some(p => p.id === productorSeleccionado);
       if (!productoExists) setProductorSeleccionado("todos");
     }
-  }, [clienteSeleccionado, productoresDisponibles, productorSeleccionado]);
+  }, [clienteSeleccionadoEfectivo, productoresDisponibles, productorSeleccionado]);
 
   // Definiciones relacionadas con la categoría del informe
   const definicionesDisponibles = useMemo(() => {
@@ -1688,14 +1925,99 @@ function DetailPanel({
     );
   }, [granularidad, clienteSeleccionado, productorSeleccionado, cultivoSeleccionado, definicionesSeleccionadas, estructuraFiltros, currentUser]);
 
+  const periodoPreviewLabel = useMemo(() => {
+    if (granularidad === "dia" || granularidad === "semana") {
+      return `${fechaDesde} al ${fechaHasta}`;
+    }
+    if (granularidad === "mes") {
+      const month = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"][mesSeleccionado - 1] ?? "Mes";
+      return `${month} ${añoSeleccionado}`;
+    }
+    if (granularidad === "trimestre") {
+      return `Q${trimestreSeleccionado} ${añoSeleccionado}`;
+    }
+    return `${añoSeleccionado}`;
+  }, [granularidad, fechaDesde, fechaHasta, mesSeleccionado, trimestreSeleccionado, añoSeleccionado]);
+
+  const clientePreviewLabel = useMemo(() => {
+    if (clienteSeleccionadoEfectivo === "todos") return "Todos";
+    return clientes.find((c) => String(c.id) === clienteSeleccionadoEfectivo)?.nombre ?? "Cliente";
+  }, [clienteSeleccionadoEfectivo, clientes]);
+
+  const productorPreviewLabel = useMemo(() => {
+    if (productorSeleccionado === "todos") return "Todos";
+    const all = productoresDisponibles.length > 0 ? productoresDisponibles : productores;
+    return all.find((p) => p.id === productorSeleccionado)?.nombre ?? "Productor";
+  }, [productorSeleccionado, productoresDisponibles, productores]);
+
+  const cultivoPreviewLabel = useMemo(() => {
+    if (cultivoSeleccionado === "todos") return "Todos";
+    return cultivosDisponibles.find((c) => c.id === cultivoSeleccionado)?.nombre ?? "Cultivo";
+  }, [cultivoSeleccionado, cultivosDisponibles]);
+
+  const definicionesPreviewLabel = useMemo(() => {
+    if (definicionesSeleccionadas.length === 0) return "Todas";
+    const labels = definicionesDisponibles
+      .filter((d) => definicionesSeleccionadas.includes(d.id))
+      .map((d) => d.nombre);
+    if (labels.length === 0) return `${definicionesSeleccionadas.length} seleccionadas`;
+    if (labels.length <= 2) return labels.join(", ");
+    return `${labels[0]}, ${labels[1]} +${labels.length - 2}`;
+  }, [definicionesSeleccionadas, definicionesDisponibles]);
+
+  const estructuraPreviewLabel = useMemo(() => {
+    const entries = Object.entries(estructuraFiltros).filter(([, value]) => value && value !== "todos");
+    if (entries.length === 0) return "Sin filtros jerarquicos";
+    return entries
+      .map(([nivel, value]) => {
+        const nivelNumero = nivel.replace("nivel_", "");
+        const def = estructuraCultivoSeleccionado.find((e) => String(e.nivel) === nivelNumero);
+        return `${def?.label ?? `Nivel ${nivelNumero}`}: ${value}`;
+      })
+      .join(" | ");
+  }, [estructuraFiltros, estructuraCultivoSeleccionado]);
+
+  const buildPreviewSnapshot = (): PreviewSnapshot => {
+    const seed = [
+      informe.id,
+      Date.now().toString(),
+      formato,
+      granularidad,
+      clienteSeleccionadoEfectivo,
+      productorSeleccionado,
+      cultivoSeleccionado,
+      definicionesSeleccionadas.join(","),
+      JSON.stringify(estructuraFiltros),
+    ].join("|");
+
+    const h = hashText(seed);
+    return {
+      seed,
+      generatedAt: new Date().toLocaleString("es", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      periodoLabel: periodoPreviewLabel,
+      clienteLabel: clientePreviewLabel,
+      productorLabel: productorPreviewLabel,
+      cultivoLabel: cultivoPreviewLabel,
+      definicionesLabel: definicionesPreviewLabel,
+      estructuraLabel: estructuraPreviewLabel,
+      registros: 150 + (h % 420),
+      lotes: 10 + ((h >>> 3) % 55),
+      cumplimiento: 78 + ((h >>> 5) % 21),
+    };
+  };
+
   const cat = CATEGORIA_CONFIG[informe.categoria];
   const tipo = TIPO_CONFIG[informe.tipo_informe];
   const estado = ESTADO_CONFIG[informe.estado];
   const CatIcon = cat.icon;
   const TipoIcon = tipo.icon;
   const EstadoIcon = estado.icon;
-
-  const historiales = generaciones.filter((g) => g.informe_id === informe.id);
 
   const handleGenerar = () => {
     if (!canExport) return;
@@ -1720,7 +2042,7 @@ function DetailPanel({
       formato,
       periodo,
       organizacion: {
-        clienteId: clienteSeleccionado !== "todos" ? clienteSeleccionado : null,
+        clienteId: clienteSeleccionadoEfectivo !== "todos" ? clienteSeleccionadoEfectivo : null,
         productorId: productorSeleccionado !== "todos" ? productorSeleccionado : null,
       },
       cultivoId: cultivoSeleccionado !== "todos" ? cultivoSeleccionado : null,
@@ -1736,10 +2058,24 @@ function DetailPanel({
 
     setGenerando(true);
     setGeneracionOk(false);
+    setPendienteGuardar(false);
+    setAiFilledIds(new Set());
     setTimeout(() => {
       setGenerando(false);
-      setGeneracionOk(true);
-      setTimeout(() => setGeneracionOk(false), 4000);
+      const snapshot = buildPreviewSnapshot();
+      setPreviewSnapshot(snapshot);
+      if (textBloques.length > 0) {
+        const draftValues: Record<string, string> = {};
+        textBloques.forEach((tb) => {
+          draftValues[tb.id] = buildDraftTextFromData(tb.subtipo, snapshot);
+        });
+        setTextoBloqueValues((prev) => ({ ...prev, ...draftValues }));
+        setBloqueTextoActivoId(textBloques[0].id);
+        setPendienteGuardar(true);
+      } else {
+        setGeneracionOk(true);
+        setTimeout(() => setGeneracionOk(false), 4000);
+      }
     }, 2200);
   };
 
@@ -1765,7 +2101,7 @@ function DetailPanel({
       filtrosAutomaticos = {
         periodo,
         organizacion: {
-          clienteId: clienteSeleccionado !== "todos" ? clienteSeleccionado : null,
+          clienteId: clienteSeleccionadoEfectivo !== "todos" ? clienteSeleccionadoEfectivo : null,
           productorId: productorSeleccionado !== "todos" ? productorSeleccionado : null,
         },
         cultivoId: cultivoSeleccionado !== "todos" ? cultivoSeleccionado : null,
@@ -1797,6 +2133,53 @@ function DetailPanel({
 
     setSchedSaved(true);
     setTimeout(() => setSchedSaved(false), 2500);
+  };
+
+  const getChartPreviewData = (bloque: GraficoBloque) => {
+    const seed = hashText(`${previewSnapshot?.seed ?? informe.id}|chart|${bloque.id}`);
+    const points = Math.min(7, Math.max(4, (bloque.metricas?.length ?? 1) + 3));
+    const dimBase = normalizeFieldLabel(bloque.dimension || "periodo").split(" ")[0] || "Serie";
+
+    return Array.from({ length: points }).map((_, idx) => ({
+      label: `${dimBase} ${idx + 1}`,
+      value: 22 + ((seed + idx * 17) % 74),
+    }));
+  };
+
+  const getTablePreviewColumns = (bloque: TablaBloque) => {
+    const merged = [...(bloque.groupBy ?? []), ...(bloque.columnas ?? [])].filter(Boolean);
+    const unique = Array.from(new Set(merged));
+    if (unique.length === 0) return ["registro", "valor", "variacion"];
+    return unique.slice(0, 5);
+  };
+
+  const getTablePreviewRows = (bloque: TablaBloque) => {
+    const columns = getTablePreviewColumns(bloque);
+    const seed = hashText(`${previewSnapshot?.seed ?? informe.id}|table|${bloque.id}`);
+    const rowBase = cultivoPreviewLabel !== "Todos"
+      ? cultivoPreviewLabel
+      : productorPreviewLabel !== "Todos"
+        ? productorPreviewLabel
+        : "Registro";
+
+    return Array.from({ length: 5 }).map((_, rowIdx) => {
+      const row: Record<string, string> = {};
+      columns.forEach((col, colIdx) => {
+        if (colIdx === 0) {
+          row[col] = `${rowBase} ${rowIdx + 1}`;
+          return;
+        }
+
+        if (col.toLowerCase().includes("fecha")) {
+          row[col] = new Date(Date.now() - rowIdx * 24 * 60 * 60 * 1000).toLocaleDateString("es-CL");
+          return;
+        }
+
+        const value = 8 + ((seed + rowIdx * 23 + colIdx * 11) % 190);
+        row[col] = `${value}`;
+      });
+      return row;
+    });
   };
 
   return (
@@ -1889,15 +2272,6 @@ function DetailPanel({
               disabled={!canAccess}
             >
               <Play className="w-3 h-3" /> Generar
-            </TabsTrigger>
-            <TabsTrigger value="historial" className="text-xs gap-1.5 h-7 rounded-md">
-              <History className="w-3 h-3" />
-              Historial
-              {historiales.length > 0 && (
-                <span className="ml-0.5 text-[9px] bg-primary/10 text-primary px-1 py-px rounded-full">
-                  {historiales.length}
-                </span>
-              )}
             </TabsTrigger>
             <TabsTrigger value="programar" className="text-xs gap-1.5 h-7 rounded-md">
               <Calendar className="w-3 h-3" />
@@ -2548,105 +2922,445 @@ function DetailPanel({
             </div>
           ) : (
             <>
-              {/* Referencia a configuración de filtros */}
-              {hayFiltrosActivos && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200">
-                  <Sliders className="w-4 h-4 text-blue-600 flex-shrink-0" />
-                  <div className="flex-1">
-                    <p className="text-xs font-semibold text-blue-900">Filtros configurados</p>
-                    <p className="text-[10px] text-blue-700">
-                      Se aplicarán los filtros definidos en la pestaña Config.
+              {pendienteGuardar ? (
+                /* ── Pre-guardado: preview en vivo del documento ── */
+                <>
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-3 space-y-2">
+                    <p className="text-xs font-semibold text-foreground">Vista previa lista para revisar</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Abre el modal para revisar la plantilla completa con datos cargados y editar cualquier bloque antes de guardar.
                     </p>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" onClick={() => setPreviewModalOpen(true)} className="gap-1.5">
+                        <Eye className="w-3.5 h-3.5" /> Abrir vista previa
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setPreviewModalOpen(false);
+                          setPendienteGuardar(false);
+                        }}
+                      >
+                        Volver
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={handleGuardar} className="gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Guardar informe
+                      </Button>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => setTab("config")}
-                    className="text-[10px] px-2 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors font-medium"
-                  >
-                    Ver config
-                  </button>
-                </div>
-              )}
 
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">
-                    Formato de salida
-                  </Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(["excel", "pdf", "word", "csv"] as FormatoExport[]).map((f) => {
-                      const fc = FORMATO_CONFIG[f];
-                      const FIcon = fc.icon;
-                      return (
-                        <button
-                          key={f}
-                          onClick={() => setFormato(f)}
-                          className={cn(
-                            "flex flex-col items-center gap-1.5 py-3 px-2 rounded-lg border text-xs font-medium transition-all",
-                            formato === f
-                              ? "border-primary bg-primary/5 text-primary shadow-sm"
-                              : "border-border text-muted-foreground hover:border-primary/30",
-                          )}
+                  <Dialog open={previewModalOpen} onOpenChange={setPreviewModalOpen}>
+                    <DialogContent className="w-[96vw] max-w-6xl h-[92vh] p-0 gap-0 overflow-hidden !flex !flex-col">
+                      <div className="flex h-full min-h-0 flex-col">
+                        <DialogHeader className="px-4 py-3 border-b border-border bg-muted/20">
+                          <DialogTitle className="text-sm">Vista previa del informe</DialogTitle>
+                          <DialogDescription className="text-xs">
+                            Plantilla completa con datos cargados y edición directa por bloque.
+                          </DialogDescription>
+                        </DialogHeader>
+
+                        <div
+                          ref={previewBlocksScrollRef}
+                          onWheelCapture={(e) => {
+                            const container = previewBlocksScrollRef.current;
+                            if (!container) return;
+                            if (container.scrollHeight <= container.clientHeight) return;
+                            e.preventDefault();
+                            container.scrollTop += e.deltaY;
+                          }}
+                          className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 min-h-0"
                         >
-                          <FIcon className={cn("w-5 h-5", formato === f ? "text-primary" : fc.color)} />
-                          {fc.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
+                          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr),320px] gap-3 min-h-0 lg:items-start">
+                            {/* Documento en vivo */}
+                            <div className="order-1 rounded-lg border border-border overflow-hidden bg-white shadow-sm">
+                              {/* Encabezado del documento */}
+                              <div className="px-4 py-3 border-b border-border/60 bg-slate-50 flex items-center gap-3">
+                                <div className="w-7 h-7 rounded bg-primary flex items-center justify-center shrink-0">
+                                  <Globe className="w-3.5 h-3.5 text-primary-foreground" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[11px] font-bold text-foreground truncate">{informe.nombre}</p>
+                                  <p className="text-[9px] text-muted-foreground truncate">
+                                    {cat.label} · {new Date().toLocaleDateString("es", { day: "2-digit", month: "short", year: "numeric" })}
+                                  </p>
+                                </div>
+                              </div>
 
-              {!hayFiltrosActivos && (
-                <div className="p-3 rounded-lg border border-dashed border-border bg-muted/20">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Sliders className="w-3.5 h-3.5 text-muted-foreground" />
-                    <p className="text-xs font-semibold text-muted-foreground">Sin filtros configurados</p>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mb-2">
-                    El informe incluirá todos los datos disponibles. Configura filtros específicos para acotar los resultados.
-                  </p>
-                  <button
-                    onClick={() => setTab("config")}
-                    className="text-[10px] px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium"
-                  >
-                    Configurar filtros
-                  </button>
-                </div>
-              )}
+                              {previewSnapshot && (
+                                <div className="px-4 py-2.5 border-b border-border/60 bg-emerald-50/40">
+                                  <div className="flex items-center justify-between mb-1.5 gap-2">
+                                    <p className="text-[10px] font-semibold text-emerald-800">Datos cargados para vista previa</p>
+                                    <span className="text-[9px] text-emerald-700">{previewSnapshot.generatedAt}</span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1.5 mb-2">
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-white border border-emerald-200 text-emerald-800">Periodo: {previewSnapshot.periodoLabel}</span>
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-white border border-emerald-200 text-emerald-800">Cliente: {previewSnapshot.clienteLabel}</span>
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-white border border-emerald-200 text-emerald-800">Productor: {previewSnapshot.productorLabel}</span>
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-white border border-emerald-200 text-emerald-800">Cultivo: {previewSnapshot.cultivoLabel}</span>
+                                  </div>
+                                  <div className="grid grid-cols-3 gap-2">
+                                    <div className="rounded border border-emerald-200 bg-white px-2 py-1">
+                                      <p className="text-[9px] text-muted-foreground">Registros</p>
+                                      <p className="text-[11px] font-semibold text-foreground">{previewSnapshot.registros}</p>
+                                    </div>
+                                    <div className="rounded border border-emerald-200 bg-white px-2 py-1">
+                                      <p className="text-[9px] text-muted-foreground">Lotes</p>
+                                      <p className="text-[11px] font-semibold text-foreground">{previewSnapshot.lotes}</p>
+                                    </div>
+                                    <div className="rounded border border-emerald-200 bg-white px-2 py-1">
+                                      <p className="text-[9px] text-muted-foreground">Cumplimiento</p>
+                                      <p className="text-[11px] font-semibold text-foreground">{previewSnapshot.cumplimiento}%</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
 
-              <div className="pt-2">
-                <Button
-                  onClick={handleGenerar}
-                  disabled={generando}
-                  className="w-full gap-2"
-                  size="sm"
-                >
-                  {generando ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Generando…
-                    </>
-                  ) : generacionOk ? (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" /> ¡Informe generado!
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-4 h-4" /> Generar informe
-                    </>
+                              {/* Bloques del template en orden */}
+                              <div className="divide-y divide-border/30">
+                                {(informe.builderConfig?.bloques ?? []).map((bloque: ReporteBloque) => {
+                                  if (bloque.tipo === "texto") {
+                                    const tb = bloque as TextoBloque;
+                                    const detalle = textBloquesDetalleById.get(tb.id);
+                                    const isActive = bloqueTextoActivoId === tb.id;
+                                    const isAI = aiFilledIds.has(tb.id);
+                                    const value = textoBloqueValues[tb.id] ?? "";
+
+                                    return (
+                                      <div
+                                        key={tb.id}
+                                        ref={setPreviewBlockRef(tb.id)}
+                                        onClick={() => setBloqueTextoActivoId(tb.id)}
+                                        className={cn(
+                                          "px-3 py-2.5 transition-colors",
+                                          isActive
+                                            ? "bg-amber-50 border-l-2 border-amber-400"
+                                            : "bg-amber-50/30 hover:bg-amber-50/60",
+                                        )}
+                                      >
+                                        <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                                          <PenLine className="w-2.5 h-2.5 text-amber-500 shrink-0" />
+                                          <span className="text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                                            {detalle?.tituloVista || tb.titulo || "Texto"}
+                                          </span>
+                                          <span className="text-[9px] px-1 py-0.5 rounded bg-background border border-amber-200 text-amber-700">
+                                            Bloque {detalle?.ordenGlobal ?? "-"}
+                                          </span>
+                                          <span className="text-[9px] px-1 py-0.5 rounded bg-background border border-amber-200 text-amber-700">
+                                            {detalle?.referencia || tb.subtipo}
+                                          </span>
+                                          {isAI && (
+                                            <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-violet-100 text-violet-700">
+                                              <Bot className="w-2 h-2" /> IA
+                                            </span>
+                                          )}
+                                        </div>
+                                        <textarea
+                                          value={value}
+                                          onFocus={() => setBloqueTextoActivoId(tb.id)}
+                                          onChange={(e) => handleTextoBloqueChange(tb.id, e.target.value)}
+                                          placeholder={`Completa ${detalle?.referencia?.toLowerCase() || tb.subtipo}...`}
+                                          rows={value.length > 220 ? 6 : 4}
+                                          className={cn(
+                                            "w-full text-[11px] leading-relaxed whitespace-pre-wrap rounded border px-2 py-1.5 resize-y min-h-[86px] bg-white",
+                                            isActive
+                                              ? "border-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                              : "border-amber-100 focus:outline-none focus:ring-1 focus:ring-amber-300",
+                                          )}
+                                        />
+                                      </div>
+                                    );
+                                  }
+
+                                  if (bloque.tipo === "grafico") {
+                                    const grafico = bloque as GraficoBloque;
+                                    const points = getChartPreviewData(grafico);
+                                    const maxValue = Math.max(...points.map((p) => p.value), 1);
+                                    const avg = Math.round(points.reduce((acc, p) => acc + p.value, 0) / points.length);
+                                    const metrica = normalizeFieldLabel(grafico.metricas?.[0] || "valor");
+
+                                    return (
+                                      <div key={bloque.id} className="px-3 py-3 bg-sky-50/20">
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <BarChart2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                          <span className="text-[11px] font-semibold text-foreground truncate flex-1">
+                                            {grafico.titulo || "Grafico"}
+                                          </span>
+                                          <span className="text-[9px] px-1 py-0.5 rounded border border-blue-200 bg-white text-blue-700">
+                                            {metrica}
+                                          </span>
+                                        </div>
+                                        <div className="rounded border border-border bg-white p-2">
+                                          <div className="h-24 flex items-end gap-1.5">
+                                            {points.map((point) => (
+                                              <div key={point.label} className="flex-1 flex flex-col items-center justify-end gap-1">
+                                                <div
+                                                  className="w-full max-w-[20px] rounded-t bg-blue-400"
+                                                  style={{ height: `${Math.max(8, (point.value / maxValue) * 78)}px` }}
+                                                />
+                                                <span className="text-[8px] text-muted-foreground">{point.label}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                        <p className="text-[10px] text-muted-foreground mt-1.5">
+                                          Promedio: {avg} · Fuente: {grafico.fuentesSeleccionadas?.[0] || "Sin fuente"}
+                                        </p>
+                                      </div>
+                                    );
+                                  }
+
+                                  const tabla = bloque as TablaBloque;
+                                  const columns = getTablePreviewColumns(tabla);
+                                  const rows = getTablePreviewRows(tabla);
+
+                                  return (
+                                    <div key={bloque.id} className="px-3 py-3 bg-violet-50/20">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <Table2 className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                                        <span className="text-[11px] font-semibold text-foreground truncate flex-1">
+                                          {tabla.titulo || "Tabla"}
+                                        </span>
+                                        <span className="text-[9px] px-1 py-0.5 rounded border border-violet-200 bg-white text-violet-700">
+                                          {rows.length} filas
+                                        </span>
+                                      </div>
+                                      <div className="overflow-x-auto rounded border border-border bg-white">
+                                        <table className="min-w-full text-[10px]">
+                                          <thead className="bg-muted/40">
+                                            <tr>
+                                              {columns.map((col) => (
+                                                <th key={col} className="text-left px-2 py-1.5 font-semibold text-foreground border-b border-border whitespace-nowrap">
+                                                  {normalizeFieldLabel(col)}
+                                                </th>
+                                              ))}
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {rows.map((row, idx) => (
+                                              <tr key={`${bloque.id}_row_${idx}`} className={idx % 2 === 0 ? "bg-white" : "bg-muted/20"}>
+                                                {columns.map((col) => (
+                                                  <td key={`${bloque.id}_${idx}_${col}`} className="px-2 py-1.5 border-b border-border/40 text-foreground/90 whitespace-nowrap">
+                                                    {row[col] ?? "-"}
+                                                  </td>
+                                                ))}
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                      <p className="text-[10px] text-muted-foreground mt-1.5">
+                                        Definiciones: {previewSnapshot?.definicionesLabel || "Todas"} · Jerarquia: {previewSnapshot?.estructuraLabel || "Sin filtros"}
+                                      </p>
+                                    </div>
+                                  );
+                                })}
+
+                                {textBloques.length === 0 && (
+                                  <div className="px-3 py-3 text-center">
+                                    <p className="text-[10px] text-muted-foreground">Esta plantilla no tiene cuadros de texto editables.</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Navegacion de cuadros de texto */}
+                            <div className="order-2 rounded-lg border border-border bg-card/40 p-3 lg:max-h-full lg:overflow-y-auto">
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-[11px] font-semibold text-foreground">Mapa de textos</p>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {textBloquesDetalle.filter((tb) => (textoBloqueValues[tb.id] ?? "").trim().length > 0).length}/{textBloquesDetalle.length}
+                                </span>
+                              </div>
+                              <div className="space-y-1.5 max-h-[58vh] overflow-y-auto pr-1">
+                                {textBloquesDetalle.map((tb) => {
+                                  const isActive = bloqueTextoActivoId === tb.id;
+                                  const isAI = aiFilledIds.has(tb.id);
+                                  const isDone = (textoBloqueValues[tb.id] ?? "").trim().length > 0;
+
+                                  return (
+                                    <button
+                                      key={tb.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setBloqueTextoActivoId(tb.id);
+                                        scrollToPreviewBlock(tb.id);
+                                      }}
+                                      className={cn(
+                                        "w-full rounded-md border px-2 py-1.5 text-left transition-colors",
+                                        isActive ? "border-primary bg-primary/5" : "border-border bg-background hover:bg-muted/30",
+                                      )}
+                                    >
+                                      <div className="flex items-center gap-1 mb-0.5">
+                                        <span className="text-[9px] text-muted-foreground">Bloque {tb.ordenGlobal}</span>
+                                        {isAI && (
+                                          <span className="text-[8px] px-1 py-0.5 rounded bg-violet-100 text-violet-700">IA</span>
+                                        )}
+                                        {isDone && (
+                                          <span className="text-[8px] px-1 py-0.5 rounded bg-emerald-100 text-emerald-700">OK</span>
+                                        )}
+                                      </div>
+                                      <p className="text-[10px] font-semibold text-foreground truncate">{tb.tituloVista}</p>
+                                      <p className="text-[9px] text-muted-foreground truncate">{tb.referencia}</p>
+                                    </button>
+                                  );
+                                })}
+                                {textBloquesDetalle.length === 0 && (
+                                  <p className="text-[10px] text-muted-foreground text-center py-4">Sin cuadros de texto</p>
+                                )}
+                              </div>
+                              <p className="text-[9px] text-muted-foreground mt-2">
+                                Puedes editar directamente sobre la plantilla y usar este panel para saltar entre bloques.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="px-4 py-3 border-t border-border bg-background flex items-center justify-between gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setPreviewModalOpen(false);
+                              setPendienteGuardar(false);
+                            }}
+                          >
+                            Volver
+                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button size="sm" variant="outline" onClick={() => setPreviewModalOpen(false)}>
+                              Cerrar
+                            </Button>
+                            <Button onClick={handleGuardar} className="gap-2" size="sm">
+                              <CheckCircle2 className="w-4 h-4" /> Guardar informe
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </>
+              ) : (
+                /* ── Vista normal: configurar y generar ── */
+                <>
+                  {/* Referencia a configuración de filtros */}
+                  {hayFiltrosActivos && (
+                    <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200">
+                      <Sliders className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-xs font-semibold text-blue-900">Filtros configurados</p>
+                        <p className="text-[10px] text-blue-700">
+                          Se aplicarán los filtros definidos en la pestaña Config.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setTab("config")}
+                        className="text-[10px] px-2 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors font-medium"
+                      >
+                        Ver config
+                      </button>
+                    </div>
                   )}
-                </Button>
-                {generacionOk && (
-                  <div className="mt-2 flex items-center justify-center gap-2">
-                    <Button variant="outline" size="sm" className="gap-1.5 text-xs">
-                      <Download className="w-3.5 h-3.5" />
-                      Descargar {FORMATO_CONFIG[formato].label}
+
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">
+                        Formato de salida
+                      </Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(["excel", "pdf", "word", "csv"] as FormatoExport[]).map((f) => {
+                          const fc = FORMATO_CONFIG[f];
+                          const FIcon = fc.icon;
+                          return (
+                            <button
+                              key={f}
+                              onClick={() => setFormato(f)}
+                              className={cn(
+                                "flex flex-col items-center gap-1.5 py-3 px-2 rounded-lg border text-xs font-medium transition-all",
+                                formato === f
+                                  ? "border-primary bg-primary/5 text-primary shadow-sm"
+                                  : "border-border text-muted-foreground hover:border-primary/30",
+                              )}
+                            >
+                              <FIcon className={cn("w-5 h-5", formato === f ? "text-primary" : fc.color)} />
+                              {fc.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {!hayFiltrosActivos && (
+                    <div className="p-3 rounded-lg border border-dashed border-border bg-muted/20">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Sliders className="w-3.5 h-3.5 text-muted-foreground" />
+                        <p className="text-xs font-semibold text-muted-foreground">Sin filtros configurados</p>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mb-2">
+                        El informe incluirá todos los datos disponibles. Configura filtros específicos para acotar los resultados.
+                      </p>
+                      <button
+                        onClick={() => setTab("config")}
+                        className="text-[10px] px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium"
+                      >
+                        Configurar filtros
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="pt-2 grid grid-cols-2 gap-2">
+                    <Button
+                      onClick={handleGenerar}
+                      disabled={generando || generandoIA}
+                      className="gap-2"
+                      size="sm"
+                    >
+                      {generando ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" /> Generando…
+                        </>
+                      ) : generacionOk ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" /> ¡Guardado!
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-4 h-4" /> Generar
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      onClick={handleGenerarIA}
+                      disabled={generando || generandoIA}
+                      size="sm"
+                      className="gap-2 bg-violet-600 hover:bg-violet-700 text-white border-0"
+                    >
+                      {generandoIA ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" /> Redactando…
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" /> Generar con IA
+                        </>
+                      )}
                     </Button>
                   </div>
-                )}
-              </div>
+
+                  {generacionOk && (
+                    <div className="flex items-center justify-center gap-2">
+                      <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                        <Download className="w-3.5 h-3.5" />
+                        Descargar {FORMATO_CONFIG[formato].label}
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
 
               <p className="text-[10px] text-muted-foreground/60 text-center">
-                Los resultados se registran automáticamente en el historial.
+                Los resultados se registran automáticamente en la vista de Generados.
               </p>
 
               {canCreate && (
@@ -2666,73 +3380,6 @@ function DetailPanel({
                 </button>
               )}
             </>
-          )}
-        </TabsContent>
-
-        {/* HISTORIAL */}
-        <TabsContent
-          value="historial"
-          className="flex-1 overflow-y-auto px-4 py-3 mt-0"
-        >
-          {historiales.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-10 text-center">
-              <History className="w-8 h-8 text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground">Sin generaciones registradas</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {historiales.map((g) => {
-                const fc = FORMATO_CONFIG[g.formato];
-                const FIcon = fc.icon;
-                const isError = g.estado === "error";
-                return (
-                  <div
-                    key={g.id}
-                    className={cn(
-                      "flex items-start gap-3 p-3 rounded-lg border",
-                      isError
-                        ? "bg-rose-50/50 border-rose-200"
-                        : "bg-card border-border",
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "mt-0.5 p-1.5 rounded-md",
-                        isError ? "bg-rose-100" : "bg-muted",
-                      )}
-                    >
-                      <FIcon
-                        className={cn("w-3.5 h-3.5", isError ? "text-rose-500" : fc.color)}
-                      />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-medium truncate">{g.usuario}</span>
-                        <span
-                          className={cn(
-                            "text-[9px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0",
-                            isError
-                              ? "bg-rose-100 text-rose-600"
-                              : "bg-success/10 text-success",
-                          )}
-                        >
-                          {isError ? "Error" : "OK"}
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        {formatDateTime(g.fecha)}
-                      </p>
-                      {!isError && (
-                        <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
-                          <span>{g.registros_procesados?.toLocaleString()} registros</span>
-                          {g.tiempo_ms && <span>{formatMs(g.tiempo_ms)}</span>}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           )}
         </TabsContent>
 
@@ -3393,6 +4040,15 @@ const Informes = () => {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Informe | null>(null);
 
+  const todayDateInput = useMemo(() => toDateInputValue(new Date()), []);
+  const [genDateMode, setGenDateMode] = useState<"today" | "single" | "range">("today");
+  const [genSingleDate, setGenSingleDate] = useState(todayDateInput);
+  const [genDateFrom, setGenDateFrom] = useState(todayDateInput);
+  const [genDateTo, setGenDateTo] = useState(todayDateInput);
+  const [genUserFilter, setGenUserFilter] = useState<string>("all");
+  const [genInformeFilter, setGenInformeFilter] = useState<string>("all");
+  const [genModuloFilter, setGenModuloFilter] = useState<string>("all");
+
   // Builder state
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderTarget, setBuilderTarget] = useState<{
@@ -3619,6 +4275,13 @@ const Informes = () => {
   const changeNav = (nav: string) => {
     setActiveNav(nav);
     setSelectedId(null);
+    if (mainView === "generados") {
+      if (nav === "all") {
+        setGenModuloFilter("all");
+      } else if (CATEGORIES.includes(nav as CategoriaInforme)) {
+        setGenModuloFilter(nav);
+      }
+    }
   };
 
   // Is "grouped all" mode: all + no search/type/estado filters
@@ -3637,26 +4300,105 @@ const Informes = () => {
   //   EXCEPCIÓN: si tienen override "configurar" en informes → ven todo (hasGlobalInformesAccess)
   const isUserRestricted = ["supervisor", "lector"].includes(role) && !hasGlobalInformesAccess;
 
-  // ── Filtered generaciones (role-restricted) ──
-  const filteredGeneraciones = useMemo(() => {
+  const roleScopedGeneraciones = useMemo(() => {
     let list = generaciones;
 
-    // Restricción global de área
     if (isAreaRestricted && !hasGlobalInformesAccess) {
       list = list.filter((g) => allowedCategorias.includes(g.categoria) || g.categoria === "general");
     }
 
-    // Supervisor / lector: solo sus propias generaciones (dentro de su área)
     if (isUserRestricted && currentUser?.nombre) {
       list = list.filter((g) => g.usuario === currentUser.nombre);
     }
 
-    // Nav filter
+    return list;
+  }, [generaciones, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, isUserRestricted, currentUser?.nombre]);
+
+  const genUsuariosDisponibles = useMemo(
+    () => [...new Set(roleScopedGeneraciones.map((g) => g.usuario))].sort((a, b) => a.localeCompare(b, "es")),
+    [roleScopedGeneraciones],
+  );
+
+  const genInformesDisponibles = useMemo(
+    () =>
+      Array.from(
+        roleScopedGeneraciones.reduce((acc, g) => {
+          if (!acc.has(g.informe_id)) acc.set(g.informe_id, g.informe_nombre);
+          return acc;
+        }, new Map<string, string>()),
+      )
+        .map(([id, nombre]) => ({ id, nombre }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
+    [roleScopedGeneraciones],
+  );
+
+  const genModulosDisponibles = useMemo(
+    () => CATEGORIES.filter((cat) => roleScopedGeneraciones.some((g) => g.categoria === cat)),
+    [roleScopedGeneraciones],
+  );
+
+  useEffect(() => {
+    if (genUserFilter !== "all" && !genUsuariosDisponibles.includes(genUserFilter)) {
+      setGenUserFilter("all");
+    }
+  }, [genUserFilter, genUsuariosDisponibles]);
+
+  useEffect(() => {
+    if (genInformeFilter !== "all" && !genInformesDisponibles.some((i) => i.id === genInformeFilter)) {
+      setGenInformeFilter("all");
+    }
+  }, [genInformeFilter, genInformesDisponibles]);
+
+  useEffect(() => {
+    if (genModuloFilter !== "all" && !genModulosDisponibles.includes(genModuloFilter as CategoriaInforme)) {
+      setGenModuloFilter("all");
+    }
+  }, [genModuloFilter, genModulosDisponibles]);
+
+  const genHasActiveFilters =
+    genDateMode !== "today" ||
+    genUserFilter !== "all" ||
+    genInformeFilter !== "all" ||
+    genModuloFilter !== "all";
+
+  const generacionesFiltradasBase = useMemo(() => {
+    let list = roleScopedGeneraciones;
+
+    if (genModuloFilter !== "all") {
+      list = list.filter((g) => g.categoria === genModuloFilter);
+    }
+
+    if (genUserFilter !== "all") {
+      list = list.filter((g) => g.usuario === genUserFilter);
+    }
+
+    if (genInformeFilter !== "all") {
+      list = list.filter((g) => g.informe_id === genInformeFilter);
+    }
+
+    if (genDateMode === "today") {
+      list = list.filter((g) => toLocalDateKey(g.fecha) === todayDateInput);
+    } else if (genDateMode === "single") {
+      list = list.filter((g) => toLocalDateKey(g.fecha) === genSingleDate);
+    } else {
+      const from = genDateFrom <= genDateTo ? genDateFrom : genDateTo;
+      const to = genDateTo >= genDateFrom ? genDateTo : genDateFrom;
+      list = list.filter((g) => {
+        const key = toLocalDateKey(g.fecha);
+        return key >= from && key <= to;
+      });
+    }
+
+    return list;
+  }, [roleScopedGeneraciones, genModuloFilter, genUserFilter, genInformeFilter, genDateMode, genSingleDate, genDateFrom, genDateTo, todayDateInput]);
+
+  const filteredGeneraciones = useMemo(() => {
+    let list = generacionesFiltradasBase;
+
     if (activeNav !== "all" && activeNav !== "favoritos" && activeNav !== "programados") {
       list = list.filter((g) => g.categoria === activeNav);
     }
 
-    // Search
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
@@ -3667,27 +4409,76 @@ const Informes = () => {
     }
 
     return list.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-  }, [generaciones, activeNav, search, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, isUserRestricted, currentUser?.nombre]);
+  }, [generacionesFiltradasBase, activeNav, search]);
 
   const genNavCounts = useMemo(() => {
-    let base = generaciones;
-    if (isAreaRestricted && !hasGlobalInformesAccess) {
-      base = base.filter((g) => allowedCategorias.includes(g.categoria) || g.categoria === "general");
-    }
-    if (isUserRestricted && currentUser?.nombre) {
-      base = base.filter((g) => g.usuario === currentUser.nombre);
-    }
+    const base = generacionesFiltradasBase;
     const result: Record<string, number> = { all: base.length };
     CATEGORIES.forEach((cat) => {
       result[cat] = base.filter((g) => g.categoria === cat).length;
     });
     return result;
-  }, [generaciones, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, isUserRestricted, currentUser?.nombre]);
+  }, [generacionesFiltradasBase]);
 
   const handleDeleteInforme = (inf: Informe) => {
     setInformes((prev) => prev.filter((i) => i.id !== inf.id));
     if (selectedId === inf.id) setSelectedId(null);
     setDeleteTarget(null);
+  };
+
+  const resetGeneradosFilters = () => {
+    setGenDateMode("today");
+    setGenSingleDate(todayDateInput);
+    setGenDateFrom(todayDateInput);
+    setGenDateTo(todayDateInput);
+    setGenUserFilter("all");
+    setGenInformeFilter("all");
+    setGenModuloFilter("all");
+    setActiveNav("all");
+  };
+
+  const showLast30DaysGenerados = () => {
+    const today = new Date();
+    const from = new Date(today);
+    from.setDate(today.getDate() - 29);
+    setGenDateMode("range");
+    setGenDateFrom(toDateInputValue(from));
+    setGenDateTo(toDateInputValue(today));
+  };
+
+  const handleDownloadGeneracion = (gen: InformeGeneracion) => {
+    const extByFormat: Record<FormatoExport, string> = {
+      pdf: "pdf",
+      excel: "xlsx",
+      csv: "csv",
+      word: "docx",
+    };
+
+    const ext = extByFormat[gen.formato];
+    const safeName = gen.informe_nombre.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "informe";
+    const stamp = toLocalDateKey(gen.fecha) || toDateInputValue(new Date());
+    const filename = `${safeName}-${stamp}.${ext}`;
+
+    const content = [
+      `Informe: ${gen.informe_nombre}`,
+      `Usuario: ${gen.usuario}`,
+      `Fecha: ${formatDateTime(gen.fecha)}`,
+      `Categoría: ${CATEGORIA_CONFIG[gen.categoria].label}`,
+      `Formato: ${gen.formato.toUpperCase()}`,
+      `Estado: ${gen.estado}`,
+      `Registros: ${gen.registros_procesados ?? "N/D"}`,
+      `Tiempo: ${gen.tiempo_ms ? formatMs(gen.tiempo_ms) : "N/D"}`,
+    ].join("\n");
+
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -3718,7 +4509,12 @@ const Informes = () => {
                 </span>
               </button>
               <button
-                onClick={() => { setMainView("generados"); setActiveNav("all"); setSearch(""); setSelectedId(null); }}
+                onClick={() => {
+                  setMainView("generados");
+                  setSearch("");
+                  setSelectedId(null);
+                  resetGeneradosFilters();
+                }}
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
                   mainView === "generados"
@@ -3860,13 +4656,17 @@ const Informes = () => {
           )}
         >
           {/* Toolbar */}
-          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-muted/20">
+          <div className="flex items-center gap-2 flex-wrap px-4 py-2.5 border-b border-border bg-muted/20">
             <span className="text-xs text-muted-foreground flex-1">
               {mainView === "plantillas"
                 ? `${filtered.length} plantilla${filtered.length !== 1 ? "s" : ""}`
                 : `${filteredGeneraciones.length} generación${filteredGeneraciones.length !== 1 ? "es" : ""}`}
-              {(search.trim() || hasActiveFilters) && (
+              {((mainView === "plantillas" && (search.trim() || hasActiveFilters)) ||
+                (mainView === "generados" && (search.trim() || genHasActiveFilters))) && (
                 <span className="text-muted-foreground/60"> · filtrado</span>
+              )}
+              {mainView === "generados" && genDateMode === "today" && (
+                <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">Hoy</span>
               )}
             </span>
 
@@ -3908,7 +4708,138 @@ const Informes = () => {
                 )}
               </>
             )}
+
+            {/* Filtros de vista Generados */}
+            {mainView === "generados" && (
+              <>
+                <Select
+                  value={genDateMode}
+                  onValueChange={(v: "today" | "single" | "range") => {
+                    setGenDateMode(v);
+                    if (v === "today") {
+                      setGenSingleDate(todayDateInput);
+                      setGenDateFrom(todayDateInput);
+                      setGenDateTo(todayDateInput);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-7 text-xs w-[130px] bg-background">
+                    <SelectValue placeholder="Fecha" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="today">Hoy</SelectItem>
+                    <SelectItem value="single">Fecha específica</SelectItem>
+                    <SelectItem value="range">Rango de fechas</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {genDateMode === "single" && (
+                  <input
+                    type="date"
+                    value={genSingleDate}
+                    onChange={(e) => setGenSingleDate(e.target.value)}
+                    className="h-7 text-xs px-2 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                )}
+
+                {genDateMode === "range" && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={genDateFrom}
+                      onChange={(e) => setGenDateFrom(e.target.value)}
+                      className="h-7 text-xs px-2 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <span className="text-[10px] text-muted-foreground">a</span>
+                    <input
+                      type="date"
+                      value={genDateTo}
+                      onChange={(e) => setGenDateTo(e.target.value)}
+                      className="h-7 text-xs px-2 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                )}
+
+                <Select
+                  value={genModuloFilter}
+                  onValueChange={(v) => {
+                    setGenModuloFilter(v);
+                    setActiveNav(v === "all" ? "all" : v);
+                  }}
+                >
+                  <SelectTrigger className="h-7 text-xs w-[130px] bg-background">
+                    <SelectValue placeholder="Módulo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los módulos</SelectItem>
+                    {genModulosDisponibles.map((cat) => (
+                      <SelectItem key={cat} value={cat}>{CATEGORIA_CONFIG[cat].label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select value={genUserFilter} onValueChange={setGenUserFilter}>
+                  <SelectTrigger className="h-7 text-xs w-[140px] bg-background">
+                    <SelectValue placeholder="Usuario" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los usuarios</SelectItem>
+                    {genUsuariosDisponibles.map((u) => (
+                      <SelectItem key={u} value={u}>{u}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select value={genInformeFilter} onValueChange={setGenInformeFilter}>
+                  <SelectTrigger className="h-7 text-xs w-[180px] bg-background">
+                    <SelectValue placeholder="Informe" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los informes</SelectItem>
+                    {genInformesDisponibles.map((i) => (
+                      <SelectItem key={i.id} value={i.id}>{i.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {(genHasActiveFilters || search.trim()) && (
+                  <button
+                    onClick={() => {
+                      setSearch("");
+                      resetGeneradosFilters();
+                    }}
+                    className="h-7 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground border border-border hover:border-primary/30 flex items-center gap-1 transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                    Limpiar
+                  </button>
+                )}
+              </>
+            )}
           </div>
+
+          {mainView === "generados" && (
+            <div className="px-4 py-2 border-b border-border bg-card flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-muted/40 text-muted-foreground">
+                Fecha: {genDateMode === "today" ? "Hoy" : genDateMode === "single" ? genSingleDate : `${genDateFrom} → ${genDateTo}`}
+              </span>
+              {genModuloFilter !== "all" && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-muted/40 text-muted-foreground">
+                  Módulo: {CATEGORIA_CONFIG[genModuloFilter as CategoriaInforme]?.label ?? genModuloFilter}
+                </span>
+              )}
+              {genUserFilter !== "all" && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-muted/40 text-muted-foreground">
+                  Usuario: {genUserFilter}
+                </span>
+              )}
+              {genInformeFilter !== "all" && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-muted/40 text-muted-foreground">
+                  Informe: {genInformesDisponibles.find((i) => i.id === genInformeFilter)?.nombre ?? "Seleccionado"}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* List content */}
           <div>
@@ -3990,12 +4921,22 @@ const Informes = () => {
                   <div>
                     <p className="font-medium text-sm">Sin informes generados</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {isUserRestricted
-                        ? "Aún no has generado ningún informe."
-                        : isAreaRestricted
-                          ? "No hay informes generados para tu área."
-                          : "Todavía no se han generado informes."}
+                      {genDateMode === "today"
+                        ? "No hay generaciones para hoy con los filtros seleccionados."
+                        : isUserRestricted
+                          ? "Aún no has generado informes en ese filtro."
+                          : isAreaRestricted
+                            ? "No hay informes generados para tu área en ese filtro."
+                            : "No hay resultados para los filtros aplicados."}
                     </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" className="h-8 text-xs" onClick={showLast30DaysGenerados}>
+                      Ver últimos 30 días
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={resetGeneradosFilters}>
+                      Restablecer filtros
+                    </Button>
                   </div>
                 </div>
               ) : (
@@ -4019,6 +4960,7 @@ const Informes = () => {
                             gen={gen}
                             informeNombre={gen.informe_nombre}
                             categoriaCfg={catCfg}
+                            onDownload={handleDownloadGeneracion}
                           />
                         ))}
                       </div>
@@ -4031,6 +4973,7 @@ const Informes = () => {
                       gen={gen}
                       informeNombre={gen.informe_nombre}
                       categoriaCfg={CATEGORIA_CONFIG[gen.categoria]}
+                      onDownload={handleDownloadGeneracion}
                     />
                   ))
                 )
@@ -4045,7 +4988,6 @@ const Informes = () => {
             <DetailPanel
               key={selectedInforme.id}
               informe={selectedInforme}
-              generaciones={filteredGeneraciones}
               canAccess={canAccessInforme(selectedInforme)}
               canExport={canExport}
               canCreate={canEditInformeTemplate(selectedInforme)}

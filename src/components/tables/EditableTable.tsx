@@ -543,11 +543,15 @@ export function EditableTable<T extends { id: string | number }>({
   // Required columns
   const requiredKeys = columns.filter(c => c.required).map(c => c.key);
 
-  // Check if any row is missing required fields
+  // Check if any row is missing required fields.
+  // Only the actively-added new row (newRowId) counts as "pending" —
+  // pre-existing rows with empty required fields are already persisted
+  // and should NOT block navigation.
   const incompleteRowIds = new Set(
     requiredKeys.length > 0
       ? data
           .filter(row =>
+            row.id === newRowId &&   // only the freshly-added row
             requiredKeys.some(k => {
               const v = row[k];
               return v === undefined || v === null || v === "";
