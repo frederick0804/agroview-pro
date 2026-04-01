@@ -2129,92 +2129,55 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
               </button>
             </div>
 
-            <div className="space-y-1">
-              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+            {/* Step progress bar + circles */}
+            <div className="space-y-2">
+              <div className="relative flex items-center">
+                {/* Track */}
+                <div className="absolute left-0 right-0 h-0.5 bg-muted top-1/2 -translate-y-1/2" />
                 <div
-                  className="h-full rounded-full bg-primary transition-all duration-300"
+                  className="absolute left-0 h-0.5 bg-primary transition-all duration-300 top-1/2 -translate-y-1/2"
                   style={{ width: `${((newDefStepIndex - 1) / 2) * 100}%` }}
                 />
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-[11px]">
-                {[
-                  { id: 1, label: "Básico" },
-                  { id: 2, label: "Avanzado" },
-                  { id: 3, label: "Campos" },
-                ].map(step => {
-                  const isActive = newDefStepIndex === step.id;
-                  const isDone = newDefStepIndex > step.id;
-                  return (
-                    <div key={step.id} className="flex items-center gap-1.5">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-[11px]"
-                            onClick={() => openEventosSheetFlow({ defId: latest.id, rootId, modulo: latest.modulo, nombre: latest.nombre }, "list")}
-                          >
-                            Gestionar
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          Ver y editar todos los eventos asociados a este formulario.
-                        </TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size="sm"
-                            className="h-7 text-[11px] bg-amber-500 hover:bg-amber-600 text-white"
-                            onClick={() => openEventosSheetFlow({ defId: latest.id, rootId, modulo: latest.modulo, nombre: latest.nombre }, "new")}
-                          >
-                            <Plus className="w-3 h-3 mr-1" />
-                            Nuevo evento
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          Crea un formulario hijo de tipo evento para este registro.
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  );
-                })}
+                {/* Circles */}
+                <div className="relative z-10 flex justify-between w-full">
+                  {[
+                    { id: 1, label: "Básico" },
+                    { id: 2, label: "Avanzado" },
+                    { id: 3, label: "Campos" },
+                  ].map(step => {
+                    const isActive = newDefStepIndex === step.id;
+                    const isDone   = newDefStepIndex > step.id;
+                    return (
+                      <div key={step.id} className="flex flex-col items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (step.id === 1) setNewDefStep("basico");
+                            else if (step.id === 2 && newDefAdvancedUnlocked) setNewDefStep("avanzado");
+                            else if (step.id === 3 && newDefCamposUnlocked) setNewDefStep("campos");
+                          }}
+                          className={cn(
+                            "w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all",
+                            isDone   ? "bg-primary border-primary text-primary-foreground" :
+                            isActive ? "bg-primary border-primary text-primary-foreground ring-2 ring-primary/30" :
+                                       "bg-background border-muted-foreground/30 text-muted-foreground",
+                          )}
+                        >
+                          {isDone ? <Check className="w-3.5 h-3.5" /> : step.id}
+                        </button>
+                        <span className={cn("text-[10px] font-medium", isActive ? "text-primary" : "text-muted-foreground")}>
+                          {step.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
             <div key={newDefStep} className="wizard-step-in">
             {newDefStep === "basico" ? (
               <>
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground uppercase tracking-wider">Plantilla rápida</Label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {NEW_DEF_TEMPLATES.map(template => {
-                      const active = template.modulo === newDefForm.modulo && template.tipo === newDefForm.tipo;
-                      return (
-                        <button
-                          key={template.id}
-                          type="button"
-                          onClick={() => setNewDefForm(prev => ({
-                            ...prev,
-                            modulo: template.modulo,
-                            tipo: template.tipo,
-                            descripcion: prev.descripcion || template.descripcion,
-                          }))}
-                          className={cn(
-                            "text-left rounded-lg border px-3 py-2 transition-colors",
-                            active
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:border-primary/40 hover:bg-muted/30",
-                          )}
-                        >
-                          <p className="text-sm font-medium text-foreground">{template.label}</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">{template.hint}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground uppercase tracking-wider">
                     Nombre del formulario <span className="text-destructive">*</span>
@@ -2499,19 +2462,20 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                 </div>
 
                 <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
-                  <p className="font-medium text-foreground mb-1">Checklist final</p>
-                  <p className="flex items-center gap-1.5">
-                    <span>{newDefStep2Completed ? "?" : "?"}</span>
-                    Paso 2 completado
-                  </p>
-                  <p className="flex items-center gap-1.5">
-                    <span>{newDefStep3Completed ? "?" : "?"}</span>
-                    Al menos 1 campo seleccionado
-                  </p>
-                  <p className="flex items-center gap-1.5">
-                    <span>{newDefStep === "campos" ? "?" : "?"}</span>
-                    Estás en paso 3
-                  </p>
+                  <p className="font-medium text-foreground mb-2">Checklist final</p>
+                  {[
+                    { ok: newDefStep2Completed,      label: "Paso 2 completado" },
+                    { ok: newDefStep3Completed,      label: "Al menos 1 campo seleccionado" },
+                    { ok: newDefStep === "campos",   label: "Estás en paso 3" },
+                  ].map(({ ok, label }) => (
+                    <p key={label} className="flex items-center gap-1.5 mb-1">
+                      {ok
+                        ? <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                        : <div className="w-3.5 h-3.5 rounded-full border border-muted-foreground/40 shrink-0" />
+                      }
+                      <span className={ok ? "text-foreground" : ""}>{label}</span>
+                    </p>
+                  ))}
                 </div>
               </div>
             )}
@@ -4443,7 +4407,7 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
               {/* Footer */}
               <div className="px-4 py-3 border-t border-border flex items-center justify-between shrink-0 bg-muted/20">
                 <p className="text-[10px] text-muted-foreground">
-                  {allUsers.length} usuarios ? {allAccesos.length} con override
+                  {allUsers.length} usuarios &middot; {allAccesos.length} con override
                 </p>
                 {allAccesos.length > 0 && (
                   <button
@@ -4658,7 +4622,7 @@ function TabCultivos() {
     <>
     <div className="space-y-4">
       <InfoBanner storageKey="cultivos">
-        <strong>Cultivos</strong> ? gestiona cultivos activos, sus variedades y qué formularios aplican sólo a ese cultivo o a todos.
+        <strong>Cultivos</strong> &middot; gestiona cultivos activos, sus variedades y qué formularios aplican sólo a ese cultivo o a todos.
       </InfoBanner>
 
       {/* -- Banner empresa filtrada (super_admin) ----------------------- */}
@@ -5952,7 +5916,7 @@ function TabEmpresas() {
   return (
     <div className="space-y-4">
       <InfoBanner storageKey="empresas">
-        <strong>Empresas</strong> ? gestiona clientes de la plataforma y sus productores internos.
+        <strong>Empresas</strong> &middot; gestiona clientes de la plataforma y sus productores internos.
         Solo el <strong>superadministrador</strong> puede crear, editar o eliminar empresas y productores.
       </InfoBanner>
 
@@ -8378,7 +8342,7 @@ const Configuracion = () => {
     <MainLayout>
       <PageHeader
         title="Configuración"
-        description={`Cultivos, formularios y usuarios ? ${currentClienteName}`}
+        description={`Cultivos, formularios y usuarios \u00B7 ${currentClienteName}`}
         actions={
           <Button
             variant="outline"
@@ -8597,7 +8561,6 @@ const Configuracion = () => {
                 {[
                   { label: "Notificaciones por Email", desc: "Recibir alertas importantes por correo",     checked: true  },
                   { label: "Auto-guardado",            desc: "Guardar cambios automáticamente en tablas",  checked: true  },
-                  { label: "Multi-tenant activo",      desc: "Habilitar aislamiento de datos por empresa", checked: true  },
                 ].map(item => (
                   <div key={item.label} className="flex items-center justify-between gap-4">
                     <div className="min-w-0">
