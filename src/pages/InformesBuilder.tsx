@@ -303,6 +303,8 @@ export interface PlantillaConfig {
     altura: "sm" | "md" | "lg";
     logoPersonalizado?: string; // URL o base64 de imagen
     posicionLogo: "left" | "center" | "right";
+    alineacionTitulo: "left" | "center" | "right";
+    separacionElementos: number;
     mostrarLinea: boolean;
   };
   columnas: string[];
@@ -2441,6 +2443,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
         ] as CampoEncabezado[],
         altura: "md",
         posicionLogo: "left",
+        alineacionTitulo: "left",
+        separacionElementos: 12,
         mostrarLinea: true,
       },
       columnas: [],
@@ -3912,6 +3916,50 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                         </div>
                       )}
                       <div className="space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Alineación del título</span>
+                        <div className="flex gap-1">
+                          {(["left", "center", "right"] as const).map((al) => (
+                            <button
+                              key={al}
+                              onClick={() => updEncabezado("alineacionTitulo", al)}
+                              className={cn(
+                                "flex-1 flex items-center justify-center py-1.5 rounded border text-[10px] gap-1 transition-all",
+                                (((config.plantilla as any)?.encabezado?.alineacionTitulo)
+                                  ?? (((config.plantilla as any)?.encabezado?.posicionLogo === "right")
+                                    ? "right"
+                                    : ((config.plantilla as any)?.encabezado?.posicionLogo === "left")
+                                      ? "left"
+                                      : "center")) === al
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border text-muted-foreground hover:border-primary/30"
+                              )}
+                            >
+                              {al === "left" && <AlignLeft className="w-3 h-3" />}
+                              {al === "center" && <AlignCenter className="w-3 h-3" />}
+                              {al === "right" && <AlignRight className="w-3 h-3" />}
+                              {al === "left" ? "Izq" : al === "center" ? "Centro" : "Der"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-muted-foreground">Separación elementos</span>
+                          <span className="text-[10px] text-muted-foreground font-mono">
+                            {Math.max(0, Math.min(32, Number((config.plantilla as any)?.encabezado?.separacionElementos ?? 12)))} px
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={32}
+                          step={1}
+                          value={Math.max(0, Math.min(32, Number((config.plantilla as any)?.encabezado?.separacionElementos ?? 12)))}
+                          onChange={(e) => updEncabezado("separacionElementos", Number(e.target.value))}
+                          className="w-full accent-primary"
+                        />
+                      </div>
+                      <div className="space-y-1">
                         <span className="text-[11px] text-muted-foreground">URL del logo</span>
                         <Input
                           value={(config.plantilla as any)?.encabezado?.logoPersonalizado ?? ""}
@@ -4420,6 +4468,11 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                   const sectionsH = hasSections ? 60 : 0;
                   const GAP = 8; // gap between blocks
                   const BLOCK_LABEL_H = 32;
+                  const logoPosition = (enc.posicionLogo ?? "left") as "left" | "center" | "right";
+                  const titleAlignFallback = logoPosition === "right" ? "right" : logoPosition === "left" ? "left" : "center";
+                  const titleAlign = (enc.alineacionTitulo ?? titleAlignFallback) as "left" | "center" | "right";
+                  const titleAlignClass = titleAlign === "left" ? "text-left" : titleAlign === "right" ? "text-right" : "text-center";
+                  const headerGap = Math.max(0, Math.min(32, Number(enc.separacionElementos ?? 12)));
                   const totalBlocksArea = naturalH - pad.top - pad.bottom - headerH - footerH - sectionsH - 12;
                   const blockHeight = (b: ReporteBloque): number =>
                     resolveBlockHeight(b, pl?.alturaBloques);
@@ -4642,38 +4695,66 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             {pageIdx === 0 ? (
                               <div className="shrink-0" style={{ height: headerH }}>
                                 {/* Top row: logo + title + meta table */}
-                                <div className={cn("flex items-start gap-3", enc.posicionLogo === "right" && "flex-row-reverse")}>
-                                  {config.mostrarLogo && (
-                                    <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shrink-0">
-                                      <Globe className="w-7 h-7 text-primary-foreground" />
+                                <div className="space-y-1">
+                                  {config.mostrarLogo && logoPosition === "center" && (
+                                    <div className="flex justify-center" style={{ marginBottom: headerGap }}>
+                                      <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shrink-0 overflow-hidden">
+                                        {enc.logoPersonalizado ? (
+                                          <img src={enc.logoPersonalizado} alt="Logo" className="w-full h-full object-contain bg-white" />
+                                        ) : (
+                                          <Globe className="w-7 h-7 text-primary-foreground" />
+                                        )}
+                                      </div>
                                     </div>
                                   )}
-                                  <div className="flex-1 min-w-0 text-center">
-                                    {enc.mostrarEmpresa && (
-                                      <p className="font-bold text-foreground text-base leading-tight truncate">{config.nombre || "Nuevo informe"}</p>
+
+                                  <div className="flex items-start justify-between" style={{ gap: `${headerGap}px` }}>
+                                    <div
+                                      className={cn(
+                                        "flex min-w-0 flex-1 items-start",
+                                        logoPosition === "right" && "flex-row-reverse",
+                                      )}
+                                      style={{ gap: `${headerGap}px` }}
+                                    >
+                                      {config.mostrarLogo && logoPosition !== "center" && (
+                                        <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shrink-0 overflow-hidden">
+                                          {enc.logoPersonalizado ? (
+                                            <img src={enc.logoPersonalizado} alt="Logo" className="w-full h-full object-contain bg-white" />
+                                          ) : (
+                                            <Globe className="w-7 h-7 text-primary-foreground" />
+                                          )}
+                                        </div>
+                                      )}
+
+                                      <div className={cn("min-w-0 flex-1", titleAlignClass)}>
+                                        {enc.mostrarEmpresa && (
+                                          <p className="font-bold text-foreground text-base leading-tight truncate">{config.nombre || "Nuevo informe"}</p>
+                                        )}
+                                        {!enc.mostrarEmpresa && (
+                                          <p className="font-bold text-foreground text-base leading-tight truncate">{config.titulo || config.nombre || "Nuevo informe"}</p>
+                                        )}
+                                        {config.subtitulo && <p className="text-muted-foreground text-xs truncate">{config.subtitulo}</p>}
+                                        {enc.textoPersonalizado && <p className="text-muted-foreground text-xs truncate">{enc.textoPersonalizado}</p>}
+                                      </div>
+                                    </div>
+
+                                    {/* Meta campos — right table */}
+                                    {metaCampos.length > 0 && (
+                                      <table className="shrink-0 border-collapse text-[9px]" style={{ border: "1px solid #999" }}>
+                                        <tbody>
+                                          {metaCampos.map((c) => (
+                                            <tr key={c.id} style={{ borderBottom: "1px solid #ccc" }}>
+                                              <td className="font-bold uppercase px-2 py-0.5 whitespace-nowrap" style={{ borderRight: "1px solid #ccc" }}>{c.label}:</td>
+                                              <td className="px-2 py-0.5 whitespace-nowrap">{getCampoEncabezadoPreviewValue(c) || "—"}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
                                     )}
-                                    {!enc.mostrarEmpresa && (
-                                      <p className="font-bold text-foreground text-base leading-tight truncate">{config.titulo || config.nombre || "Nuevo informe"}</p>
+                                    {metaCampos.length === 0 && enc.mostrarFecha && (
+                                      <p className="text-muted-foreground text-xs shrink-0">{today}</p>
                                     )}
-                                    {config.subtitulo && <p className="text-muted-foreground text-xs truncate">{config.subtitulo}</p>}
-                                    {enc.textoPersonalizado && <p className="text-muted-foreground text-xs truncate">{enc.textoPersonalizado}</p>}
                                   </div>
-                                  {/* Meta campos — right table */}
-                                  {metaCampos.length > 0 && (
-                                    <table className="shrink-0 border-collapse text-[9px]" style={{ border: "1px solid #999" }}>
-                                      <tbody>
-                                        {metaCampos.map((c) => (
-                                          <tr key={c.id} style={{ borderBottom: "1px solid #ccc" }}>
-                                            <td className="font-bold uppercase px-2 py-0.5 whitespace-nowrap" style={{ borderRight: "1px solid #ccc" }}>{c.label}:</td>
-                                            <td className="px-2 py-0.5 whitespace-nowrap">{getCampoEncabezadoPreviewValue(c) || "—"}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  )}
-                                  {metaCampos.length === 0 && enc.mostrarFecha && (
-                                    <p className="text-muted-foreground text-xs shrink-0">{today}</p>
-                                  )}
                                 </div>
                                 {/* Datos campos — bottom strip */}
                                 {datosCampos.length > 0 && (
@@ -4784,19 +4865,57 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
           ) : (
             /* ===== OTHER TABS: Block card preview ===== */
             <>
+          {(() => {
+            const previewEnc = ((config.plantilla as any)?.encabezado ?? {}) as {
+              posicionLogo?: "left" | "center" | "right";
+              alineacionTitulo?: "left" | "center" | "right";
+              separacionElementos?: number;
+              logoPersonalizado?: string;
+            };
+            const previewLogoPos = previewEnc.posicionLogo ?? "left";
+            const previewTitleFallback = previewLogoPos === "right" ? "right" : previewLogoPos === "left" ? "left" : "center";
+            const previewTitleAlign = previewEnc.alineacionTitulo ?? previewTitleFallback;
+            const previewTitleAlignClass = previewTitleAlign === "left" ? "text-left" : previewTitleAlign === "right" ? "text-right" : "text-center";
+            const previewGap = Math.max(0, Math.min(32, Number(previewEnc.separacionElementos ?? 12)));
+
+            return (
+              <>
           {/* Preview header */}
           <div className="px-6 pt-5 pb-3 flex items-start justify-between gap-4 shrink-0">
-            <div className="flex items-center gap-3">
-              {config.mostrarLogo && (
-                <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center shrink-0 shadow">
-                  <Globe className="w-5 h-5 text-primary-foreground" />
+            <div className="flex-1 min-w-0">
+              {config.mostrarLogo && previewLogoPos === "center" && (
+                <div className="flex justify-center mb-2">
+                  <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center shrink-0 shadow overflow-hidden">
+                    {previewEnc.logoPersonalizado ? (
+                      <img src={previewEnc.logoPersonalizado} alt="Logo" className="w-full h-full object-contain bg-white" />
+                    ) : (
+                      <Globe className="w-5 h-5 text-primary-foreground" />
+                    )}
+                  </div>
                 </div>
               )}
-              <div>
-                <h2 className="font-bold text-lg leading-tight">
-                  {config.titulo || config.nombre || "Nuevo informe"}
-                </h2>
-                {config.subtitulo && <p className="text-xs text-muted-foreground">{config.subtitulo}</p>}
+              <div
+                className={cn(
+                  "flex items-center min-w-0",
+                  previewLogoPos === "right" && "flex-row-reverse",
+                )}
+                style={{ gap: `${previewGap}px` }}
+              >
+                {config.mostrarLogo && previewLogoPos !== "center" && (
+                  <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center shrink-0 shadow overflow-hidden">
+                    {previewEnc.logoPersonalizado ? (
+                      <img src={previewEnc.logoPersonalizado} alt="Logo" className="w-full h-full object-contain bg-white" />
+                    ) : (
+                      <Globe className="w-5 h-5 text-primary-foreground" />
+                    )}
+                  </div>
+                )}
+                <div className={cn("min-w-0 flex-1", previewTitleAlignClass)}>
+                  <h2 className="font-bold text-lg leading-tight truncate">
+                    {config.titulo || config.nombre || "Nuevo informe"}
+                  </h2>
+                  {config.subtitulo && <p className="text-xs text-muted-foreground truncate">{config.subtitulo}</p>}
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -4818,6 +4937,9 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                 style={{ backgroundColor: c }} />
             ))}
           </div>
+              </>
+            );
+          })()}
 
             {/* ------ Live multi-block preview ------ */}
             <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-4">
