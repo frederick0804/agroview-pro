@@ -2054,8 +2054,8 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
           if (!open) resetNewDefForm();
         }}
       >
-        <DialogContent className="sm:max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Plus className="w-4 h-4 text-primary" />
               Nueva definición
@@ -2065,7 +2065,7 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-4">
             <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold text-primary">Primero parámetros, luego definición</p>
@@ -2131,11 +2131,11 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
 
             {/* Step progress bar + circles */}
             <div className="space-y-2">
-              <div className="relative flex items-center">
+              <div className="relative">
                 {/* Track */}
-                <div className="absolute left-0 right-0 h-0.5 bg-muted top-1/2 -translate-y-1/2" />
+                <div className="absolute left-[14px] right-[14px] h-0.5 bg-muted top-3.5" />
                 <div
-                  className="absolute left-0 h-0.5 bg-primary transition-all duration-300 top-1/2 -translate-y-1/2"
+                  className="absolute left-[14px] h-0.5 bg-primary transition-all duration-300 top-3.5"
                   style={{ width: `${((newDefStepIndex - 1) / 2) * 100}%` }}
                 />
                 {/* Circles */}
@@ -2498,7 +2498,7 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
             </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="shrink-0 border-t pt-3 bg-background gap-2 sm:gap-0">
             {newDefStep === "avanzado" && (
               <Button variant="ghost" onClick={() => setNewDefStep("basico")}>
                 Volver a básico

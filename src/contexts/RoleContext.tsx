@@ -167,7 +167,7 @@ export const hardcodedUsers = INITIAL_USERS;
 //  productor     Nv4  ─ registra y edita sus propios datos de campo
 //  jefe_area     Nv3  ─ gestión operacional completa (sin eliminar ni configurar)
 //  supervisor    Nv2  ─ ingreso de datos básicos de campo
-//  lector        Nv1  ─ solo consulta, sin modificar nada
+//  lector        Nv1  ─ solo consulta (con excepción de exportar en Informes)
 
 export const ACTIONS_BY_ROLE: Record<UserRole, ActionPermission[]> = {
   super_admin:   ["ver", "crear", "editar", "eliminar", "exportar", "configurar"],
@@ -185,12 +185,25 @@ const _ALL_MODULE_KEYS = [
   "informes", "gestion-usuarios", "configuracion",
 ] as const;
 
+type ModuleKey = (typeof _ALL_MODULE_KEYS)[number];
+
+const ROLE_MODULE_PERMISSION_OVERRIDES: Partial<Record<UserRole, Partial<Record<ModuleKey, ActionPermission[]>>>> = {
+  lector: {
+    informes: ["ver", "exportar"],
+  },
+};
+
 const rolePermissions: Record<UserRole, Record<string, ActionPermission[]>> =
   Object.fromEntries(
     (Object.entries(ACTIONS_BY_ROLE) as [UserRole, ActionPermission[]][]).map(
       ([rol, acciones]) => [
         rol,
-        Object.fromEntries(_ALL_MODULE_KEYS.map(m => [m, acciones])),
+        Object.fromEntries(
+          _ALL_MODULE_KEYS.map((m) => [
+            m,
+            ROLE_MODULE_PERMISSION_OVERRIDES[rol]?.[m] ?? acciones,
+          ]),
+        ),
       ]
     )
   ) as Record<UserRole, Record<string, ActionPermission[]>>;
