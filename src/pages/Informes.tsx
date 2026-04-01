@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { InformesBuilder, type BuilderConfig, type GraficoBloque, type ReporteBloque, type TablaBloque, type TextoBloque } from "./InformesBuilder";
 import { InformeVersionDialog } from "@/components/dashboard/InformeVersionDialog";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -1790,8 +1790,16 @@ function DetailPanel({
   const userSearchRef = useRef<HTMLDivElement>(null);
   const { users, currentUser, clientes, productores } = useRole();
   const { cultivos, definiciones } = useConfig();
+  const isSupervisorOrLector = currentUser?.role === "supervisor" || currentUser?.role === "lector";
   const [schedFormato, setSchedFormato] = useState<FormatoExport>(informe.formato_preferido ?? "pdf");
   const [schedSaved, setSchedSaved] = useState(false);
+
+  useEffect(() => {
+    if (!isSupervisorOrLector) return;
+    if (tab === "programar" || tab === "versiones") {
+      setTab("generar");
+    }
+  }, [isSupervisorOrLector, tab]);
 
   // ── Lógica de filtrado jerárquico contextual por roles ────────────────────
 
@@ -2273,24 +2281,28 @@ function DetailPanel({
             >
               <Play className="w-3 h-3" /> Generar
             </TabsTrigger>
-            <TabsTrigger value="programar" className="text-xs gap-1.5 h-7 rounded-md">
-              <Calendar className="w-3 h-3" />
-              Auto
-              {informe.es_programado && (
-                <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="versiones" className="text-xs gap-1.5 h-7 rounded-md">
-              <GitBranch className="w-3 h-3" />
-              Versiones
-              {informe.versiones && informe.versiones.length > 0 && (
-                <span className="ml-0.5 text-[9px] bg-primary/10 text-primary px-1 py-px rounded-full">
-                  {informe.versiones.length}
-                </span>
-              )}
-            </TabsTrigger>
+            {!isSupervisorOrLector && (
+              <>
+                <TabsTrigger value="programar" className="text-xs gap-1.5 h-7 rounded-md">
+                  <Calendar className="w-3 h-3" />
+                  Auto
+                  {informe.es_programado && (
+                    <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="versiones" className="text-xs gap-1.5 h-7 rounded-md">
+                  <GitBranch className="w-3 h-3" />
+                  Versiones
+                  {informe.versiones && informe.versiones.length > 0 && (
+                    <span className="ml-0.5 text-[9px] bg-primary/10 text-primary px-1 py-px rounded-full">
+                      {informe.versiones.length}
+                    </span>
+                  )}
+                </TabsTrigger>
+              </>
+            )}
           </TabsList>
-          {canCreate && (
+          {canCreate && !isSupervisorOrLector && (
             <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={onConfigure}
@@ -2930,13 +2942,14 @@ function DetailPanel({
                     <p className="text-[10px] text-muted-foreground">
                       Abre el modal para revisar la plantilla completa con datos cargados y editar cualquier bloque antes de guardar.
                     </p>
-                    <div className="flex items-center gap-2">
-                      <Button size="sm" onClick={() => setPreviewModalOpen(true)} className="gap-1.5">
+                    <div className="flex flex-col gap-2">
+                      <Button size="sm" onClick={() => setPreviewModalOpen(true)} className="w-full gap-1.5 justify-center">
                         <Eye className="w-3.5 h-3.5" /> Abrir vista previa
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
+                        className="w-full"
                         onClick={() => {
                           setPreviewModalOpen(false);
                           setPendienteGuardar(false);
@@ -2944,7 +2957,7 @@ function DetailPanel({
                       >
                         Volver
                       </Button>
-                      <Button size="sm" variant="outline" onClick={handleGuardar} className="gap-1.5">
+                      <Button size="sm" variant="outline" onClick={handleGuardar} className="w-full gap-1.5 justify-center">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Guardar informe
                       </Button>
                     </div>
@@ -3363,7 +3376,7 @@ function DetailPanel({
                 Los resultados se registran automáticamente en la vista de Generados.
               </p>
 
-              {canCreate && (
+              {canCreate && !isSupervisorOrLector && (
                 <button
                   onClick={() => setTab("programar")}
                   className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-dashed border-border hover:border-blue-300 hover:bg-blue-50/50 transition-all text-xs text-muted-foreground hover:text-blue-600"
@@ -3988,6 +4001,7 @@ const Informes = () => {
   const { cultivos, variedades } = useConfig();
   const userLevel = ROLE_LEVELS[role];
   const canExport = hasPermission("informes", "exportar");
+  const isSupervisorOrLector = ["supervisor", "lector"].includes(role);
 
   // Area restriction for area-bound roles
   const area = currentUser?.area_asignada as string | undefined;
@@ -4004,12 +4018,13 @@ const Informes = () => {
   // ── Gestión de plantillas ──
   // super_admin / cliente_admin / productor: CRUD completo (según sus acciones base)
   // jefe_area: puede crear/editar plantillas de su área (tiene "editar" base)
-  // supervisor/lector: solo si tienen override especial "editar" o "configurar" en informes
+  // supervisor/lector: no gestionan plantillas, solo consultan y generan con filtros de exportación
   const canManageTemplates =
-    ["super_admin", "cliente_admin", "productor"].includes(role) ||
-    role === "jefe_area" ||
-    hasPermission("informes", "editar") ||
-    hasPermission("informes", "configurar");
+    !isSupervisorOrLector &&
+    (["super_admin", "cliente_admin", "productor"].includes(role) ||
+      role === "jefe_area" ||
+      hasPermission("informes", "editar") ||
+      hasPermission("informes", "configurar"));
 
   // ¿Puede editar ESTA plantilla específica?
   const canEditInformeTemplate = (inf: Informe): boolean => {
@@ -4133,13 +4148,13 @@ const Informes = () => {
     setBuilderOpen(false);
   };
 
-  const canAccessInforme = (inf: Informe): boolean => {
+  const canAccessInforme = useCallback((inf: Informe): boolean => {
     if (userLevel < inf.nivel_acceso_minimo) return false;
     if (inf.roles_permitidos && inf.roles_permitidos.length > 0) {
       return inf.roles_permitidos.includes(role);
     }
     return true;
-  };
+  }, [userLevel, role]);
 
   // ── Version action handlers ──
   const restoreVersion = (snap: InformeSnapshot) => {
@@ -4227,6 +4242,9 @@ const Informes = () => {
     if (isAreaRestricted && !hasGlobalInformesAccess) {
       base = base.filter((i) => allowedCategorias.includes(i.categoria) || i.categoria === "general");
     }
+    if (isSupervisorOrLector) {
+      base = base.filter((i) => canAccessInforme(i));
+    }
     const result: Record<string, number> = {
       all: base.length,
       favoritos: base.filter((i) => i.es_favorito).length,
@@ -4236,7 +4254,7 @@ const Informes = () => {
       result[cat] = base.filter((i) => i.categoria === cat).length;
     });
     return result;
-  }, [informes, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias]);
+  }, [informes, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, isSupervisorOrLector, canAccessInforme]);
 
   // Filtered list (plantillas)
   const filtered = useMemo(() => {
@@ -4245,6 +4263,11 @@ const Informes = () => {
     // Restricción por área: roles de área solo ven su categoría (+ general)
     if (isAreaRestricted && !hasGlobalInformesAccess) {
       list = list.filter((i) => allowedCategorias.includes(i.categoria) || i.categoria === "general");
+    }
+
+    // Supervisor y lector solo ven informes que realmente pueden abrir/generar.
+    if (isSupervisorOrLector) {
+      list = list.filter((i) => canAccessInforme(i));
     }
 
     if (activeNav === "favoritos") list = list.filter((i) => i.es_favorito);
@@ -4264,7 +4287,7 @@ const Informes = () => {
     if (filterEstado !== "all") list = list.filter((i) => i.estado === filterEstado);
 
     return list;
-  }, [informes, activeNav, search, filterTipo, filterEstado, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias]);
+  }, [informes, activeNav, search, filterTipo, filterEstado, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, isSupervisorOrLector, canAccessInforme]);
 
   const toggleFavorite = (id: string) => {
     setInformes((prev) =>
@@ -4307,12 +4330,25 @@ const Informes = () => {
       list = list.filter((g) => allowedCategorias.includes(g.categoria) || g.categoria === "general");
     }
 
+    if (isSupervisorOrLector) {
+      const accessibleIds = new Set(informes.filter((inf) => canAccessInforme(inf)).map((inf) => inf.id));
+      list = list.filter((g) => accessibleIds.has(g.informe_id));
+    }
+
     if (isUserRestricted && currentUser?.nombre) {
       list = list.filter((g) => g.usuario === currentUser.nombre);
     }
 
     return list;
-  }, [generaciones, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, isUserRestricted, currentUser?.nombre]);
+  }, [generaciones, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, isSupervisorOrLector, informes, canAccessInforme, isUserRestricted, currentUser?.nombre]);
+
+  useEffect(() => {
+    if (!selectedId || !isSupervisorOrLector) return;
+    const selected = informes.find((i) => i.id === selectedId);
+    if (selected && !canAccessInforme(selected)) {
+      setSelectedId(null);
+    }
+  }, [selectedId, informes, isSupervisorOrLector, canAccessInforme]);
 
   const genUsuariosDisponibles = useMemo(
     () => [...new Set(roleScopedGeneraciones.map((g) => g.usuario))].sort((a, b) => a.localeCompare(b, "es")),
