@@ -1,6 +1,7 @@
 export type DataEntryMode = "tabla" | "formulario";
 
 const STORAGE_KEY = "agroview_data_entry_mode_by_user";
+export const DATA_ENTRY_MODE_EVENT = "dataEntryModeChange";
 
 type DataEntryModeMap = Record<string, DataEntryMode>;
 
@@ -34,4 +35,5 @@ export function setDataEntryMode(userId: number | null | undefined, mode: DataEn
   const next = readModeMap();
   next[String(userId)] = mode;
   writeModeMap(next);
+  window.dispatchEvent(new CustomEvent(DATA_ENTRY_MODE_EVENT, { detail: { userId, mode } }));
 }
