@@ -529,7 +529,7 @@ const INFORMES_DEMO: Informe[] = [
   },
 ];
 
-const GENERACIONES_DEMO: InformeGeneracion[] = [
+const GENERACIONES_DEMO_BASE: InformeGeneracion[] = [
   {
     id: "gen-01",
     informe_id: "inf-01",
@@ -702,6 +702,51 @@ const GENERACIONES_DEMO: InformeGeneracion[] = [
     tiempo_ms: 2800,
   },
 ];
+
+const DEMO_GENERACION_TIMES: Array<[number, number]> = [
+  [9, 14],
+  [14, 30],
+  [8, 55],
+  [7, 0],
+  [6, 0],
+  [6, 10],
+  [8, 0],
+  [17, 45],
+  [10, 0],
+  [8, 30],
+  [14, 0],
+  [9, 0],
+  [7, 0],
+];
+
+function toIsoDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+const GENERACIONES_DEMO: InformeGeneracion[] = (() => {
+  const todayKey = toIsoDateKey(new Date());
+
+  return GENERACIONES_DEMO_BASE.map((gen, idx) => {
+    const [hour, minute] = DEMO_GENERACION_TIMES[idx % DEMO_GENERACION_TIMES.length];
+    const fecha = `${todayKey}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
+    const parametros = { ...gen.parametros } as Record<string, unknown>;
+
+    (["fecha", "fecha_desde", "fecha_hasta"] as const).forEach((key) => {
+      if (typeof parametros[key] === "string") {
+        parametros[key] = todayKey;
+      }
+    });
+
+    return {
+      ...gen,
+      fecha,
+      parametros,
+    };
+  });
+})();
 
 // ─── Mapas de color / icono ───────────────────────────────────────────────────
 
