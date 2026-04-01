@@ -468,8 +468,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     // jefe_area, supervisor, lector → solo area_asignada
     const area = currentUser?.area_asignada;
     if (!area) return true; // sin restricción si no tiene area asignada
-    // Módulos no-operativos: configuracion solo para roles altos, informes filtrado
-    if (modulo === "configuracion") return role === "jefe_area"; // jefe puede ver config de su área
+    // Módulos no-operativos: configuracion para jefe_area y supervisor, informes filtrado
+    if (modulo === "configuracion") return role === "jefe_area" || role === "supervisor";
     if (modulo === "gestion-usuarios") return false;
     if (modulo === "informes") return true; // informes filtrado por área en la vista
     // Check: ¿es el módulo asignado?

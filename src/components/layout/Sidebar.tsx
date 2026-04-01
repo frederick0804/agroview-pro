@@ -150,8 +150,16 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         ))}
 
         {/* User Profile */}
-        <button
+        <div
           onClick={() => navigate("/perfil")}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              navigate("/perfil");
+            }
+          }}
+          role="button"
+          tabIndex={0}
           title={collapsed ? (currentUser?.nombre ?? "Mi perfil") : "Ver mi perfil"}
           className={cn(
             "flex items-center gap-3 px-3 py-2.5 rounded-lg mt-4 w-full text-left",
@@ -184,7 +192,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
               <LogOut className="w-4 h-4" />
             </button>
           )}
-        </button>
+        </div>
       </div>
     </aside>
   );

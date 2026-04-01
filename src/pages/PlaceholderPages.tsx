@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { EditableTable, Column } from "@/components/tables/EditableTable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -13,13 +13,14 @@ import { useRole } from "@/contexts/RoleContext";
 import { useConfig } from "@/contexts/ConfigContext";
 import {
   Settings, Download, Upload, SlidersHorizontal, Leaf, Sparkles, Brain,
-  BarChart3, ChevronDown, ChevronUp, Calendar, Plus, Eye, Clock, CheckCircle2, AlertCircle, X, Trash2,
+  BarChart3, ChevronDown, ChevronUp, Calendar, Plus, Eye, Clock, CheckCircle2, AlertCircle, X, Trash2, Pencil,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { parseValores, type TipoDato, type ModDato, type ModParam, type ModDef, type Cultivo } from "@/config/moduleDefinitions";
 import { IaAnalysisPanel } from "@/components/dashboard/IaAnalysisPanel";
+import { getDataEntryMode, type DataEntryMode } from "@/lib/dataEntryMode";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -210,11 +211,12 @@ function ModuleDashboard({
 // Cualquier cambio en Configuración se refleja aquí en tiempo real.
 
 function DynamicDefTable({
-  defId, moduloKey, filterCultivoId,
+  defId, moduloKey, filterCultivoId, entryMode,
 }: {
   defId: string;
   moduloKey: string;
   filterCultivoId?: string; // filtra registros cuando el formulario es global
+  entryMode: DataEntryMode;
 }) {
   const { hasPermission } = useRole();
   const { definiciones, parametros, datos, addDato, updDato, delDato, setHasPendingChanges } = useConfig();
@@ -401,6 +403,131 @@ function DynamicDefTable({
     ? () => { addDato(defId, !def.cultivo_id ? filterCultivoId : undefined); }
     : undefined;
 
+  const buildEmptyFormValues = () => {
+    const next: Record<string, string> = {};
+    params.forEach(p => { next[p.nombre] = ""; });
+    return next;
+  };
+
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [formFecha, setFormFecha] = useState(() => new Date().toISOString().slice(0, 10));
+  const [formValues, setFormValues] = useState<Record<string, string>>(() => buildEmptyFormValues());
+  const [formError, setFormError] = useState<string | null>(null);
+  const [editingDatoId, setEditingDatoId] = useState<string | null>(null);
+
+  const paramsSignature = params.map(p => p.id).join("|");
+
+  useEffect(() => {
+    setFormFecha(new Date().toISOString().slice(0, 10));
+    setFormValues(buildEmptyFormValues());
+    setFormError(null);
+    setEditingDatoId(null);
+  }, [defId, paramsSignature]);
+
+  const handleFieldChange = (field: string, value: string) => {
+    setHasPendingChanges(true);
+    setFormError(null);
+    setFormValues(prev => ({ ...prev, [field]: value }));
+  };
+
+  const resetEntryForm = () => {
+    setFormFecha(new Date().toISOString().slice(0, 10));
+    setFormValues(buildEmptyFormValues());
+    setFormError(null);
+    setEditingDatoId(null);
+    setHasPendingChanges(false);
+  };
+
+  const openCreateModal = () => {
+    resetEntryForm();
+    setEditingDatoId(null);
+    setShowCreateModal(true);
+  };
+
+  const openEditModal = (datoId: string) => {
+    const targetDato = defDatos.find(d => d.id === datoId);
+    if (!targetDato) return;
+
+    const parsedVals = parseValores(targetDato.valores);
+    const nextValues = buildEmptyFormValues();
+    params.forEach(param => {
+      const raw = parsedVals[param.nombre];
+      nextValues[param.nombre] = raw === undefined || raw === null ? "" : String(raw);
+    });
+
+    setEditingDatoId(targetDato.id);
+    setFormFecha(targetDato.fecha);
+    setFormValues(nextValues);
+    setFormError(null);
+    setHasPendingChanges(false);
+    setShowCreateModal(true);
+  };
+
+  const getRelacionOptions = (param: ModParam) => {
+    if (param.tipo_dato !== "Relación" || !param.relacion_def_id) return [] as Array<{ value: string; label: string }>;
+    const sourceRows = datos.filter(d => d.definicion_id === param.relacion_def_id);
+    const campoLabel = param.relacion_campo_label ?? "nombre";
+    const campoValor = param.relacion_campo_valor ?? campoLabel;
+    return sourceRows.map(d => {
+      const parsed = parseValores(d.valores);
+      const label = String(parsed[campoLabel] ?? d.referencia ?? d.id);
+      const value = String(parsed[campoValor] ?? label);
+      return { value, label };
+    });
+  };
+
+  const handleSaveFormEntry = () => {
+    if (editingDatoId) {
+      if (!canEdit) return;
+    } else if (!canCreate || !canAddRecord) {
+      return;
+    }
+
+    const missingRequired = params.filter(
+      p => p.visible !== false && p.obligatorio && !p.formula && !String(formValues[p.nombre] ?? "").trim(),
+    );
+    if (missingRequired.length > 0) {
+      setFormError("Completa los campos obligatorios antes de guardar.");
+      return;
+    }
+
+    const nextVals = { ...formValues };
+    for (const fp of formulaParams) {
+      if (!fp.formula) continue;
+      const result = evaluateFormula(fp.formula, nextVals, fieldNames);
+      if (result !== null) nextVals[fp.nombre] = String(result);
+    }
+
+    if (editingDatoId) {
+      const currentDato = defDatos.find(d => d.id === editingDatoId);
+      if (!currentDato) {
+        setFormError("No se encontró el registro que intentas editar.");
+        return;
+      }
+
+      updDato(currentDato.id, {
+        ...currentDato,
+        fecha: formFecha,
+        valores: JSON.stringify(nextVals),
+      });
+
+      setShowCreateModal(false);
+      resetEntryForm();
+      return;
+    }
+
+    const cultivoForRecord = !def.cultivo_id ? filterCultivoId : undefined;
+    const newDato = addDato(defId, cultivoForRecord);
+    updDato(newDato.id, {
+      ...newDato,
+      fecha: formFecha,
+      valores: JSON.stringify(nextVals),
+    });
+
+    setShowCreateModal(false);
+    resetEntryForm();
+  };
+
   // IA confirm: crea múltiples filas con los valores detectados por IA
   const handleIaConfirm = (rowsData: Record<string, string>[]) => {
     const cultivoForRecord = !def.cultivo_id ? filterCultivoId : undefined;
@@ -421,13 +548,21 @@ function DynamicDefTable({
     rows.forEach(row => {
       const values = row;
       const fecha = new Date().toISOString().slice(0, 10);
-      addDato(defId, fecha, values, cultivoId);
-      const newDatos = datos.filter(d => d.definicion_id === defId).sort((a, b) => b.id.localeCompare(a.id));
-      const newDato = newDatos[0];
+      const newDato = addDato(defId, cultivoId);
       const merged = { ...values };
-      updDato(newDato.id, { ...newDato, valores: JSON.stringify(merged) });
+      updDato(newDato.id, { ...newDato, fecha, valores: JSON.stringify(merged) });
     });
     setShowMlPanel(false);
+  };
+
+  const getEventCountForRegistro = (registroId: string) => {
+    return eventoDefs.reduce((total, eventoDef) => {
+      const eventosData = datos.filter(d =>
+        d.definicion_id === eventoDef.id &&
+        d.registro_padre_dato_id === registroId,
+      );
+      return total + eventosData.length;
+    }, 0);
   };
 
   // ── Handlers para eventos ─────────────────────────────────────────────────
@@ -484,6 +619,18 @@ function DynamicDefTable({
     <div className="space-y-3">
       {/* Botón editar campos de esta definición */}
       <div className="flex items-center justify-end gap-2">
+        {entryMode === "formulario" && canCreate && (
+          <Button
+            size="sm"
+            onClick={openCreateModal}
+            disabled={!canAddRecord}
+            title={!canAddRecord ? "Selecciona un cultivo para crear registros" : undefined}
+            className="text-xs gap-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Crear
+          </Button>
+        )}
         {hasIaFields && canCreate && canAddRecord && (
           <Button
             variant={showIaPanel ? "default" : "outline"}
@@ -557,48 +704,226 @@ function DynamicDefTable({
         </div>
       )}
 
-      <EditableTable
-        title={def.nombre}
-        data={rows}
-        columns={columns}
-        onUpdate={handleUpdate}
-        onDelete={handleDelete}
-        onAdd={handleAdd}
-        onPendingChange={setHasPendingChanges}
-        rowActions={(row, rowIndex) => {
-          if (!hasEventos) return null;
+      {entryMode === "tabla" ? (
+        <EditableTable
+          title={def.nombre}
+          data={rows}
+          columns={columns}
+          onUpdate={handleUpdate}
+          onDelete={handleDelete}
+          onAdd={handleAdd}
+          onPendingChange={setHasPendingChanges}
+          rowActions={(row) => {
+            if (!hasEventos) return null;
 
-          const registro = defDatos[rowIndex];
-          if (!registro) return null;
+            const registro = defDatos.find(d => String(d.id) === String(row.id));
+            if (!registro) return null;
+            const eventCount = getEventCountForRegistro(registro.id);
 
-          // Contar eventos existentes para este registro
-          const eventCount = eventoDefs.reduce((total, eventoDef) => {
-            const eventosData = datos.filter(d =>
-              d.definicion_id === eventoDef.id &&
-              d.registro_padre_dato_id === registro.id
+            return (
+              <button
+                onClick={() => openEventosSheet(registro.id)}
+                title={`Ver eventos (${eventCount})`}
+                className={cn(
+                  "p-2 rounded transition-colors shrink-0 relative",
+                  "text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50",
+                )}
+              >
+                <Calendar className="w-4 h-4" />
+                {eventCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                    {eventCount > 9 ? "9+" : eventCount}
+                  </span>
+                )}
+              </button>
             );
-            return total + eventosData.length;
-          }, 0);
+          }}
+        />
+      ) : (
+        <EditableTable
+          title={def.nombre}
+          data={rows}
+          columns={columns.map(col => ({ ...col, editable: false }))}
+          onUpdate={handleUpdate}
+          onPendingChange={setHasPendingChanges}
+          rowActions={(row) => {
+            const registro = defDatos.find(d => String(d.id) === String(row.id));
+            if (!registro) return null;
+            const eventCount = hasEventos ? getEventCountForRegistro(registro.id) : 0;
 
-          return (
-            <button
-              onClick={() => openEventosSheet(registro.id)}
-              title={`Ver eventos (${eventCount})`}
-              className={cn(
-                "p-2 rounded transition-colors shrink-0 relative",
-                "text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50",
-              )}
-            >
-              <Calendar className="w-4 h-4" />
-              {eventCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                  {eventCount > 9 ? "9+" : eventCount}
-                </span>
-              )}
-            </button>
-          );
+            if (!canEdit && !hasEventos) return null;
+
+            return (
+              <>
+                {canEdit && (
+                  <button
+                    onClick={() => openEditModal(registro.id)}
+                    title="Editar registro"
+                    className={cn(
+                      "p-2 rounded transition-colors shrink-0",
+                      "text-amber-600 hover:text-amber-700 hover:bg-amber-50",
+                    )}
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                )}
+
+                {hasEventos && (
+                  <button
+                    onClick={() => openEventosSheet(registro.id)}
+                    title={`Ver eventos (${eventCount})`}
+                    className={cn(
+                      "p-2 rounded transition-colors shrink-0 relative",
+                      "text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50",
+                    )}
+                  >
+                    <Calendar className="w-4 h-4" />
+                    {eventCount > 0 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                        {eventCount > 9 ? "9+" : eventCount}
+                      </span>
+                    )}
+                  </button>
+                )}
+              </>
+            );
+          }}
+        />
+      )}
+
+      <Dialog
+        open={showCreateModal}
+        onOpenChange={(open) => {
+          setShowCreateModal(open);
+          if (!open) resetEntryForm();
         }}
-      />
+      >
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{editingDatoId ? "Editar registro" : "Crear registro"}</DialogTitle>
+            <DialogDescription>
+              {editingDatoId
+                ? `Actualiza los datos del registro en ${def.nombre}.`
+                : `Completa los datos para crear un nuevo registro en ${def.nombre}.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Fecha</Label>
+              <Input
+                type="date"
+                value={formFecha}
+                onChange={(e) => {
+                  setHasPendingChanges(true);
+                  setFormFecha(e.target.value);
+                  setFormError(null);
+                }}
+                disabled={editingDatoId ? !canEdit : !canCreate}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {params.filter(p => p.visible !== false).map(param => {
+                const label = param.etiqueta_personalizada || param.nombre.replace(/_/g, " ");
+                const value = String(formValues[param.nombre] ?? "");
+                const disabled = param.formula ? true : (editingDatoId ? !canEdit : !canCreate);
+                const formulaValue = param.formula
+                  ? evaluateFormula(param.formula, formValues, fieldNames)
+                  : null;
+
+                return (
+                  <div key={param.id} className="space-y-1.5">
+                    <Label className="text-xs">
+                      {label}
+                      {param.obligatorio && !param.formula && <span className="text-destructive ml-1">*</span>}
+                    </Label>
+
+                    {param.formula ? (
+                      <Input value={formulaValue !== null ? String(formulaValue) : ""} readOnly disabled />
+                    ) : param.tipo_dato === "Sí/No" ? (
+                      <Select
+                        value={value}
+                        onValueChange={(v) => handleFieldChange(param.nombre, v)}
+                        disabled={disabled}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Sí">Sí</SelectItem>
+                          <SelectItem value="No">No</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : param.tipo_dato === "Lista" && param.opciones?.length ? (
+                      <Select
+                        value={value}
+                        onValueChange={(v) => handleFieldChange(param.nombre, v)}
+                        disabled={disabled}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {param.opciones.map(opt => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : param.tipo_dato === "Relación" ? (
+                      <Select
+                        value={value}
+                        onValueChange={(v) => handleFieldChange(param.nombre, v)}
+                        disabled={disabled}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {getRelacionOptions(param).map(opt => (
+                            <SelectItem key={`${param.id}-${opt.value}`} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        type={param.tipo_dato === "Número" ? "number" : param.tipo_dato === "Fecha" ? "date" : "text"}
+                        value={value}
+                        onChange={(e) => handleFieldChange(param.nombre, e.target.value)}
+                        disabled={disabled}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {formError && (
+              <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-2 py-1.5">
+                {formError}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowCreateModal(false);
+                resetEntryForm();
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSaveFormEntry}
+              disabled={editingDatoId ? !canEdit : !canCreate || !canAddRecord}
+            >
+              {editingDatoId ? "Guardar cambios" : "Crear"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Sheet de eventos — 2 vistas: lista / formulario ────────────────── */}
       <Sheet open={showEventosSheet} onOpenChange={(o) => { if (!o) closeEventosSheet(); }}>
@@ -1038,6 +1363,11 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
   const navigate = useNavigate();
   const canExport = hasPermission(moduloKey, "exportar");
   const userId = currentUser?.id ?? null;
+  const [entryMode, setEntryMode] = useState<DataEntryMode>(() => getDataEntryMode(currentUser?.id ?? null));
+
+  useEffect(() => {
+    setEntryMode(getDataEntryMode(currentUser?.id ?? null));
+  }, [currentUser?.id]);
 
   // All module keys this page covers (primary + any merged sub-modules)
   const allModuloKeys = [moduloKey, ...extraModuloKeys];
@@ -1232,6 +1562,7 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
               defId={filteredDefs[0].id}
               moduloKey={moduloKey}
               filterCultivoId={recordFilter}
+              entryMode={entryMode}
             />
           ) : (
             <Tabs value={currentTab} onValueChange={setActiveTab} className="space-y-6">
@@ -1251,6 +1582,7 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
                     defId={d.id}
                     moduloKey={moduloKey}
                     filterCultivoId={recordFilter}
+                    entryMode={entryMode}
                   />
                 </TabsContent>
               ))}

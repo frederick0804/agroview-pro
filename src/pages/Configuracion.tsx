@@ -52,6 +52,7 @@ import {
   BookOpen as BookOpenAlt, Mail, Calendar,
   ShieldAlert, AlertTriangle, Users2, Building2, Tractor, Pencil, Globe, FileText, MapPin,
 } from "lucide-react";
+import { getDataEntryMode, setDataEntryMode, type DataEntryMode } from "@/lib/dataEntryMode";
 
 //  InfoBanner (dismissible) 
 
@@ -1234,7 +1235,7 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
               <Tractor className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <div className="flex-1">
                 <span className="font-semibold text-sm text-amber-700 dark:text-amber-200">
-                  {selectedCliente?.nombre} <span className="font-normal text-amber-500">?</span> {selectedProductor.nombre}
+                  {selectedCliente?.nombre} <span className="font-normal text-amber-500">-</span> {selectedProductor.nombre}
                 </span>
                 <span className="text-xs text-amber-600 dark:text-amber-400 ml-2">
                   {defsCount} formulario{defsCount !== 1 ? "s" : ""} de este productor
@@ -1586,7 +1587,7 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                             disabled={blockDeactivate}
                             onClick={() => { if (blockDeactivate) return; const idx = definiciones.findIndex(d => d.id === latest.id); if (idx === -1) return; updDef(idx, "estado", latest.estado === "activo" ? "borrador" : "activo"); }}
                             className={latest.estado === "activo" ? "text-yellow-600 focus:text-yellow-700" : "text-green-600 focus:text-green-700"}
-                            title={blockDeactivate ? `Tiene ${defDatos.length} dato(s) ? crea otra versión primero` : undefined}
+                            title={blockDeactivate ? `Tiene ${defDatos.length} dato(s) - crea otra versión primero` : undefined}
                           >
                             <Power className="w-3.5 h-3.5 mr-2" />
                             {latest.estado === "activo" ? "Pasar a borrador" : "Activar"}
@@ -1687,7 +1688,7 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                       )}
                       {accesosCount > 0 && (
                         <span className="text-[10px] text-primary/70 font-medium shrink-0">
-                          ? {accesosCount} override{accesosCount > 1 ? "s" : ""}
+                          {accesosCount} override{accesosCount > 1 ? "s" : ""}
                         </span>
                       )}
                       <ChevronDown className={cn(
@@ -1720,7 +1721,7 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                             return (
                               <span key={r} className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 shrink-0">
                                 {rOpt?.short ?? r}
-                                <button onClick={() => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "roles_excluidos", (latest.roles_excluidos ?? []).filter(x => x !== r)); }} className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity leading-none" title={`Quitar exclusión de ${rOpt?.label ?? r}`}>?</button>
+                                <button onClick={() => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "roles_excluidos", (latest.roles_excluidos ?? []).filter(x => x !== r)); }} className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity leading-none" title={`Quitar exclusión de ${rOpt?.label ?? r}`}>x</button>
                               </span>
                             );
                           })}
@@ -2037,7 +2038,7 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                   className="flex items-center gap-2 w-full px-4 py-2.5 text-xs text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors border-t border-border"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  Nueva definición ? {label}
+                  Nueva definición: {label}
                 </button>
                 )}
               </div>
@@ -3514,7 +3515,7 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
             {evRollbackModal.activeId && (
               <div className="space-y-2 py-1">
                 <p className="text-xs font-semibold text-foreground uppercase tracking-wide text-muted-foreground">
-                  v{evRollbackModal.activeVersion} ? {evRollbackModal.activeNombre}
+                  v{evRollbackModal.activeVersion} - {evRollbackModal.activeNombre}
                 </p>
                 <div className="space-y-1.5">
                   <label className={cn(
@@ -3621,8 +3622,8 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
               <div className="my-1 px-3 py-2.5 rounded-lg bg-muted/50 border border-border space-y-0.5">
                 <p className="text-sm font-semibold truncate">{defToDelete?.nombre || "(sin nombre)"}</p>
                 <p className="text-xs text-muted-foreground">
-                  v{defToDelete?.version || "1.0"} ? {camposCount} campo{camposCount !== 1 ? "s" : ""}
-                  {datosCount > 0 && <span className="text-destructive font-medium"> ? {datosCount} datos</span>}
+                  v{defToDelete?.version || "1.0"} - {camposCount} campo{camposCount !== 1 ? "s" : ""}
+                  {datosCount > 0 && <span className="text-destructive font-medium"> - {datosCount} datos</span>}
                 </p>
               </div>
               <DialogFooter className="gap-2 sm:gap-0">
@@ -3833,7 +3834,7 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
             {rollbackModal.activeId && (
               <div className="space-y-2 py-1">
                 <p className="text-xs font-semibold text-foreground uppercase tracking-wide text-muted-foreground">
-                  v{rollbackModal.activeVersion} ? {rollbackModal.activeNombre}
+                  v{rollbackModal.activeVersion} - {rollbackModal.activeNombre}
                 </p>
                 <div className="space-y-1.5">
                   <label className={cn(
@@ -4211,11 +4212,11 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                 </DialogTitle>
                 <DialogDescription className="text-xs mt-0.5">
                   <span className="font-medium text-foreground">{selectedDef.nombre}</span>
-                  {" ? "}
+                  {" - "}
                   <span className="text-success font-medium">{nAllow} permitidos</span>
-                  {" ? "}
+                  {" - "}
                   <span className="text-destructive font-medium">{nBlock} bloqueados</span>
-                  {" ? "}
+                  {" - "}
                   <span className="text-muted-foreground">{nRol} por rol</span>
                 </DialogDescription>
               </DialogHeader>
@@ -4272,19 +4273,19 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                     onClick={bulkAllow}
                     className="text-[10px] font-semibold px-2.5 py-1 rounded-md bg-success text-white hover:bg-success/80 transition-colors flex items-center gap-1"
                   >
-                    ? Permitir
+                    Permitir
                   </button>
                   <button
                     onClick={bulkBlock}
                     className="text-[10px] font-semibold px-2.5 py-1 rounded-md bg-destructive text-white hover:bg-destructive/80 transition-colors flex items-center gap-1"
                   >
-                    ? Bloquear
+                    Bloquear
                   </button>
                   <button
                     onClick={bulkClear}
                     className="text-[10px] font-medium px-2.5 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
                   >
-                    ? Por rol
+                    Por rol
                   </button>
                 </div>
               )}
@@ -4371,17 +4372,17 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                                 : "bg-destructive/10 text-destructive border-destructive/20"
                               : "bg-muted/60 text-muted-foreground border-border",
                           )}>
-                            {hasOverride ? (acceso!.habilitado ? "? Permitido" : "? Bloqueado") : "? Por rol"}
+                              {hasOverride ? (acceso!.habilitado ? "Permitido" : "Bloqueado") : "Por rol"}
                           </span>
 
                           {/* Quick actions */}
                           {accSelected.size === 0 && (hasOverride ? (
                             <button
-                              title="Quitar override ? volver a reglas de rol"
+                              title="Quitar override - volver a reglas de rol"
                               onClick={() => removeDefAcceso(acceso!.id)}
                               className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
                             >
-                              ? rol
+                              rol
                             </button>
                           ) : (
                             <div className="flex gap-0.5">
@@ -4389,12 +4390,12 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                                 title="Permitir acceso"
                                 onClick={() => addDefAcceso({ definicion_id: selectedDef.id, usuario_id: user.id, habilitado: true, justificacion: "Acceso concedido desde gestión de formularios" })}
                                 className="text-[9px] px-1.5 py-0.5 rounded border border-success/30 text-success hover:bg-success/10 transition-colors font-medium"
-                              >?</button>
+                              >Permitir</button>
                               <button
                                 title="Bloquear acceso"
                                 onClick={() => addDefAcceso({ definicion_id: selectedDef.id, usuario_id: user.id, habilitado: false, justificacion: "Acceso bloqueado desde gestión de formularios" })}
                                 className="text-[9px] px-1.5 py-0.5 rounded border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors font-medium"
-                              >?</button>
+                              >Bloquear</button>
                             </div>
                           ))}
                         </div>
@@ -4973,7 +4974,7 @@ function TabCultivos() {
                   </label>
                   <div className="flex rounded-lg border border-border overflow-hidden">
                     {(["ha", "m2", "acres"] as const).map((opt) => {
-                      const labels: Record<string, string> = { ha: "ha", m2: "m?", acres: "acres" };
+                      const labels: Record<string, string> = { ha: "ha", m2: "m2", acres: "acres" };
                       const titles: Record<string, string> = { ha: "Hectáreas", m2: "Metros cuadrados", acres: "Acres" };
                       const active = (cultivo.unidad_superficie ?? "ha") === opt;
                       return (
@@ -5049,7 +5050,7 @@ function TabCultivos() {
                     <span className="text-xs text-muted-foreground">pl/ha</span>
                     {!!cultivo.marco_plantacion && cultivo.marco_plantacion > 0 && (
                       <span className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded-md border border-border">
-                        ? {(cultivo.marco_plantacion / 10000).toFixed(2)} pl/m?
+                        ~ {(cultivo.marco_plantacion / 10000).toFixed(2)} pl/m2
                       </span>
                     )}
                   </div>
@@ -6562,9 +6563,9 @@ function TabUsuarios() {
         productorId:  u.productorId,
         activo:       u.activo !== false,
         area_asignada: u.area_asignada,
-        empresa:      u.clienteId ? clientes.find(c => c.id === u.clienteId)?.nombre ?? "?" : "Plataforma",
+        empresa:      u.clienteId ? clientes.find(c => c.id === u.clienteId)?.nombre ?? "N/D" : "Plataforma",
         estado:       (u.activo !== false ? "Activo" : "Inactivo") as "Activo" | "Inactivo",
-        ultimoAcceso: "?",
+        ultimoAcceso: "N/D",
       })),
   [contextUsers, clientes, myLevel, isSuperAdmin, currentClienteId]);
 
@@ -6763,7 +6764,7 @@ function TabUsuarios() {
   const users = useMemo(() =>
     BASE_USERS.map(u => {
       const roleKey = userRoleMap.get(u.id) ?? u.roleKey;
-      const empresa = u.clienteId ? clientes.find(c => c.id === u.clienteId)?.nombre ?? "?" : "Plataforma";
+      const empresa = u.clienteId ? clientes.find(c => c.id === u.clienteId)?.nombre ?? "N/D" : "Plataforma";
       return { ...u, roleKey, rol: roleNameMap[roleKey], nivel: ROLE_LEVELS[roleKey], empresa };
     }),
   [BASE_USERS, userRoleMap, clientes]);
@@ -6845,7 +6846,7 @@ function TabUsuarios() {
   // Sort arrow indicator
   const SortArrow = ({ col }: { col: SortKey }) => (
     <span className={cn("ml-1 text-[9px]", sortBy === col ? "text-primary" : "opacity-30")}>
-      {sortBy === col ? (sortDir === "asc" ? "?" : "?") : "?"}
+      {sortBy === col ? (sortDir === "asc" ? "^" : "v") : "-"}
     </span>
   );
 
@@ -6866,7 +6867,7 @@ function TabUsuarios() {
   return (
     <div className="space-y-4">
       <InfoBanner storageKey="usuarios">
-        <strong>Gestión de Usuarios</strong> ? administra roles y configura permisos especiales
+        <strong>Gestión de Usuarios</strong> administra roles y configura permisos especiales
         por módulo y acción. Haz clic en un usuario para abrir su matriz de permisos.
       </InfoBanner>
 
@@ -7146,7 +7147,7 @@ function TabUsuarios() {
                           {overrideCount}
                         </span>
                       ) : (
-                        <span className="text-xs text-muted-foreground/30">?</span>
+                        <span className="text-xs text-muted-foreground/30">-</span>
                       )}
                     </td>
 
@@ -7204,12 +7205,12 @@ function TabUsuarios() {
               {/* Page controls */}
               <div className="flex items-center gap-1">
                 <span className="text-[11px] text-muted-foreground mr-1.5">
-                  {(page - 1) * pageSize + 1}?{Math.min(page * pageSize, filtered.length)} / {filtered.length}
+                  {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, filtered.length)} / {filtered.length}
                 </span>
                 <button onClick={() => setPage(1)} disabled={page === 1}
-                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">?</button>
+                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">&lt;&lt;</button>
                 <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">?</button>
+                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">&lt;</button>
                 {pageChips.map(p => (
                   <button
                     key={p}
@@ -7223,9 +7224,9 @@ function TabUsuarios() {
                   >{p}</button>
                 ))}
                 <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">?</button>
+                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">&gt;</button>
                 <button onClick={() => setPage(totalPages)} disabled={page === totalPages}
-                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">?</button>
+                  className="px-1.5 py-0.5 rounded text-xs hover:bg-muted disabled:opacity-30 text-muted-foreground">&gt;&gt;</button>
               </div>
             </div>
           )}
@@ -7295,7 +7296,7 @@ function TabUsuarios() {
                       {(() => { const Ic = rolConfig[selectedUser.rol]?.icon ?? Shield; return <Ic className="w-3 h-3" />; })()}
                       {selectedUser.rol}
                     </span>
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg bg-primary/10 text-primary" title="Nivel jerárquico (1=Lector ? 6=Super Admin)">
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg bg-primary/10 text-primary" title="Nivel jerárquico (1=Lector - 6=Super Admin)">
                       Nv.{selectedUser.nivel}
                       <span className="flex gap-0.5">
                         {Array.from({ length: 6 }).map((_, i) => (
@@ -7311,7 +7312,7 @@ function TabUsuarios() {
                       <ShieldAlert className="w-3.5 h-3.5 text-primary/60 shrink-0" />
                       <span className="text-[11px] text-primary/80 flex-1">
                         {userOverrides.length > 0 && <><strong>{userOverrides.length}</strong> override{userOverrides.length !== 1 ? "s" : ""} de módulo</>}
-                        {userOverrides.length > 0 && accesosDelUsuario.length > 0 && " ? "}
+                        {userOverrides.length > 0 && accesosDelUsuario.length > 0 && " - "}
                         {accesosDelUsuario.length > 0 && <><strong>{accesosDelUsuario.length}</strong> de formulario</>}
                       </span>
                       <button
@@ -7444,10 +7445,10 @@ function TabUsuarios() {
                                 <div className="flex-1 min-w-0">
                                   <p
                                     className="text-xs font-medium text-foreground truncate"
-                                    title={def.nombre + (blockReason ? ` ? ${blockReason}` : "")}
+                                    title={def.nombre + (blockReason ? ` - ${blockReason}` : "")}
                                   >
                                     {def.nombre}
-                                    {def.cultivo_id && <span className="ml-1 text-primary/50">??</span>}
+                                    {def.cultivo_id && <span className="ml-1 text-primary/50">cultivo</span>}
                                   </p>
                                   {/* Badges secundarios solo si hay restricciones */}
                                   {((def.nivel_minimo ?? 1) > 1 || !notExcl) && (
@@ -7487,17 +7488,17 @@ function TabUsuarios() {
                                     )}
                                   >
                                     {ovAcceso
-                                      ? ovAcceso.habilitado ? "? override" : "? bloqueado"
-                                      : roleOK ? "? por rol" : "? sin acceso"
+                                      ? ovAcceso.habilitado ? "override" : "bloqueado"
+                                      : roleOK ? "por rol" : "sin acceso"
                                     }
                                   </span>
                                   {ovAcceso ? (
                                     <button
                                       onClick={() => removeDefAcceso(ovAcceso.id)}
-                                      title="Quitar override ? volver a reglas del rol"
+                                      title="Quitar override - volver a reglas del rol"
                                       className="text-[10px] px-2 py-0.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
                                     >
-                                      ? rol
+                                      rol
                                     </button>
                                   ) : roleOK ? (
                                     <button
@@ -7543,7 +7544,7 @@ function TabUsuarios() {
               {matrixModal && selectedUser && (() => {
                 const mod = ALL_MODULES.find(m => m.value === matrixModal.modulo)?.label;
                 const act = ALL_ACTIONS.find(a => a.value === matrixModal.accion)?.label;
-                return `${selectedUser.nombre} ? ${act} en ${mod}`;
+                return `${selectedUser.nombre} - ${act} en ${mod}`;
               })()}
             </DialogDescription>
           </DialogHeader>
@@ -8014,7 +8015,7 @@ function TabUsuarios() {
                     <div className="space-y-1.5">
                       <Label className="text-xs font-medium">Empresa</Label>
                       <div className="h-9 bg-muted/40 rounded-md px-3 py-2 flex items-center text-sm text-muted-foreground">
-                        {clientes.find(c => c.id === currentClienteId)?.nombre ?? "?"}
+                        {clientes.find(c => c.id === currentClienteId)?.nombre ?? "N/D"}
                       </div>
                     </div>
                   ) : null}
@@ -8031,7 +8032,7 @@ function TabUsuarios() {
                         onChange={e => setFormProductorId(e.target.value ? Number(e.target.value) : "")}
                         className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                       >
-                        <option value="">? Sin productor ?</option>
+                        <option value="">Sin productor</option>
                         {formProductores.map(p => (
                           <option key={p.id} value={p.id}>{p.nombre}</option>
                         ))}
@@ -8109,7 +8110,7 @@ function TabUsuarios() {
                           <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                           <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Empresa</span>
                           <span className="ml-auto text-xs font-medium truncate">
-                            {clientes.find(c => c.id === (isSuperAdmin ? formClienteId : currentClienteId))?.nombre ?? "?"}
+                            {clientes.find(c => c.id === (isSuperAdmin ? formClienteId : currentClienteId))?.nombre ?? "N/D"}
                           </span>
                         </div>
                       )}
@@ -8119,7 +8120,7 @@ function TabUsuarios() {
                           <Tractor className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                           <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Productor</span>
                           <span className="ml-auto text-xs font-medium truncate">
-                            {formProductores.find(p => p.id === formProductorId)?.nombre ?? "?"}
+                            {formProductores.find(p => p.id === formProductorId)?.nombre ?? "N/D"}
                           </span>
                         </div>
                       )}
@@ -8272,18 +8273,22 @@ function TabUsuarios() {
 // --- Componente principal -----------------------------------------------------
 
 const Configuracion = () => {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const validTabs      = ["cultivos", "formularios", "usuarios"];
   // "campos" is an alias for "formularios" used by the "Editar campos del formulario" button
   const rawTab         = searchParams.get("tab") ?? "";
   const initialTab     = rawTab === "campos" ? "formularios" : validTabs.includes(rawTab) ? rawTab : "cultivos";
   const highlightDefId = searchParams.get("def") ?? undefined;
+  const openSistemaFromQuery = searchParams.get("sistema") === "1";
 
   const [activeTab, setActiveTab] = useState(initialTab);
   const { hasPendingChanges: hasPending, setHasPendingChanges: setHasPending } = useConfig();
-  const { currentClienteName } = useRole();
+  const { currentClienteName, currentUser } = useRole();
 
-  const [showSistema, setShowSistema] = useState(false);
+  const [showSistema, setShowSistema] = useState(openSistemaFromQuery);
+  const [entryModeSetting, setEntryModeSetting] = useState<DataEntryMode>(() =>
+    getDataEntryMode(currentUser?.id ?? null),
+  );
 
   // -- Tema y branding -------------------------------------------------------
   const { theme, saveTheme, toggleDarkMode } = useTheme();
@@ -8310,6 +8315,29 @@ const Configuracion = () => {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSistema]);
+
+  useEffect(() => {
+    if (!showSistema) return;
+    setEntryModeSetting(getDataEntryMode(currentUser?.id ?? null));
+  }, [showSistema, currentUser?.id]);
+
+  useEffect(() => {
+    if (openSistemaFromQuery) setShowSistema(true);
+  }, [openSistemaFromQuery]);
+
+  const handleShowSistemaChange = (open: boolean) => {
+    setShowSistema(open);
+    if (!open && searchParams.get("sistema") === "1") {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("sistema");
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
+
+  const handleEntryModeSettingChange = (mode: DataEntryMode) => {
+    setEntryModeSetting(mode);
+    setDataEntryMode(currentUser?.id ?? null, mode);
+  };
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -8343,17 +8371,6 @@ const Configuracion = () => {
       <PageHeader
         title="Configuración"
         description={`Cultivos, formularios y usuarios \u00B7 ${currentClienteName}`}
-        actions={
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex items-center gap-2"
-            onClick={() => setShowSistema(true)}
-          >
-            <Settings2 className="w-4 h-4" />
-            Ajustes del sistema
-          </Button>
-        }
       />
 
       <Tabs
@@ -8417,7 +8434,7 @@ const Configuracion = () => {
       </Tabs>
 
       {/* --- Sheet: Ajustes del sistema -------------------------------------- */}
-      <Sheet open={showSistema} onOpenChange={setShowSistema}>
+      <Sheet open={showSistema} onOpenChange={handleShowSistemaChange}>
         <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
           <SheetHeader className="mb-6">
             <SheetTitle className="flex items-center gap-2">
@@ -8557,6 +8574,40 @@ const Configuracion = () => {
                   </div>
                   <Switch checked={theme.darkMode} onCheckedChange={toggleDarkMode} />
                 </div>
+
+                <div className="space-y-2.5">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">Modo de ingreso de datos</p>
+                    <p className="text-xs text-muted-foreground">
+                      Elige tu formato preferido para capturar registros en los módulos operativos.
+                    </p>
+                  </div>
+                  <div className="inline-flex rounded-lg border border-border bg-muted/40 p-1">
+                    <button
+                      onClick={() => handleEntryModeSettingChange("tabla")}
+                      className={cn(
+                        "px-2.5 py-1 text-xs rounded-md transition-colors",
+                        entryModeSetting === "tabla"
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      Por tabla
+                    </button>
+                    <button
+                      onClick={() => handleEntryModeSettingChange("formulario")}
+                      className={cn(
+                        "px-2.5 py-1 text-xs rounded-md transition-colors",
+                        entryModeSetting === "formulario"
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      Por formulario
+                    </button>
+                  </div>
+                </div>
+
                 {/* Otros ajustes (sin backend aún) */}
                 {[
                   { label: "Notificaciones por Email", desc: "Recibir alertas importantes por correo",     checked: true  },
