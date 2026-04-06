@@ -5,9 +5,15 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { QuickActions } from "@/components/dashboard/QuickActions";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
+import { RoleNotifications } from "@/components/dashboard/RoleNotifications";
 import { WeatherChatWidget } from "@/components/dashboard/WeatherChatWidget";
 import { Button } from "@/components/ui/button";
-import { useRole, type UserRole } from "@/contexts/RoleContext";
+import {
+  useRole,
+  PRODUCER_DASHBOARD_MODULES,
+  type ProducerDashboardModuleKey,
+  type UserRole,
+} from "@/contexts/RoleContext";
 import { cn } from "@/lib/utils";
 import {
   Leaf, FlaskConical, Factory, ShoppingCart, TrendingUp,
@@ -73,20 +79,13 @@ const MODULE_TABS = [
 
 const DASHBOARD_TABS = [
   { key: "resumen",          label: "Resumen",                    Icon: LayoutDashboard, color: "hsl(142, 45%, 28%)", path: null,             permissionModules: ["dashboard"] },
-  { key: "cultivo",          label: "Cultivo / Cosecha",          Icon: Leaf,            color: "hsl(142, 45%, 28%)", path: "/cultivo",       permissionModules: ["cultivo", "cosecha"] },
+  { key: "cultivo",          label: "Cultivo",                    Icon: Leaf,            color: "hsl(142, 45%, 28%)", path: "/cultivo",       permissionModules: ["cultivo", "cosecha"] },
   { key: "laboratorio",      label: "Laboratorio",                Icon: FlaskConical,    color: "hsl(263, 70%, 50%)", path: "/laboratorio",   permissionModules: ["laboratorio"] },
   { key: "vivero",           label: "Vivero",                     Icon: Sprout,          color: "hsl(152, 60%, 40%)", path: "/vivero",        permissionModules: ["vivero"] },
-  { key: "post-cosecha",     label: "Post-cosecha / Producción", Icon: Package,         color: "hsl(24, 80%, 50%)",  path: "/post-cosecha",  permissionModules: ["post-cosecha", "produccion"] },
+  { key: "post-cosecha",     label: "Poscosecha",                Icon: Package,         color: "hsl(24, 80%, 50%)",  path: "/post-cosecha",  permissionModules: ["post-cosecha", "produccion"] },
   { key: "recursos-humanos", label: "Rec. Humanos",               Icon: Users,           color: "hsl(187, 70%, 42%)", path: "/recursos-humanos", permissionModules: ["recursos-humanos"] },
   { key: "comercial",        label: "Comercial",                  Icon: ShoppingCart,    color: "hsl(330, 70%, 55%)", path: "/comercial",     permissionModules: ["comercial"] },
 ];
-
-const PRODUCER_SIMULATED_ACTIVE_DASHBOARD_MODULES = [
-  "resumen",
-  "cultivo",
-  "post-cosecha",
-  "comercial",
-] as const;
 
 // ─── Per-module demo data ─────────────────────────────────────────────────────
 interface ModuleData {
@@ -456,28 +455,31 @@ function ModuleTabContent({
         <div className="lg:col-span-2">
           <RecentActivity activities={data.activities} title={`Actividad reciente — ${tab.label}`} />
         </div>
-        <div className="bg-card rounded-xl border border-border p-5 flex flex-col items-center justify-center gap-4 text-center min-h-[160px]">
-          <div
-            className="w-12 h-12 rounded-2xl flex items-center justify-center"
-            style={{ backgroundColor: `color-mix(in srgb, ${tab.color} 14%, transparent)` }}
-          >
-            <tab.Icon className="w-6 h-6" style={{ color: tab.color }} />
-          </div>
-          <div className="space-y-0.5">
-            <p className="text-sm font-semibold text-foreground">Módulo {tab.label}</p>
-            <p className="text-xs text-muted-foreground">Ver y gestionar registros</p>
-          </div>
-          {tab.path && (
-            <Button
-              size="sm"
-              onClick={() => navigate(tab.path!)}
-              className="gap-1.5 text-white"
-              style={{ backgroundColor: tab.color }}
+        <div className="space-y-4">
+          <div className="bg-card rounded-xl border border-border p-5 flex flex-col items-center justify-center gap-4 text-center min-h-[160px]">
+            <div
+              className="w-12 h-12 rounded-2xl flex items-center justify-center"
+              style={{ backgroundColor: `color-mix(in srgb, ${tab.color} 14%, transparent)` }}
             >
-              Abrir módulo
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Button>
-          )}
+              <tab.Icon className="w-6 h-6" style={{ color: tab.color }} />
+            </div>
+            <div className="space-y-0.5">
+              <p className="text-sm font-semibold text-foreground">Módulo {tab.label}</p>
+              <p className="text-xs text-muted-foreground">Ver y gestionar registros</p>
+            </div>
+            {tab.path && (
+              <Button
+                size="sm"
+                onClick={() => navigate(tab.path!)}
+                className="gap-1.5 text-white"
+                style={{ backgroundColor: tab.color }}
+              >
+                Abrir módulo
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
+            )}
+          </div>
+          <RoleNotifications maxItems={3} />
         </div>
       </div>
     </div>
@@ -547,6 +549,7 @@ function ResumenTabContent({ quickActions, sectorHint }: { quickActions: QA[]; s
         </div>
         <div className="space-y-4">
           {quickActions.length > 0 && <QuickActions actions={quickActions} />}
+          <RoleNotifications maxItems={4} />
           <RecentActivity activities={globalActivities} />
         </div>
       </div>
@@ -675,6 +678,7 @@ function AreaManagerDashboard({ area, areaLabel, areaColor, quickActions }: {
         </div>
         <div className="space-y-4">
           {quickActions.length > 0 && <QuickActions actions={quickActions} />}
+          <RoleNotifications maxItems={4} />
           <div className="bg-card rounded-xl border border-border p-4 flex flex-col items-center gap-3 text-center">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `color-mix(in srgb, ${areaColor} 14%, transparent)` }}>
               <tab.Icon className="w-5 h-5" style={{ color: areaColor }} />
@@ -752,6 +756,7 @@ function SupervisorDashboard({ area, areaLabel, areaColor, quickActions }: {
         </div>
         <div className="space-y-4">
           {quickActions.length > 0 && <QuickActions actions={quickActions} />}
+          <RoleNotifications maxItems={3} />
           <RecentActivity activities={activities} />
         </div>
       </div>
@@ -811,7 +816,8 @@ function ReaderDashboard({ area, areaLabel, areaColor }: {
             </AreaChart>
           </ResponsiveContainer>
         </div>
-        <div>
+        <div className="space-y-4">
+          <RoleNotifications maxItems={3} />
           <RecentActivity activities={data?.activities ?? []} />
         </div>
       </div>
@@ -821,12 +827,29 @@ function ReaderDashboard({ area, areaLabel, areaColor }: {
 
 // ─── Root component ───────────────────────────────────────────────────────────
 const Index = () => {
-  const { role, roleName, hasPermission, currentUser, currentClienteName } = useRole();
+  const {
+    role,
+    roleName,
+    hasPermission,
+    currentUser,
+    getProductorDashboardModules,
+  } = useRole();
   const navigate = useNavigate();
   const area      = currentUser?.area_asignada;
   const areaLabel = area ? (AREA_LABELS[area] ?? area) : "";
   const areaColor = area ? (AREA_COLORS[area] ?? "hsl(142, 45%, 28%)") : "hsl(142, 45%, 28%)";
   const roleSectorHint = "Quito, Ecuador";
+
+  const producerDashboardModules = new Set<ProducerDashboardModuleKey>(
+    role === "productor"
+      ? getProductorDashboardModules(currentUser?.productorId)
+      : []
+  );
+
+  const producerDashboardModulesLabel = PRODUCER_DASHBOARD_MODULES
+    .filter(group => producerDashboardModules.has(group.key))
+    .map(group => group.label)
+    .join(", ");
 
   const allQuickActions: QuickActionDef[] = [
     {
@@ -903,12 +926,6 @@ const Index = () => {
     tab.key === "resumen" || tab.permissionModules.some(mod => hasPermission(mod, "ver")),
   );
 
-  const producerDashboardTabs = dashboardTabsByPermission.filter(tab =>
-    PRODUCER_SIMULATED_ACTIVE_DASHBOARD_MODULES.includes(
-      tab.key as (typeof PRODUCER_SIMULATED_ACTIVE_DASHBOARD_MODULES)[number],
-    ),
-  );
-
   return (
     <MainLayout>
       {(role === "super_admin" || role === "cliente_admin") ? (
@@ -929,13 +946,13 @@ const Index = () => {
               <span>
                 Como <strong>Productor integrado</strong>, visualizas únicamente la información de tu empresa.
                 Los datos de otros productores están aislados. Módulos habilitados para dashboard:
-                <strong> Cultivo / Cosecha, Post-cosecha / Producción y Comercial</strong>.
+                <strong> {producerDashboardModulesLabel || "Sin módulos operativos configurados"}</strong>.
               </span>
             </div>
           }
           quickActions={quickActions}
           sectorHint={roleSectorHint}
-          tabs={producerDashboardTabs}
+          tabs={dashboardTabsByPermission}
         />
       ) : role === "jefe_area" && area ? (
         <AreaManagerDashboard area={area} areaLabel={areaLabel} areaColor={areaColor} quickActions={quickActions} />

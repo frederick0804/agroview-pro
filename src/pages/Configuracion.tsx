@@ -34,9 +34,10 @@ import { useConfig } from "@/contexts/ConfigContext";
 import { useTheme, DEFAULT_THEME } from "@/contexts/ThemeContext";
 import {
   useRole,
+  PRODUCER_DASHBOARD_MODULES,
   ALL_MODULES, ALL_ACTIONS, ACTIONS_BY_ROLE,
   ROLE_LEVELS,
-  type UserRole as UserRoleT, type ActionPermission,
+  type UserRole as UserRoleT, type ActionPermission, type ProducerDashboardModuleKey,
 } from "@/contexts/RoleContext";
 import {
   tipoBadgeColor, tipoLabels, estadoBadge,
@@ -340,37 +341,40 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
       </div>
 
       {/*  Filtros por tipo  */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        {tipos.map(t => {
-          const meta = TIPO_META[t];
-          const TIcon = meta?.icon;
-          const isActive = typeFilter === t;
-          return (
-            <button
-              key={t}
-              onClick={() => setTypeFilter(t)}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all",
-                isActive
-                  ? t === "Todos"
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : cn(meta?.bg, meta?.color, "border-transparent")
-                  : "bg-muted/40 text-muted-foreground border-border hover:bg-muted/60",
-              )}
-            >
-              {TIcon && <TIcon className="w-3 h-3" />}
-              {t}
-              {t !== "Todos" && (
-                <span className={cn("text-[10px] ml-0.5 opacity-70")}>
-                  {parametrosLib.filter(p => p.tipo_dato === t).length}
-                </span>
-              )}
-            </button>
-          );
-        })}
-        <span className="ml-auto text-[11px] text-muted-foreground">
-          {filtered.length} de {parametrosLib.length}
-        </span>
+      <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 space-y-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {tipos.map(t => {
+            const meta = TIPO_META[t];
+            const TIcon = meta?.icon;
+            const isActive = typeFilter === t;
+            return (
+              <button
+                key={t}
+                onClick={() => setTypeFilter(t)}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all",
+                  isActive
+                    ? t === "Todos"
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : cn(meta?.bg, meta?.color, "border-transparent shadow-sm")
+                    : "bg-background text-muted-foreground border-border hover:bg-muted/60 hover:border-border/80",
+                )}
+              >
+                {TIcon && <TIcon className="w-3 h-3" />}
+                {t}
+                {t !== "Todos" && (
+                  <span className="text-[10px] ml-0.5 opacity-70">
+                    {parametrosLib.filter(p => p.tipo_dato === t).length}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground px-0.5">
+          <span>{filtered.length} resultado{filtered.length !== 1 ? "s" : ""}</span>
+          <span>Total: {parametrosLib.length}</span>
+        </div>
       </div>
 
       {/*  Formulario nuevo parámetro  */}
@@ -398,7 +402,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
           </p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {filtered.map(p => {
             const meta = TIPO_META[p.tipo_dato] ?? TIPO_META["Texto"];
             const TIcon = meta.icon;
@@ -409,8 +413,8 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
               <div
                 key={p.id}
                 className={cn(
-                  "rounded-xl border bg-card transition-all",
-                  isEditing ? "border-primary/40 shadow-sm" : "border-border hover:border-border/80",
+                  "rounded-2xl border bg-card transition-all shadow-[0_1px_0_rgba(15,23,42,0.04)]",
+                  isEditing ? "border-primary/40 shadow-sm" : "border-border/80 hover:border-primary/30 hover:shadow-sm",
                 )}
               >
                 {isEditing ? (
@@ -443,56 +447,67 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
                   </div>
                 ) : (
                   /*  Vista normal  */
-                  <div className="flex items-center gap-3 px-4 py-3 group">
+                  <div className="group px-4 py-3.5">
                     {/* Tipo icon */}
-                    <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0", meta.bg)}>
-                      <TIcon className={cn("w-4 h-4", meta.color)} />
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold">{p.nombre.replace(/_/g, " ")}</span>
-                        {p.codigo && (
-                          <span className="text-[10px] font-mono bg-muted border border-border px-1.5 py-0.5 rounded text-muted-foreground shrink-0">
-                            {p.codigo}
-                          </span>
-                        )}
-                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0", meta.bg, meta.color)}>
-                          {p.tipo_dato}
-                        </span>
-                        {p.unidad_medida && (
-                          <span className="text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded shrink-0">
-                            {p.unidad_medida}
-                          </span>
-                        )}
-                        {p.obligatorio_default && (
-                          <span className="text-[10px] text-rose-600 bg-rose-50 border border-rose-200 dark:bg-rose-900/20 dark:border-rose-800/40 px-1.5 py-0.5 rounded-full font-medium shrink-0">
-                            Obligatorio
-                          </span>
-                        )}
+                    <div className="flex items-start gap-3.5">
+                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", meta.bg)}>
+                        <TIcon className={cn("w-4 h-4", meta.color)} />
                       </div>
-                      {p.descripcion && (
-                        <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{p.descripcion}</p>
-                      )}
-                    </div>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                      <button
-                        onClick={() => startEdit(p)}
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors"
-                        title="Editar"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setConfirmDelId(p.id)}
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/8 transition-colors"
-                        title="Eliminar"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {/* Info */}
+                      <div className="flex-1 min-w-0 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[15px] font-semibold leading-tight">{p.nombre.replace(/_/g, " ")}</span>
+                              {p.codigo && (
+                                <span className="text-[10px] font-mono bg-muted border border-border px-1.5 py-0.5 rounded text-muted-foreground shrink-0">
+                                  {p.codigo}
+                                </span>
+                              )}
+                            </div>
+                            {p.descripcion && (
+                              <p className="text-xs text-muted-foreground mt-1.5 leading-snug">
+                                {p.descripcion}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0">
+                            <button
+                              onClick={() => startEdit(p)}
+                              className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors"
+                              title="Editar"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setConfirmDelId(p.id)}
+                              className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/8 transition-colors"
+                              title="Eliminar"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0", meta.bg, meta.color)}>
+                            {p.tipo_dato}
+                          </span>
+                          {p.unidad_medida && (
+                            <span className="text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded shrink-0">
+                              {p.unidad_medida}
+                            </span>
+                          )}
+                          {p.obligatorio_default && (
+                            <span className="text-[10px] text-rose-600 bg-rose-50 border border-rose-200 dark:bg-rose-900/20 dark:border-rose-800/40 px-1.5 py-0.5 rounded-full font-medium shrink-0">
+                              Obligatorio
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -4578,6 +4593,7 @@ function TabCultivos() {
 
   // Tab interno para simplificar la UI de configuración
   const [cultivoTab, setCultivoTab] = useState<"general" | "medidas" | "calibres" | "estructura">("general");
+  const [showEstructuraPanel, setShowEstructuraPanel] = useState(true);
 
   const filteredCultivos = cultivosList.filter(c =>
     !searchCultivo || c.nombre.toLowerCase().includes(searchCultivo.toLowerCase()) ||
@@ -4600,7 +4616,12 @@ function TabCultivos() {
       )}
 
       {/* -- Layout master / detail --------------------------------------- */}
-      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4 items-start">
+      <div className={cn(
+        "grid grid-cols-1 gap-4 items-start",
+        cultivoTab === "estructura"
+          ? "lg:grid-cols-[210px_minmax(0,1fr)]"
+          : "lg:grid-cols-[260px_1fr]",
+      )}>
 
         {/* ----------------- SIDEBAR: lista de cultivos ---------------- */}
         <div className="bg-card rounded-xl border border-border overflow-hidden flex flex-col">
@@ -4713,7 +4734,7 @@ function TabCultivos() {
             <p className="text-sm text-muted-foreground">Selecciona un cultivo para ver su detalle</p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             {/* -- Header del cultivo con tabs -------------------------------- */}
             <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center justify-between">
@@ -5217,9 +5238,10 @@ function TabCultivos() {
                 </TabsContent>
 
                 {/* TAB: Estructura */}
-                <TabsContent value="estructura" className="p-4 space-y-4 m-0">
-            {/* -- Sección 5: Estructura de Campo ---------------------------- */}
-            <div className="bg-card rounded-xl border border-border overflow-hidden">
+                <TabsContent value="estructura" className="p-3 md:p-4 m-0">
+              <div className="space-y-4 min-w-0">
+              {/* -- Sección 5: Estructura de Campo ---------------------------- */}
+              <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -5230,6 +5252,15 @@ function TabCultivos() {
                     Define los niveles jerárquicos del campo
                   </span>
                 </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowEstructuraPanel(v => !v)}
+                    className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground border border-border/70 px-2 py-1 rounded-md hover:border-primary/40 transition-colors"
+                    title={showEstructuraPanel ? "Ocultar estructura" : "Mostrar estructura"}
+                  >
+                    {showEstructuraPanel ? "Ocultar" : "Mostrar"}
+                    <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", !showEstructuraPanel && "-rotate-90")} />
+                  </button>
                 {canEditCultivo && (
                   <div className="flex items-center gap-2">
                     {(cultivo.estructura ?? []).length === 0 && (
@@ -5266,9 +5297,10 @@ function TabCultivos() {
                     </button>
                   </div>
                 )}
+                </div>
               </div>
 
-              {(cultivo.estructura ?? []).length === 0 ? (
+              {showEstructuraPanel && ((cultivo.estructura ?? []).length === 0 ? (
                 <div className="px-4 py-8 text-center space-y-2">
                   <Network className="w-7 h-7 mx-auto text-muted-foreground/20" />
                   <p className="text-xs text-muted-foreground">Sin estructura configurada.</p>
@@ -5421,12 +5453,12 @@ function TabCultivos() {
                     </div>
                   )}
                 </div>
-              )}
+              ))}
             </div>
 
             {/* -- Sección 5: Mapa visual del campo ------------------------------------- */}
             {(cultivo.estructura ?? []).some(n => n.activo) && (
-              <div className="rounded-lg border bg-card text-card-foreground overflow-hidden">
+              <div className="rounded-lg border bg-card text-card-foreground overflow-hidden min-w-0">
                 <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
                   <div className="flex items-center gap-2">
                     <MapIcon className="w-4 h-4 text-emerald-500" />
@@ -5438,18 +5470,21 @@ function TabCultivos() {
                     </span>
                   </div>
                 </div>
-                <div className="p-4">
+                <div className="p-2 md:p-2.5 xl:p-3">
                   <CampoMapaEditor
+                    key={`mapa-${cultivo.id}`}
                     estructura={cultivo.estructura ?? []}
                     layout={cultivo.layout_mapa ?? []}
                     onLayoutChange={(newLayout) =>
                       updCultivo(cultivo.id, "layout_mapa", newLayout)
                     }
                     readOnly={!canEditCultivo}
+                    editorHeight={840}
                   />
                 </div>
               </div>
             )}
+            </div>
                 </TabsContent>
               </Tabs>
             </div>
@@ -5532,13 +5567,74 @@ const EMPTY_EMPRESA = { nombre: "", ruc: "", pais: "Chile", direccion: "" };
 function TabEmpresas() {
   const { role, clientes, addCliente, updCliente, delCliente,
           productores, addProductor, updProductor, delProductor,
-          currentUser } = useRole();
+          currentUser, getProductorDashboardModules, setProductorDashboardModules } = useRole();
   const { allCultivos, allVariedades, updCultivoClientes, updCultivoProductores, updVariedadClientes, updVariedadProductores } = useConfig();
   const isSuperAdmin    = role === "super_admin";
   const isClienteAdmin  = role === "cliente_admin";
   const isProductor     = role === "productor";
   const currentClienteId   = currentUser?.clienteId   ?? null;
   const currentProductorId = currentUser?.productorId ?? null;
+
+  const toggleProductorDashboardModulo = (
+    productorId: number,
+    moduleKey: ProducerDashboardModuleKey,
+    enabled: boolean,
+  ) => {
+    const current = new Set(getProductorDashboardModules(productorId));
+    if (enabled) {
+      current.add(moduleKey);
+    } else {
+      if (current.size <= 1) return;
+      current.delete(moduleKey);
+    }
+    setProductorDashboardModules(
+      productorId,
+      Array.from(current) as ProducerDashboardModuleKey[]
+    );
+  };
+
+  const renderProductorDashboardModules = (productorId: number, className?: string) => {
+    const active = new Set(getProductorDashboardModules(productorId));
+    return (
+      <div className={cn("space-y-1.5", className)}>
+        <div className="flex items-center gap-1.5">
+          <LayoutList className="w-3 h-3 text-muted-foreground" />
+          <span className="text-[11px] font-medium text-muted-foreground">Módulos del dashboard</span>
+          <span className="ml-auto text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+            {active.size}/{PRODUCER_DASHBOARD_MODULES.length}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {PRODUCER_DASHBOARD_MODULES.map(group => {
+            const isEnabled = active.has(group.key);
+            const isLastActive = isEnabled && active.size === 1;
+            return (
+              <button
+                key={group.key}
+                type="button"
+                disabled={isLastActive}
+                onClick={() => toggleProductorDashboardModulo(productorId, group.key, !isEnabled)}
+                className={cn(
+                  "text-[10px] px-2 py-1 rounded-md border font-medium transition-all",
+                  isEnabled
+                    ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
+                    : "border-border bg-background text-muted-foreground hover:border-primary/30 hover:text-foreground",
+                  isLastActive && "opacity-45 cursor-not-allowed hover:bg-primary/10"
+                )}
+                title={
+                  isLastActive
+                    ? "Debe quedar al menos un módulo activo"
+                    : (isEnabled ? `Deshabilitar ${group.label}` : `Habilitar ${group.label}`)
+                }
+              >
+                {group.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   // -- Toggle cultivo para un cliente -----------------------------------------
   // clientes_ids vacío = global (todos lo ven). Al desmarcar un global
@@ -5866,6 +5962,7 @@ function TabEmpresas() {
                               ))}
                             </div>
                           )}
+                          {renderProductorDashboardModules(prod.id, "pl-11")}
                         </div>
                       );
                     })}
@@ -6241,6 +6338,8 @@ function TabEmpresas() {
                                       </div>
                                     )}
                                   </div>
+
+                                  {renderProductorDashboardModules(prod.id, "px-4 pb-2 ml-10")}
 
                                   {/* -- Cultivos + Variedades por productor (super_admin) --- */}
                                   {isSuperAdmin && cultivosHabilitados.length > 0 && (

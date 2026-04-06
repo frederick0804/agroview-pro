@@ -53,6 +53,7 @@ interface CampoMapaEditorProps {
   layout: BloqueLayout[];
   onLayoutChange: (layout: BloqueLayout[]) => void;
   readOnly?: boolean;
+  editorHeight?: number;
 }
 
 // ─── Temas de colores predefinidos ────────────────────────────────────────────
@@ -132,8 +133,10 @@ export function CampoMapaEditor({
   layout,
   onLayoutChange,
   readOnly = false,
+  editorHeight = 720,
 }: CampoMapaEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const didAutoFitRef = useRef(false);
 
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -215,10 +218,10 @@ export function CampoMapaEditor({
       id: generateId(),
       nombre: `${primerNivelLabel} ${count + 1}`,
       nivelIdx: 0,
-      x: Math.max(0, 20 - pan.x / scale + (count % 3) * 350),
-      y: Math.max(0, 20 - pan.y / scale + Math.floor(count / 3) * 250),
-      width: 320,
-      height: 220,
+      x: Math.max(0, 24 - pan.x / scale + (count % 3) * 390),
+      y: Math.max(0, 24 - pan.y / scale + Math.floor(count / 3) * 280),
+      width: 360,
+      height: 240,
       color: getDefaultColor(0),
       opacity: opacidadGlobal,
       hijos: [],
@@ -443,13 +446,124 @@ export function CampoMapaEditor({
     [layout, selectedBloque, onLayoutChange]
   );
 
+  // ── Encajar contenido en la vista ─────────────────────────────────────────
+  const fitToContent = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    if (layout.length === 0) {
+      setScale(1);
+      setPan({ x: 0, y: 0 });
+      return;
+    }
+
+    const bounds = layout.reduce(
+      (acc, bloque) => ({
+        minX: Math.min(acc.minX, bloque.x),
+        minY: Math.min(acc.minY, bloque.y),
+        maxX: Math.max(acc.maxX, bloque.x + bloque.width),
+        maxY: Math.max(acc.maxY, bloque.y + bloque.height),
+      }),
+      { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity }
+    );
+
+    const rect = container.getBoundingClientRect();
+    if (rect.width < 80 || rect.height < 80) return;
+
+    const padding = 56;
+    const contentWidth = Math.max(1, bounds.maxX - bounds.minX);
+    const contentHeight = Math.max(1, bounds.maxY - bounds.minY);
+    const scaleX = (rect.width - padding * 2) / contentWidth;
+    const scaleY = (rect.height - padding * 2) / contentHeight;
+    const nextScale = Math.max(0.45, Math.min(2.2, Math.min(scaleX, scaleY)));
+
+    const fittedWidth = contentWidth * nextScale;
+    const fittedHeight = contentHeight * nextScale;
+    const offsetX = (rect.width - fittedWidth) / 2;
+    const offsetY = (rect.height - fittedHeight) / 2;
+
+    setScale(nextScale);
+    setPan({
+      x: offsetX - bounds.minX * nextScale,
+      y: offsetY - bounds.minY * nextScale,
+    });
+  }, [layout]);
+
   // ── Zoom ────────────────────────────────────────────────────────────────────
   const zoomIn = () => setScale((s) => Math.min(s * 1.2, 3));
   const zoomOut = () => setScale((s) => Math.max(s / 1.2, 0.3));
   const resetView = () => {
+    if (layout.length > 0) {
+      fitToContent();
+      return;
+    }
     setScale(1);
     setPan({ x: 0, y: 0 });
   };
+
+  // Zoom del mapa con Ctrl/Cmd + rueda, evitando zoom global del navegador.
+  const handleCanvasWheel = useCallback((e: WheelEvent) => {
+    if (layout.length === 0) return;
+
+    const wantsMapZoom = e.ctrlKey || e.metaKey;
+    if (!wantsMapZoom) return;
+
+    if (e.cancelable) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
+    const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+
+    setScale((prevScale) => {
+      const nextScale = Math.max(0.3, Math.min(3, prevScale * zoomFactor));
+      setPan((prevPan) => {
+        const worldX = (cursorX - prevPan.x) / prevScale;
+        const worldY = (cursorY - prevPan.y) / prevScale;
+        return {
+          x: cursorX - worldX * nextScale,
+          y: cursorY - worldY * nextScale,
+        };
+      });
+      return nextScale;
+    });
+  }, [layout.length]);
+
+  // Listener nativo no pasivo para cancelar el zoom de la página con Ctrl+rueda.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    container.addEventListener("wheel", handleCanvasWheel, {
+      passive: false,
+      capture: true,
+    });
+
+    return () => {
+      container.removeEventListener("wheel", handleCanvasWheel, true);
+    };
+  }, [handleCanvasWheel]);
+
+  // Auto-encuadre inicial para evitar que el mapa se vea diminuto o perdido
+  useEffect(() => {
+    if (layout.length === 0) {
+      didAutoFitRef.current = false;
+      return;
+    }
+    if (didAutoFitRef.current) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      fitToContent();
+      didAutoFitRef.current = true;
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [layout.length, fitToContent]);
 
   // ── Mouse events ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -512,7 +626,7 @@ export function CampoMapaEditor({
       const tieneComponentes = (hijo.componentes?.length ?? 0) > 0;
 
       // Calcular tamaño basado en contenido
-      const minSize = profundidad > 2 ? 8 : profundidad > 1 ? 12 : 16;
+      const minSize = profundidad > 2 ? 10 : profundidad > 1 ? 14 : 18;
 
       return (
         <div
@@ -528,7 +642,7 @@ export function CampoMapaEditor({
         >
           {profundidad < 3 && (
             <div
-              className="text-[9px] font-semibold text-white text-center py-0.5 px-1 truncate flex items-center justify-center gap-1"
+              className="text-[10px] font-semibold text-white text-center py-1 px-1.5 truncate flex items-center justify-center gap-1"
               style={{ textShadow: "0 1px 2px rgba(0,0,0,0.4)" }}
             >
               {hijo.nombre}
@@ -1076,7 +1190,7 @@ export function CampoMapaEditor({
     if (!selectedBloque || readOnly || !showEditPanel) return null;
 
     return (
-      <div className="w-[420px] border-r bg-card flex flex-col shrink-0" style={{ height: 600 }}>
+      <div className="w-[340px] xl:w-[360px] border-r bg-card flex flex-col shrink-0" style={{ height: editorHeight }}>
         <div className="p-3 border-b flex items-center justify-between shrink-0">
           <h3 className="font-semibold text-sm flex items-center gap-2 min-w-0">
             <Settings2 className="w-4 h-4 shrink-0" />
@@ -1103,20 +1217,20 @@ export function CampoMapaEditor({
         </div>
 
         <Tabs defaultValue="config-rapida" className="flex-1 flex flex-col overflow-hidden">
-          <TabsList className="w-full rounded-none border-b bg-muted/30 grid grid-cols-5 shrink-0">
-            <TabsTrigger value="config-rapida" className="text-xs">
+          <TabsList className="w-full rounded-none border-b bg-muted/30 p-1.5 h-auto justify-start flex-wrap gap-1 shrink-0">
+            <TabsTrigger value="config-rapida" className="text-[11px] h-7 px-2.5 whitespace-nowrap data-[state=active]:shadow-sm">
               Config. Rápida
             </TabsTrigger>
-            <TabsTrigger value="estructura" className="text-xs">
+            <TabsTrigger value="estructura" className="text-[11px] h-7 px-2.5 whitespace-nowrap data-[state=active]:shadow-sm">
               Individual
             </TabsTrigger>
-            <TabsTrigger value="componentes" className="text-xs">
+            <TabsTrigger value="componentes" className="text-[11px] h-7 px-2.5 whitespace-nowrap data-[state=active]:shadow-sm">
               Componentes
             </TabsTrigger>
-            <TabsTrigger value="apariencia" className="text-xs">
+            <TabsTrigger value="apariencia" className="text-[11px] h-7 px-2.5 whitespace-nowrap data-[state=active]:shadow-sm">
               Apariencia
             </TabsTrigger>
-            <TabsTrigger value="propiedades" className="text-xs">
+            <TabsTrigger value="propiedades" className="text-[11px] h-7 px-2.5 whitespace-nowrap data-[state=active]:shadow-sm">
               Info
             </TabsTrigger>
           </TabsList>
@@ -1359,11 +1473,20 @@ export function CampoMapaEditor({
           </Button>
         )}
         <div className="flex-1" />
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground border rounded-md px-2 py-1 bg-muted/30">
           <Hand className="w-3.5 h-3.5" />
-          <span>Arrastra el fondo para navegar</span>
+          <span>Arrastra para navegar y usa Ctrl/Cmd + rueda para zoom</span>
         </div>
-        <div className="flex items-center gap-1 border rounded-md px-1">
+        <div className="flex items-center gap-1 border rounded-md px-1.5 py-0.5 bg-background/90 shadow-sm">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-[11px]"
+            onClick={fitToContent}
+            disabled={layout.length === 0}
+          >
+            Encajar
+          </Button>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={zoomOut}>
             <ZoomOut className="w-4 h-4" />
           </Button>
@@ -1394,7 +1517,7 @@ export function CampoMapaEditor({
       )}
 
       {/* Layout: Panel + Canvas */}
-      <div className="flex border rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-900/50" style={{ height: 600 }}>
+      <div className="flex border rounded-lg overflow-hidden bg-gradient-to-br from-slate-50 via-white to-slate-100/80 dark:from-slate-900/60 dark:via-slate-900/30 dark:to-slate-800/60" style={{ height: editorHeight }}>
         {renderPanelEdicion()}
 
         {/* Canvas */}
@@ -1434,9 +1557,14 @@ export function CampoMapaEditor({
                   top: pan.y,
                   transform: `scale(${scale})`,
                   transformOrigin: "0 0",
-                  backgroundImage: `linear-gradient(to right, #cbd5e1 1px, transparent 1px), linear-gradient(to bottom, #cbd5e1 1px, transparent 1px)`,
-                  backgroundSize: "40px 40px",
-                  opacity: 0.4,
+                  backgroundImage: `
+                    linear-gradient(to right, rgba(148, 163, 184, 0.2) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(148, 163, 184, 0.2) 1px, transparent 1px),
+                    linear-gradient(to right, rgba(100, 116, 139, 0.24) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(100, 116, 139, 0.24) 1px, transparent 1px)
+                  `,
+                  backgroundSize: "32px 32px, 32px 32px, 160px 160px, 160px 160px",
+                  opacity: 0.65,
                 }}
               />
 
@@ -1490,7 +1618,7 @@ export function CampoMapaEditor({
                       }}
                     >
                       <div className="px-2 py-1.5 border-b flex items-center justify-between bg-black/10" style={{ borderColor: "rgba(255,255,255,0.3)" }}>
-                        <span className="text-sm font-bold text-white truncate drop-shadow-md flex-1">
+                        <span className="text-[13px] font-bold text-white truncate drop-shadow-md flex-1">
                           {bloque.nombre}
                         </span>
                         <div className="flex items-center gap-1 shrink-0">
@@ -1557,7 +1685,7 @@ export function CampoMapaEditor({
 
                       <div
                         className={cn(
-                          "flex-1 p-2 gap-1.5 overflow-hidden",
+                          "flex-1 p-2.5 gap-2 overflow-hidden",
                           bloque.elementosPorFila && bloque.elementosPorFila > 0
                             ? "grid"
                             : `flex ${isVertical ? "flex-col" : "flex-row"}`
@@ -1604,8 +1732,12 @@ export function CampoMapaEditor({
                 })}
               </div>
 
-              <div className="absolute bottom-3 right-3 text-xs bg-black/70 text-white px-3 py-1.5 rounded-lg pointer-events-none">
-                {layout.length} {getNivelLabel(estructura, 0).toLowerCase()}{layout.length !== 1 ? "s" : ""}
+              <div className="absolute bottom-3 right-3 text-[11px] bg-black/72 text-white px-3 py-1.5 rounded-lg pointer-events-none flex items-center gap-2">
+                <span>
+                  {layout.length} {getNivelLabel(estructura, 0).toLowerCase()}{layout.length !== 1 ? "s" : ""}
+                </span>
+                <span className="opacity-70">•</span>
+                <span>{Math.round(scale * 100)}%</span>
               </div>
             </>
           )}
@@ -1703,7 +1835,7 @@ export function CampoMapaEditor({
                   };
 
                   const nuevoLayout = findAndRemoveComponent(layout);
-                  onChange(nuevoLayout);
+                  onLayoutChange(nuevoLayout);
                   setComponenteAEliminar(null);
                 }
               }}
