@@ -106,6 +106,9 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const { currentClienteId, currentUser, role } = useRole();
   const currentProductorId = currentUser?.productorId;
 
+  const createUniqueId = (prefix = "") =>
+    `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
   const [parametrosLib, setParametrosLib] = useState<Parametro[]>(PARAMETROS_LIBRARY);
   const [allDefiniciones, setDefiniciones] = useState<ModDef[]>(DEFINICIONES);
   const [allParametros, setParametros] = useState<ModParam[]>(PARAMETROS);
@@ -385,7 +388,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     const emptyVals: Record<string, string> = {};
     params.forEach(p => { emptyVals[p.nombre] = ""; });
     const newDato: ModDato = {
-      id: String(Date.now()),
+      id: createUniqueId("d-"),
       definicion_id: defId,
       cultivo_id: cultivoId,
       registro_padre_dato_id: registroPadreDatoId,

@@ -267,6 +267,7 @@ function DynamicDefTable({
   const [duplicateSourceIds, setDuplicateSourceIds] = useState<string[]>([]);
   const [duplicateFields, setDuplicateFields] = useState<string[]>([]);
   const [duplicateIncludeFecha, setDuplicateIncludeFecha] = useState(true);
+  const [duplicateRepeatCount, setDuplicateRepeatCount] = useState(1);
   const [selectedDuplicateIds, setSelectedDuplicateIds] = useState<string[]>([]);
   const [pendingRequiredDatoIds, setPendingRequiredDatoIds] = useState<string[]>([]);
 
@@ -282,6 +283,7 @@ function DynamicDefTable({
     setDuplicateSourceIds([]);
     setDuplicateFields([]);
     setDuplicateIncludeFecha(true);
+    setDuplicateRepeatCount(1);
     setSelectedDuplicateIds([]);
     setPendingRequiredDatoIds([]);
   }, [defId, paramsSignature]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -798,6 +800,12 @@ function DynamicDefTable({
     setDuplicateSourceIds(sourceRows.map(d => d.id));
     setDuplicateFields(filledFieldNames.length > 0 ? filledFieldNames : allFieldNames);
     setDuplicateIncludeFecha(true);
+    setDuplicateRepeatCount(1);
+  };
+
+  const sanitizeDuplicateRepeatCount = (raw: number) => {
+    if (!Number.isFinite(raw)) return 1;
+    return Math.max(1, Math.min(30, Math.trunc(raw)));
   };
 
   const toggleDuplicateField = (fieldName: string) => {
@@ -836,6 +844,7 @@ function DynamicDefTable({
     setDuplicateSourceIds([]);
     setDuplicateFields([]);
     setDuplicateIncludeFecha(true);
+    setDuplicateRepeatCount(1);
   };
 
   const handleSaveFormEntry = () => {
@@ -952,14 +961,13 @@ function DynamicDefTable({
     if (!duplicateIncludeFecha && duplicateFields.length === 0) return;
     if (hasRowPendingRequired) return;
 
-    duplicateSourceIds.forEach((sourceId) => {
-      duplicateFromSource(sourceId, duplicateFields, duplicateIncludeFecha);
-    });
+    const repeatCount = sanitizeDuplicateRepeatCount(duplicateRepeatCount);
 
-    if (duplicateSourceIds.length > 1 || duplicateMenuOpenId === BULK_DUPLICATE_MENU_ID) {
-      setSelectedDuplicateIds([]);
-    }
-    resetDuplicateState();
+    duplicateSourceIds.forEach((sourceId) => {
+      for (let i = 0; i < repeatCount; i += 1) {
+        duplicateFromSource(sourceId, duplicateFields, duplicateIncludeFecha);
+      }
+    });
   };
 
   // IA confirm: crea múltiples filas con los valores detectados por IA
@@ -1070,16 +1078,22 @@ function DynamicDefTable({
     : {};
   const duplicateSelectionCount = duplicateFields.length + (duplicateIncludeFecha ? 1 : 0);
   const duplicateTargetsCount = duplicateSourceIds.length;
+  const duplicateTotalRowsToCreate = duplicateTargetsCount * sanitizeDuplicateRepeatCount(duplicateRepeatCount);
   const selectedRowsCount = selectedDuplicateIds.length;
   const canDuplicateRows = canCreate && canAddRecord;
-  const canRunPartialDuplicate = duplicateTargetsCount > 0 && duplicateSelectionCount > 0;
+  const canRunPartialDuplicate = duplicateTargetsCount > 0 && duplicateSelectionCount > 0 && duplicateRepeatCount > 0;
   const isBulkDupMenuOpen = duplicateMenuOpenId === BULK_DUPLICATE_MENU_ID;
   const allRowsSelected = defDatos.length > 0 && selectedRowsCount === defDatos.length;
   const duplicateActionsBlocked = hasRowPendingRequired;
 
   const renderDuplicatePartialMenu = (title: string) => (
-    <DropdownMenuContent align="end" className="w-80 p-2">
-      <div className="px-1 pb-2">
+    <DropdownMenuContent
+      align="end"
+      sideOffset={8}
+      collisionPadding={12}
+      className="w-[min(22rem,calc(100vw-1rem))] max-h-[min(80vh,var(--radix-dropdown-menu-content-available-height))] p-2 flex flex-col overflow-hidden"
+    >
+      <div className="px-1 pb-2 shrink-0">
         <p className="text-xs font-semibold text-foreground">{title}</p>
         <p className="text-[11px] text-muted-foreground">
           Marca las celdas que quieras copiar para {duplicateTargetsCount} fila{duplicateTargetsCount !== 1 ? "s" : ""}.
@@ -1092,46 +1106,93 @@ function DynamicDefTable({
       </div>
       <DropdownMenuSeparator />
 
-      <div className="max-h-56 overflow-y-auto rounded-md border divide-y">
-        <label className="flex items-center justify-between px-2.5 py-2 text-xs cursor-pointer hover:bg-muted/40">
-          <span className="font-medium text-foreground">Fecha</span>
-          <input
-            type="checkbox"
-            checked={duplicateIncludeFecha}
-            onChange={(e) => setDuplicateIncludeFecha(e.target.checked)}
-          />
-        </label>
+      <div className="min-h-0 flex-1 overflow-y-auto space-y-2 pr-1">
+        <div className="rounded-md border divide-y">
+          <label className="flex items-center justify-between px-2.5 py-2 text-xs cursor-pointer hover:bg-muted/40">
+            <span className="font-medium text-foreground">Fecha</span>
+            <input
+              type="checkbox"
+              checked={duplicateIncludeFecha}
+              onChange={(e) => setDuplicateIncludeFecha(e.target.checked)}
+            />
+          </label>
 
-        {duplicableParams.map(param => {
-          const label = param.etiqueta_personalizada || param.nombre.replace(/_/g, " ");
-          const previewRaw = duplicateSourceVals[param.nombre];
-          const preview = previewRaw === undefined || previewRaw === null || String(previewRaw).trim() === ""
-            ? "Sin valor"
-            : String(previewRaw);
-          const isSelected = duplicateFields.includes(param.nombre);
+          {duplicableParams.map(param => {
+            const label = param.etiqueta_personalizada || param.nombre.replace(/_/g, " ");
+            const previewRaw = duplicateSourceVals[param.nombre];
+            const preview = previewRaw === undefined || previewRaw === null || String(previewRaw).trim() === ""
+              ? "Sin valor"
+              : String(previewRaw);
+            const isSelected = duplicateFields.includes(param.nombre);
 
-          return (
-            <label key={param.id} className="flex items-center justify-between gap-2 px-2.5 py-2 text-xs cursor-pointer hover:bg-muted/40">
-              <div className="min-w-0 flex-1">
-                <p className="text-foreground truncate">{label}</p>
-                <p className="text-muted-foreground truncate">{preview}</p>
-              </div>
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => toggleDuplicateField(param.nombre)}
-              />
-            </label>
-          );
-        })}
+            return (
+              <label key={param.id} className="flex items-center justify-between gap-2 px-2.5 py-2 text-xs cursor-pointer hover:bg-muted/40">
+                <div className="min-w-0 flex-1">
+                  <p className="text-foreground truncate">{label}</p>
+                  <p className="text-muted-foreground truncate">{preview}</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => toggleDuplicateField(param.nombre)}
+                />
+              </label>
+            );
+          })}
+        </div>
+
+        <div className="rounded-md border border-border bg-muted/20 p-2 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-medium text-foreground">Copias por fila</span>
+            <span className="text-[10px] text-muted-foreground">Max 30</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={() => setDuplicateRepeatCount((prev) => sanitizeDuplicateRepeatCount(prev - 1))}
+              disabled={duplicateRepeatCount <= 1 || duplicateActionsBlocked}
+            >
+              -
+            </Button>
+            <Input
+              type="number"
+              min={1}
+              max={30}
+              value={duplicateRepeatCount}
+              onChange={(e) => {
+                const parsed = Number.parseInt(e.target.value, 10);
+                setDuplicateRepeatCount(sanitizeDuplicateRepeatCount(Number.isNaN(parsed) ? 1 : parsed));
+              }}
+              className="h-7 text-xs text-center"
+              disabled={duplicateActionsBlocked}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={() => setDuplicateRepeatCount((prev) => sanitizeDuplicateRepeatCount(prev + 1))}
+              disabled={duplicateRepeatCount >= 30 || duplicateActionsBlocked}
+            >
+              +
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            El panel se mantiene abierto para repetir el duplicado sin volver a seleccionar campos.
+          </p>
+        </div>
       </div>
 
-      <div className="pt-2 flex items-center justify-between gap-2">
+      <DropdownMenuSeparator />
+      <div className="pt-2 flex items-center justify-between gap-2 shrink-0">
         <span className="text-[11px] text-muted-foreground">
-          {duplicateTargetsCount} fila{duplicateTargetsCount !== 1 ? "s" : ""} × {duplicateSelectionCount} celda{duplicateSelectionCount !== 1 ? "s" : ""}
+          {duplicateTargetsCount} fila{duplicateTargetsCount !== 1 ? "s" : ""} × {duplicateSelectionCount} celda{duplicateSelectionCount !== 1 ? "s" : ""} × {duplicateRepeatCount} copia{duplicateRepeatCount !== 1 ? "s" : ""}
         </span>
         <Button type="button" size="sm" onClick={handleDuplicateSelected} disabled={!canRunPartialDuplicate || duplicateActionsBlocked}>
-          Duplicar
+          Duplicar {duplicateTotalRowsToCreate}
         </Button>
       </div>
     </DropdownMenuContent>

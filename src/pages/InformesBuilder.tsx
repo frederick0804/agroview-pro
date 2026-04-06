@@ -344,6 +344,10 @@ export interface PlantillaConfig {
   estiloGraficos?: {
     tipografia: TipografiaBloque;
   };
+  // Global visual style applied to ALL text blocks in the report
+  estiloTextos?: {
+    tipografia: TipografiaBloque;
+  };
 }
 
 export type AgregacionTipo = "suma" | "promedio" | "mediana";
@@ -367,6 +371,10 @@ export interface TextoBloque {
   colSpan?: ColSpan;
   // No content field — text blocks are template placeholders; the end user fills them in the final report
   tipografia?: TipografiaBloque;
+  // true => se rellena automáticamente al usar "Generar con IA" y queda editable en el informe
+  iaEditable?: boolean;
+  // IDs de bloques (gráfico/tabla) usados como referencia para redactar el texto con IA
+  iaFuenteBloquesIds?: string[];
 }
 
 export interface GraficoBloque {
@@ -986,6 +994,32 @@ function sanitizeLegacyBlockNotes(builder: BuilderConfig): BuilderConfig {
         return rest as ReporteBloque;
       }
       return bloque;
+    }),
+  };
+}
+
+function normalizeTextBlockIaConfig(builder: BuilderConfig): BuilderConfig {
+  const referenceIds = new Set(
+    builder.bloques
+      .filter((bloque): bloque is GraficoBloque | TablaBloque => bloque.tipo !== "texto")
+      .map((bloque) => bloque.id),
+  );
+
+  return {
+    ...builder,
+    bloques: builder.bloques.map((bloque) => {
+      if (bloque.tipo !== "texto") return bloque;
+      const rawRefs = Array.isArray(bloque.iaFuenteBloquesIds)
+        ? bloque.iaFuenteBloquesIds
+        : [];
+      const validRefs = rawRefs.filter((id): id is string =>
+        typeof id === "string" && referenceIds.has(id),
+      );
+      return {
+        ...bloque,
+        iaEditable: bloque.iaEditable ?? true,
+        iaFuenteBloquesIds: validRefs,
+      } as TextoBloque;
     }),
   };
 }
@@ -1817,9 +1851,15 @@ const SUBTIPO_STYLES: Record<TextoBloque["subtipo"], { bg: string; border: strin
   libre:         { bg: "bg-muted/10",     border: "border-border/50",  label: ""              },
 };
 
-function TextoBloqueView({ bloque }: { bloque: TextoBloque }) {
+function TextoBloqueView({
+  bloque,
+  estiloPlantilla,
+}: {
+  bloque: TextoBloque;
+  estiloPlantilla?: { tipografia: TipografiaBloque };
+}) {
   const s = SUBTIPO_STYLES[bloque.subtipo];
-  const t = bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
+  const t = estiloPlantilla?.tipografia ?? bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
   const fontFamily = t.fuente;
   const fontSize = `${t.tamano}pt`;
   const heading = bloque.titulo || s.label;
@@ -2340,12 +2380,31 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
       alturaBloques: {},
       estiloTablas: { mostrarBordes: true, alternarFilas: true, alineacion: "left", compacta: false, tipografia: { ...DEFAULT_TIPOGRAFIA } },
       estiloGraficos: { tipografia: { ...DEFAULT_TIPOGRAFIA } },
+      estiloTextos: { tipografia: { ...DEFAULT_TIPOGRAFIA } },
     },
   };
 
   const [config, setConfig] = useState<BuilderConfig>(() =>
-    sanitizeLegacyBlockNotes(existingConfig ? migrateConfig(existingConfig) : defaultConfig),
+    normalizeTextBlockIaConfig(
+      sanitizeLegacyBlockNotes(existingConfig ? migrateConfig(existingConfig) : defaultConfig),
+    ),
   );
+
+  const bloquesReferenciaTexto = useMemo(() =>
+    config.bloques
+      .filter((bloque): bloque is GraficoBloque | TablaBloque => bloque.tipo !== "texto")
+      .map((bloque, idx) => {
+        const tipoLabel = bloque.tipo === "grafico" ? "Gráfico" : "Tabla";
+        const titulo = bloque.titulo?.trim() || `${tipoLabel} ${idx + 1}`;
+        const fuentes = (bloque.fuentesSeleccionadas ?? []).filter(Boolean);
+        return {
+          id: bloque.id,
+          tipoLabel,
+          titulo,
+          fuentesLabel: fuentes.length > 0 ? fuentes.join(", ") : "Sin fuentes",
+        };
+      }),
+  [config.bloques]);
 
   const upd = useCallback(<K extends keyof BuilderConfig>(key: K, val: BuilderConfig[K]) => {
     setConfig((prev) => ({ ...prev, [key]: val }));
@@ -3607,7 +3666,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                           subtipo: "libre",
                           titulo: "",
                           colSpan: "full",
-                          tipografia: { ...DEFAULT_TIPOGRAFIA },
+                          iaEditable: true,
+                          iaFuenteBloquesIds: [],
                         };
                         setConfig(prev => ({ ...prev, bloques: [...prev.bloques, newBloque] }));
                         setSelectedBloqueId(newBloque.id);
@@ -3633,7 +3693,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             subtipo: "observaciones",
                             titulo: "",
                             colSpan: "full",
-                            tipografia: { ...DEFAULT_TIPOGRAFIA },
+                            iaEditable: true,
+                            iaFuenteBloquesIds: [],
                           };
                           setConfig(prev => ({ ...prev, bloques: [...prev.bloques, newBloque] }));
                           setSelectedBloqueId(newBloque.id);
@@ -3670,6 +3731,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                   {(() => {
                     const selectedTexto = config.bloques.find(b => b.id === selectedBloqueId && b.tipo === "texto") as TextoBloque | undefined;
                     if (!selectedTexto) return null;
+                    const iaEnabled = selectedTexto.iaEditable !== false;
+                    const selectedRefIds = selectedTexto.iaFuenteBloquesIds ?? [];
                     return (
                       <div className="rounded-lg border-2 border-primary/20 bg-primary/3 overflow-hidden">
                         <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 border-b border-primary/15">
@@ -3693,11 +3756,98 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             <Label className="text-[11px] text-muted-foreground">Título (opcional)</Label>
                             <Input value={selectedTexto.titulo ?? ""} onChange={e => updBloque(selectedTexto.id, { titulo: e.target.value } as any)} placeholder="Ej. Observaciones del período" className="h-7 text-xs" />
                           </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[11px] text-muted-foreground">Relleno automático</Label>
+                            <div className="grid grid-cols-2 gap-1">
+                              <button
+                                type="button"
+                                onClick={() => updBloque(selectedTexto.id, { iaEditable: false, iaFuenteBloquesIds: [] })}
+                                className={cn(
+                                  "py-1.5 rounded border text-[10px] transition-all",
+                                  !iaEnabled
+                                    ? "border-primary bg-primary/10 text-primary font-medium"
+                                    : "border-border text-muted-foreground hover:border-primary/40",
+                                )}
+                              >
+                                Manual
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => updBloque(selectedTexto.id, { iaEditable: true })}
+                                className={cn(
+                                  "py-1.5 rounded border text-[10px] transition-all",
+                                  iaEnabled
+                                    ? "border-primary bg-primary/10 text-primary font-medium"
+                                    : "border-border text-muted-foreground hover:border-primary/40",
+                                )}
+                              >
+                                Llenar con IA editable
+                              </button>
+                            </div>
+
+                            {iaEnabled && (
+                              <div className="rounded-md border border-border bg-background/80 p-2 space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-[10px] font-medium text-foreground">Referencias para la IA</p>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground"
+                                      onClick={() => updBloque(selectedTexto.id, { iaFuenteBloquesIds: bloquesReferenciaTexto.map((ref) => ref.id) })}
+                                      disabled={bloquesReferenciaTexto.length === 0}
+                                    >
+                                      Todos
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground"
+                                      onClick={() => updBloque(selectedTexto.id, { iaFuenteBloquesIds: [] })}
+                                    >
+                                      Limpiar
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {bloquesReferenciaTexto.length === 0 ? (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    Agrega al menos un gráfico o tabla para usarlo como contexto de redacción.
+                                  </p>
+                                ) : (
+                                  <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                                    {bloquesReferenciaTexto.map((ref) => {
+                                      const isOn = selectedRefIds.includes(ref.id);
+                                      return (
+                                        <label key={ref.id} className="flex items-start gap-2 p-1.5 rounded border border-border/70 bg-muted/10 hover:bg-muted/20 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={isOn}
+                                            onChange={() => {
+                                              const next = isOn
+                                                ? selectedRefIds.filter((id) => id !== ref.id)
+                                                : [...selectedRefIds, ref.id];
+                                              updBloque(selectedTexto.id, { iaFuenteBloquesIds: next });
+                                            }}
+                                            className="mt-0.5 h-3.5 w-3.5"
+                                          />
+                                          <div className="min-w-0">
+                                            <p className="text-[10px] font-medium text-foreground truncate">{ref.tipoLabel}: {ref.titulo}</p>
+                                            <p className="text-[9px] text-muted-foreground truncate">{ref.fuentesLabel}</p>
+                                          </div>
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+
+                                <p className="text-[9px] text-muted-foreground">
+                                  Si no seleccionas referencias, la IA usará todos los gráficos y tablas disponibles.
+                                </p>
+                              </div>
+                            )}
+                          </div>
                           <p className="text-[10px] text-muted-foreground border border-border/50 rounded p-2 bg-muted/20">
                             Este bloque es un área en blanco de la plantilla. El contenido lo escribe el usuario en el informe final.
                           </p>
-                          {/* Tipografía */}
-                          <TipografiaPanel tipografia={selectedTexto.tipografia ?? DEFAULT_TIPOGRAFIA} onChange={t => updBloque(selectedTexto.id, { tipografia: t } as any)} />
                         </div>
                       </div>
                     );
@@ -4016,6 +4166,22 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       <p className="text-[10px] text-muted-foreground border border-border/50 rounded px-2 py-1.5 bg-muted/20">
                         Notas y conclusiones se gestionan con los bloques de texto en la pestaña Textos.
                       </p>
+                      {(() => {
+                        const etx = (config.plantilla as PlantillaConfig).estiloTextos ?? {
+                          tipografia: { ...DEFAULT_TIPOGRAFIA },
+                        };
+                        return (
+                          <div className="space-y-1 pt-1">
+                            <span className="text-[11px] text-muted-foreground">Tipografía global de bloques de texto</span>
+                            <div className="p-2 rounded-lg border border-border bg-muted/5">
+                              <TipografiaPanel
+                                tipografia={etx.tipografia ?? DEFAULT_TIPOGRAFIA}
+                                onChange={(t) => updPlantilla("estiloTextos", { ...etx, tipografia: t })}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })()}
                       <div className="flex items-center justify-between">
                         <span className="text-xs">Firma del responsable</span>
                         <Switch
@@ -4515,7 +4681,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       >
                         {bloque.tipo === "texto" ? (
                           <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full">
-                            <TextoBloqueView bloque={bloque as TextoBloque} />
+                            <TextoBloqueView bloque={bloque as TextoBloque} estiloPlantilla={pl?.estiloTextos} />
                           </div>
                         ) : (
                           <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full flex flex-col">
@@ -4908,7 +5074,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             onReorderColumns={(nextCols) => setTablaColumnOrder(bloque.id, nextCols)}
                           />
                         ) : (
-                          <TextoBloqueView bloque={bloque as TextoBloque} />
+                          <TextoBloqueView bloque={bloque as TextoBloque} estiloPlantilla={config.plantilla?.estiloTextos} />
                         )}
                       </div>
 
