@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -70,6 +70,23 @@ const MODULE_TABS = [
   { key: "recursos-humanos", label: "Rec. Humanos",  Icon: Users,           color: "hsl(187, 70%, 42%)", path: "/recursos-humanos" },
   { key: "comercial",        label: "Comercial",     Icon: ShoppingCart,    color: "hsl(330, 70%, 55%)", path: "/comercial"        },
 ];
+
+const DASHBOARD_TABS = [
+  { key: "resumen",          label: "Resumen",                    Icon: LayoutDashboard, color: "hsl(142, 45%, 28%)", path: null,             permissionModules: ["dashboard"] },
+  { key: "cultivo",          label: "Cultivo / Cosecha",          Icon: Leaf,            color: "hsl(142, 45%, 28%)", path: "/cultivo",       permissionModules: ["cultivo", "cosecha"] },
+  { key: "laboratorio",      label: "Laboratorio",                Icon: FlaskConical,    color: "hsl(263, 70%, 50%)", path: "/laboratorio",   permissionModules: ["laboratorio"] },
+  { key: "vivero",           label: "Vivero",                     Icon: Sprout,          color: "hsl(152, 60%, 40%)", path: "/vivero",        permissionModules: ["vivero"] },
+  { key: "post-cosecha",     label: "Post-cosecha / Producción", Icon: Package,         color: "hsl(24, 80%, 50%)",  path: "/post-cosecha",  permissionModules: ["post-cosecha", "produccion"] },
+  { key: "recursos-humanos", label: "Rec. Humanos",               Icon: Users,           color: "hsl(187, 70%, 42%)", path: "/recursos-humanos", permissionModules: ["recursos-humanos"] },
+  { key: "comercial",        label: "Comercial",                  Icon: ShoppingCart,    color: "hsl(330, 70%, 55%)", path: "/comercial",     permissionModules: ["comercial"] },
+];
+
+const PRODUCER_SIMULATED_ACTIVE_DASHBOARD_MODULES = [
+  "resumen",
+  "cultivo",
+  "post-cosecha",
+  "comercial",
+] as const;
 
 // ─── Per-module demo data ─────────────────────────────────────────────────────
 interface ModuleData {
@@ -326,10 +343,18 @@ const AX  = { stroke: "hsl(150, 10%, 45%)" as const, fontSize: 11 };
 const GRD = { strokeDasharray: "3 3", stroke: "hsl(140, 15%, 88%)" };
 
 // ─── Module Tab Bar ───────────────────────────────────────────────────────────
-function ModuleTabBar({ active, onChange }: { active: string; onChange: (k: string) => void }) {
+function ModuleTabBar({
+  active,
+  onChange,
+  tabs,
+}: {
+  active: string;
+  onChange: (k: string) => void;
+  tabs: typeof MODULE_TABS;
+}) {
   return (
     <div className="flex gap-0.5 overflow-x-auto scrollbar-none border-b border-border mb-6 -mx-1 px-1">
-      {MODULE_TABS.map(({ key, label, Icon, color }) => {
+      {tabs.map(({ key, label, Icon, color }) => {
         const isActive = active === key;
         return (
           <button
@@ -357,12 +382,20 @@ function ModuleTabBar({ active, onChange }: { active: string; onChange: (k: stri
 }
 
 // ─── Module Tab Content ───────────────────────────────────────────────────────
-function ModuleTabContent({ moduleKey, navigate }: { moduleKey: string; navigate: (p: string) => void }) {
-  const tab  = MODULE_TABS.find(t => t.key === moduleKey)!;
+function ModuleTabContent({
+  moduleKey,
+  navigate,
+  tabs,
+}: {
+  moduleKey: string;
+  navigate: (p: string) => void;
+  tabs: typeof MODULE_TABS;
+}) {
+  const tab = tabs.find(t => t.key === moduleKey) ?? MODULE_TABS.find(t => t.key === moduleKey);
   const data = MODULE_DATA[moduleKey];
   const gid  = `mg-${moduleKey}`;
 
-  if (!data) return null;
+  if (!data || !tab) return null;
 
   return (
     <div className="space-y-5">
@@ -522,24 +555,32 @@ function ResumenTabContent({ quickActions, sectorHint }: { quickActions: QA[]; s
 }
 
 // ─── Tabbed Dashboard (super_admin, cliente_admin, productor) ─────────────────
-function TabbedDashboard({ title, description, banner, quickActions, sectorHint }: {
+function TabbedDashboard({ title, description, banner, quickActions, sectorHint, tabs }: {
   title: string;
   description: string;
   banner?: React.ReactNode;
   quickActions: QA[];
   sectorHint?: string;
+  tabs?: typeof MODULE_TABS;
 }) {
-  const [activeTab, setActiveTab] = useState("resumen");
+  const availableTabs = tabs?.length ? tabs : MODULE_TABS;
+  const [activeTab, setActiveTab] = useState(availableTabs[0]?.key ?? "resumen");
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!availableTabs.some(tab => tab.key === activeTab)) {
+      setActiveTab(availableTabs[0]?.key ?? "resumen");
+    }
+  }, [activeTab, availableTabs]);
 
   return (
     <>
       <PageHeader title={title} description={description} />
       {banner}
-      <ModuleTabBar active={activeTab} onChange={setActiveTab} />
+      <ModuleTabBar active={activeTab} onChange={setActiveTab} tabs={availableTabs} />
       {activeTab === "resumen"
         ? <ResumenTabContent quickActions={quickActions} sectorHint={sectorHint} />
-        : <ModuleTabContent moduleKey={activeTab} navigate={navigate} />
+        : <ModuleTabContent moduleKey={activeTab} navigate={navigate} tabs={availableTabs} />
       }
     </>
   );
@@ -858,6 +899,16 @@ const Index = () => {
     }))
     .slice(0, 5);
 
+  const dashboardTabsByPermission = DASHBOARD_TABS.filter(tab =>
+    tab.key === "resumen" || tab.permissionModules.some(mod => hasPermission(mod, "ver")),
+  );
+
+  const producerDashboardTabs = dashboardTabsByPermission.filter(tab =>
+    PRODUCER_SIMULATED_ACTIVE_DASHBOARD_MODULES.includes(
+      tab.key as (typeof PRODUCER_SIMULATED_ACTIVE_DASHBOARD_MODULES)[number],
+    ),
+  );
+
   return (
     <MainLayout>
       {(role === "super_admin" || role === "cliente_admin") ? (
@@ -866,6 +917,7 @@ const Index = () => {
           description={`Resumen general de operaciones — ${roleName}`}
           quickActions={quickActions}
           sectorHint={roleSectorHint}
+          tabs={dashboardTabsByPermission}
         />
       ) : role === "productor" ? (
         <TabbedDashboard
@@ -876,12 +928,14 @@ const Index = () => {
               <Tractor className="w-4 h-4 mt-0.5 shrink-0" />
               <span>
                 Como <strong>Productor integrado</strong>, visualizas únicamente la información de tu empresa.
-                Los datos de otros productores están aislados.
+                Los datos de otros productores están aislados. Módulos habilitados para dashboard:
+                <strong> Cultivo / Cosecha, Post-cosecha / Producción y Comercial</strong>.
               </span>
             </div>
           }
           quickActions={quickActions}
           sectorHint={roleSectorHint}
+          tabs={producerDashboardTabs}
         />
       ) : role === "jefe_area" && area ? (
         <AreaManagerDashboard area={area} areaLabel={areaLabel} areaColor={areaColor} quickActions={quickActions} />
@@ -892,6 +946,7 @@ const Index = () => {
           description="Resumen general de operaciones"
           quickActions={quickActions}
           sectorHint={roleSectorHint}
+          tabs={dashboardTabsByPermission}
         />
       )}
     </MainLayout>

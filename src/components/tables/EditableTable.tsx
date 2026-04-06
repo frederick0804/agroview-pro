@@ -43,6 +43,8 @@ interface EditableTableProps<T extends { id: string | number }> {
   className?: string;
   /** Called when incomplete-row state changes (true = has incomplete rows) */
   onPendingChange?: (hasPending: boolean) => void;
+  /** Rows that should be treated as pending-required when they still miss required fields */
+  pendingRowIds?: Array<string | number>;
   /** Extra action buttons rendered in the Acciones column before delete */
   rowActions?: (row: T, rowIndex: number) => React.ReactNode;
 }
@@ -485,6 +487,7 @@ export function EditableTable<T extends { id: string | number }>({
   searchable = true,
   className,
   onPendingChange,
+  pendingRowIds,
   rowActions,
 }: EditableTableProps<T>) {
   const [searchTerm, setSearchTerm] = useState("");
@@ -544,19 +547,22 @@ export function EditableTable<T extends { id: string | number }>({
   const requiredKeys = columns.filter(c => c.required).map(c => c.key);
 
   // Check if any row is missing required fields.
-  // Only the actively-added new row (newRowId) counts as "pending" —
-  // pre-existing rows with empty required fields are already persisted
-  // and should NOT block navigation.
+  // If pendingRowIds is provided, only those rows are considered pending.
+  // Otherwise, fallback to legacy behavior: only the actively-added row.
+  const pendingRowIdSet = new Set((pendingRowIds ?? []).map(id => String(id)));
   const incompleteRowIds = new Set(
     requiredKeys.length > 0
       ? data
-          .filter(row =>
-            row.id === newRowId &&   // only the freshly-added row
-            requiredKeys.some(k => {
+          .filter(row => {
+            const hasMissingRequired = requiredKeys.some(k => {
               const v = row[k];
               return v === undefined || v === null || v === "";
-            }),
-          )
+            });
+
+            if (!hasMissingRequired) return false;
+            if (pendingRowIdSet.size > 0) return pendingRowIdSet.has(String(row.id));
+            return row.id === newRowId;
+          })
           .map(row => row.id)
       : [],
   );

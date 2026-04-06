@@ -23,6 +23,8 @@ interface CampoConfigDrawerProps {
   onClose: () => void;
 }
 
+type CalculoCampoRef = NonNullable<ModParam["calculo_campos"]>[number];
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: CampoConfigDrawerProps) {
@@ -49,10 +51,12 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
   const [relacionDefId,      setRelacionDefId]      = useState<string>("");
   const [relacionCampoLabel, setRelacionCampoLabel] = useState<string>("");
   const [relacionCampoValor, setRelacionCampoValor] = useState<string>("");
+  const [relacionFiltrosComunes, setRelacionFiltrosComunes] = useState<string[]>([]);
+  const [relacionAgruparPor, setRelacionAgruparPor] = useState<string>("");
   // Campos calculados
   const [esCalculado,        setEsCalculado]        = useState<boolean>(false);
   const [calculoTipo,        setCalculoTipo]        = useState<"suma" | "promedio" | "maximo" | "minimo" | "formula_personalizada">("suma");
-  const [calculoCampos,      setCalculoCampos]      = useState<{ definicion_id: string; campo_nombre: string; }[]>([]);
+  const [calculoCampos,      setCalculoCampos]      = useState<CalculoCampoRef[]>([]);
   const [calculoFormula,     setCalculoFormula]     = useState<string>("");
 
   useEffect(() => {
@@ -76,9 +80,16 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
     setRelacionDefId(campo.relacion_def_id ?? "");
     setRelacionCampoLabel(campo.relacion_campo_label ?? "");
     setRelacionCampoValor(campo.relacion_campo_valor ?? "");
+    setRelacionFiltrosComunes(campo.relacion_filtros_comunes ?? []);
+    setRelacionAgruparPor(campo.relacion_agrupar_por ?? "");
     setEsCalculado(campo.es_calculado ?? false);
     setCalculoTipo(campo.calculo_tipo ?? "suma");
-    setCalculoCampos(campo.calculo_campos ?? []);
+    setCalculoCampos((campo.calculo_campos ?? []).map((c) => ({
+      definicion_id: c.definicion_id,
+      campo_nombre: c.campo_nombre,
+      filtros_comunes: c.filtros_comunes ?? [],
+      agrupar_por: c.agrupar_por ?? null,
+    })));
     setCalculoFormula(campo.calculo_formula ?? "");
   }, [campo]);
 
@@ -99,6 +110,21 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
     ? parametros.filter(p => p.definicion_id === defFuente.id).sort((a, b) => a.orden - b.orden)
     : [];
 
+  const camposDefActual = parametros
+    .filter((p) => p.definicion_id === campo.definicion_id && p.id !== campo.id)
+    .sort((a, b) => a.orden - b.orden);
+
+  const getCamposComunesConDef = (defId: string) => {
+    if (!defId) return [] as ModParam[];
+    const camposFuenteDef = parametros
+      .filter((p) => p.definicion_id === defId)
+      .sort((a, b) => a.orden - b.orden);
+    const nombresActuales = new Set(camposDefActual.map((p) => p.nombre));
+    return camposFuenteDef.filter((p) => nombresActuales.has(p.nombre));
+  };
+
+  const camposComunesRelacion = getCamposComunesConDef(relacionDefId);
+
   const operators = [
     { value: "+", label: "+" },
     { value: "-", label: "−" },
@@ -112,10 +138,32 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
     h => h.id !== campo.id && h.tipo_dato === "Número"
   );
 
+  const toggleRelacionFiltroComun = (campoNombre: string) => {
+    setRelacionFiltrosComunes((prev) =>
+      prev.includes(campoNombre)
+        ? prev.filter((n) => n !== campoNombre)
+        : [...prev, campoNombre],
+    );
+  };
+
+  const updateCalculoCampo = (index: number, patch: Partial<CalculoCampoRef>) => {
+    setCalculoCampos((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  };
+
+  const toggleCalculoFiltroComun = (index: number, campoNombre: string) => {
+    setCalculoCampos((prev) => prev.map((item, i) => {
+      if (i !== index) return item;
+      const prevFiltros = item.filtros_comunes ?? [];
+      const nextFiltros = prevFiltros.includes(campoNombre)
+        ? prevFiltros.filter((n) => n !== campoNombre)
+        : [...prevFiltros, campoNombre];
+      return { ...item, filtros_comunes: nextFiltros };
+    }));
+  };
+
   const handleSave = () => {
     const isIa = fuenteDatos === "ia" || fuenteDatos === "ia_editable";
     const isMl = fuenteDatos === "ml" || fuenteDatos === "ml_editable";
-    const isAutoFill = isIa || isMl;
     onSave(campo.id, {
       etiqueta_personalizada: etiqueta || undefined,
       valor_default: valorDefault || undefined,
@@ -138,6 +186,12 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
       relacion_def_id:      showRelacion && relacionDefId      ? relacionDefId      : null,
       relacion_campo_label: showRelacion && relacionCampoLabel ? relacionCampoLabel : null,
       relacion_campo_valor: showRelacion && relacionCampoValor ? relacionCampoValor : null,
+      relacion_filtros_comunes: showRelacion && relacionDefId && relacionFiltrosComunes.length > 0
+        ? relacionFiltrosComunes
+        : null,
+      relacion_agrupar_por: showRelacion && relacionDefId && relacionAgruparPor
+        ? relacionAgruparPor
+        : null,
       es_calculado:         showCalculado && esCalculado ? esCalculado : undefined,
       calculo_tipo:         showCalculado && esCalculado ? calculoTipo : undefined,
       calculo_campos:       showCalculado && esCalculado && calculoCampos.length > 0 ? calculoCampos : undefined,
@@ -360,6 +414,8 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                       setRelacionDefId(e.target.value);
                       setRelacionCampoLabel("");
                       setRelacionCampoValor("");
+                      setRelacionFiltrosComunes([]);
+                      setRelacionAgruparPor("");
                     }}
                   >
                     <option value="">— Seleccionar formulario —</option>
@@ -419,6 +475,74 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                   </div>
                 )}
 
+                {/* Filtros por campos comunes */}
+                {relacionDefId && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs">Filtrar por campos en común</Label>
+                      {camposComunesRelacion.length > 0 && (
+                        <button
+                          type="button"
+                          className="text-[10px] text-primary hover:underline"
+                          onClick={() => setRelacionFiltrosComunes(camposComunesRelacion.map((c) => c.nombre))}
+                        >
+                          Usar todos
+                        </button>
+                      )}
+                    </div>
+
+                    {camposComunesRelacion.length === 0 ? (
+                      <p className="text-[10px] text-muted-foreground italic">
+                        No hay campos comunes entre este formulario y la fuente seleccionada.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {camposComunesRelacion.map((c) => {
+                          const active = relacionFiltrosComunes.includes(c.nombre);
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => toggleRelacionFiltroComun(c.nombre)}
+                              className={active
+                                ? "px-2 py-1 rounded-full text-[10px] font-medium border border-primary/40 bg-primary/10 text-primary"
+                                : "px-2 py-1 rounded-full text-[10px] font-medium border border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                              }
+                            >
+                              {c.etiqueta_personalizada || c.nombre.replace(/_/g, " ")}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-muted-foreground">
+                      Solo se mostrarán registros fuente que coincidan con estos campos del registro actual.
+                    </p>
+                  </div>
+                )}
+
+                {/* Agrupación visual */}
+                {relacionDefId && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Agrupar opciones por (opcional)</Label>
+                    <select
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      value={relacionAgruparPor}
+                      onChange={(e) => setRelacionAgruparPor(e.target.value)}
+                    >
+                      <option value="">— Sin agrupación —</option>
+                      {camposFuente.map((p) => (
+                        <option key={p.id} value={p.nombre}>
+                          {p.etiqueta_personalizada || p.nombre.replace(/_/g, " ")}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-muted-foreground">
+                      En la captura se mostrará un prefijo con el grupo para facilitar la selección.
+                    </p>
+                  </div>
+                )}
+
                 {/* Preview del resultado */}
                 {relacionDefId && relacionCampoLabel && (
                   <div className="rounded-md bg-primary/5 border border-primary/20 px-3 py-2 text-[11px] space-y-0.5">
@@ -426,7 +550,20 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                     <p className="text-muted-foreground">
                       Al registrar datos, aparecerá un dropdown con los registros de{" "}
                       <strong>{defFuente?.nombre}</strong>, mostrando el campo{" "}
-                      <strong>{relacionCampoLabel.replace(/_/g, " ")}</strong>.
+                      <strong>{relacionCampoLabel.replace(/_/g, " ")}</strong>
+                      {relacionFiltrosComunes.length > 0 && (
+                        <>
+                          {" "}y filtrando por coincidencia en{" "}
+                          <strong>{relacionFiltrosComunes.join(", ").replace(/_/g, " ")}</strong>
+                        </>
+                      )}
+                      {relacionAgruparPor && (
+                        <>
+                          {" "}con agrupación por{" "}
+                          <strong>{relacionAgruparPor.replace(/_/g, " ")}</strong>
+                        </>
+                      )}
+                      .
                     </p>
                   </div>
                 )}
@@ -497,62 +634,134 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                   {calculoTipo !== "formula_personalizada" && (
                     <div className="space-y-2">
                       <Label className="text-xs font-semibold">Campos de otros formularios</Label>
-                      {calculoCampos.map((campo, index) => {
-                        const defSeleccionada = definiciones.find(d => d.id === campo.definicion_id);
+                      {calculoCampos.map((item, index) => {
+                        const defSeleccionada = definiciones.find(d => d.id === item.definicion_id);
                         const camposDeDefinicion = defSeleccionada
                           ? parametros.filter(p => p.definicion_id === defSeleccionada.id && p.tipo_dato === "Número")
                           : [];
+                        const camposComunes = getCamposComunesConDef(item.definicion_id);
+                        const filtrosComunesActivos = item.filtros_comunes ?? [];
 
                         return (
-                          <div key={index} className="flex gap-2 p-2 bg-background rounded-md border">
-                            <select
-                              value={campo.definicion_id}
-                              onChange={e => {
-                                const nuevos = [...calculoCampos];
-                                nuevos[index] = { ...campo, definicion_id: e.target.value, campo_nombre: "" };
-                                setCalculoCampos(nuevos);
-                              }}
-                              className="flex-1 h-7 text-xs px-2 rounded border border-border bg-background"
-                            >
-                              <option value="">— Seleccionar formulario —</option>
-                              {definiciones.map(d => (
-                                <option key={d.id} value={d.id}>{d.nombre}</option>
-                              ))}
-                            </select>
+                          <div key={index} className="space-y-2 p-2 bg-background rounded-md border">
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={item.definicion_id}
+                                  onChange={e => {
+                                    updateCalculoCampo(index, {
+                                      definicion_id: e.target.value,
+                                      campo_nombre: "",
+                                      filtros_comunes: [],
+                                      agrupar_por: null,
+                                    });
+                                  }}
+                                  className="flex-1 min-w-0 w-full h-7 text-xs px-2 rounded border border-border bg-background"
+                                >
+                                  <option value="">— Seleccionar formulario —</option>
+                                  {definiciones.map(d => (
+                                    <option key={d.id} value={d.id}>{d.nombre}</option>
+                                  ))}
+                                </select>
 
-                            {campo.definicion_id && (
-                              <select
-                                value={campo.campo_nombre}
-                                onChange={e => {
-                                  const nuevos = [...calculoCampos];
-                                  nuevos[index] = { ...campo, campo_nombre: e.target.value };
-                                  setCalculoCampos(nuevos);
-                                }}
-                                className="flex-1 h-7 text-xs px-2 rounded border border-border bg-background"
-                              >
-                                <option value="">— Seleccionar campo —</option>
-                                {camposDeDefinicion.map(c => (
-                                  <option key={c.id} value={c.nombre}>{c.nombre.replace(/_/g, " ")}</option>
-                                ))}
-                              </select>
+                                <button
+                                  onClick={() => {
+                                    const nuevos = calculoCampos.filter((_, i) => i !== index);
+                                    setCalculoCampos(nuevos);
+                                  }}
+                                  className="shrink-0 px-2 h-7 text-xs text-destructive hover:bg-destructive/10 rounded transition-colors"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+
+                              {item.definicion_id && (
+                                <select
+                                  value={item.campo_nombre}
+                                  onChange={e => updateCalculoCampo(index, { campo_nombre: e.target.value })}
+                                  className="w-full min-w-0 h-7 text-xs px-2 rounded border border-border bg-background"
+                                >
+                                  <option value="">— Seleccionar campo —</option>
+                                  {camposDeDefinicion.map(c => (
+                                    <option key={c.id} value={c.nombre}>{c.nombre.replace(/_/g, " ")}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+
+                            {item.definicion_id && (
+                              <div className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                                    Filtros por campos comunes
+                                  </p>
+                                  {camposComunes.length > 0 && (
+                                    <button
+                                      type="button"
+                                      className="text-[10px] text-primary hover:underline"
+                                      onClick={() => updateCalculoCampo(index, { filtros_comunes: camposComunes.map((c) => c.nombre) })}
+                                    >
+                                      Usar todos
+                                    </button>
+                                  )}
+                                </div>
+
+                                {camposComunes.length === 0 ? (
+                                  <p className="text-[10px] text-muted-foreground italic">
+                                    No hay campos comunes con esta fuente.
+                                  </p>
+                                ) : (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {camposComunes.map((c) => {
+                                      const active = filtrosComunesActivos.includes(c.nombre);
+                                      return (
+                                        <button
+                                          key={c.id}
+                                          type="button"
+                                          onClick={() => toggleCalculoFiltroComun(index, c.nombre)}
+                                          className={active
+                                            ? "px-2 py-1 rounded-full text-[10px] font-medium border border-primary/40 bg-primary/10 text-primary"
+                                            : "px-2 py-1 rounded-full text-[10px] font-medium border border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                                          }
+                                        >
+                                          {c.etiqueta_personalizada || c.nombre.replace(/_/g, " ")}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+
+                                <div className="space-y-1">
+                                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Agrupar fuente por (opcional)</Label>
+                                  <select
+                                    value={item.agrupar_por ?? ""}
+                                    onChange={(e) => updateCalculoCampo(index, { agrupar_por: e.target.value || null })}
+                                    className="w-full h-7 text-xs px-2 rounded border border-border bg-background"
+                                  >
+                                    <option value="">— Sin agrupación —</option>
+                                    {parametros
+                                      .filter((p) => p.definicion_id === item.definicion_id)
+                                      .map((p) => (
+                                        <option key={p.id} value={p.nombre}>
+                                          {p.etiqueta_personalizada || p.nombre.replace(/_/g, " ")}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </div>
+                              </div>
                             )}
-
-                            <button
-                              onClick={() => {
-                                const nuevos = calculoCampos.filter((_, i) => i !== index);
-                                setCalculoCampos(nuevos);
-                              }}
-                              className="px-2 h-7 text-xs text-destructive hover:bg-destructive/10 rounded transition-colors"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
                           </div>
                         );
                       })}
 
                       <button
                         onClick={() => {
-                          const nuevos = [...calculoCampos, { definicion_id: "", campo_nombre: "" }];
+                          const nuevos = [...calculoCampos, {
+                            definicion_id: "",
+                            campo_nombre: "",
+                            filtros_comunes: [],
+                            agrupar_por: null,
+                          }];
                           setCalculoCampos(nuevos);
                         }}
                         className="w-full h-7 text-xs border border-dashed border-border hover:border-primary/50 rounded flex items-center justify-center gap-1 text-muted-foreground hover:text-primary transition-colors"

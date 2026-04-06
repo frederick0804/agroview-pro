@@ -27,7 +27,7 @@ import {
   Upload, X, Plus,
   Trash2, Info, CheckCircle2, Check, Clock, Archive, Leaf, Search, Copy, History,
   ChevronDown, RotateCcw, Power, XCircle, LayoutList, ArrowLeftRight, Lock, CheckSquare, Square, ListFilter, Zap,
-  Ruler, Scale, Network, ChevronRight, ArrowUp, ArrowDown, Map as MapIcon, MoreHorizontal, Tag,
+  Ruler, Scale, Network, ChevronRight, ArrowUp, ArrowDown, Map as MapIcon, Tag,
   Hash, ToggleLeft, Image as ImageIcon, Link2, UserX, UserCheck, SlidersHorizontal,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
@@ -527,11 +527,8 @@ function LibParamForm({
   definiciones: ModDef[];
   parametros: ModParam[];
 }) {
-  // Campos disponibles de la definición seleccionada
-  const selectedDef = definiciones.find(d => d.id === form.relacion_def_id);
-  const camposDisponibles = selectedDef
-    ? parametros.filter(p => p.definicion_id === selectedDef.id)
-    : [];
+  void definiciones;
+  void parametros;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -583,69 +580,12 @@ function LibParamForm({
 
       {/* Configuración de Relación */}
       {form.tipo_dato === "Relación" && (
-        <>
-          <div className="space-y-1 sm:col-span-2">
-            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
-              <Link2 className="w-3 h-3" />
-              Fuente de datos <span className="text-destructive">*</span>
-            </label>
-            <select
-              value={form.relacion_def_id ?? ""}
-              onChange={e => onChange({ ...form, relacion_def_id: e.target.value || null, relacion_campo_label: null, relacion_campo_valor: null })}
-              className="w-full h-8 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
-            >
-              <option value=""> Seleccionar definición </option>
-              {definiciones.map(d => (
-                <option key={d.id} value={d.id}>{d.nombre}</option>
-              ))}
-            </select>
-          </div>
-
-          {form.relacion_def_id && camposDisponibles.length > 0 && (
-            <>
-              <div className="space-y-1">
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Campo a mostrar <span className="text-destructive">*</span>
-                </label>
-                <select
-                  value={form.relacion_campo_label ?? ""}
-                  onChange={e => onChange({ ...form, relacion_campo_label: e.target.value || null })}
-                  className="w-full h-8 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
-                >
-                  <option value=""> Seleccionar campo </option>
-                  {camposDisponibles.map(c => (
-                    <option key={c.id} value={c.nombre}>{c.nombre.replace(/_/g, " ")}</option>
-                  ))}
-                </select>
-                <p className="text-[10px] text-muted-foreground">Se mostrará en el dropdown</p>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Campo a guardar
-                </label>
-                <select
-                  value={form.relacion_campo_valor ?? ""}
-                  onChange={e => onChange({ ...form, relacion_campo_valor: e.target.value || null })}
-                  className="w-full h-8 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
-                >
-                  <option value=""> Mismo que mostrar </option>
-                  {camposDisponibles.map(c => (
-                    <option key={c.id} value={c.nombre}>{c.nombre.replace(/_/g, " ")}</option>
-                  ))}
-                </select>
-                <p className="text-[10px] text-muted-foreground">Se guardará como valor (opcional)</p>
-              </div>
-            </>
-          )}
-
-          {form.relacion_def_id && camposDisponibles.length === 0 && (
-            <div className="sm:col-span-2 p-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-              <p className="text-xs text-amber-700 dark:text-amber-400">
-                Esta definición no tiene campos configurados aún.
-              </p>
-            </div>
-          )}
-        </>
+        <div className="sm:col-span-2 p-2.5 rounded-md bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800">
+          <p className="text-xs text-sky-700 dark:text-sky-300 leading-relaxed flex items-start gap-1.5">
+            <Link2 className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            La fuente de datos, filtros y agrupación de campos tipo Relación se configuran al agregar el campo en el formulario, desde Configuración avanzada del campo.
+          </p>
+        </div>
       )}
 
       {/* Configuración de Cálculo para campos Numéricos */}
@@ -1555,11 +1495,21 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
 
                     {/* - Menú de acciones ------------------------------- */}
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0" title="Acciones">
-                          <MoreHorizontal className="w-4 h-4" />
-                        </button>
-                      </DropdownMenuTrigger>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                              aria-label="Más acciones de la definición"
+                            >
+                              <SlidersHorizontal className="w-4 h-4" />
+                            </button>
+                          </DropdownMenuTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Más acciones de la definición
+                        </TooltipContent>
+                      </Tooltip>
                       <DropdownMenuContent align="end" className="w-52">
                         <DropdownMenuItem onClick={() => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "version", bumpV(latest.version || "1.0", "minor")); }}>
                           <Tag className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
@@ -1990,6 +1940,9 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                           </span>
                         )}
                       </div>
+                      <p className="text-[11px] text-muted-foreground/90 leading-relaxed max-w-[46ch]">
+                        Los eventos son registros complementarios para documentar incidencias, seguimientos o acciones puntuales vinculadas a este formulario.
+                      </p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <Button
@@ -2580,6 +2533,9 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                           <p className="text-xs text-muted-foreground leading-tight truncate mt-0.5">
                             {eventosSheet.nombre}
                           </p>
+                          <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+                            Registros secundarios para incidencias, seguimiento y acciones asociadas al formulario.
+                          </p>
                         </div>
                         {sheetEventoFamilies.length > 0 && (
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/12 text-amber-600 leading-none shrink-0">
@@ -2738,11 +2694,21 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                               </button>
 
                               <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                                    <MoreHorizontal className="w-3.5 h-3.5" />
-                                  </button>
-                                </DropdownMenuTrigger>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                                        aria-label="Más acciones del evento"
+                                      >
+                                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    Más acciones del evento
+                                  </TooltipContent>
+                                </Tooltip>
                                 <DropdownMenuContent align="end" className="w-52">
                                   <DropdownMenuItem onClick={() => openEventoDetail(evRootId, "general")}>Abrir detalle</DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => openEventoDetail(evRootId, "campos")}>Ver campos</DropdownMenuItem>
