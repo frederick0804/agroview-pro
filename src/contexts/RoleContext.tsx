@@ -187,6 +187,51 @@ const _ALL_MODULE_KEYS = [
 
 type ModuleKey = (typeof _ALL_MODULE_KEYS)[number];
 
+export const PRODUCER_DASHBOARD_MODULES = [
+  {
+    key: "cultivo",
+    label: "Cultivo",
+    modules: ["cultivo", "cosecha"],
+  },
+  {
+    key: "post-cosecha",
+    label: "Poscosecha",
+    modules: ["post-cosecha", "produccion"],
+  },
+  {
+    key: "comercial",
+    label: "Comercial",
+    modules: ["comercial"],
+  },
+  {
+    key: "laboratorio",
+    label: "Laboratorio",
+    modules: ["laboratorio"],
+  },
+  {
+    key: "vivero",
+    label: "Vivero",
+    modules: ["vivero"],
+  },
+  {
+    key: "recursos-humanos",
+    label: "Recursos Humanos",
+    modules: ["recursos-humanos"],
+  },
+] as const;
+
+export type ProducerDashboardModuleKey = (typeof PRODUCER_DASHBOARD_MODULES)[number]["key"];
+
+export const DEFAULT_PRODUCER_DASHBOARD_MODULES: ProducerDashboardModuleKey[] = [
+  "cultivo",
+  "post-cosecha",
+  "comercial",
+];
+
+const PRODUCER_DASHBOARD_MODULE_KEY_SET = new Set<ProducerDashboardModuleKey>(
+  PRODUCER_DASHBOARD_MODULES.map((m) => m.key),
+);
+
 const ROLE_MODULE_PERMISSION_OVERRIDES: Partial<Record<UserRole, Partial<Record<ModuleKey, ActionPermission[]>>>> = {
   lector: {
     informes: ["ver", "exportar"],
@@ -289,6 +334,10 @@ interface RoleContextType {
   canAccessModule: (modulo: string) => boolean;
   /** Get list of module keys the current user can access */
   getAccessibleModules: () => string[];
+  /** Get active dashboard modules for a producer profile */
+  getProductorDashboardModules: (productorId?: number | null) => ProducerDashboardModuleKey[];
+  /** Configure active dashboard modules for a producer profile */
+  setProductorDashboardModules: (productorId: number, modules: ProducerDashboardModuleKey[]) => void;
   // Permisos personalizados por usuario (§6)
   permissionOverrides: UserPermissionOverride[];
   addOverride: (override: Omit<UserPermissionOverride, "id" | "createdAt">) => void;
@@ -336,6 +385,7 @@ const STORAGE_KEYS = {
   USERS: "agroview_users",
   CLIENTES: "agroview_clientes",
   PRODUCTORES: "agroview_productores",
+  PRODUCTOR_DASHBOARD_MODULES: "agroview_productor_dashboard_modules",
   OVERRIDES: "agroview_overrides",
   EMPRESA_CTX: "agroview_empresa_ctx",
 };
@@ -383,6 +433,10 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   const [productores, setProductores] = useState<DemoProductor[]>(() =>
     loadFromStorage(STORAGE_KEYS.PRODUCTORES, PRODUCTORES_DEMO)
   );
+  const [productorDashboardModules, setProductorDashboardModulesState] =
+    useState<Record<number, ProducerDashboardModuleKey[]>>(() =>
+      loadFromStorage(STORAGE_KEYS.PRODUCTOR_DASHBOARD_MODULES, {})
+    );
 
   // ── Persistir sesión en localStorage cuando cambie ──
   useEffect(() => {
@@ -400,6 +454,10 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     saveToStorage(STORAGE_KEYS.PRODUCTORES, productores);
   }, [productores]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.PRODUCTOR_DASHBOARD_MODULES, productorDashboardModules);
+  }, [productorDashboardModules]);
 
   useEffect(() => {
     saveToStorage(STORAGE_KEYS.OVERRIDES, permissionOverrides);
@@ -452,10 +510,49 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const sanitizeProducerDashboardModules = (modules: unknown): ProducerDashboardModuleKey[] => {
+    if (!Array.isArray(modules)) return [];
+    const unique = new Set<ProducerDashboardModuleKey>();
+    for (const moduleKey of modules) {
+      if (typeof moduleKey !== "string") continue;
+      if (PRODUCER_DASHBOARD_MODULE_KEY_SET.has(moduleKey as ProducerDashboardModuleKey)) {
+        unique.add(moduleKey as ProducerDashboardModuleKey);
+      }
+    }
+    return Array.from(unique);
+  };
+
+  const getProductorDashboardModules = (productorId?: number | null): ProducerDashboardModuleKey[] => {
+    if (!productorId) return [...DEFAULT_PRODUCER_DASHBOARD_MODULES];
+    const configured = sanitizeProducerDashboardModules(productorDashboardModules[productorId]);
+    return configured.length > 0 ? configured : [...DEFAULT_PRODUCER_DASHBOARD_MODULES];
+  };
+
+  const setProductorDashboardModules = (productorId: number, modules: ProducerDashboardModuleKey[]) => {
+    const sanitized = sanitizeProducerDashboardModules(modules);
+    const next = sanitized.length > 0 ? sanitized : [...DEFAULT_PRODUCER_DASHBOARD_MODULES];
+    setProductorDashboardModulesState(prev => ({
+      ...prev,
+      [productorId]: next,
+    }));
+  };
+
+  const productorCanAccessModule = (modulo: string): boolean => {
+    const activeDashboardModules = new Set(
+      getProductorDashboardModules(currentUser?.productorId)
+    );
+
+    return PRODUCER_DASHBOARD_MODULES.some(group =>
+      activeDashboardModules.has(group.key) &&
+      group.modules.some(moduleKey => moduleKey === modulo)
+    );
+  };
+
   // ─── Module access logic ─────────────────────────────────────────────────────
   // Roles with area_asignada (jefe_area, supervisor, lector) can only access
   // their assigned module. Dashboard is always accessible.
-  // super_admin, cliente_admin, productor → access all modules.
+  // super_admin, cliente_admin → access all modules.
+  // productor → access only modules configured in dashboard profile.
   const canAccessModule = (modulo: string): boolean => {
     // Dashboard siempre accesible
     if (modulo === "dashboard") return true;
@@ -463,8 +560,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     if (role === "super_admin") return true;
     // cliente_admin → todo de su empresa
     if (role === "cliente_admin") return true;
-    // productor → todo de su scope (como un mini cliente_admin)
-    if (role === "productor") return true;
+    // productor → según módulos activos configurados
+    if (role === "productor") return productorCanAccessModule(modulo);
     // jefe_area, supervisor, lector → solo area_asignada
     const area = currentUser?.area_asignada;
     if (!area) return true; // sin restricción si no tiene area asignada
@@ -589,14 +686,30 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     setClientes(prev => prev.map(c => c.id === id ? { ...c, ...changes } : c));
   };
   const delCliente = (id: number) => {
+    const removedProductorIds = productores
+      .filter(p => p.clienteId === id)
+      .map(p => p.id);
     setClientes(prev => prev.filter(c => c.id !== id));
     setProductores(prev => prev.filter(p => p.clienteId !== id));
+    if (removedProductorIds.length > 0) {
+      setProductorDashboardModulesState(prev => {
+        const next = { ...prev };
+        for (const productorId of removedProductorIds) {
+          delete next[productorId];
+        }
+        return next;
+      });
+    }
   };
 
   // Productores CRUD
   const addProductor = (p: Omit<DemoProductor, "id">): DemoProductor => {
     const newP: DemoProductor = { ...p, id: Date.now() };
     setProductores(prev => [...prev, newP]);
+    setProductorDashboardModulesState(prev => ({
+      ...prev,
+      [newP.id]: [...DEFAULT_PRODUCER_DASHBOARD_MODULES],
+    }));
     return newP;
   };
   const updProductor = (id: number, changes: Partial<Omit<DemoProductor, "id">>) => {
@@ -604,6 +717,11 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   };
   const delProductor = (id: number) => {
     setProductores(prev => prev.filter(p => p.id !== id));
+    setProductorDashboardModulesState(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
 
   return (
@@ -622,6 +740,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         canAccessSection,
         canAccessModule,
         getAccessibleModules,
+        getProductorDashboardModules,
+        setProductorDashboardModules,
         permissionOverrides,
         addOverride,
         removeOverride,
