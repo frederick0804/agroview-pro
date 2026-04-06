@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { QuickActions } from "@/components/dashboard/QuickActions";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
+import { WeatherChatWidget } from "@/components/dashboard/WeatherChatWidget";
 import { Button } from "@/components/ui/button";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
 import { cn } from "@/lib/utils";
@@ -451,9 +452,11 @@ function ModuleTabContent({ moduleKey, navigate }: { moduleKey: string; navigate
 }
 
 // ─── Resumen Tab Content ──────────────────────────────────────────────────────
-function ResumenTabContent({ quickActions }: { quickActions: QA[] }) {
+function ResumenTabContent({ quickActions, sectorHint }: { quickActions: QA[]; sectorHint?: string }) {
   return (
     <div className="space-y-5">
+      <WeatherChatWidget sectorHint={sectorHint} />
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard title="Producción Total"  value="1,234 kg" change={12.5} changeLabel="vs mes anterior" icon={<Factory className="w-5 h-5" />} />
         <MetricCard title="Ventas del Mes"    value="$89,500"  change={8.2}  changeLabel="vs mes anterior" icon={<TrendingUp className="w-5 h-5" />} variant="success" />
@@ -519,11 +522,12 @@ function ResumenTabContent({ quickActions }: { quickActions: QA[] }) {
 }
 
 // ─── Tabbed Dashboard (super_admin, cliente_admin, productor) ─────────────────
-function TabbedDashboard({ title, description, banner, quickActions }: {
+function TabbedDashboard({ title, description, banner, quickActions, sectorHint }: {
   title: string;
   description: string;
   banner?: React.ReactNode;
   quickActions: QA[];
+  sectorHint?: string;
 }) {
   const [activeTab, setActiveTab] = useState("resumen");
   const navigate = useNavigate();
@@ -534,7 +538,7 @@ function TabbedDashboard({ title, description, banner, quickActions }: {
       {banner}
       <ModuleTabBar active={activeTab} onChange={setActiveTab} />
       {activeTab === "resumen"
-        ? <ResumenTabContent quickActions={quickActions} />
+        ? <ResumenTabContent quickActions={quickActions} sectorHint={sectorHint} />
         : <ModuleTabContent moduleKey={activeTab} navigate={navigate} />
       }
     </>
@@ -776,11 +780,12 @@ function ReaderDashboard({ area, areaLabel, areaColor }: {
 
 // ─── Root component ───────────────────────────────────────────────────────────
 const Index = () => {
-  const { role, roleName, hasPermission, currentUser } = useRole();
+  const { role, roleName, hasPermission, currentUser, currentClienteName } = useRole();
   const navigate = useNavigate();
   const area      = currentUser?.area_asignada;
   const areaLabel = area ? (AREA_LABELS[area] ?? area) : "";
   const areaColor = area ? (AREA_COLORS[area] ?? "hsl(142, 45%, 28%)") : "hsl(142, 45%, 28%)";
+  const roleSectorHint = "Quito, Ecuador";
 
   const allQuickActions: QuickActionDef[] = [
     {
@@ -860,6 +865,7 @@ const Index = () => {
           title="Dashboard"
           description={`Resumen general de operaciones — ${roleName}`}
           quickActions={quickActions}
+          sectorHint={roleSectorHint}
         />
       ) : role === "productor" ? (
         <TabbedDashboard
@@ -875,6 +881,7 @@ const Index = () => {
             </div>
           }
           quickActions={quickActions}
+          sectorHint={roleSectorHint}
         />
       ) : role === "jefe_area" && area ? (
         <AreaManagerDashboard area={area} areaLabel={areaLabel} areaColor={areaColor} quickActions={quickActions} />
@@ -884,6 +891,7 @@ const Index = () => {
           title="Dashboard"
           description="Resumen general de operaciones"
           quickActions={quickActions}
+          sectorHint={roleSectorHint}
         />
       )}
     </MainLayout>

@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +14,7 @@ import { useRole } from "@/contexts/RoleContext";
 import { useConfig } from "@/contexts/ConfigContext";
 import {
   Settings, Download, Upload, SlidersHorizontal, Leaf, Sparkles, Brain,
-  BarChart3, ChevronDown, ChevronUp, Calendar, Plus, Eye, Clock, CheckCircle2, AlertCircle, X, Trash2, Pencil,
+  BarChart3, ChevronDown, ChevronUp, Calendar, Plus, Eye, Clock, CheckCircle2, AlertCircle, X, Trash2, Pencil, Copy,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
@@ -260,6 +261,11 @@ function DynamicDefTable({
   const [formValues, setFormValues] = useState<Record<string, string>>(() => buildEmptyFormValues());
   const [formError, setFormError] = useState<string | null>(null);
   const [editingDatoId, setEditingDatoId] = useState<string | null>(null);
+  const [transientEditDatoId, setTransientEditDatoId] = useState<string | null>(null);
+  const [duplicateMenuOpenId, setDuplicateMenuOpenId] = useState<string | null>(null);
+  const [duplicateSourceId, setDuplicateSourceId] = useState<string | null>(null);
+  const [duplicateFields, setDuplicateFields] = useState<string[]>([]);
+  const [duplicateIncludeFecha, setDuplicateIncludeFecha] = useState(true);
 
   const paramsSignature = params.map(p => p.id).join("|");
 
@@ -268,6 +274,11 @@ function DynamicDefTable({
     setFormValues(buildEmptyFormValues());
     setFormError(null);
     setEditingDatoId(null);
+    setTransientEditDatoId(null);
+    setDuplicateMenuOpenId(null);
+    setDuplicateSourceId(null);
+    setDuplicateFields([]);
+    setDuplicateIncludeFecha(true);
   }, [defId, paramsSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!def) return null;
@@ -316,6 +327,7 @@ function DynamicDefTable({
   // Campos con fórmula
   const formulaParams = params.filter(p => p.formula);
   const fieldNames = params.map(p => p.nombre);
+  const duplicableParams = params.filter(p => p.visible !== false && !p.formula);
 
   // Construir columnas desde los parámetros de la definición
   const columns: Column<DynRow>[] = [
@@ -439,29 +451,93 @@ function DynamicDefTable({
     setHasPendingChanges(false);
   };
 
+  const handleCancelEntryModal = () => {
+    const rollbackId = transientEditDatoId && editingDatoId === transientEditDatoId
+      ? transientEditDatoId
+      : null;
+
+    if (rollbackId) delDato(rollbackId);
+
+    setTransientEditDatoId(null);
+    setShowCreateModal(false);
+    resetEntryForm();
+  };
+
   const openCreateModal = () => {
     resetEntryForm();
+    setTransientEditDatoId(null);
     setEditingDatoId(null);
     setShowCreateModal(true);
   };
 
-  const openEditModal = (datoId: string) => {
+  const openEditModal = (
+    datoId: string,
+    options?: {
+      fecha?: string;
+      values?: Record<string, string>;
+      initialError?: string | null;
+      pending?: boolean;
+      transient?: boolean;
+    },
+  ) => {
+    let modalFecha = options?.fecha ?? "";
+    let modalValues = options?.values ?? buildEmptyFormValues();
+
+    if (!options?.values || !options?.fecha) {
+      const targetDato = defDatos.find(d => d.id === datoId);
+      if (!targetDato) return;
+
+      const parsedVals = parseValores(targetDato.valores);
+      const nextValues = buildEmptyFormValues();
+      params.forEach(param => {
+        const raw = parsedVals[param.nombre];
+        nextValues[param.nombre] = raw === undefined || raw === null ? "" : String(raw);
+      });
+
+      modalFecha = targetDato.fecha;
+      modalValues = nextValues;
+    }
+
+    setTransientEditDatoId(options?.transient ? datoId : null);
+    setEditingDatoId(datoId);
+    setFormFecha(modalFecha || new Date().toISOString().slice(0, 10));
+    setFormValues(modalValues);
+    setFormError(options?.initialError ?? null);
+    setHasPendingChanges(options?.pending ?? false);
+    setShowCreateModal(true);
+  };
+
+  const prepareDuplicateSelection = (datoId: string) => {
+    if (!canCreate || !canAddRecord) return;
+
     const targetDato = defDatos.find(d => d.id === datoId);
     if (!targetDato) return;
 
     const parsedVals = parseValores(targetDato.valores);
-    const nextValues = buildEmptyFormValues();
-    params.forEach(param => {
-      const raw = parsedVals[param.nombre];
-      nextValues[param.nombre] = raw === undefined || raw === null ? "" : String(raw);
+    const allFieldNames = duplicableParams.map(p => p.nombre);
+    const filledFieldNames = allFieldNames.filter(name => {
+      const raw = parsedVals[name];
+      return raw !== undefined && raw !== null && String(raw).trim() !== "";
     });
 
-    setEditingDatoId(targetDato.id);
-    setFormFecha(targetDato.fecha);
-    setFormValues(nextValues);
-    setFormError(null);
-    setHasPendingChanges(false);
-    setShowCreateModal(true);
+    setDuplicateSourceId(targetDato.id);
+    setDuplicateFields(filledFieldNames.length > 0 ? filledFieldNames : allFieldNames);
+    setDuplicateIncludeFecha(true);
+  };
+
+  const toggleDuplicateField = (fieldName: string) => {
+    setDuplicateFields(prev =>
+      prev.includes(fieldName)
+        ? prev.filter(name => name !== fieldName)
+        : [...prev, fieldName],
+    );
+  };
+
+  const resetDuplicateState = () => {
+    setDuplicateMenuOpenId(null);
+    setDuplicateSourceId(null);
+    setDuplicateFields([]);
+    setDuplicateIncludeFecha(true);
   };
 
   const getRelacionOptions = (param: ModParam) => {
@@ -512,6 +588,7 @@ function DynamicDefTable({
         valores: JSON.stringify(nextVals),
       });
 
+      setTransientEditDatoId(null);
       setShowCreateModal(false);
       resetEntryForm();
       return;
@@ -525,8 +602,74 @@ function DynamicDefTable({
       valores: JSON.stringify(nextVals),
     });
 
+    setTransientEditDatoId(null);
     setShowCreateModal(false);
     resetEntryForm();
+  };
+
+  const duplicateFromSource = (sourceId: string, selectedFields: string[], includeFecha: boolean) => {
+    if (!canCreate || !canAddRecord) return;
+
+    const sourceDato = defDatos.find(d => d.id === sourceId);
+    if (!sourceDato) return;
+
+    const sourceVals = parseValores(sourceDato.valores);
+    const nextVals: Record<string, string> = {};
+    params.forEach(p => { nextVals[p.nombre] = ""; });
+
+    selectedFields.forEach(fieldName => {
+      const raw = sourceVals[fieldName];
+      if (raw !== undefined && raw !== null) nextVals[fieldName] = String(raw);
+    });
+
+    for (const fp of formulaParams) {
+      if (!fp.formula) continue;
+      const result = evaluateFormula(fp.formula, nextVals, fieldNames);
+      if (result !== null) nextVals[fp.nombre] = String(result);
+    }
+
+    const cultivoForRecord = !def.cultivo_id ? filterCultivoId : undefined;
+    const newDato = addDato(defId, cultivoForRecord);
+    const duplicatedFecha = includeFecha
+      ? sourceDato.fecha
+      : new Date().toISOString().slice(0, 10);
+
+    updDato(newDato.id, {
+      ...newDato,
+      fecha: duplicatedFecha,
+      valores: JSON.stringify(nextVals),
+    });
+
+    const missingRequired = params.filter(
+      p => p.visible !== false && p.obligatorio && !p.formula && !String(nextVals[p.nombre] ?? "").trim(),
+    );
+
+    if (missingRequired.length > 0 && canEdit) {
+      const labels = missingRequired.map(p => p.etiqueta_personalizada || p.nombre.replace(/_/g, " "));
+      const preview = labels.slice(0, 3).join(", ");
+      const extra = labels.length > 3 ? ` y ${labels.length - 3} más` : "";
+      openEditModal(newDato.id, {
+        fecha: duplicatedFecha,
+        values: nextVals,
+        initialError: `Completa los campos obligatorios: ${preview}${extra}.`,
+        pending: true,
+        transient: true,
+      });
+    }
+  };
+
+  const handleDuplicateAll = (sourceId: string) => {
+    const allFields = duplicableParams.map(p => p.nombre);
+    duplicateFromSource(sourceId, allFields, true);
+  };
+
+  const handleDuplicateSelected = () => {
+    if (!duplicateSourceId) return;
+    if (!duplicateIncludeFecha && duplicateFields.length === 0) return;
+
+    duplicateFromSource(duplicateSourceId, duplicateFields, duplicateIncludeFecha);
+
+    resetDuplicateState();
   };
 
   // IA confirm: crea múltiples filas con los valores detectados por IA
@@ -615,6 +758,15 @@ function DynamicDefTable({
       delDato(eventoId);
     }
   };
+
+  const duplicateSource = duplicateSourceId
+    ? defDatos.find(d => d.id === duplicateSourceId)
+    : null;
+  const duplicateSourceVals = duplicateSource
+    ? parseValores(duplicateSource.valores)
+    : {};
+  const duplicateSelectionCount = duplicateFields.length + (duplicateIncludeFecha ? 1 : 0);
+  const canRunPartialDuplicate = duplicateSelectionCount > 0;
 
   return (
     <div className="space-y-3">
@@ -715,28 +867,126 @@ function DynamicDefTable({
           onAdd={handleAdd}
           onPendingChange={setHasPendingChanges}
           rowActions={(row) => {
-            if (!hasEventos) return null;
-
             const registro = defDatos.find(d => String(d.id) === String(row.id));
             if (!registro) return null;
-            const eventCount = getEventCountForRegistro(registro.id);
+            const eventCount = hasEventos ? getEventCountForRegistro(registro.id) : 0;
+            const canDuplicate = canCreate && canAddRecord;
+            const isDupMenuOpen = duplicateMenuOpenId === registro.id;
+
+            if (!hasEventos && !canDuplicate) return null;
 
             return (
-              <button
-                onClick={() => openEventosSheet(registro.id)}
-                title={`Ver eventos (${eventCount})`}
-                className={cn(
-                  "p-2 rounded transition-colors shrink-0 relative",
-                  "text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50",
+              <>
+                {canDuplicate && (
+                  <>
+                    <button
+                      onClick={() => handleDuplicateAll(registro.id)}
+                      title="Duplicar fila completa"
+                      className={cn(
+                        "p-2 rounded transition-colors shrink-0",
+                        "text-violet-600 hover:text-violet-700 hover:bg-violet-50",
+                      )}
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+
+                    <DropdownMenu
+                      open={isDupMenuOpen}
+                      onOpenChange={(open) => {
+                        if (open) {
+                          prepareDuplicateSelection(registro.id);
+                          setDuplicateMenuOpenId(registro.id);
+                        } else if (isDupMenuOpen) {
+                          resetDuplicateState();
+                        }
+                      }}
+                    >
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          title="Duplicar celdas específicas"
+                          className={cn(
+                            "p-2 rounded transition-colors shrink-0",
+                            "text-violet-600 hover:text-violet-700 hover:bg-violet-50",
+                          )}
+                        >
+                          <SlidersHorizontal className="w-4 h-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+
+                      <DropdownMenuContent align="end" className="w-72 p-2">
+                        <div className="px-1 pb-2">
+                          <p className="text-xs font-semibold text-foreground">Duplicación parcial</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Marca las celdas que quieras copiar y duplica sin salir de la tabla.
+                          </p>
+                        </div>
+                        <DropdownMenuSeparator />
+
+                        <div className="max-h-56 overflow-y-auto rounded-md border divide-y">
+                          <label className="flex items-center justify-between px-2.5 py-2 text-xs cursor-pointer hover:bg-muted/40">
+                            <span className="font-medium text-foreground">Fecha</span>
+                            <input
+                              type="checkbox"
+                              checked={duplicateIncludeFecha}
+                              onChange={(e) => setDuplicateIncludeFecha(e.target.checked)}
+                            />
+                          </label>
+
+                          {duplicableParams.map(param => {
+                            const label = param.etiqueta_personalizada || param.nombre.replace(/_/g, " ");
+                            const previewRaw = duplicateSourceVals[param.nombre];
+                            const preview = previewRaw === undefined || previewRaw === null || String(previewRaw).trim() === ""
+                              ? "Sin valor"
+                              : String(previewRaw);
+                            const isSelected = duplicateFields.includes(param.nombre);
+
+                            return (
+                              <label key={param.id} className="flex items-center justify-between gap-2 px-2.5 py-2 text-xs cursor-pointer hover:bg-muted/40">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-foreground truncate">{label}</p>
+                                  <p className="text-muted-foreground truncate">{preview}</p>
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleDuplicateField(param.nombre)}
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+
+                        <div className="pt-2 flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-muted-foreground">
+                            {duplicateSelectionCount} celda{duplicateSelectionCount !== 1 ? "s" : ""}
+                          </span>
+                          <Button type="button" size="sm" onClick={handleDuplicateSelected} disabled={!canRunPartialDuplicate}>
+                            Duplicar
+                          </Button>
+                        </div>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
                 )}
-              >
-                <Calendar className="w-4 h-4" />
-                {eventCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                    {eventCount > 9 ? "9+" : eventCount}
-                  </span>
+
+                {hasEventos && (
+                  <button
+                    onClick={() => openEventosSheet(registro.id)}
+                    title={`Ver eventos (${eventCount})`}
+                    className={cn(
+                      "p-2 rounded transition-colors shrink-0 relative",
+                      "text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50",
+                    )}
+                  >
+                    <Calendar className="w-4 h-4" />
+                    {eventCount > 0 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                        {eventCount > 9 ? "9+" : eventCount}
+                      </span>
+                    )}
+                  </button>
                 )}
-              </button>
+              </>
             );
           }}
         />
@@ -746,16 +996,111 @@ function DynamicDefTable({
           data={rows}
           columns={columns.map(col => ({ ...col, editable: false }))}
           onUpdate={handleUpdate}
+          onDelete={handleDelete}
           onPendingChange={setHasPendingChanges}
           rowActions={(row) => {
             const registro = defDatos.find(d => String(d.id) === String(row.id));
             if (!registro) return null;
             const eventCount = hasEventos ? getEventCountForRegistro(registro.id) : 0;
+            const canDuplicate = canCreate && canAddRecord;
+            const isDupMenuOpen = duplicateMenuOpenId === registro.id;
 
-            if (!canEdit && !hasEventos) return null;
+            if (!canEdit && !hasEventos && !canDuplicate) return null;
 
             return (
               <>
+                {canDuplicate && (
+                  <>
+                    <button
+                      onClick={() => handleDuplicateAll(registro.id)}
+                      title="Duplicar fila completa"
+                      className={cn(
+                        "p-2 rounded transition-colors shrink-0",
+                        "text-violet-600 hover:text-violet-700 hover:bg-violet-50",
+                      )}
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+
+                    <DropdownMenu
+                      open={isDupMenuOpen}
+                      onOpenChange={(open) => {
+                        if (open) {
+                          prepareDuplicateSelection(registro.id);
+                          setDuplicateMenuOpenId(registro.id);
+                        } else if (isDupMenuOpen) {
+                          resetDuplicateState();
+                        }
+                      }}
+                    >
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          title="Duplicar celdas específicas"
+                          className={cn(
+                            "p-2 rounded transition-colors shrink-0",
+                            "text-violet-600 hover:text-violet-700 hover:bg-violet-50",
+                          )}
+                        >
+                          <SlidersHorizontal className="w-4 h-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+
+                      <DropdownMenuContent align="end" className="w-72 p-2">
+                        <div className="px-1 pb-2">
+                          <p className="text-xs font-semibold text-foreground">Duplicación parcial</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Marca las celdas que quieras copiar y duplica sin salir de la tabla.
+                          </p>
+                        </div>
+                        <DropdownMenuSeparator />
+
+                        <div className="max-h-56 overflow-y-auto rounded-md border divide-y">
+                          <label className="flex items-center justify-between px-2.5 py-2 text-xs cursor-pointer hover:bg-muted/40">
+                            <span className="font-medium text-foreground">Fecha</span>
+                            <input
+                              type="checkbox"
+                              checked={duplicateIncludeFecha}
+                              onChange={(e) => setDuplicateIncludeFecha(e.target.checked)}
+                            />
+                          </label>
+
+                          {duplicableParams.map(param => {
+                            const label = param.etiqueta_personalizada || param.nombre.replace(/_/g, " ");
+                            const previewRaw = duplicateSourceVals[param.nombre];
+                            const preview = previewRaw === undefined || previewRaw === null || String(previewRaw).trim() === ""
+                              ? "Sin valor"
+                              : String(previewRaw);
+                            const isSelected = duplicateFields.includes(param.nombre);
+
+                            return (
+                              <label key={param.id} className="flex items-center justify-between gap-2 px-2.5 py-2 text-xs cursor-pointer hover:bg-muted/40">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-foreground truncate">{label}</p>
+                                  <p className="text-muted-foreground truncate">{preview}</p>
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleDuplicateField(param.nombre)}
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+
+                        <div className="pt-2 flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-muted-foreground">
+                            {duplicateSelectionCount} celda{duplicateSelectionCount !== 1 ? "s" : ""}
+                          </span>
+                          <Button type="button" size="sm" onClick={handleDuplicateSelected} disabled={!canRunPartialDuplicate}>
+                            Duplicar
+                          </Button>
+                        </div>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
+                )}
+
                 {canEdit && (
                   <button
                     onClick={() => openEditModal(registro.id)}
@@ -795,8 +1140,11 @@ function DynamicDefTable({
       <Dialog
         open={showCreateModal}
         onOpenChange={(open) => {
-          setShowCreateModal(open);
-          if (!open) resetEntryForm();
+          if (!open) {
+            handleCancelEntryModal();
+            return;
+          }
+          setShowCreateModal(true);
         }}
       >
         <DialogContent className="sm:max-w-3xl">
@@ -909,10 +1257,7 @@ function DynamicDefTable({
           <DialogFooter className="gap-2 sm:gap-0">
             <Button
               variant="outline"
-              onClick={() => {
-                setShowCreateModal(false);
-                resetEntryForm();
-              }}
+              onClick={handleCancelEntryModal}
             >
               Cancelar
             </Button>
