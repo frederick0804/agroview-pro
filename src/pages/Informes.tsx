@@ -769,21 +769,21 @@ const CATEGORIA_CONFIG: Record<
     border: "border-emerald-200",
   },
   siembra: {
-    label: "Siembra",
+    label: "Cultivo / Cosecha",
     icon: Leaf,
     color: "text-green-600",
     bg: "bg-green-50",
     border: "border-green-200",
   },
   cosecha: {
-    label: "Cosecha",
+    label: "Cultivo / Cosecha",
     icon: Scissors,
     color: "text-amber-600",
     bg: "bg-amber-50",
     border: "border-amber-200",
   },
   poscosecha: {
-    label: "Poscosecha",
+    label: "Post-cosecha / Producción",
     icon: Package,
     color: "text-orange-600",
     bg: "bg-orange-50",
@@ -4023,11 +4023,10 @@ function DetailPanel({
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 
-const CATEGORIES: CategoriaInforme[] = [
+const CATEGORIES: Exclude<CategoriaInforme, "cosecha">[] = [
   "laboratorio",
   "vivero",
   "siembra",
-  "cosecha",
   "poscosecha",
   "general",
 ];
@@ -4037,9 +4036,14 @@ const CATEGORIES: CategoriaInforme[] = [
 const moduleToCategorias: Record<string, CategoriaInforme[]> = {
   laboratorio: ["laboratorio"],
   vivero: ["vivero"],
-  cultivo: ["siembra"],
-  "post-cosecha": ["poscosecha", "cosecha"],
+  cultivo: ["siembra", "cosecha"],
+  cosecha: ["siembra", "cosecha"],
+  "post-cosecha": ["poscosecha"],
+  produccion: ["poscosecha"],
 };
+
+const normalizeCategoria = (categoria: CategoriaInforme): Exclude<CategoriaInforme, "cosecha"> =>
+  categoria === "cosecha" ? "siembra" : categoria;
 
 const Informes = () => {
   const { role, hasPermission, currentUser, productores, clientes } = useRole();
@@ -4296,7 +4300,7 @@ const Informes = () => {
       programados: base.filter((i) => i.es_programado).length,
     };
     CATEGORIES.forEach((cat) => {
-      result[cat] = base.filter((i) => i.categoria === cat).length;
+      result[cat] = base.filter((i) => normalizeCategoria(i.categoria) === cat).length;
     });
     return result;
   }, [informes, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, isSupervisorOrLector, canAccessInforme]);
@@ -4317,7 +4321,7 @@ const Informes = () => {
 
     if (activeNav === "favoritos") list = list.filter((i) => i.es_favorito);
     else if (activeNav === "programados") list = list.filter((i) => i.es_programado);
-    else if (activeNav !== "all") list = list.filter((i) => i.categoria === activeNav);
+    else if (activeNav !== "all") list = list.filter((i) => normalizeCategoria(i.categoria) === activeNav);
 
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -4414,7 +4418,7 @@ const Informes = () => {
   );
 
   const genModulosDisponibles = useMemo(
-    () => CATEGORIES.filter((cat) => roleScopedGeneraciones.some((g) => g.categoria === cat)),
+    () => CATEGORIES.filter((cat) => roleScopedGeneraciones.some((g) => normalizeCategoria(g.categoria) === cat)),
     [roleScopedGeneraciones],
   );
 
@@ -4446,7 +4450,7 @@ const Informes = () => {
     let list = roleScopedGeneraciones;
 
     if (genModuloFilter !== "all") {
-      list = list.filter((g) => g.categoria === genModuloFilter);
+      list = list.filter((g) => normalizeCategoria(g.categoria) === genModuloFilter);
     }
 
     if (genUserFilter !== "all") {
@@ -4477,7 +4481,7 @@ const Informes = () => {
     let list = generacionesFiltradasBase;
 
     if (activeNav !== "all" && activeNav !== "favoritos" && activeNav !== "programados") {
-      list = list.filter((g) => g.categoria === activeNav);
+      list = list.filter((g) => normalizeCategoria(g.categoria) === activeNav);
     }
 
     if (search.trim()) {
@@ -4496,7 +4500,7 @@ const Informes = () => {
     const base = generacionesFiltradasBase;
     const result: Record<string, number> = { all: base.length };
     CATEGORIES.forEach((cat) => {
-      result[cat] = base.filter((g) => g.categoria === cat).length;
+      result[cat] = base.filter((g) => normalizeCategoria(g.categoria) === cat).length;
     });
     return result;
   }, [generacionesFiltradasBase]);
@@ -4544,7 +4548,7 @@ const Informes = () => {
       `Informe: ${gen.informe_nombre}`,
       `Usuario: ${gen.usuario}`,
       `Fecha: ${formatDateTime(gen.fecha)}`,
-      `Categoría: ${CATEGORIA_CONFIG[gen.categoria].label}`,
+      `Categoría: ${CATEGORIA_CONFIG[normalizeCategoria(gen.categoria)].label}`,
       `Formato: ${gen.formato.toUpperCase()}`,
       `Estado: ${gen.estado}`,
       `Registros: ${gen.registros_procesados ?? "N/D"}`,
@@ -4947,7 +4951,7 @@ const Informes = () => {
               ) : isGroupedAll ? (
                 // ── Agrupado por categoría ──
                 CATEGORIES.map((cat) => {
-                  const catInformes = filtered.filter((i) => i.categoria === cat);
+                  const catInformes = filtered.filter((i) => normalizeCategoria(i.categoria) === cat);
                   if (catInformes.length === 0) return null;
                   const catCfg = CATEGORIA_CONFIG[cat];
                   const CatIcon = catCfg.icon;
@@ -5024,7 +5028,7 @@ const Informes = () => {
                 // ── Agrupado por categoría o plano según nav ──
                 activeNav === "all" && !search.trim() ? (
                   CATEGORIES.map((cat) => {
-                    const catGens = filteredGeneraciones.filter((g) => g.categoria === cat);
+                    const catGens = filteredGeneraciones.filter((g) => normalizeCategoria(g.categoria) === cat);
                     if (catGens.length === 0) return null;
                     const catCfg = CATEGORIA_CONFIG[cat];
                     const CatIcon = catCfg.icon;
@@ -5053,7 +5057,7 @@ const Informes = () => {
                       key={gen.id}
                       gen={gen}
                       informeNombre={gen.informe_nombre}
-                      categoriaCfg={CATEGORIA_CONFIG[gen.categoria]}
+                      categoriaCfg={CATEGORIA_CONFIG[normalizeCategoria(gen.categoria)]}
                       onDownload={handleDownloadGeneracion}
                     />
                   ))

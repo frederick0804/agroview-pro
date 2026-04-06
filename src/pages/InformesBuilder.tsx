@@ -67,9 +67,6 @@ import {
   Pencil,
   GripVertical,
   Trash2,
-  ChevronUp,
-  MoveUp,
-  MoveDown,
   Calculator,
   FunctionSquare,
   Link2,
@@ -367,6 +364,7 @@ export interface TextoBloque {
   tipo: "texto";
   subtipo: "observaciones" | "conclusiones" | "descripcion" | "libre";
   titulo?: string;
+  colSpan?: ColSpan;
   // No content field — text blocks are template placeholders; the end user fills them in the final report
   tipografia?: TipografiaBloque;
 }
@@ -1327,7 +1325,7 @@ function TablaBloqueView({
     if (bloque.columnas.length > 0) {
       base = bloque.columnas.filter((id) => camposDisponibles.some((c) => c.id === id));
     } else {
-      base = camposDisponibles.slice(0, 5).map((c) => c.id);
+      base = camposDisponibles.map((c) => c.id);
     }
     // Ensure group keys are included, but keep manual order when already present.
     if (groupByKeys.length > 0) {
@@ -1490,14 +1488,11 @@ function TablaBloqueView({
           }
         } else {
           const [lo, hi] = METRIC_RANGES[id] ?? [100, 1000];
-          let val = stableVal(`${seedBase}-${id}`, lo, hi);
           const agr = (bloque.agregaciones?.[id] ?? "suma") as AgregacionTipo;
-          if (agr === "suma") {
-            const factor = 1 + Math.abs(stableVal(`${seedBase}-${id}-factor`, 1, 4));
-            val = val * factor;
-          } else if (agr === "mediana") {
-            val = Math.round((val + stableVal(`${seedBase}-${id}-med`, lo, hi)) / 2);
-          }
+          const sampleValues = [0, 1, 2].map((sampleIdx) =>
+            stableVal(`${seedBase}-${id}-sample-${sampleIdx}`, lo, hi),
+          );
+          let val = aggregateMetricValues(sampleValues, agr);
           if (id === "ph") val = +(val / 10).toFixed(1);
           else if (id === "conductividad_electrica") val = +(val / 10).toFixed(2);
           else if (["temp_min", "temp_max", "temp_media"].includes(id)) val = +(val).toFixed(1);
@@ -1534,9 +1529,10 @@ function TablaBloqueView({
       values: row,
     }));
 
-    if (activeGroupKeys.length <= 1 || metricColumnIds.length === 0) return dataOnly;
+    if (activeGroupKeys.length === 0 || metricColumnIds.length === 0) return dataOnly;
 
     const out: DisplayRow[] = [];
+    const includeSubtotals = activeGroupKeys.length > 1;
     const prefixKeys = activeGroupKeys.slice(0, -1);
     const subtotalLabelKey = activeGroupKeys[activeGroupKeys.length - 1];
 
@@ -1566,14 +1562,14 @@ function TablaBloqueView({
     sortedData.forEach((row, i) => {
       const sig = prefixKeys.map((k) => String(row[k] ?? "")).join("||");
       if (bucket.length > 0 && sig !== bucketSig) {
-        emitSubtotal();
+        if (includeSubtotals) emitSubtotal();
         bucket = [];
       }
       out.push({ kind: "data", key: `row_${i}_${sig}`, values: row });
       bucket.push(row);
       bucketSig = sig;
     });
-    emitSubtotal();
+    if (includeSubtotals) emitSubtotal();
 
     if (sortedData.length > 1) {
       const grandTotal: Record<string, string | number> = {};
@@ -2030,16 +2026,6 @@ function resolveFieldLabel(token: string): string {
   return campo ? `${fuente?.label ?? fuenteId} - ${campo.label}` : token;
 }
 
-const AGG_OPTIONS: Array<{ value: CampoCalculado["operacionAgrupacion"]; label: string; symbol: string }> = [
-  { value: "suma",       label: "Suma",       symbol: "Σ" },
-  { value: "promedio",   label: "Promedio",   symbol: "x̄" },
-  { value: "mediana",    label: "Mediana",    symbol: "M" },
-  { value: "minimo",     label: "Mínimo",     symbol: "↓" },
-  { value: "maximo",     label: "Máximo",     symbol: "↑" },
-  { value: "conteo",     label: "Conteo",     symbol: "#" },
-  { value: "desviacion", label: "Desv. Est.", symbol: "σ" },
-];
-
 interface CamposCalculadosEditorProps {
   camposCalculados: CampoCalculado[];
   fuentesSeleccionadas: string[];
@@ -2048,7 +2034,7 @@ interface CamposCalculadosEditorProps {
 function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChange }: CamposCalculadosEditorProps) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap(m => m.fuentes), []);
 
-  // Metric fields (for formula campoA/campoB and aggregation campoAgregado)
+  // Metric fields for formula builder
   const metricFields = useMemo(() => {
     return fuentesSeleccionadas.flatMap(fId => {
       const fuente = allFuentes.find(f => f.id === fId);
@@ -2059,28 +2045,14 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChan
     });
   }, [fuentesSeleccionadas, allFuentes]);
 
-  // Dimension fields (for groupBy selector)
-  const dimFields = useMemo(() => {
-    return fuentesSeleccionadas.flatMap(fId => {
-      const fuente = allFuentes.find(f => f.id === fId);
-      if (!fuente) return [];
-      return fuente.campos
-        .filter(c => c.tipo === "dimension")
-        .map(c => ({ token: `${fId}:${c.id}`, label: `${fuente.label} - ${c.label}` }));
-    });
-  }, [fuentesSeleccionadas, allFuentes]);
-
-  const addCalculo = (tipo: "formula" | "agregacion") => {
+  const addCalculo = () => {
     const newCalc: CampoCalculado = {
       id: `calc_${Date.now()}`,
-      label: tipo === "formula" ? `Cálculo ${camposCalculados.length + 1}` : `Cálculo agrupado ${camposCalculados.length + 1}`,
-      tipo,
+      label: `Cálculo ${camposCalculados.length + 1}`,
+      tipo: "formula",
       operacion: "/",
       campoA: metricFields[0]?.token ?? "",
       campoB: metricFields[1]?.token ?? metricFields[0]?.token ?? "",
-      agruparPor: dimFields[0] ? [dimFields[0].token] : [],
-      campoAgregado: metricFields[0]?.token ?? "",
-      operacionAgrupacion: "suma",
       unidad: "",
     };
     onChange([...camposCalculados, newCalc]);
@@ -2094,201 +2066,109 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChan
     onChange(camposCalculados.filter(c => c.id !== id));
   };
 
+  const getLegacyAggField = (calc: CampoCalculado): string => {
+    const legacyCalc = calc as CampoCalculado & { campoAgregado?: string };
+    return legacyCalc.campoAgregado ?? "";
+  };
+
   return (
     <div className="space-y-2">
       {camposCalculados.length === 0 && (
         <p className="text-[10px] text-muted-foreground italic py-1">
-          Ningún cálculo definido. Agrega una fórmula o un cálculo agrupado.
+          Ningún cálculo definido. Agrega una fórmula.
         </p>
       )}
-      {camposCalculados.map((calc, i) => (
-        <div key={calc.id} className="rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/20 p-2.5 space-y-2">
-          {/* Header: icon + nombre + modo + delete */}
-          <div className="flex items-center gap-1.5">
-            <FunctionSquare className="w-3.5 h-3.5 text-violet-600 shrink-0" />
-            <span className="text-[10px] font-semibold text-violet-700 dark:text-violet-300">#{i + 1}</span>
-            <input
-              value={calc.label}
-              onChange={e => updCalc(calc.id, { label: e.target.value })}
-              placeholder="Nombre del campo…"
-              className="flex-1 h-6 text-xs px-2 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-            {/* Mode toggle */}
-            <div className="flex rounded border border-violet-300/60 overflow-hidden shrink-0">
-              <button
-                onClick={() => updCalc(calc.id, { tipo: "formula" })}
-                className={cn("px-1.5 py-0.5 text-[9px] font-semibold transition-colors",
-                  (calc.tipo ?? "formula") === "formula"
-                    ? "bg-violet-600 text-white"
-                    : "text-violet-600 hover:bg-violet-50"
-                )}
-                title="Fórmula A op B"
-              >A÷B</button>
-              <button
-                onClick={() => updCalc(calc.id, { tipo: "agregacion" })}
-                className={cn("px-1.5 py-0.5 text-[9px] font-semibold transition-colors border-l border-violet-300/60",
-                  (calc.tipo ?? "formula") === "agregacion"
-                    ? "bg-violet-600 text-white"
-                    : "text-violet-600 hover:bg-violet-50"
-                )}
-                title="Agrupar y agregar"
-              >Σ</button>
-            </div>
-            <button type="button" onClick={() => removeCalc(calc.id)}
-              className="p-0.5 text-muted-foreground/50 hover:text-destructive transition-colors">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
+      {camposCalculados.map((calc, i) => {
+        const fallbackMetricA = metricFields[0]?.token ?? "";
+        const fallbackMetricB = metricFields[1]?.token ?? fallbackMetricA;
+        const legacyAggField = getLegacyAggField(calc);
+        const campoAValue = calc.campoA || legacyAggField || fallbackMetricA;
+        const campoBValue = calc.campoB || legacyAggField || fallbackMetricB;
+        const operacionValue = calc.operacion ?? "/";
 
-          {(calc.tipo ?? "formula") === "formula" ? (
-            <>
-              {/* Formula mode: Campo A full-width, then [op | Campo B] */}
-              <div className="space-y-1.5">
-                <select value={calc.campoA} onChange={e => updCalc(calc.id, { campoA: e.target.value })}
-                  className="w-full h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary">
-                  <option value="">— Campo A —</option>
-                  {metricFields.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
-                </select>
-                <div className="flex items-center gap-1.5">
-                  <select value={calc.operacion} onChange={e => updCalc(calc.id, { operacion: e.target.value as CampoCalculado["operacion"] })}
-                    className="h-7 text-[10px] px-1.5 rounded border border-primary/40 bg-primary/5 text-primary font-bold focus:outline-none focus:ring-1 focus:ring-primary shrink-0"
-                    style={{ width: "3.2rem" }}>
-                    {OP_OPTIONS.map(op => <option key={op.value} value={op.value}>{op.symbol} {op.label.split(" ")[0]}</option>)}
-                  </select>
-                  <select value={calc.campoB} onChange={e => updCalc(calc.id, { campoB: e.target.value })}
-                    className="flex-1 min-w-0 h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary">
-                    <option value="">— Campo B —</option>
-                    {metricFields.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
-                  </select>
-                </div>
-              </div>
-              {/* Preview + unit */}
-              <div className="flex items-center gap-2">
-                <div className="flex-1 text-[9px] text-muted-foreground bg-muted/40 rounded px-2 py-1 font-mono truncate">
-                  {calc.label || "resultado"} = {resolveFieldLabel(calc.campoA).split(" - ")[1] ?? "A"} {OP_OPTIONS.find(o => o.value === calc.operacion)?.symbol ?? "÷"} {resolveFieldLabel(calc.campoB).split(" - ")[1] ?? "B"}
-                </div>
-                <input value={calc.unidad ?? ""} onChange={e => updCalc(calc.id, { unidad: e.target.value })}
-                  placeholder="ud."
-                  className="w-16 h-6 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary text-center font-mono" />
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Aggregation mode */}
-              {/* Agrupar por (dimension) - Multi-select */}
-              <div className="space-y-1">
-                <label className="text-[10px] text-muted-foreground font-medium">Agrupar para cálculo (dimensiones)</label>
-                <div className="space-y-1">
-                  {/* Selected chips */}
-                  {(calc.agruparPor && calc.agruparPor.length > 0) && (
-                    <div className="flex flex-wrap gap-1">
-                      {calc.agruparPor.map(token => (
-                        <Badge key={token} variant="secondary" className="text-[9px] gap-1 py-0 px-1.5">
-                          {resolveFieldLabel(token).split(" - ")[1] || token}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const updated = (calc.agruparPor || []).filter(t => t !== token);
-                              updCalc(calc.id, { agruparPor: updated });
-                            }}
-                            className="hover:text-destructive"
-                          >
-                            <X className="w-2.5 h-2.5" />
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                  {/* Add field selector */}
-                  <select
-                    value=""
-                    onChange={e => {
-                      if (e.target.value) {
-                        const current = calc.agruparPor || [];
-                        if (!current.includes(e.target.value)) {
-                          updCalc(calc.id, { agruparPor: [...current, e.target.value] });
-                        }
-                      }
-                    }}
-                    className="w-full h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
-                  >
-                    <option value="">+ Agregar dimensión al cálculo</option>
-                    {dimFields
-                      .filter(f => !(calc.agruparPor || []).includes(f.token))
-                      .map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
-                  </select>
-                  {dimFields.length === 0 && (
-                    <p className="text-[9px] text-amber-600">No hay campos de dimensión en las fuentes seleccionadas.</p>
-                  )}
-                </div>
-              </div>
-              {/* Campo a agregar (metric) */}
-              <div className="space-y-0.5">
-                <label className="text-[10px] text-muted-foreground font-medium">Métrica a resumir (solo cálculo)</label>
+        return (
+          <div key={calc.id} className="rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/20 p-2.5 space-y-2">
+            <div className="flex items-center gap-1.5">
+              <FunctionSquare className="w-3.5 h-3.5 text-violet-600 shrink-0" />
+              <span className="text-[10px] font-semibold text-violet-700 dark:text-violet-300">#{i + 1}</span>
+              <input
+                value={calc.label}
+                onChange={e => updCalc(calc.id, { label: e.target.value, tipo: "formula" })}
+                placeholder="Nombre del campo…"
+                className="flex-1 h-6 text-xs px-2 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <button
+                type="button"
+                onClick={() => removeCalc(calc.id)}
+                className="p-0.5 text-muted-foreground/50 hover:text-destructive transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="space-y-1.5">
+              <select
+                value={campoAValue}
+                onChange={e => updCalc(calc.id, { campoA: e.target.value, tipo: "formula" })}
+                className="w-full h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="">— Campo A —</option>
+                {metricFields.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
+              </select>
+              <div className="flex items-center gap-1.5">
                 <select
-                  value={calc.campoAgregado ?? ""}
-                  onChange={e => updCalc(calc.id, { campoAgregado: e.target.value })}
-                  className="w-full h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                  value={operacionValue}
+                  onChange={e => updCalc(calc.id, { operacion: e.target.value as CampoCalculado["operacion"], tipo: "formula" })}
+                  className="h-7 text-[10px] px-1.5 rounded border border-primary/40 bg-primary/5 text-primary font-bold focus:outline-none focus:ring-1 focus:ring-primary shrink-0"
+                  style={{ width: "3.2rem" }}
                 >
-                  <option value="">- Seleccionar métrica -</option>
+                  {OP_OPTIONS.map(op => <option key={op.value} value={op.value}>{op.symbol} {op.label.split(" ")[0]}</option>)}
+                </select>
+                <select
+                  value={campoBValue}
+                  onChange={e => updCalc(calc.id, { campoB: e.target.value, tipo: "formula" })}
+                  className="flex-1 min-w-0 h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">— Campo B —</option>
                   {metricFields.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
                 </select>
               </div>
-              {/* Operación de agregación */}
-              <div className="space-y-0.5">
-                <label className="text-[10px] text-muted-foreground font-medium">Cómo resumir la métrica</label>
-                <div className="grid grid-cols-3 gap-1">
-                  {AGG_OPTIONS.map(op => (
-                    <button key={op.value}
-                      onClick={() => updCalc(calc.id, { operacionAgrupacion: op.value })}
-                      className={cn(
-                        "py-1.5 rounded border text-[10px] font-semibold flex items-center justify-center gap-1 transition-all",
-                        calc.operacionAgrupacion === op.value
-                          ? "border-violet-500 bg-violet-500 text-white"
-                          : "border-border text-muted-foreground hover:border-violet-300 hover:bg-violet-50/50"
-                      )}
-                      title={op.label}
-                    >
-                      <span className="text-xs">{op.symbol}</span>
-                      <span className="hidden sm:inline">{op.label}</span>
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[9px] text-muted-foreground">
-                  Esta agrupación no ordena filas de la tabla; solo calcula un campo derivado.
-                </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="flex-1 text-[9px] text-muted-foreground bg-muted/40 rounded px-2 py-1 font-mono truncate">
+                {calc.label || "resultado"} = {resolveFieldLabel(campoAValue).split(" - ")[1] ?? "A"} {OP_OPTIONS.find(o => o.value === operacionValue)?.symbol ?? "÷"} {resolveFieldLabel(campoBValue).split(" - ")[1] ?? "B"}
               </div>
-              {/* Preview */}
-              <div className="flex items-center gap-2">
-                <div className="flex-1 text-[9px] text-muted-foreground bg-muted/40 rounded px-2 py-1 font-mono truncate">
-                  {calc.label || "resultado"} = {AGG_OPTIONS.find(o => o.value === calc.operacionAgrupacion)?.label ?? "Suma"}(
-                  {resolveFieldLabel(calc.campoAgregado ?? "").split(" - ")[1] ?? "métrica"}) por [{(calc.agruparPor || []).map(ap => resolveFieldLabel(ap).split(" - ")[1] || ap).join(", ") || "grupo"}]
-                </div>
-                <input value={calc.unidad ?? ""} onChange={e => updCalc(calc.id, { unidad: e.target.value })}
-                  placeholder="ud."
-                  className="w-16 h-6 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary text-center font-mono" />
-              </div>
-            </>
-          )}
-        </div>
-      ))}
-      {/* Add buttons */}
+              <input
+                value={calc.unidad ?? ""}
+                onChange={e => updCalc(calc.id, { unidad: e.target.value, tipo: "formula" })}
+                placeholder="ud."
+                className="w-16 h-6 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary text-center font-mono"
+              />
+            </div>
+          </div>
+        );
+      })}
+
       <div className="flex gap-1.5">
-        <button type="button" onClick={() => addCalculo("formula")} disabled={metricFields.length < 2}
-          className={cn("flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-dashed text-[10px] font-medium transition-all",
-            metricFields.length < 2
-              ? "border-border/40 text-muted-foreground/40 cursor-not-allowed"
-              : "border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20 hover:border-violet-400")}>
-          <Calculator className="w-3 h-3" /> + Fórmula
-        </button>
-        <button type="button" onClick={() => addCalculo("agregacion")} disabled={metricFields.length < 1}
+        <button
+          type="button"
+          onClick={addCalculo}
+          disabled={metricFields.length < 1}
           className={cn("flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-dashed text-[10px] font-medium transition-all",
             metricFields.length < 1
               ? "border-border/40 text-muted-foreground/40 cursor-not-allowed"
-              : "border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20 hover:border-violet-400")}>
-          <Sigma className="w-3 h-3" /> + Cálculo agrupado
+              : "border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20 hover:border-violet-400")}
+        >
+          <Calculator className="w-3 h-3" /> + Fórmula
         </button>
       </div>
+
+      {metricFields.length === 0 && (
+        <p className="text-[9px] text-amber-600">
+          Selecciona al menos una fuente con campos métricos para crear cálculos.
+        </p>
+      )}
     </div>
   );
 }
@@ -2417,6 +2297,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
   const [encDropIdx, setEncDropIdx] = useState<number | null>(null);
   const [tablaColDragId, setTablaColDragId] = useState<string | null>(null);
   const [tablaColDropId, setTablaColDropId] = useState<string | null>(null);
+  const [layoutBlockDragId, setLayoutBlockDragId] = useState<string | null>(null);
+  const [layoutBlockDropId, setLayoutBlockDropId] = useState<string | null>(null);
   const [designFocusSection, setDesignFocusSection] = useState<DesignSectionId | "all">("encabezado");
 
   const defaultConfig: BuilderConfig = {
@@ -2506,18 +2388,6 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     }));
   }, []);
 
-  const toggleColumnaBloque = useCallback((bloqueId: string, columnaId: string) => {
-    setConfig((prev) => ({
-      ...prev,
-      bloques: prev.bloques.map((b) => {
-        if (b.id !== bloqueId || b.tipo !== "tabla") return b;
-        const tb = b as TablaBloque;
-        const has = tb.columnas.includes(columnaId);
-        return { ...tb, columnas: has ? tb.columnas.filter((c) => c !== columnaId) : [...tb.columnas, columnaId] } as ReporteBloque;
-      }),
-    }));
-  }, []);
-
   const setTablaColumnOrder = useCallback((bloqueId: string, orderedColumnIds: string[]) => {
     setConfig((prev) => ({
       ...prev,
@@ -2535,8 +2405,9 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     setConfig((prev) => ({
       ...prev,
       bloques: prev.bloques.map((b) => {
-        if (b.id !== bloqueId) return b;
-        return { ...b, agregaciones: { ...(b.agregaciones ?? {}), [metricaId]: agr } } as ReporteBloque;
+        if (b.id !== bloqueId || b.tipo === "texto") return b;
+        const block = b as GraficoBloque | TablaBloque;
+        return { ...block, agregaciones: { ...(block.agregaciones ?? {}), [metricaId]: agr } } as ReporteBloque;
       }),
     }));
   }, []);
@@ -2570,10 +2441,11 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     setConfig((prev) => ({
       ...prev,
       bloques: prev.bloques.map((b) => {
-        if (b.id !== bloqueId) return b;
-        const filtros = { ...(b.filtrosJerarquia ?? {}), [nivel]: valores };
+        if (b.id !== bloqueId || b.tipo === "texto") return b;
+        const block = b as GraficoBloque | TablaBloque;
+        const filtros = { ...(block.filtrosJerarquia ?? {}), [nivel]: valores };
         if (valores.length === 0) delete filtros[nivel];
-        return { ...b, filtrosJerarquia: filtros } as ReporteBloque;
+        return { ...block, filtrosJerarquia: filtros } as ReporteBloque;
       }),
     }));
   }, []);
@@ -2597,16 +2469,12 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     setSelectedBloqueId((prev) => (prev === id ? null : prev));
   }, []);
 
-  const moveBloqueOrden = useCallback((bloqueId: string, dir: "first" | "up" | "down" | "last") => {
+  const reorderBloqueOrden = useCallback((dragId: string, dropId: string) => {
+    if (dragId === dropId) return;
     setConfig((prev) => {
-      const from = prev.bloques.findIndex((b) => b.id === bloqueId);
-      if (from < 0) return prev;
-      let to = from;
-      if (dir === "first") to = 0;
-      if (dir === "up") to = Math.max(0, from - 1);
-      if (dir === "down") to = Math.min(prev.bloques.length - 1, from + 1);
-      if (dir === "last") to = prev.bloques.length - 1;
-      if (to === from) return prev;
+      const from = prev.bloques.findIndex((b) => b.id === dragId);
+      const to = prev.bloques.findIndex((b) => b.id === dropId);
+      if (from < 0 || to < 0 || from === to) return prev;
       const next = [...prev.bloques];
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
@@ -2831,7 +2699,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
     const validIds = new Set(selectedCampos.map((c) => c.id));
     const base = selectedTabla.columnas.length > 0
       ? selectedTabla.columnas.filter((id) => validIds.has(id))
-      : selectedCampos.slice(0, 5).map((c) => c.id);
+      : selectedCampos.map((c) => c.id);
     const missingGroupKeys = (selectedTabla.groupBy ?? []).filter((id) => validIds.has(id) && !base.includes(id));
     return [...missingGroupKeys, ...base];
   }, [selectedTabla, selectedCampos]);
@@ -3177,7 +3045,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                           <details className="rounded-lg border border-violet-200/70 bg-violet-50/20 overflow-hidden group">
                             <summary className="list-none cursor-pointer px-2.5 py-2 flex items-center gap-2">
                               <Calculator className="w-3 h-3 text-violet-500" />
-                              <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 uppercase tracking-wide flex-1">Cálculos cruzados</span>
+                              <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 uppercase tracking-wide flex-1">Cálculos cruzados (fórmulas)</span>
                               <span className="text-[9px] text-violet-500">
                                 {selectedGrafico.camposCalculados?.length ?? 0}
                               </span>
@@ -3422,7 +3290,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                           <details className="rounded-lg border border-violet-200/70 bg-violet-50/20 overflow-hidden group">
                             <summary className="list-none cursor-pointer px-2.5 py-2 flex items-center gap-2">
                               <Calculator className="w-3 h-3 text-violet-500" />
-                              <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 uppercase tracking-wide flex-1">Cálculos cruzados</span>
+                              <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 uppercase tracking-wide flex-1">Cálculos cruzados (fórmulas)</span>
                               <span className="text-[9px] text-violet-500">
                                 {selectedTabla.camposCalculados?.length ?? 0}
                               </span>
@@ -3610,8 +3478,13 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             </p>
                             <div className="space-y-1">
                               {selectedCamposSorted.map((campo) => {
-                                const isOn = selectedTabla.columnas.includes(campo.id) || (selectedTabla.groupBy ?? []).includes(campo.id);
                                 const isGroupByField = (selectedTabla.groupBy ?? []).includes(campo.id);
+                                const hasManualColumnSelection = selectedTabla.columnas.length > 0;
+                                const defaultVisibleColumnIds = selectedCamposSorted
+                                  .filter((c) => !(selectedTabla.groupBy ?? []).includes(c.id))
+                                  .map((c) => c.id);
+                                const isImplicitlyVisible = !hasManualColumnSelection && !isGroupByField;
+                                const isOn = selectedTabla.columnas.includes(campo.id) || isGroupByField || isImplicitlyVisible;
                                 const isMetrica = campo.tipo === "metrica";
                                 const hasGrouping = (selectedTabla.groupBy?.length ?? 0) > 0;
                                 const agr: AgregacionTipo = (selectedTabla.agregaciones?.[campo.id] ?? "suma") as AgregacionTipo;
@@ -3621,7 +3494,25 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                 return (
                                   <div key={campo.id}>
                                     <button
-                                      onClick={() => isGroupByField ? undefined : toggleColumnaBloque(selectedTabla.id, campo.id)}
+                                      onClick={() => {
+                                        if (isGroupByField) return;
+
+                                        if (!hasManualColumnSelection) {
+                                          const nextVisible = defaultVisibleColumnIds.filter((id) => id !== campo.id);
+                                          updBloque(selectedTabla.id, { columnas: nextVisible });
+                                          return;
+                                        }
+
+                                        const currentlySelected = selectedTabla.columnas;
+                                        const hasCurrent = currentlySelected.includes(campo.id);
+                                        const next = hasCurrent
+                                          ? currentlySelected.filter((id) => id !== campo.id)
+                                          : [...currentlySelected, campo.id];
+                                        const normalizedNext = next.filter((id, idx, arr) => id && arr.indexOf(id) === idx);
+                                        const coversAllDefault = normalizedNext.length === defaultVisibleColumnIds.length
+                                          && defaultVisibleColumnIds.every((id) => normalizedNext.includes(id));
+                                        updBloque(selectedTabla.id, { columnas: coversAllDefault ? [] : normalizedNext });
+                                      }}
                                       disabled={isGroupByField}
                                       className={cn(
                                         "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border text-left transition-all",
@@ -3715,7 +3606,6 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                           tipo: "texto",
                           subtipo: "libre",
                           titulo: "",
-                          contenido: "",
                           colSpan: "full",
                           tipografia: { ...DEFAULT_TIPOGRAFIA },
                         };
@@ -3742,7 +3632,6 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             tipo: "texto",
                             subtipo: "observaciones",
                             titulo: "",
-                            contenido: "",
                             colSpan: "full",
                             tipografia: { ...DEFAULT_TIPOGRAFIA },
                           };
@@ -4154,7 +4043,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                         <Grid3x3 className="w-3.5 h-3.5" /> Disposición en página
                       </Label>
                       <p className="text-[10px] text-muted-foreground leading-relaxed">
-                        Define el orden y ancho de cada bloque. El orden aquí se refleja en la preview en vivo.
+                        Arrastra cada bloque para reordenarlo y define su ancho. El orden aquí se refleja en la preview en vivo.
                       </p>
                       <div className="space-y-1.5">
                         {config.bloques.map((bloque, idx) => {
@@ -4162,6 +4051,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                           const label = bloque.tipo === "texto"
                             ? ((bloque as TextoBloque).titulo || SUBTIPO_STYLES[(bloque as TextoBloque).subtipo]?.label || `Texto ${idx + 1}`)
                             : bloque.titulo || (bloque.tipo === "grafico" ? `Gráfico ${idx + 1}` : `Tabla ${idx + 1}`);
+                          const isDragging = layoutBlockDragId === bloque.id;
+                          const isDropTarget = layoutBlockDropId === bloque.id && layoutBlockDragId !== null && layoutBlockDragId !== bloque.id;
                           const opts: Array<{ v: ColSpan; label: string }> = [
                             { v: "full",       label: "■" },
                             { v: "two-thirds", label: "⅔" },
@@ -4169,46 +4060,51 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             { v: "third",      label: "⅓" },
                           ];
                           return (
-                            <div key={bloque.id} className="flex items-center gap-2 p-2 rounded border border-border bg-muted/10">
+                            <div
+                              key={bloque.id}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                if (layoutBlockDragId && layoutBlockDragId !== bloque.id) {
+                                  setLayoutBlockDropId(bloque.id);
+                                }
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                if (layoutBlockDragId && layoutBlockDragId !== bloque.id) {
+                                  reorderBloqueOrden(layoutBlockDragId, bloque.id);
+                                }
+                                setLayoutBlockDragId(null);
+                                setLayoutBlockDropId(null);
+                              }}
+                              className={cn(
+                                "flex items-center gap-2 p-2 rounded border bg-muted/10 transition-all",
+                                isDragging ? "opacity-50 border-dashed border-primary/40" : "border-border",
+                                isDropTarget ? "border-primary/60 bg-primary/5" : "",
+                              )}
+                            >
                               <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                <button
+                                  type="button"
+                                  draggable
+                                  onDragStart={(e) => {
+                                    e.dataTransfer.effectAllowed = "move";
+                                    e.dataTransfer.setData("text/plain", bloque.id);
+                                    setLayoutBlockDragId(bloque.id);
+                                    setLayoutBlockDropId(bloque.id);
+                                  }}
+                                  onDragEnd={() => {
+                                    setLayoutBlockDragId(null);
+                                    setLayoutBlockDropId(null);
+                                  }}
+                                  className="p-1 rounded text-muted-foreground/50 hover:text-foreground cursor-grab active:cursor-grabbing"
+                                  title="Arrastrar para reordenar"
+                                >
+                                  <GripVertical className="w-3.5 h-3.5" />
+                                </button>
                                 {bloque.tipo === "grafico" && <BarChart2 className="w-3 h-3 text-blue-500 shrink-0" />}
                                 {bloque.tipo === "tabla"   && <Table2    className="w-3 h-3 text-purple-500 shrink-0" />}
                                 {bloque.tipo === "texto"   && <FileText  className="w-3 h-3 text-amber-500 shrink-0" />}
                                 <span className="text-[11px] text-foreground truncate">{label}</span>
-                              </div>
-                              <div className="flex gap-0.5 shrink-0">
-                                <button
-                                  onClick={() => moveBloqueOrden(bloque.id, "first")}
-                                  disabled={idx === 0}
-                                  className="w-7 h-6 rounded border text-[11px] transition-all border-border text-muted-foreground hover:border-primary/40 disabled:opacity-30"
-                                  title="Mover al inicio"
-                                >
-                                  <ChevronUp className="w-3 h-3 mx-auto" />
-                                </button>
-                                <button
-                                  onClick={() => moveBloqueOrden(bloque.id, "up")}
-                                  disabled={idx === 0}
-                                  className="w-7 h-6 rounded border text-[11px] transition-all border-border text-muted-foreground hover:border-primary/40 disabled:opacity-30"
-                                  title="Subir"
-                                >
-                                  <MoveUp className="w-3 h-3 mx-auto" />
-                                </button>
-                                <button
-                                  onClick={() => moveBloqueOrden(bloque.id, "down")}
-                                  disabled={idx === config.bloques.length - 1}
-                                  className="w-7 h-6 rounded border text-[11px] transition-all border-border text-muted-foreground hover:border-primary/40 disabled:opacity-30"
-                                  title="Bajar"
-                                >
-                                  <MoveDown className="w-3 h-3 mx-auto" />
-                                </button>
-                                <button
-                                  onClick={() => moveBloqueOrden(bloque.id, "last")}
-                                  disabled={idx === config.bloques.length - 1}
-                                  className="w-7 h-6 rounded border text-[11px] transition-all border-border text-muted-foreground hover:border-primary/40 disabled:opacity-30"
-                                  title="Mover al final"
-                                >
-                                  <ChevronDown className="w-3 h-3 mx-auto" />
-                                </button>
                               </div>
                               <div className="flex gap-0.5 shrink-0">
                                 {opts.map(o => (

@@ -160,6 +160,7 @@ export function CampoMapaEditor({
   const [configPorFila, setConfigPorFila] = useState<Record<number, number>>({});
   // Confirmación de eliminación
   const [bloqueAEliminar, setBloqueAEliminar] = useState<string | null>(null);
+  const [hijoAEliminar, setHijoAEliminar] = useState<{ id: string; nombre: string } | null>(null);
   const [componenteAEliminar, setComponenteAEliminar] = useState<{ bloqueId: string; componenteId: string; nombre: string } | null>(null);
   const [dragging, setDragging] = useState<{
     id: string;
@@ -275,6 +276,20 @@ export function CampoMapaEditor({
       }));
     },
     [estructura, opacidadGlobal]
+  );
+
+  // ── Eliminar hijo recursivamente ─────────────────────────────────────────────
+  const deleteHijo = useCallback(
+    (hijoId: string) => {
+      const eliminarEn = (bloques: BloqueLayout[]): BloqueLayout[] =>
+        bloques
+          .filter((b) => b.id !== hijoId)
+          .map((b) =>
+            b.hijos?.length ? { ...b, hijos: eliminarEn(b.hijos) } : b
+          );
+      onLayoutChange(eliminarEn(layout));
+    },
+    [layout, onLayoutChange]
   );
 
   // ── Establecer cantidad de hijos directos ───────────────────────────────────
@@ -629,12 +644,14 @@ export function CampoMapaEditor({
   };
 
   // ── Renderizar lista de hijos ───────────────────────────────────────────────
-  const renderListaHijos = (hijos: BloqueLayout[]): JSX.Element[] => {
+  const renderListaHijos = (hijos: BloqueLayout[], depth = 0): JSX.Element[] => {
     return hijos.map((hijo) => {
       const isOpen = expandedHijos.has(hijo.id);
       const color = hijo.color ?? getDefaultColor(hijo.nivelIdx);
-      const opacity = hijo.opacity ?? opacidadGlobal;
-      const tieneNietos = nivelesActivos[hijo.nivelIdx + 1];
+      const nivelSiguiente = nivelesActivos[hijo.nivelIdx + 1];
+      const tieneNietos = !!nivelSiguiente;
+      const nivelLabel = nivelesActivos[hijo.nivelIdx]?.label ?? `Nivel ${hijo.nivelIdx}`;
+      const nivelAbrev = nivelesActivos[hijo.nivelIdx]?.abrev ?? `N${hijo.nivelIdx}`;
 
       return (
         <div key={hijo.id}>
@@ -647,91 +664,129 @@ export function CampoMapaEditor({
               setExpandedHijos(newSet);
             }}
           >
-            <div className="rounded-md border bg-muted/30 p-2.5 space-y-2">
-              <div className="flex items-center gap-2">
-                {tieneNietos && (
+            <div
+              tabIndex={0}
+              className="rounded-lg border bg-background shadow-sm outline-none focus:ring-2 focus:ring-destructive/40 focus-within:ring-1 focus-within:ring-primary/40"
+              onKeyDown={(e) => {
+                // Supr o Retroceso — solo si el foco está en la tarjeta, NO en un input
+                const activeTag = (document.activeElement as HTMLElement)?.tagName;
+                const inInput = activeTag === "INPUT" || activeTag === "TEXTAREA";
+                if (!inInput && (e.key === "Delete" || e.key === "Backspace")) {
+                  e.preventDefault();
+                  setHijoAEliminar({ id: hijo.id, nombre: hijo.nombre });
+                }
+              }}
+            >
+              {/* ── Fila nombre ─────────────────────────────────────── */}
+              <div className="flex items-center gap-2 px-3 py-2">
+                {/* Expand toggle */}
+                {tieneNietos ? (
                   <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-5 w-5 p-0 shrink-0">
-                      {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    <Button variant="ghost" size="icon" className="h-6 w-6 p-0 shrink-0 text-muted-foreground">
+                      {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                     </Button>
                   </CollapsibleTrigger>
+                ) : (
+                  <div className="w-6 shrink-0" />
                 )}
+
+                {/* Nivel badge — clic aquí focaliza la tarjeta para activar teclas */}
                 <div
-                  className="w-3 h-3 rounded shrink-0"
-                  style={{ backgroundColor: color, opacity: opacity / 100 }}
-                />
+                  className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold text-white cursor-default select-none"
+                  style={{ backgroundColor: color }}
+                  title={`${nivelLabel} · Seleccionado: Supr / ← para eliminar`}
+                  onClick={(e) => (e.currentTarget.closest('[tabindex]') as HTMLElement)?.focus()}
+                >
+                  {nivelAbrev}
+                </div>
+
+                {/* Nombre */}
                 <Input
                   value={hijo.nombre}
-                  onChange={(e) =>
-                    updateBloqueRecursivo(hijo.id, { nombre: e.target.value })
-                  }
-                  className="h-6 text-xs flex-1"
+                  onChange={(e) => updateBloqueRecursivo(hijo.id, { nombre: e.target.value })}
+                  className="h-7 text-sm flex-1 min-w-0 font-medium"
                 />
+
+                {/* Eliminar */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 p-0 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                  onClick={(e) => { e.stopPropagation(); setHijoAEliminar({ id: hijo.id, nombre: hijo.nombre }); }}
+                  title="Eliminar (Supr)"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+
+              {/* ── Controles secundarios ────────────────────────────── */}
+              <div className="border-t border-border/50 px-3 py-2 space-y-2">
+                {/* Color */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground w-14 shrink-0">Color</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {COLOR_PALETTE.slice(0, 8).map((c) => (
+                      <button
+                        key={c.name}
+                        className={cn(
+                          "w-5 h-5 rounded-md transition-all",
+                          color === c.value
+                            ? "ring-2 ring-offset-1 ring-slate-700 dark:ring-white scale-110"
+                            : "hover:scale-110 ring-1 ring-black/10"
+                        )}
+                        style={{ backgroundColor: c.value }}
+                        onClick={() => updateBloqueRecursivo(hijo.id, { color: c.value })}
+                        title={c.name}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Cantidad hijos + Por fila */}
                 {tieneNietos && (
-                  <>
-                    <Label className="text-[10px] text-muted-foreground shrink-0">
-                      {nivelesActivos[hijo.nivelIdx + 1]?.abrev}:
-                    </Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={hijo.hijos?.length ?? 0}
-                      onChange={(e) => {
-                        const cantidad = Math.max(0, Math.min(100, +e.target.value));
-                        establecerCantidadHijos(hijo.id, cantidad);
-                      }}
-                      className="h-6 text-xs w-12 font-semibold"
-                    />
-                  </>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 flex-1">
+                      <span className="text-[11px] text-muted-foreground w-14 shrink-0">
+                        Nº {nivelSiguiente.label}s
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={hijo.hijos?.length ?? 0}
+                        onChange={(e) => {
+                          const cantidad = Math.max(0, Math.min(100, +e.target.value));
+                          establecerCantidadHijos(hijo.id, cantidad);
+                        }}
+                        className="h-7 text-sm w-16 font-semibold text-center"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 flex-1">
+                      <span className="text-[11px] text-muted-foreground shrink-0">Por fila</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={20}
+                        value={hijo.elementosPorFila ?? ""}
+                        onChange={(e) => {
+                          const valor = Math.max(0, Math.min(20, +e.target.value));
+                          updateBloqueRecursivo(hijo.id, {
+                            elementosPorFila: valor === 0 ? undefined : valor,
+                          });
+                        }}
+                        className="h-7 text-sm w-16 text-center"
+                        placeholder="Auto"
+                      />
+                    </div>
+                  </div>
                 )}
               </div>
-
-              {/* Color picker compacto */}
-              <div className="flex items-center gap-1">
-                <Label className="text-[10px] text-muted-foreground w-10">Color</Label>
-                <div className="flex gap-1">
-                  {COLOR_PALETTE.slice(0, 5).map((c) => (
-                    <button
-                      key={c.name}
-                      className={cn(
-                        "w-5 h-5 rounded border transition-all",
-                        color === c.value ? "border-slate-900 dark:border-white ring-1" : "border-slate-300"
-                      )}
-                      style={{ backgroundColor: c.value }}
-                      onClick={() => updateBloqueRecursivo(hijo.id, { color: c.value })}
-                      title={c.name}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Elementos por fila individual */}
-              {tieneNietos && (
-                <div className="flex items-center gap-1">
-                  <Label className="text-[10px] text-muted-foreground w-10">⚙️ x Fila</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={20}
-                    value={hijo.elementosPorFila || 0}
-                    onChange={(e) => {
-                      const valor = Math.max(0, Math.min(20, +e.target.value));
-                      updateBloqueRecursivo(hijo.id, {
-                        elementosPorFila: valor === 0 ? undefined : valor
-                      });
-                    }}
-                    className="h-6 text-xs w-12 font-semibold"
-                    placeholder="Auto"
-                    title="Elementos por fila (0 = automático)"
-                  />
-                </div>
-              )}
             </div>
 
+            {/* Hijos anidados */}
             {tieneNietos && hijo.hijos && hijo.hijos.length > 0 && (
-              <CollapsibleContent className="pl-3 pt-2 space-y-1.5 border-l-2 border-dashed border-muted-foreground/20">
-                {renderListaHijos(hijo.hijos)}
+              <CollapsibleContent className="pl-4 pt-2 space-y-2 border-l-2 border-dashed border-primary/25 ml-3 mt-1">
+                {renderListaHijos(hijo.hijos, depth + 1)}
               </CollapsibleContent>
             )}
           </Collapsible>
@@ -1345,13 +1400,21 @@ export function CampoMapaEditor({
         {/* Canvas */}
         <div
           ref={containerRef}
-          className={cn("relative overflow-hidden flex-1", isPanning ? "cursor-grabbing" : "cursor-grab")}
+          tabIndex={0}
+          className={cn("relative overflow-hidden flex-1 outline-none", isPanning ? "cursor-grabbing" : "cursor-grab")}
           onMouseDown={(e) => {
             if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains("map-bg")) {
               setSelectedId(null);
-              closeEditPanel(); // Cerrar panel cuando se deselecciona
+              closeEditPanel();
               setIsPanning(true);
               setPanStart({ x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y });
+            }
+          }}
+          onKeyDown={(e) => {
+            if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
+              e.preventDefault();
+              const bloque = layout.find((b) => b.id === selectedId);
+              if (bloque) setBloqueAEliminar(bloque.id);
             }
           }}
         >
@@ -1411,6 +1474,7 @@ export function CampoMapaEditor({
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedId(bloque.id);
+                        containerRef.current?.focus();
                       }}
                       onMouseDown={(e) => {
                         if (readOnly || (e.target as HTMLElement).closest(".no-drag")) return;
@@ -1463,18 +1527,30 @@ export function CampoMapaEditor({
                               {hijosCount}
                             </span>
                           )}
-                          {/* Botón editar */}
+                          {/* Botón eliminar + botón editar */}
                           {!readOnly && (
-                            <button
-                              className="no-drag w-6 h-6 rounded bg-white/30 hover:bg-white/50 flex items-center justify-center transition-colors"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openEditPanelForBlock(bloque.id);
-                              }}
-                              title="Editar bloque"
-                            >
-                              <Settings2 className="w-3.5 h-3.5 text-white" />
-                            </button>
+                            <>
+                              <button
+                                className="no-drag w-6 h-6 rounded bg-red-500/70 hover:bg-red-600/90 flex items-center justify-center transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setBloqueAEliminar(bloque.id);
+                                }}
+                                title="Eliminar bloque (Supr)"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-white" />
+                              </button>
+                              <button
+                                className="no-drag w-6 h-6 rounded bg-white/30 hover:bg-white/50 flex items-center justify-center transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditPanelForBlock(bloque.id);
+                                }}
+                                title="Editar bloque"
+                              >
+                                <Settings2 className="w-3.5 h-3.5 text-white" />
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -1541,6 +1617,32 @@ export function CampoMapaEditor({
           Haz clic en <strong>+ {getNivelLabel(estructura, 0)}</strong> para comenzar
         </p>
       )}
+
+      {/* ── Confirmación de eliminación de subnivel ────────────────────────── */}
+      <AlertDialog open={!!hijoAEliminar} onOpenChange={(open) => !open && setHijoAEliminar(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar subnivel?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará <strong>{hijoAEliminar?.nombre}</strong> y todo su contenido. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={() => {
+                if (hijoAEliminar) {
+                  deleteHijo(hijoAEliminar.id);
+                  setHijoAEliminar(null);
+                }
+              }}
+            >
+              Sí, eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Confirmación de eliminación ─────────────────────────────────────── */}
       <AlertDialog open={!!bloqueAEliminar} onOpenChange={(open) => !open && setBloqueAEliminar(null)}>

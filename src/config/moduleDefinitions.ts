@@ -180,13 +180,24 @@ export interface ModParam {
   relacion_campo_label?:     string | null;
   /** Nombre del campo de los registros fuente que se guarda como valor (default: mismo que label) */
   relacion_campo_valor?:     string | null;
+  /** Campos comunes (mismo nombre) usados para filtrar registros de la fuente por coincidencia */
+  relacion_filtros_comunes?: string[] | null;
+  /** Campo de la fuente para agrupar visualmente opciones de relación */
+  relacion_agrupar_por?:     string | null;
   // ── Tipo "Número" calculado: operaciones sobre otros campos ─────────────────
   /** Si es true, este campo se calcula automáticamente desde otros campos */
   es_calculado?:             boolean;
   /** Tipo de cálculo: suma, promedio, etc. */
   calculo_tipo?:             "suma" | "promedio" | "maximo" | "minimo" | "formula_personalizada";
   /** Campos de otros formularios que participan en el cálculo */
-  calculo_campos?:           { definicion_id: string; campo_nombre: string; }[];
+  calculo_campos?:           {
+    definicion_id: string;
+    campo_nombre: string;
+    /** Campos comunes (mismo nombre) usados para filtrar filas de la definición fuente */
+    filtros_comunes?: string[];
+    /** Campo opcional para agrupar filas de la fuente antes de agregar */
+    agrupar_por?: string | null;
+  }[];
   /** Fórmula personalizada (solo si calculo_tipo = "formula_personalizada") */
   calculo_formula?:          string;
 }
@@ -796,6 +807,7 @@ export const tipoDatoInputType: Record<TipoDato, string> = {
   Fecha:   "date",
   "Sí/No": "text",
   Lista:   "text",
+  Relación: "text",
   Foto:    "file",
   Archivo: "file",
 };

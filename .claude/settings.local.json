@@ -55,7 +55,9 @@
       "Bash(git merge:*)",
       "Bash(git checkout:*)",
       "Bash(node -e \":*)",
-      "Bash(grep -rn ' ? ' C:UsersFrederickDocumentsblue-dataagroview-pro.claudeworktreesrecursing-golicksrc --include=*.tsx)"
+      "Bash(grep -rn ' ? ' C:UsersFrederickDocumentsblue-dataagroview-pro.claudeworktreesrecursing-golicksrc --include=*.tsx)",
+      "Bash(node -e \"const fs=require\\(''fs''\\); const c=fs.readFileSync\\(''src/pages/PlaceholderPages.tsx'',''utf8''\\); const matches=[...c.matchAll\\(/buildEmptyFormValues/g\\)]; console.log\\(matches.map\\(m=>m.index\\)\\)\")",
+      "Bash(node -e \"const fs=require\\(''fs''\\); const c=fs.readFileSync\\(''src/pages/PlaceholderPages.tsx'',''utf8''\\); [11735,12126,12457,18717,19186].forEach\\(i=>console.log\\(i+'': ''+c.slice\\(i,i+60\\)\\)\\)\")"
     ]
   }
 }

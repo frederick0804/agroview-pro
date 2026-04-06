@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +14,7 @@ import { useRole } from "@/contexts/RoleContext";
 import { useConfig } from "@/contexts/ConfigContext";
 import {
   Settings, Download, Upload, SlidersHorizontal, Leaf, Sparkles, Brain,
-  BarChart3, ChevronDown, ChevronUp, Calendar, Plus, Eye, Clock, CheckCircle2, AlertCircle, X, Trash2, Pencil,
+  BarChart3, ChevronDown, ChevronUp, Calendar, Plus, Eye, Clock, CheckCircle2, AlertCircle, X, Trash2, Pencil, Copy,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
@@ -260,6 +261,14 @@ function DynamicDefTable({
   const [formValues, setFormValues] = useState<Record<string, string>>(() => buildEmptyFormValues());
   const [formError, setFormError] = useState<string | null>(null);
   const [editingDatoId, setEditingDatoId] = useState<string | null>(null);
+  const [transientEditDatoId, setTransientEditDatoId] = useState<string | null>(null);
+  const BULK_DUPLICATE_MENU_ID = "__bulk_duplicate__";
+  const [duplicateMenuOpenId, setDuplicateMenuOpenId] = useState<string | null>(null);
+  const [duplicateSourceIds, setDuplicateSourceIds] = useState<string[]>([]);
+  const [duplicateFields, setDuplicateFields] = useState<string[]>([]);
+  const [duplicateIncludeFecha, setDuplicateIncludeFecha] = useState(true);
+  const [selectedDuplicateIds, setSelectedDuplicateIds] = useState<string[]>([]);
+  const [pendingRequiredDatoIds, setPendingRequiredDatoIds] = useState<string[]>([]);
 
   const paramsSignature = params.map(p => p.id).join("|");
 
@@ -268,6 +277,13 @@ function DynamicDefTable({
     setFormValues(buildEmptyFormValues());
     setFormError(null);
     setEditingDatoId(null);
+    setTransientEditDatoId(null);
+    setDuplicateMenuOpenId(null);
+    setDuplicateSourceIds([]);
+    setDuplicateFields([]);
+    setDuplicateIncludeFecha(true);
+    setSelectedDuplicateIds([]);
+    setPendingRequiredDatoIds([]);
   }, [defId, paramsSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!def) return null;
@@ -313,23 +329,274 @@ function DynamicDefTable({
     ...parseValores(d.valores),
   }));
 
-  // Campos con fórmula
+  // Formularios globales requieren un cultivo seleccionado para poder agregar
+  const canAddRecord = canCreate && (!def.cultivo_id ? !!filterCultivoId : true);
+
+  // Campos con lógica derivada
   const formulaParams = params.filter(p => p.formula);
   const fieldNames = params.map(p => p.nombre);
+  const duplicableParams = params.filter(p => p.visible !== false && !p.formula && !p.es_calculado);
+  const rowIdsSignature = defDatos.map(d => d.id).join("|");
+  const hasRowPendingRequired = pendingRequiredDatoIds.length > 0;
+  const selectedEventoRegistroValues: Record<string, string> = selectedEventoRegistro
+    ? parseValores(defDatos.find(d => d.id === selectedEventoRegistro)?.valores ?? "{}")
+    : {};
+
+  const normalizeForMatch = (value: unknown) => String(value ?? "").trim().toLowerCase();
+
+  const aggregateNumbers = (values: number[], tipo: "suma" | "promedio" | "maximo" | "minimo") => {
+    if (values.length === 0) return null;
+    if (tipo === "suma") return values.reduce((acc, n) => acc + n, 0);
+    if (tipo === "promedio") return values.reduce((acc, n) => acc + n, 0) / values.length;
+    if (tipo === "maximo") return Math.max(...values);
+    return Math.min(...values);
+  };
+
+  const resolveFilterValue = (
+    fieldName: string,
+    currentValues?: Record<string, string>,
+    fallbackValues?: Record<string, string>,
+  ) => {
+    const current = String(currentValues?.[fieldName] ?? "").trim();
+    if (current) return current;
+    return String(fallbackValues?.[fieldName] ?? "").trim();
+  };
+
+  const getRelacionOptions = (
+    param: ModParam,
+    currentValues?: Record<string, string>,
+    fallbackValues?: Record<string, string>,
+  ): Array<{ value: string; label: string; group?: string }> => {
+    if (param.tipo_dato !== "Relación" || !param.relacion_def_id) return [];
+
+    const sourceRows = datos.filter(d => d.definicion_id === param.relacion_def_id);
+    const campoLabel = param.relacion_campo_label ?? "nombre";
+    const campoValor = param.relacion_campo_valor ?? campoLabel;
+    const filtrosComunes = param.relacion_filtros_comunes ?? [];
+    const activeFilterFields = filtrosComunes.filter((fieldName) =>
+      resolveFilterValue(fieldName, currentValues, fallbackValues) !== "",
+    );
+
+    const applyRows = activeFilterFields.length > 0
+      ? sourceRows.filter((row) => {
+          const parsed = parseValores(row.valores);
+          return activeFilterFields.every((fieldName) =>
+            normalizeForMatch(parsed[fieldName]) === normalizeForMatch(resolveFilterValue(fieldName, currentValues, fallbackValues)),
+          );
+        })
+      : sourceRows;
+
+    const rowsToUse = applyRows.length > 0 ? applyRows : sourceRows;
+    const groupedField = param.relacion_agrupar_por ?? "";
+    const dedupe = new Set<string>();
+
+    const out = rowsToUse.map((row) => {
+      const parsed = parseValores(row.valores);
+      const labelRaw = parsed[campoLabel] ?? row.referencia ?? row.id;
+      const valueRaw = parsed[campoValor] ?? labelRaw;
+      const groupRaw = groupedField ? parsed[groupedField] : "";
+
+      return {
+        value: String(valueRaw ?? ""),
+        label: String(labelRaw ?? ""),
+        group: groupRaw ? String(groupRaw) : undefined,
+      };
+    }).filter((opt) => {
+      if (!opt.value) return false;
+      const key = `${opt.value}::${opt.group ?? ""}`;
+      if (dedupe.has(key)) return false;
+      dedupe.add(key);
+      return true;
+    });
+
+    return out.sort((a, b) => {
+      const gA = a.group ?? "";
+      const gB = b.group ?? "";
+      if (gA !== gB) return gA.localeCompare(gB, "es");
+      return a.label.localeCompare(b.label, "es");
+    });
+  };
+
+  const computeCalculatedParamValue = (
+    param: ModParam,
+    values: Record<string, string>,
+    fallbackValues?: Record<string, string>,
+  ) => {
+    if (!param.es_calculado || param.tipo_dato !== "Número") return "";
+
+    if (param.calculo_tipo === "formula_personalizada") {
+      const formula = param.calculo_formula?.trim();
+      if (!formula) return "";
+      const result = evaluateFormula(formula, values, fieldNames);
+      return result !== null ? String(result) : "";
+    }
+
+    const tipo = param.calculo_tipo ?? "suma";
+    const refs = param.calculo_campos ?? [];
+    const refResults: number[] = [];
+
+    refs.forEach((ref) => {
+      if (!ref.definicion_id || !ref.campo_nombre) return;
+
+      const sourceRows = datos.filter((d) => d.definicion_id === ref.definicion_id);
+      const filtrosComunes = ref.filtros_comunes ?? [];
+      const activeFilterFields = filtrosComunes.filter((fieldName) =>
+        resolveFilterValue(fieldName, values, fallbackValues) !== "",
+      );
+
+      const filteredRows = activeFilterFields.length > 0
+        ? sourceRows.filter((row) => {
+            const parsed = parseValores(row.valores);
+            return activeFilterFields.every((fieldName) =>
+              normalizeForMatch(parsed[fieldName]) === normalizeForMatch(resolveFilterValue(fieldName, values, fallbackValues)),
+            );
+          })
+        : sourceRows;
+
+      const numericValues = filteredRows
+        .map((row) => {
+          const parsed = parseValores(row.valores);
+          const n = Number(parsed[ref.campo_nombre]);
+          return Number.isFinite(n) ? n : null;
+        })
+        .filter((n): n is number => n !== null);
+
+      if (numericValues.length === 0) return;
+
+      if (ref.agrupar_por) {
+        const groups = new Map<string, number[]>();
+        filteredRows.forEach((row) => {
+          const parsed = parseValores(row.valores);
+          const groupKey = String(parsed[ref.agrupar_por ?? ""] ?? "(sin grupo)");
+          const n = Number(parsed[ref.campo_nombre]);
+          if (!Number.isFinite(n)) return;
+          const current = groups.get(groupKey) ?? [];
+          current.push(n);
+          groups.set(groupKey, current);
+        });
+
+        const groupedValues = [...groups.values()]
+          .map((groupValues) => aggregateNumbers(groupValues, tipo))
+          .filter((n): n is number => n !== null);
+
+        const groupedResult = aggregateNumbers(groupedValues, tipo);
+        if (groupedResult !== null) refResults.push(groupedResult);
+      } else {
+        const directResult = aggregateNumbers(numericValues, tipo);
+        if (directResult !== null) refResults.push(directResult);
+      }
+    });
+
+    const final = aggregateNumbers(refResults, tipo);
+    if (final === null) return "";
+    const rounded = Math.round(final * 100) / 100;
+    return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  };
+
+  const applyDerivedValues = (
+    baseValues: Record<string, string>,
+    scopedParams: ModParam[],
+    fallbackValues?: Record<string, string>,
+  ) => {
+    const next = { ...baseValues };
+    const scopedFieldNames = scopedParams.map((p) => p.nombre);
+
+    scopedParams
+      .filter((p) => p.es_calculado && p.tipo_dato === "Número" && p.calculo_tipo !== "formula_personalizada")
+      .forEach((p) => {
+        const calcValue = computeCalculatedParamValue(p, next, fallbackValues);
+        if (calcValue !== "") next[p.nombre] = calcValue;
+      });
+
+    scopedParams
+      .filter((p) => !!p.formula)
+      .forEach((p) => {
+        const result = evaluateFormula(p.formula!, next, scopedFieldNames);
+        if (result !== null) next[p.nombre] = String(result);
+      });
+
+    scopedParams
+      .filter((p) => p.es_calculado && p.tipo_dato === "Número" && p.calculo_tipo === "formula_personalizada")
+      .forEach((p) => {
+        const formula = p.calculo_formula?.trim();
+        if (!formula) return;
+        const result = evaluateFormula(formula, next, scopedFieldNames);
+        if (result !== null) next[p.nombre] = String(result);
+      });
+
+    return next;
+  };
+
+  const hasMissingRequiredValues = (values: Record<string, string>, fecha: string) => {
+    const missingFecha = !String(fecha ?? "").trim();
+    const missingRequired = params.some(
+      p => p.visible !== false && p.obligatorio && !p.formula && !p.es_calculado && !String(values[p.nombre] ?? "").trim(),
+    );
+    return missingFecha || missingRequired;
+  };
+
+  const addPendingRequiredDatoId = (datoId: string) => {
+    setPendingRequiredDatoIds(prev => (prev.includes(datoId) ? prev : [...prev, datoId]));
+  };
+
+  const removePendingRequiredDatoId = (datoId: string) => {
+    setPendingRequiredDatoIds(prev => prev.filter(id => id !== datoId));
+  };
+
+  useEffect(() => {
+    setSelectedDuplicateIds(prev => {
+      const validIds = prev.filter(id => defDatos.some(d => d.id === id));
+      return validIds.length === prev.length ? prev : validIds;
+    });
+
+    setPendingRequiredDatoIds(prev => {
+      const validIds = prev.filter(id => defDatos.some(d => d.id === id));
+      return validIds.length === prev.length ? prev : validIds;
+    });
+  }, [rowIdsSignature]);
 
   // Construir columnas desde los parámetros de la definición
   const columns: Column<DynRow>[] = [
+    ...(canAddRecord
+      ? [
+          {
+            key: "__select__" as keyof DynRow,
+            header: "",
+            width: "52px",
+            editable: false,
+            render: (_value, row) => {
+              const rowId = String(row.id);
+              const isSelected = selectedDuplicateIds.includes(rowId);
+
+              return (
+                <div className="flex items-center justify-center px-2 py-2">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleDuplicateRowSelection(rowId)}
+                    title={isSelected ? "Quitar de selección" : "Seleccionar fila"}
+                    disabled={hasRowPendingRequired}
+                    className="h-4 w-4 cursor-pointer rounded border-border accent-violet-600"
+                  />
+                </div>
+              );
+            },
+          } as Column<DynRow>,
+        ]
+      : []),
     { key: "fecha", header: "Fecha", width: "110px", type: "date", editable: canEdit || canCreate, required: true },
     ...params
       .filter(p => p.visible !== false)
       .map(p => {
         const hasFormula = !!p.formula;
+        const hasCalculated = p.es_calculado === true && p.tipo_dato === "Número";
+        const isDerived = hasFormula || hasCalculated;
         const col: Column<DynRow> = {
           key:      p.nombre,
           header:   p.etiqueta_personalizada || p.nombre.replace(/_/g, " "),
           width:    "140px",
-          editable: hasFormula ? false : (canEdit || canCreate) && p.editable_campo !== false,
-          required: hasFormula ? false : p.obligatorio,
+          editable: isDerived ? false : (canEdit || canCreate) && p.editable_campo !== false,
+          required: isDerived ? false : p.obligatorio,
         };
         const colType = tipoDatoToColType(p.tipo_dato);
         if (colType) col.type = colType;
@@ -344,19 +611,15 @@ function DynamicDefTable({
         }
         // ── Relación: dropdown con registros de otra definición ────────────────
         if (p.tipo_dato === "Relación" && p.relacion_def_id) {
-          const fuenteDatos = datos.filter(d => d.definicion_id === p.relacion_def_id);
-          const campoLabel  = p.relacion_campo_label ?? "nombre";
-          const campoValor  = p.relacion_campo_valor ?? campoLabel;
+          const relationOptions = getRelacionOptions(p);
           col.type = "select";
           col.filterable = true;
           col.options = [
             { value: "", label: "— Sin asignar —" },
-            ...fuenteDatos.map(d => {
-              const vals = parseValores(d.valores);
-              const label = vals[campoLabel] || d.referencia || d.id;
-              const valor = vals[campoValor] || label;
-              return { value: valor, label };
-            }),
+            ...relationOptions.map((opt) => ({
+              value: opt.value,
+              label: opt.group ? `${opt.group} · ${opt.label}` : opt.label,
+            })),
           ];
         }
         if (p.filtrable_rango) {
@@ -370,17 +633,18 @@ function DynamicDefTable({
         if (p.ordenable) {
           col.sortable = true;
         }
-        if (hasFormula) {
-          col.header = `${col.header} ƒ`;
+        if (isDerived) {
+          col.header = hasFormula ? `${col.header} ƒ` : `${col.header} Σ`;
           col.render = (_value, row) => {
             const rowVals: Record<string, string> = {};
             for (const fp of params) {
               rowVals[fp.nombre] = String(row[fp.nombre] ?? "");
             }
-            const result = evaluateFormula(p.formula!, rowVals, fieldNames);
+            const derived = applyDerivedValues(rowVals, params);
+            const result = String(derived[p.nombre] ?? row[p.nombre] ?? "");
             return (
               <span className="text-xs font-mono text-muted-foreground">
-                {result !== null ? result : "—"}
+                {result !== "" ? result : "—"}
               </span>
             );
           };
@@ -395,86 +659,183 @@ function DynamicDefTable({
   const handleUpdate = (rowIndex: number, key: keyof DynRow, value: unknown) => {
     const dato = defDatos[rowIndex];
     if (!dato) return;
+
     if (key === "fecha") {
-      updDato(dato.id, { ...dato, fecha: String(value) });
+      const nextFecha = String(value);
+      const nextVals = parseValores(dato.valores);
+      const hasMissingRequired = hasMissingRequiredValues(nextVals, nextFecha);
+
+      updDato(dato.id, { ...dato, fecha: nextFecha });
+
+      if (hasMissingRequired) addPendingRequiredDatoId(dato.id);
+      else removePendingRequiredDatoId(dato.id);
     } else {
-      const vals = parseValores(dato.valores);
+      const vals = parseValores(dato.valores) as Record<string, string>;
       vals[key as string] = String(value);
-      // Recalcular campos con fórmula
-      for (const fp of formulaParams) {
-        if (fp.formula) {
-          const result = evaluateFormula(fp.formula, vals, fieldNames);
-          if (result !== null) vals[fp.nombre] = String(result);
-        }
-      }
-      updDato(dato.id, { ...dato, valores: JSON.stringify(vals) });
+      const nextVals = applyDerivedValues(vals, params);
+      const hasMissingRequired = hasMissingRequiredValues(nextVals, dato.fecha);
+      updDato(dato.id, { ...dato, valores: JSON.stringify(nextVals) });
+
+      if (hasMissingRequired) addPendingRequiredDatoId(dato.id);
+      else removePendingRequiredDatoId(dato.id);
     }
   };
 
   const handleDelete = canDelete
     ? (rowIndex: number) => {
         const dato = defDatos[rowIndex];
-        if (dato) delDato(dato.id);
+      if (!dato) return;
+      removePendingRequiredDatoId(dato.id);
+      delDato(dato.id);
       }
     : undefined;
 
-  // Formularios globales requieren un cultivo seleccionado para poder agregar
-  const canAddRecord = canCreate && (!def.cultivo_id ? !!filterCultivoId : true);
-
   const handleAdd = canAddRecord
-    ? () => { addDato(defId, !def.cultivo_id ? filterCultivoId : undefined); }
+    ? () => {
+      const newDato = addDato(defId, !def.cultivo_id ? filterCultivoId : undefined);
+      const nextVals = parseValores(newDato.valores);
+      if (hasMissingRequiredValues(nextVals, newDato.fecha)) {
+        addPendingRequiredDatoId(newDato.id);
+      }
+    }
     : undefined;
+
+  const handleTablePendingChange = (hasPending: boolean) => {
+    setHasPendingChanges(hasPending);
+  };
 
   const handleFieldChange = (field: string, value: string) => {
     setHasPendingChanges(true);
     setFormError(null);
-    setFormValues(prev => ({ ...prev, [field]: value }));
+    setFormValues(prev => applyDerivedValues({ ...prev, [field]: value }, params));
   };
 
   const resetEntryForm = () => {
     setFormFecha(new Date().toISOString().slice(0, 10));
-    setFormValues(buildEmptyFormValues());
+    setFormValues(applyDerivedValues(buildEmptyFormValues(), params));
     setFormError(null);
     setEditingDatoId(null);
     setHasPendingChanges(false);
+  };
+
+  const handleCancelEntryModal = () => {
+    const rollbackId = transientEditDatoId && editingDatoId === transientEditDatoId
+      ? transientEditDatoId
+      : null;
+
+    if (rollbackId) {
+      removePendingRequiredDatoId(rollbackId);
+      delDato(rollbackId);
+    }
+
+    setTransientEditDatoId(null);
+    setShowCreateModal(false);
+    resetEntryForm();
   };
 
   const openCreateModal = () => {
     resetEntryForm();
+    setTransientEditDatoId(null);
     setEditingDatoId(null);
     setShowCreateModal(true);
   };
 
-  const openEditModal = (datoId: string) => {
-    const targetDato = defDatos.find(d => d.id === datoId);
-    if (!targetDato) return;
+  const openEditModal = (
+    datoId: string,
+    options?: {
+      fecha?: string;
+      values?: Record<string, string>;
+      initialError?: string | null;
+      pending?: boolean;
+      transient?: boolean;
+    },
+  ) => {
+    let modalFecha = options?.fecha ?? "";
+    let modalValues = options?.values ?? buildEmptyFormValues();
 
-    const parsedVals = parseValores(targetDato.valores);
-    const nextValues = buildEmptyFormValues();
-    params.forEach(param => {
-      const raw = parsedVals[param.nombre];
-      nextValues[param.nombre] = raw === undefined || raw === null ? "" : String(raw);
-    });
+    if (!options?.values || !options?.fecha) {
+      const targetDato = defDatos.find(d => d.id === datoId);
+      if (!targetDato) return;
 
-    setEditingDatoId(targetDato.id);
-    setFormFecha(targetDato.fecha);
-    setFormValues(nextValues);
-    setFormError(null);
-    setHasPendingChanges(false);
+      const parsedVals = parseValores(targetDato.valores);
+      const nextValues = buildEmptyFormValues();
+      params.forEach(param => {
+        const raw = parsedVals[param.nombre];
+        nextValues[param.nombre] = raw === undefined || raw === null ? "" : String(raw);
+      });
+
+      modalFecha = targetDato.fecha;
+      modalValues = nextValues;
+    }
+
+    setTransientEditDatoId(options?.transient ? datoId : null);
+    setEditingDatoId(datoId);
+    setFormFecha(modalFecha || new Date().toISOString().slice(0, 10));
+    setFormValues(applyDerivedValues(modalValues, params));
+    setFormError(options?.initialError ?? null);
+    setHasPendingChanges(options?.pending ?? false);
     setShowCreateModal(true);
   };
 
-  const getRelacionOptions = (param: ModParam) => {
-    if (param.tipo_dato !== "Relación" || !param.relacion_def_id) return [] as Array<{ value: string; label: string }>;
-    const sourceRows = datos.filter(d => d.definicion_id === param.relacion_def_id);
-    const campoLabel = param.relacion_campo_label ?? "nombre";
-    const campoValor = param.relacion_campo_valor ?? campoLabel;
-    return sourceRows.map(d => {
-      const parsed = parseValores(d.valores);
-      const label = String(parsed[campoLabel] ?? d.referencia ?? d.id);
-      const value = String(parsed[campoValor] ?? label);
-      return { value, label };
+  const prepareDuplicateSelection = (sourceIds: string[]) => {
+    if (!canCreate || !canAddRecord) return;
+
+    const sourceRows = sourceIds
+      .map(id => defDatos.find(d => d.id === id))
+      .filter((dato): dato is ModDato => !!dato);
+
+    if (sourceRows.length === 0) return;
+
+    const allFieldNames = duplicableParams.map(p => p.nombre);
+    const filledFieldNames = allFieldNames.filter(name =>
+      sourceRows.some(dato => {
+        const parsedVals = parseValores(dato.valores);
+        const raw = parsedVals[name];
+        return raw !== undefined && raw !== null && String(raw).trim() !== "";
+      }),
+    );
+
+    setDuplicateSourceIds(sourceRows.map(d => d.id));
+    setDuplicateFields(filledFieldNames.length > 0 ? filledFieldNames : allFieldNames);
+    setDuplicateIncludeFecha(true);
+  };
+
+  const toggleDuplicateField = (fieldName: string) => {
+    setDuplicateFields(prev =>
+      prev.includes(fieldName)
+        ? prev.filter(name => name !== fieldName)
+        : [...prev, fieldName],
+    );
+  };
+
+  const toggleDuplicateRowSelection = (datoId: string) => {
+    setSelectedDuplicateIds(prev =>
+      prev.includes(datoId)
+        ? prev.filter(id => id !== datoId)
+        : [...prev, datoId],
+    );
+  };
+
+  const toggleSelectAllDuplicateRows = () => {
+    const allIds = defDatos.map(d => d.id);
+    if (allIds.length === 0) return;
+
+    setSelectedDuplicateIds(prev => {
+      const areAllSelected = allIds.every(id => prev.includes(id));
+      return areAllSelected ? [] : allIds;
     });
+  };
+
+  const clearDuplicateSelection = () => {
+    setSelectedDuplicateIds([]);
+    resetDuplicateState();
+  };
+
+  const resetDuplicateState = () => {
+    setDuplicateMenuOpenId(null);
+    setDuplicateSourceIds([]);
+    setDuplicateFields([]);
+    setDuplicateIncludeFecha(true);
   };
 
   const handleSaveFormEntry = () => {
@@ -485,19 +846,14 @@ function DynamicDefTable({
     }
 
     const missingRequired = params.filter(
-      p => p.visible !== false && p.obligatorio && !p.formula && !String(formValues[p.nombre] ?? "").trim(),
+      p => p.visible !== false && p.obligatorio && !p.formula && !p.es_calculado && !String(formValues[p.nombre] ?? "").trim(),
     );
     if (missingRequired.length > 0) {
       setFormError("Completa los campos obligatorios antes de guardar.");
       return;
     }
 
-    const nextVals = { ...formValues };
-    for (const fp of formulaParams) {
-      if (!fp.formula) continue;
-      const result = evaluateFormula(fp.formula, nextVals, fieldNames);
-      if (result !== null) nextVals[fp.nombre] = String(result);
-    }
+    const nextVals = applyDerivedValues({ ...formValues }, params);
 
     if (editingDatoId) {
       const currentDato = defDatos.find(d => d.id === editingDatoId);
@@ -511,7 +867,9 @@ function DynamicDefTable({
         fecha: formFecha,
         valores: JSON.stringify(nextVals),
       });
+      removePendingRequiredDatoId(currentDato.id);
 
+      setTransientEditDatoId(null);
       setShowCreateModal(false);
       resetEntryForm();
       return;
@@ -524,9 +882,84 @@ function DynamicDefTable({
       fecha: formFecha,
       valores: JSON.stringify(nextVals),
     });
+    removePendingRequiredDatoId(newDato.id);
 
+    setTransientEditDatoId(null);
     setShowCreateModal(false);
     resetEntryForm();
+  };
+
+  const duplicateFromSource = (
+    sourceId: string,
+    selectedFields: string[],
+    includeFecha: boolean,
+  ) => {
+    if (!canCreate || !canAddRecord) return;
+
+    const sourceDato = defDatos.find(d => d.id === sourceId);
+    if (!sourceDato) return;
+
+    const sourceVals = parseValores(sourceDato.valores);
+    const nextVals: Record<string, string> = {};
+    params.forEach(p => { nextVals[p.nombre] = ""; });
+
+    selectedFields.forEach(fieldName => {
+      const raw = sourceVals[fieldName];
+      if (raw !== undefined && raw !== null) nextVals[fieldName] = String(raw);
+    });
+
+    const nextValsWithDerived = applyDerivedValues(nextVals, params);
+
+    const cultivoForRecord = !def.cultivo_id ? filterCultivoId : undefined;
+    const newDato = addDato(defId, cultivoForRecord);
+    const duplicatedFecha = includeFecha
+      ? sourceDato.fecha
+      : new Date().toISOString().slice(0, 10);
+
+    updDato(newDato.id, {
+      ...newDato,
+      fecha: duplicatedFecha,
+      valores: JSON.stringify(nextValsWithDerived),
+    });
+
+    const missingRequired = params.filter(
+      p => p.visible !== false && p.obligatorio && !p.formula && !p.es_calculado && !String(nextValsWithDerived[p.nombre] ?? "").trim(),
+    );
+
+    if (missingRequired.length > 0) {
+      addPendingRequiredDatoId(newDato.id);
+      setHasPendingChanges(true);
+    } else {
+      removePendingRequiredDatoId(newDato.id);
+    }
+  };
+
+  const handleDuplicateAll = (sourceIds: string[]) => {
+    if (sourceIds.length === 0) return;
+    if (hasRowPendingRequired) return;
+
+    const allFields = duplicableParams.map(p => p.nombre);
+    sourceIds.forEach((sourceId) => {
+      duplicateFromSource(sourceId, allFields, true);
+    });
+
+    if (sourceIds.length > 1) setSelectedDuplicateIds([]);
+    resetDuplicateState();
+  };
+
+  const handleDuplicateSelected = () => {
+    if (duplicateSourceIds.length === 0) return;
+    if (!duplicateIncludeFecha && duplicateFields.length === 0) return;
+    if (hasRowPendingRequired) return;
+
+    duplicateSourceIds.forEach((sourceId) => {
+      duplicateFromSource(sourceId, duplicateFields, duplicateIncludeFecha);
+    });
+
+    if (duplicateSourceIds.length > 1 || duplicateMenuOpenId === BULK_DUPLICATE_MENU_ID) {
+      setSelectedDuplicateIds([]);
+    }
+    resetDuplicateState();
   };
 
   // IA confirm: crea múltiples filas con los valores detectados por IA
@@ -566,6 +999,18 @@ function DynamicDefTable({
     }, 0);
   };
 
+  const activeEventoParams = parametros
+    .filter(p => p.definicion_id === activeEventoTab)
+    .sort((a, b) => a.orden - b.orden);
+
+  const updateNewEventoField = (field: string, value: string) => {
+    setNewEventoForm((prev) => applyDerivedValues(
+      { ...prev, [field]: value },
+      activeEventoParams,
+      selectedEventoRegistroValues,
+    ));
+  };
+
   // ── Handlers para eventos ─────────────────────────────────────────────────
   const openEventosSheet = (registroId: string) => {
     setSelectedEventoRegistro(registroId);
@@ -590,10 +1035,10 @@ function DynamicDefTable({
   };
 
   const handleOpenForm = () => {
-    const eventoParams = parametros.filter(p => p.definicion_id === activeEventoTab);
+    const eventoParams = activeEventoParams;
     const initialForm: Record<string, string> = {};
     eventoParams.forEach(p => { initialForm[p.nombre] = ""; });
-    setNewEventoForm(initialForm);
+    setNewEventoForm(applyDerivedValues(initialForm, eventoParams, selectedEventoRegistroValues));
     setSheetView("form");
   };
 
@@ -603,8 +1048,9 @@ function DynamicDefTable({
     if (!registroDato) return;
 
     const cultivoId = registroDato.cultivo_id || filterCultivoId;
+    const nextEventoVals = applyDerivedValues({ ...newEventoForm }, activeEventoParams, selectedEventoRegistroValues);
     const newDato = addDato(activeEventoTab, cultivoId, selectedEventoRegistro);
-    updDato(newDato.id, { ...newDato, valores: JSON.stringify(newEventoForm) });
+    updDato(newDato.id, { ...newDato, valores: JSON.stringify(nextEventoVals) });
 
     setSheetView("list");
     setNewEventoForm({});
@@ -616,6 +1062,81 @@ function DynamicDefTable({
     }
   };
 
+  const duplicateSource = duplicateSourceIds.length > 0
+    ? defDatos.find(d => d.id === duplicateSourceIds[0])
+    : null;
+  const duplicateSourceVals = duplicateSource
+    ? parseValores(duplicateSource.valores)
+    : {};
+  const duplicateSelectionCount = duplicateFields.length + (duplicateIncludeFecha ? 1 : 0);
+  const duplicateTargetsCount = duplicateSourceIds.length;
+  const selectedRowsCount = selectedDuplicateIds.length;
+  const canDuplicateRows = canCreate && canAddRecord;
+  const canRunPartialDuplicate = duplicateTargetsCount > 0 && duplicateSelectionCount > 0;
+  const isBulkDupMenuOpen = duplicateMenuOpenId === BULK_DUPLICATE_MENU_ID;
+  const allRowsSelected = defDatos.length > 0 && selectedRowsCount === defDatos.length;
+  const duplicateActionsBlocked = hasRowPendingRequired;
+
+  const renderDuplicatePartialMenu = (title: string) => (
+    <DropdownMenuContent align="end" className="w-80 p-2">
+      <div className="px-1 pb-2">
+        <p className="text-xs font-semibold text-foreground">{title}</p>
+        <p className="text-[11px] text-muted-foreground">
+          Marca las celdas que quieras copiar para {duplicateTargetsCount} fila{duplicateTargetsCount !== 1 ? "s" : ""}.
+        </p>
+        {duplicateTargetsCount > 1 && (
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Vista previa basada en la primera fila seleccionada.
+          </p>
+        )}
+      </div>
+      <DropdownMenuSeparator />
+
+      <div className="max-h-56 overflow-y-auto rounded-md border divide-y">
+        <label className="flex items-center justify-between px-2.5 py-2 text-xs cursor-pointer hover:bg-muted/40">
+          <span className="font-medium text-foreground">Fecha</span>
+          <input
+            type="checkbox"
+            checked={duplicateIncludeFecha}
+            onChange={(e) => setDuplicateIncludeFecha(e.target.checked)}
+          />
+        </label>
+
+        {duplicableParams.map(param => {
+          const label = param.etiqueta_personalizada || param.nombre.replace(/_/g, " ");
+          const previewRaw = duplicateSourceVals[param.nombre];
+          const preview = previewRaw === undefined || previewRaw === null || String(previewRaw).trim() === ""
+            ? "Sin valor"
+            : String(previewRaw);
+          const isSelected = duplicateFields.includes(param.nombre);
+
+          return (
+            <label key={param.id} className="flex items-center justify-between gap-2 px-2.5 py-2 text-xs cursor-pointer hover:bg-muted/40">
+              <div className="min-w-0 flex-1">
+                <p className="text-foreground truncate">{label}</p>
+                <p className="text-muted-foreground truncate">{preview}</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => toggleDuplicateField(param.nombre)}
+              />
+            </label>
+          );
+        })}
+      </div>
+
+      <div className="pt-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] text-muted-foreground">
+          {duplicateTargetsCount} fila{duplicateTargetsCount !== 1 ? "s" : ""} × {duplicateSelectionCount} celda{duplicateSelectionCount !== 1 ? "s" : ""}
+        </span>
+        <Button type="button" size="sm" onClick={handleDuplicateSelected} disabled={!canRunPartialDuplicate || duplicateActionsBlocked}>
+          Duplicar
+        </Button>
+      </div>
+    </DropdownMenuContent>
+  );
+
   return (
     <div className="space-y-3">
       {/* Botón editar campos de esta definición */}
@@ -624,8 +1145,14 @@ function DynamicDefTable({
           <Button
             size="sm"
             onClick={openCreateModal}
-            disabled={!canAddRecord}
-            title={!canAddRecord ? "Selecciona un cultivo para crear registros" : undefined}
+            disabled={!canAddRecord || duplicateActionsBlocked}
+            title={
+              !canAddRecord
+                ? "Selecciona un cultivo para crear registros"
+                : duplicateActionsBlocked
+                  ? "Primero llena los campos requeridos antes de continuar"
+                  : undefined
+            }
             className="text-xs gap-1.5"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -636,6 +1163,7 @@ function DynamicDefTable({
           <Button
             variant={showIaPanel ? "default" : "outline"}
             size="sm"
+            disabled={duplicateActionsBlocked}
             onClick={() => setShowIaPanel(prev => !prev)}
             className={cn(
               "text-xs gap-1.5 transition-all",
@@ -652,6 +1180,7 @@ function DynamicDefTable({
           <Button
             variant={showMlPanel ? "default" : "outline"}
             size="sm"
+            disabled={duplicateActionsBlocked}
             onClick={() => setShowMlPanel(prev => !prev)}
             className={cn(
               "text-xs gap-1.5 transition-all",
@@ -705,6 +1234,91 @@ function DynamicDefTable({
         </div>
       )}
 
+      {canDuplicateRows && hasRowPendingRequired && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          Primero llena los campos requeridos antes de continuar.
+        </div>
+      )}
+
+      {canDuplicateRows && rows.length > 0 && selectedRowsCount > 0 && (
+        <div className="rounded-lg border border-violet-200 bg-violet-50/60 px-3 py-2.5">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="secondary" className="text-[11px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
+                {selectedRowsCount} seleccionada{selectedRowsCount !== 1 ? "s" : ""}
+              </Badge>
+              <p className="text-xs text-violet-800/80">
+                Selecciona una o varias filas con el botón de check y duplica total o parcial desde aquí.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={toggleSelectAllDuplicateRows}
+                disabled={duplicateActionsBlocked}
+              >
+                {allRowsSelected ? "Deseleccionar todo" : "Seleccionar todo"}
+              </Button>
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs"
+                onClick={clearDuplicateSelection}
+                disabled={selectedRowsCount === 0 || duplicateActionsBlocked}
+              >
+                Limpiar selección
+              </Button>
+
+              <Button
+                type="button"
+                size="sm"
+                className="text-xs gap-1.5"
+                onClick={() => handleDuplicateAll(selectedDuplicateIds)}
+                disabled={selectedRowsCount === 0 || duplicateActionsBlocked}
+              >
+                <Copy className="w-3.5 h-3.5" />
+                Duplicar total ({selectedRowsCount})
+              </Button>
+
+              <DropdownMenu
+                open={isBulkDupMenuOpen}
+                onOpenChange={(open) => {
+                  if (open) {
+                    if (selectedRowsCount === 0 || duplicateActionsBlocked) return;
+                    prepareDuplicateSelection(selectedDuplicateIds);
+                    setDuplicateMenuOpenId(BULK_DUPLICATE_MENU_ID);
+                  } else if (isBulkDupMenuOpen) {
+                    resetDuplicateState();
+                  }
+                }}
+              >
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-xs gap-1.5"
+                    disabled={selectedRowsCount === 0 || duplicateActionsBlocked}
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    Duplicar parcial
+                  </Button>
+                </DropdownMenuTrigger>
+
+                {renderDuplicatePartialMenu("Duplicación parcial en lote")}
+              </DropdownMenu>
+            </div>
+          </div>
+        </div>
+      )}
+
       {entryMode === "tabla" ? (
         <EditableTable
           title={def.nombre}
@@ -713,30 +1327,35 @@ function DynamicDefTable({
           onUpdate={handleUpdate}
           onDelete={handleDelete}
           onAdd={handleAdd}
-          onPendingChange={setHasPendingChanges}
+          onPendingChange={handleTablePendingChange}
+          pendingRowIds={pendingRequiredDatoIds}
           rowActions={(row) => {
-            if (!hasEventos) return null;
-
             const registro = defDatos.find(d => String(d.id) === String(row.id));
             if (!registro) return null;
-            const eventCount = getEventCountForRegistro(registro.id);
+            const eventCount = hasEventos ? getEventCountForRegistro(registro.id) : 0;
+
+            if (!hasEventos) return null;
 
             return (
-              <button
-                onClick={() => openEventosSheet(registro.id)}
-                title={`Ver eventos (${eventCount})`}
-                className={cn(
-                  "p-2 rounded transition-colors shrink-0 relative",
-                  "text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50",
+              <>
+                {hasEventos && (
+                  <button
+                    onClick={() => openEventosSheet(registro.id)}
+                    title={`Ver eventos (${eventCount})`}
+                    className={cn(
+                      "p-2 rounded transition-colors shrink-0 relative",
+                      "text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50",
+                    )}
+                  >
+                    <Calendar className="w-4 h-4" />
+                    {eventCount > 0 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                        {eventCount > 9 ? "9+" : eventCount}
+                      </span>
+                    )}
+                  </button>
                 )}
-              >
-                <Calendar className="w-4 h-4" />
-                {eventCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                    {eventCount > 9 ? "9+" : eventCount}
-                  </span>
-                )}
-              </button>
+              </>
             );
           }}
         />
@@ -746,7 +1365,9 @@ function DynamicDefTable({
           data={rows}
           columns={columns.map(col => ({ ...col, editable: false }))}
           onUpdate={handleUpdate}
-          onPendingChange={setHasPendingChanges}
+          onDelete={handleDelete}
+          onPendingChange={handleTablePendingChange}
+          pendingRowIds={pendingRequiredDatoIds}
           rowActions={(row) => {
             const registro = defDatos.find(d => String(d.id) === String(row.id));
             if (!registro) return null;
@@ -795,8 +1416,11 @@ function DynamicDefTable({
       <Dialog
         open={showCreateModal}
         onOpenChange={(open) => {
-          setShowCreateModal(open);
-          if (!open) resetEntryForm();
+          if (!open) {
+            handleCancelEntryModal();
+            return;
+          }
+          setShowCreateModal(true);
         }}
       >
         <DialogContent className="sm:max-w-3xl">
@@ -826,22 +1450,22 @@ function DynamicDefTable({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {params.filter(p => p.visible !== false).map(param => {
+                const derivedSnapshot = applyDerivedValues(formValues, params);
                 const label = param.etiqueta_personalizada || param.nombre.replace(/_/g, " ");
-                const value = String(formValues[param.nombre] ?? "");
-                const disabled = param.formula ? true : (editingDatoId ? !canEdit : !canCreate);
-                const formulaValue = param.formula
-                  ? evaluateFormula(param.formula, formValues, fieldNames)
-                  : null;
+                const isCalculated = param.es_calculado === true && param.tipo_dato === "Número";
+                const isDerived = !!param.formula || isCalculated;
+                const value = String((isDerived ? derivedSnapshot[param.nombre] : formValues[param.nombre]) ?? "");
+                const disabled = isDerived ? true : (editingDatoId ? !canEdit : !canCreate);
 
                 return (
                   <div key={param.id} className="space-y-1.5">
                     <Label className="text-xs">
                       {label}
-                      {param.obligatorio && !param.formula && <span className="text-destructive ml-1">*</span>}
+                      {param.obligatorio && !isDerived && <span className="text-destructive ml-1">*</span>}
                     </Label>
 
-                    {param.formula ? (
-                      <Input value={formulaValue !== null ? String(formulaValue) : ""} readOnly disabled />
+                    {isDerived ? (
+                      <Input value={value} readOnly disabled />
                     ) : param.tipo_dato === "Sí/No" ? (
                       <Select
                         value={value}
@@ -881,8 +1505,10 @@ function DynamicDefTable({
                           <SelectValue placeholder="Seleccionar..." />
                         </SelectTrigger>
                         <SelectContent>
-                          {getRelacionOptions(param).map(opt => (
-                            <SelectItem key={`${param.id}-${opt.value}`} value={opt.value}>{opt.label}</SelectItem>
+                          {getRelacionOptions(param, formValues).map(opt => (
+                            <SelectItem key={`${param.id}-${opt.value}-${opt.group ?? ""}`} value={opt.value}>
+                              {opt.group ? `${opt.group} · ${opt.label}` : opt.label}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -909,10 +1535,7 @@ function DynamicDefTable({
           <DialogFooter className="gap-2 sm:gap-0">
             <Button
               variant="outline"
-              onClick={() => {
-                setShowCreateModal(false);
-                resetEntryForm();
-              }}
+              onClick={handleCancelEntryModal}
             >
               Cancelar
             </Button>
@@ -1159,42 +1782,48 @@ function DynamicDefTable({
 
             {/* Campos del formulario — scrollable */}
             <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
-              {parametros
-                .filter(p => p.definicion_id === activeEventoTab)
-                .sort((a, b) => a.orden - b.orden)
-                .map(param => (
+              {activeEventoParams.map(param => {
+                const derivedSnapshot = applyDerivedValues(newEventoForm, activeEventoParams, selectedEventoRegistroValues);
+                const isCalculated = param.es_calculado === true && param.tipo_dato === "Número";
+                const isDerived = !!param.formula || isCalculated;
+                const value = String((isDerived ? derivedSnapshot[param.nombre] : newEventoForm[param.nombre]) ?? "");
+
+                return (
                   <div key={param.id} className="space-y-1.5">
                     <Label className="text-sm flex items-center gap-1.5">
                       {param.etiqueta_personalizada || param.nombre.replace(/_/g, ' ')}
-                      {param.obligatorio && <span className="text-red-500 text-xs">*</span>}
+                      {param.obligatorio && !isDerived && <span className="text-red-500 text-xs">*</span>}
                     </Label>
 
-                    {param.tipo_dato === "Texto" && (
+                    {isDerived && (
+                      <Input value={value} readOnly disabled />
+                    )}
+                    {!isDerived && param.tipo_dato === "Texto" && (
                       <Input
-                        value={newEventoForm[param.nombre] || ""}
-                        onChange={(e) => setNewEventoForm(prev => ({ ...prev, [param.nombre]: e.target.value }))}
+                        value={value}
+                        onChange={(e) => updateNewEventoField(param.nombre, e.target.value)}
                         placeholder={param.nombre.replace(/_/g, ' ')}
                       />
                     )}
-                    {param.tipo_dato === "Número" && (
+                    {!isDerived && param.tipo_dato === "Número" && (
                       <Input
                         type="number"
-                        value={newEventoForm[param.nombre] || ""}
-                        onChange={(e) => setNewEventoForm(prev => ({ ...prev, [param.nombre]: e.target.value }))}
+                        value={value}
+                        onChange={(e) => updateNewEventoField(param.nombre, e.target.value)}
                         placeholder="0"
                       />
                     )}
-                    {param.tipo_dato === "Fecha" && (
+                    {!isDerived && param.tipo_dato === "Fecha" && (
                       <Input
                         type="date"
-                        value={newEventoForm[param.nombre] || ""}
-                        onChange={(e) => setNewEventoForm(prev => ({ ...prev, [param.nombre]: e.target.value }))}
+                        value={value}
+                        onChange={(e) => updateNewEventoField(param.nombre, e.target.value)}
                       />
                     )}
-                    {param.tipo_dato === "Sí/No" && (
+                    {!isDerived && param.tipo_dato === "Sí/No" && (
                       <Select
-                        value={newEventoForm[param.nombre] || ""}
-                        onValueChange={(v) => setNewEventoForm(prev => ({ ...prev, [param.nombre]: v }))}
+                        value={value}
+                        onValueChange={(v) => updateNewEventoField(param.nombre, v)}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Seleccionar…" />
@@ -1205,10 +1834,10 @@ function DynamicDefTable({
                         </SelectContent>
                       </Select>
                     )}
-                    {param.tipo_dato === "Lista" && param.opciones && (
+                    {!isDerived && param.tipo_dato === "Lista" && param.opciones && (
                       <Select
-                        value={newEventoForm[param.nombre] || ""}
-                        onValueChange={(v) => setNewEventoForm(prev => ({ ...prev, [param.nombre]: v }))}
+                        value={value}
+                        onValueChange={(v) => updateNewEventoField(param.nombre, v)}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Seleccionar…" />
@@ -1220,12 +1849,30 @@ function DynamicDefTable({
                         </SelectContent>
                       </Select>
                     )}
+                    {!isDerived && param.tipo_dato === "Relación" && (
+                      <Select
+                        value={value}
+                        onValueChange={(v) => updateNewEventoField(param.nombre, v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {getRelacionOptions(param, newEventoForm, selectedEventoRegistroValues).map((opt) => (
+                            <SelectItem key={`${param.id}-${opt.value}-${opt.group ?? ""}`} value={opt.value}>
+                              {opt.group ? `${opt.group} · ${opt.label}` : opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
 
                     {param.descripcion && (
                       <p className="text-xs text-muted-foreground">{param.descripcion}</p>
                     )}
                   </div>
-                ))}
+                );
+              })}
             </div>
 
             {/* Footer fijo: acciones */}
