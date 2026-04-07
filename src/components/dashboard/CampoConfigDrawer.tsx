@@ -125,6 +125,33 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
 
   const camposComunesRelacion = getCamposComunesConDef(relacionDefId);
 
+  const pickDefaultLabelField = (fields: ModParam[]): string => {
+    const byName = (name: string) => fields.find((f) => f.nombre === name)?.nombre;
+    return (
+      byName("nombre")
+      ?? byName("nombre_completo")
+      ?? byName("codigo")
+      ?? byName("referencia")
+      ?? fields.find((f) => f.tipo_dato === "Texto")?.nombre
+      ?? fields.find((f) => f.tipo_dato === "Lista")?.nombre
+      ?? fields[0]?.nombre
+      ?? ""
+    );
+  };
+
+  const pickDefaultGroupField = (commonFields: ModParam[]): string => {
+    const byName = (name: string) => commonFields.find((f) => f.nombre === name)?.nombre;
+    return (
+      byName("cultivo")
+      ?? byName("bloque")
+      ?? byName("nave")
+      ?? byName("sector")
+      ?? commonFields.find((f) => f.tipo_dato === "Lista")?.nombre
+      ?? commonFields.find((f) => f.tipo_dato === "Texto")?.nombre
+      ?? ""
+    );
+  };
+
   const operators = [
     { value: "+", label: "+" },
     { value: "-", label: "−" },
@@ -411,11 +438,28 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                     value={relacionDefId}
                     onChange={e => {
-                      setRelacionDefId(e.target.value);
-                      setRelacionCampoLabel("");
-                      setRelacionCampoValor("");
-                      setRelacionFiltrosComunes([]);
-                      setRelacionAgruparPor("");
+                      const nextDefId = e.target.value;
+                      setRelacionDefId(nextDefId);
+
+                      if (!nextDefId) {
+                        setRelacionCampoLabel("");
+                        setRelacionCampoValor("");
+                        setRelacionFiltrosComunes([]);
+                        setRelacionAgruparPor("");
+                        return;
+                      }
+
+                      const nextCamposFuente = parametros
+                        .filter((p) => p.definicion_id === nextDefId)
+                        .sort((a, b) => a.orden - b.orden);
+                      const nextCamposComunes = getCamposComunesConDef(nextDefId);
+                      const defaultLabelField = pickDefaultLabelField(nextCamposFuente);
+                      const commonNames = nextCamposComunes.map((c) => c.nombre);
+
+                      setRelacionCampoLabel(defaultLabelField);
+                      setRelacionCampoValor(defaultLabelField);
+                      setRelacionFiltrosComunes(commonNames);
+                      setRelacionAgruparPor(pickDefaultGroupField(nextCamposComunes));
                     }}
                   >
                     <option value="">— Seleccionar formulario —</option>
@@ -649,11 +693,16 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                                 <select
                                   value={item.definicion_id}
                                   onChange={e => {
+                                    const nextDefId = e.target.value;
+                                    const nextCamposDef = parametros
+                                      .filter((p) => p.definicion_id === nextDefId && p.tipo_dato === "Número")
+                                      .sort((a, b) => a.orden - b.orden);
+                                    const nextComunes = getCamposComunesConDef(nextDefId);
                                     updateCalculoCampo(index, {
-                                      definicion_id: e.target.value,
-                                      campo_nombre: "",
-                                      filtros_comunes: [],
-                                      agrupar_por: null,
+                                      definicion_id: nextDefId,
+                                      campo_nombre: nextCamposDef[0]?.nombre ?? "",
+                                      filtros_comunes: nextComunes.map((c) => c.nombre),
+                                      agrupar_por: pickDefaultGroupField(nextComunes) || null,
                                     });
                                   }}
                                   className="flex-1 min-w-0 w-full h-7 text-xs px-2 rounded border border-border bg-background"

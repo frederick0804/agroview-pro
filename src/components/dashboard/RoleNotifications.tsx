@@ -56,7 +56,7 @@ const ROLE_NOTIFICATIONS: Record<UserRole, RoleNotification[]> = {
   super_admin: [
     {
       id: "sa-1",
-      title: "Overrides de permisos por revisar",
+      title: "Excepciones de permisos por revisar",
       message: "Hay 3 cambios recientes en la matriz de permisos que aun no tienen validacion final.",
       when: "Hace 45 min",
       module: "Configuracion",

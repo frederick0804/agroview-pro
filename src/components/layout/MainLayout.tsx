@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Sidebar } from "./Sidebar";
 import { RoleSelector } from "@/components/RoleSelector";
 import { cn } from "@/lib/utils";
-import { BellRing, Settings2 } from "lucide-react";
+import { BellRing, Settings2, ChevronUp, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useRole } from "@/contexts/RoleContext";
 import { SystemSettingsSheet } from "./SystemSettingsSheet";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { RoleNotifications } from "@/components/dashboard/RoleNotifications";
+import { useLocation } from "react-router-dom";
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -18,9 +19,18 @@ export function MainLayout({ children }: MainLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSistema, setShowSistema] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [toolsCollapsed, setToolsCollapsed] = useState(false);
   const { role, canAccessModule } = useRole();
+  const location = useLocation();
 
   const canOpenSystemSettings = canAccessModule("configuracion") || role === "productor";
+  const isUserAccessConfigView =
+    location.pathname === "/configuracion" &&
+    new URLSearchParams(location.search).get("tab") === "usuarios";
+
+  useEffect(() => {
+    if (isUserAccessConfigView) setToolsCollapsed(true);
+  }, [isUserAccessConfigView]);
 
   const pendingByRole = {
     super_admin: 4,
@@ -50,44 +60,72 @@ export function MainLayout({ children }: MainLayoutProps) {
       </main>
 
       <>
-        <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2">
+        <div
+          className={cn(
+            "fixed bottom-6 z-40 flex flex-col items-end gap-2",
+            isUserAccessConfigView ? "left-6" : "right-6",
+          )}
+          aria-label="Acciones rápidas del sistema"
+        >
+          {!toolsCollapsed && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="secondary"
+                    className="h-12 w-12 rounded-full shadow-lg shadow-slate-900/10 border border-border relative"
+                    onClick={() => setShowNotifications(true)}
+                    aria-label="Notificaciones"
+                  >
+                    <BellRing className="w-5 h-5" />
+                    {pendingNotifications > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-semibold leading-none inline-flex items-center justify-center ring-2 ring-background">
+                        {pendingNotifications > 9 ? "9+" : pendingNotifications}
+                      </span>
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side={isUserAccessConfigView ? "right" : "left"}>Notificaciones por rol</TooltipContent>
+              </Tooltip>
+
+              {canOpenSystemSettings && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      className="h-12 w-12 rounded-full shadow-lg shadow-primary/25"
+                      onClick={() => setShowSistema(true)}
+                      aria-label="Ajustes del sistema"
+                    >
+                      <Settings2 className="w-5 h-5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side={isUserAccessConfigView ? "right" : "left"}>Ajustes del sistema</TooltipContent>
+                </Tooltip>
+              )}
+            </>
+          )}
+
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 type="button"
                 size="icon"
-                variant="secondary"
-                className="h-12 w-12 rounded-full shadow-lg shadow-slate-900/10 border border-border relative"
-                onClick={() => setShowNotifications(true)}
-                aria-label="Notificaciones"
+                variant="ghost"
+                className="h-9 w-9 rounded-full bg-card border border-border shadow"
+                onClick={() => setToolsCollapsed(v => !v)}
+                aria-label={toolsCollapsed ? "Mostrar accesos rápidos" : "Ocultar accesos rápidos"}
               >
-                <BellRing className="w-5 h-5" />
-                {pendingNotifications > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-semibold leading-none inline-flex items-center justify-center ring-2 ring-background">
-                    {pendingNotifications > 9 ? "9+" : pendingNotifications}
-                  </span>
-                )}
+                {toolsCollapsed ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="left">Notificaciones por rol</TooltipContent>
+            <TooltipContent side={isUserAccessConfigView ? "right" : "left"}>
+              {toolsCollapsed ? "Mostrar notificaciones y ajustes" : "Ocultar notificaciones y ajustes"}
+            </TooltipContent>
           </Tooltip>
-
-          {canOpenSystemSettings && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  className="h-12 w-12 rounded-full shadow-lg shadow-primary/25"
-                  onClick={() => setShowSistema(true)}
-                  aria-label="Ajustes del sistema"
-                >
-                  <Settings2 className="w-5 h-5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">Ajustes del sistema</TooltipContent>
-            </Tooltip>
-          )}
         </div>
 
         {canOpenSystemSettings && (

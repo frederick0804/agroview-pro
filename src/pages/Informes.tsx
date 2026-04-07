@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { InformesBuilder, type BuilderConfig, type GraficoBloque, type ReporteBloque, type TablaBloque, type TextoBloque } from "./InformesBuilder";
 import { InformeVersionDialog } from "@/components/dashboard/InformeVersionDialog";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -1660,6 +1661,28 @@ function DetailPanel({
     [informe.builderConfig]
   );
 
+  const bloquesReferenciaTexto = useMemo(() =>
+    (informe.builderConfig?.bloques ?? []).filter(
+      (bloque): bloque is GraficoBloque | TablaBloque => bloque.tipo !== "texto",
+    ),
+    [informe.builderConfig],
+  );
+
+  const bloquesReferenciaTextoById = useMemo(
+    () => new Map(bloquesReferenciaTexto.map((bloque) => [bloque.id, bloque])),
+    [bloquesReferenciaTexto],
+  );
+
+  const iaEditableCount = useMemo(
+    () => textBloques.filter((bloque) => bloque.iaEditable !== false).length,
+    [textBloques],
+  );
+
+  const iaManualCount = useMemo(
+    () => textBloques.length - iaEditableCount,
+    [textBloques.length, iaEditableCount],
+  );
+
   const textBloquesDetalle = useMemo<TextoBloqueDetalle[]>(() => {
     const totals: Record<TextoBloque["subtipo"], number> = {
       observaciones: 0,
@@ -1746,14 +1769,6 @@ function DetailPanel({
     return () => cancelAnimationFrame(frame);
   }, [previewModalOpen, bloqueTextoActivoId]);
 
-  // Simulated AI content per subtipo
-  const AI_DEMO_CONTENT: Record<string, string> = {
-    observaciones: "Se observa un desempeño dentro de los parámetros esperados para el período analizado. Las variables monitoreadas presentan estabilidad con leves fluctuaciones atribuibles a condiciones climáticas estacionales. Se recomienda mantener el protocolo actual.",
-    conclusiones: "Los resultados obtenidos son consistentes con los objetivos planteados. El análisis confirma una tendencia positiva en los indicadores clave. Se sugiere continuar con el seguimiento mensual y ajustar los umbrales de alerta según los datos más recientes.",
-    descripcion: "El presente informe consolida la información recopilada durante el período de evaluación, integrando datos de múltiples fuentes para ofrecer una visión integral del estado operativo actual.",
-    libre: "Contenido generado automáticamente con base en los datos disponibles del período. Este campo puede ser editado según los requerimientos específicos del reporte.",
-  };
-
   const buildDraftTextFromData = (subtipo: TextoBloque["subtipo"], snap: PreviewSnapshot) => {
     if (subtipo === "observaciones") {
       return `Durante ${snap.periodoLabel} se procesaron ${snap.registros} registros para ${snap.cultivoLabel}. El cumplimiento estimado fue de ${snap.cumplimiento}% con ${snap.lotes} lotes incluidos.`;
@@ -1767,25 +1782,98 @@ function DetailPanel({
     return `Texto base generado desde datos operativos (${snap.generatedAt}). Puedes editar este contenido antes de guardar el informe.`;
   };
 
+  const describeReferenciaBloque = (bloque: GraficoBloque | TablaBloque): string => {
+    if (bloque.tipo === "grafico") {
+      const dimensionLabel = normalizeFieldLabel(bloque.dimension || "dimension");
+      const metricasLabel = (bloque.metricas ?? [])
+        .slice(0, 2)
+        .map((m) => normalizeFieldLabel(m))
+        .join(" y ");
+      const metricaFinal = metricasLabel || "metricas operativas";
+      return `grafico \"${bloque.titulo || "Sin titulo"}\" (${metricaFinal} por ${dimensionLabel})`;
+    }
+
+    const columnasLabel = (bloque.columnas ?? [])
+      .slice(0, 3)
+      .map((col) => normalizeFieldLabel(col))
+      .join(", ");
+    const columnasFinal = columnasLabel || "columnas principales";
+    return `tabla \"${bloque.titulo || "Sin titulo"}\" (${columnasFinal})`;
+  };
+
+  const getIaReferencesForTextBlock = (bloque: TextoBloque): Array<GraficoBloque | TablaBloque> => {
+    if (bloquesReferenciaTexto.length === 0) return [];
+
+    const configuredIds = Array.isArray(bloque.iaFuenteBloquesIds)
+      ? bloque.iaFuenteBloquesIds.filter((id): id is string => typeof id === "string")
+      : [];
+
+    if (configuredIds.length === 0) return bloquesReferenciaTexto;
+
+    const selectedRefs = configuredIds
+      .map((id) => bloquesReferenciaTextoById.get(id))
+      .filter((ref): ref is GraficoBloque | TablaBloque => !!ref);
+
+    return selectedRefs.length > 0 ? selectedRefs : bloquesReferenciaTexto;
+  };
+
+  const buildIaTextFromReferences = (
+    subtipo: TextoBloque["subtipo"],
+    snap: PreviewSnapshot,
+    referencias: Array<GraficoBloque | TablaBloque>,
+  ) => {
+    const resumenReferencias = referencias.length > 0
+      ? referencias.map(describeReferenciaBloque).join("; ")
+      : "sin referencias de graficos o tablas en la plantilla";
+
+    if (subtipo === "observaciones") {
+      return `Observaciones IA: Durante ${snap.periodoLabel}, el analisis de ${resumenReferencias} muestra comportamiento estable para ${snap.cultivoLabel}. Se procesaron ${snap.registros} registros y ${snap.lotes} lotes con cumplimiento estimado de ${snap.cumplimiento}%.`;
+    }
+
+    if (subtipo === "conclusiones") {
+      return `Conclusiones IA: Con base en ${resumenReferencias}, la operacion de ${snap.clienteLabel} mantiene una tendencia positiva para ${snap.productorLabel}. Se recomienda sostener el plan actual y priorizar seguimiento de variaciones puntuales en el proximo periodo.`;
+    }
+
+    if (subtipo === "descripcion") {
+      return `Descripcion IA: Reporte generado para ${snap.clienteLabel} (${snap.productorLabel}) en ${snap.periodoLabel}. El contenido integra ${resumenReferencias} y definiciones ${snap.definicionesLabel}, considerando filtros jerarquicos: ${snap.estructuraLabel}.`;
+    }
+
+    return `Texto libre IA: Sintesis redactada a partir de ${resumenReferencias}. Puedes editar este bloque para ajustar tono, detalle o acciones sugeridas antes de guardar el informe.`;
+  };
+
   const handleGenerarIA = () => {
     if (!canExport) return;
     setGenerandoIA(true);
     setGeneracionOk(false);
     setPendienteGuardar(false);
-    // Simulate AI thinking (1.8s), then fill fields and transition to pre-save
+    // Simulate IA processing and fill only blocks configured as IA editable.
     setTimeout(() => {
+      const snapshot = buildPreviewSnapshot();
       const filled: Record<string, string> = {};
       const filledIds = new Set<string>();
-      textBloques.forEach(b => {
-        const content = AI_DEMO_CONTENT[b.subtipo] ?? AI_DEMO_CONTENT.libre;
-        filled[b.id] = content;
-        filledIds.add(b.id);
+
+      textBloques.forEach((bloqueTexto) => {
+        const isIaEditable = bloqueTexto.iaEditable !== false;
+        if (!isIaEditable) {
+          const existingValue = (textoBloqueValues[bloqueTexto.id] ?? "").trim();
+          filled[bloqueTexto.id] = existingValue.length > 0
+            ? textoBloqueValues[bloqueTexto.id]
+            : buildDraftTextFromData(bloqueTexto.subtipo, snapshot);
+          return;
+        }
+
+        const refs = getIaReferencesForTextBlock(bloqueTexto);
+        filled[bloqueTexto.id] = buildIaTextFromReferences(bloqueTexto.subtipo, snapshot, refs);
+        filledIds.add(bloqueTexto.id);
       });
-      setPreviewSnapshot(buildPreviewSnapshot());
+
+      const firstIaEditable = textBloques.find((bloqueTexto) => bloqueTexto.iaEditable !== false)?.id;
+
+      setPreviewSnapshot(snapshot);
       setTextoBloqueValues(prev => ({ ...prev, ...filled }));
       setAiFilledIds(filledIds);
       setGenerandoIA(false);
-      setBloqueTextoActivoId(textBloques[0]?.id ?? null);
+      setBloqueTextoActivoId(firstIaEditable ?? textBloques[0]?.id ?? null);
       setPendienteGuardar(true);
     }, 1800);
   };
@@ -2234,6 +2322,19 @@ function DetailPanel({
       return row;
     });
   };
+
+  const iaGenerationDisabled =
+    generando ||
+    generandoIA ||
+    textBloques.length === 0 ||
+    iaEditableCount === 0;
+
+  const iaGenerationHint =
+    textBloques.length === 0
+      ? "La plantilla no tiene bloques de texto para rellenar con IA."
+      : iaEditableCount === 0
+        ? "Todos los bloques de texto estan en modo manual. Activa \"Llenar con IA editable\" en el builder."
+        : `IA llenara ${iaEditableCount} bloque${iaEditableCount !== 1 ? "s" : ""} y dejara ${iaManualCount} en modo manual.`;
 
   return (
     <div className="flex flex-col h-full">
@@ -3082,6 +3183,10 @@ function DetailPanel({
                                     const detalle = textBloquesDetalleById.get(tb.id);
                                     const isActive = bloqueTextoActivoId === tb.id;
                                     const isAI = aiFilledIds.has(tb.id);
+                                    const isIaEditableBlock = tb.iaEditable !== false;
+                                    const iaRefCount = Array.isArray(tb.iaFuenteBloquesIds)
+                                      ? tb.iaFuenteBloquesIds.length
+                                      : 0;
                                     const value = textoBloqueValues[tb.id] ?? "";
 
                                     return (
@@ -3110,6 +3215,16 @@ function DetailPanel({
                                           {isAI && (
                                             <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-violet-100 text-violet-700">
                                               <Bot className="w-2 h-2" /> IA
+                                            </span>
+                                          )}
+                                          {!isIaEditableBlock && (
+                                            <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-slate-100 text-slate-700">
+                                              <PenLine className="w-2 h-2" /> Manual
+                                            </span>
+                                          )}
+                                          {isIaEditableBlock && iaRefCount > 0 && (
+                                            <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-blue-100 text-blue-700">
+                                              Refs {iaRefCount}
                                             </span>
                                           )}
                                         </div>
@@ -3234,6 +3349,7 @@ function DetailPanel({
                                 {textBloquesDetalle.map((tb) => {
                                   const isActive = bloqueTextoActivoId === tb.id;
                                   const isAI = aiFilledIds.has(tb.id);
+                                  const isIaEditableBlock = tb.iaEditable !== false;
                                   const isDone = (textoBloqueValues[tb.id] ?? "").trim().length > 0;
 
                                   return (
@@ -3253,6 +3369,9 @@ function DetailPanel({
                                         <span className="text-[9px] text-muted-foreground">Bloque {tb.ordenGlobal}</span>
                                         {isAI && (
                                           <span className="text-[8px] px-1 py-0.5 rounded bg-violet-100 text-violet-700">IA</span>
+                                        )}
+                                        {!isIaEditableBlock && (
+                                          <span className="text-[8px] px-1 py-0.5 rounded bg-slate-100 text-slate-700">Manual</span>
                                         )}
                                         {isDone && (
                                           <span className="text-[8px] px-1 py-0.5 rounded bg-emerald-100 text-emerald-700">OK</span>
@@ -3390,9 +3509,10 @@ function DetailPanel({
                     </Button>
                     <Button
                       onClick={handleGenerarIA}
-                      disabled={generando || generandoIA}
+                      disabled={iaGenerationDisabled}
                       size="sm"
                       className="gap-2 bg-violet-600 hover:bg-violet-700 text-white border-0"
+                      title={iaGenerationHint}
                     >
                       {generandoIA ? (
                         <>
@@ -3405,6 +3525,10 @@ function DetailPanel({
                       )}
                     </Button>
                   </div>
+
+                  <p className="text-[10px] text-muted-foreground">
+                    {iaGenerationHint}
+                  </p>
 
                   {generacionOk && (
                     <div className="flex items-center justify-center gap-2">
@@ -4046,8 +4170,10 @@ const normalizeCategoria = (categoria: CategoriaInforme): Exclude<CategoriaInfor
   categoria === "cosecha" ? "siembra" : categoria;
 
 const Informes = () => {
+  const [searchParams] = useSearchParams();
   const { role, hasPermission, currentUser, productores, clientes } = useRole();
   const { cultivos, variedades } = useConfig();
+  const actionParam = (searchParams.get("action") ?? "").toLowerCase();
   const userLevel = ROLE_LEVELS[role];
   const canExport = hasPermission("informes", "exportar");
   const isSupervisorOrLector = ["supervisor", "lector"].includes(role);
@@ -4131,6 +4257,20 @@ const Informes = () => {
     );
     setBuilderOpen(true);
   };
+
+  const autoOpenBuilderHandledRef = useRef(false);
+  useEffect(() => {
+    const shouldAutoOpenBuilder =
+      actionParam === "create-template" ||
+      actionParam === "new-template" ||
+      actionParam === "crear-plantilla";
+
+    if (!shouldAutoOpenBuilder || !canManageTemplates || autoOpenBuilderHandledRef.current) return;
+    setMainView("plantillas");
+    setActiveNav("all");
+    openBuilder();
+    autoOpenBuilderHandledRef.current = true;
+  }, [actionParam, canManageTemplates]);
 
   const handleBuilderSave = (cfg: BuilderConfig) => {
     if (cfg.id) {

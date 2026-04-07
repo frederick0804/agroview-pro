@@ -338,10 +338,15 @@ export interface PlantillaConfig {
     alternarFilas: boolean;
     alineacion: "left" | "center" | "right";
     compacta: boolean;
+    moduleColors?: Record<string, string>;
     tipografia: TipografiaBloque;
   };
   // Global visual style applied to ALL charts in the report
   estiloGraficos?: {
+    tipografia: TipografiaBloque;
+  };
+  // Global visual style applied to ALL text blocks in the report
+  estiloTextos?: {
     tipografia: TipografiaBloque;
   };
 }
@@ -367,6 +372,10 @@ export interface TextoBloque {
   colSpan?: ColSpan;
   // No content field — text blocks are template placeholders; the end user fills them in the final report
   tipografia?: TipografiaBloque;
+  // true => se rellena automáticamente al usar "Generar con IA" y queda editable en el informe
+  iaEditable?: boolean;
+  // IDs de bloques (gráfico/tabla) usados como referencia para redactar el texto con IA
+  iaFuenteBloquesIds?: string[];
 }
 
 export interface GraficoBloque {
@@ -407,6 +416,7 @@ export interface TablaBloque {
     tamañoFuente: "xs" | "sm" | "base" | "lg";
     alineacion: "left" | "center" | "right";
     compacta: boolean;
+    moduleColors?: Record<string, string>;
     // Tipografía
     fuente?: string;
     encabezadoBold?: boolean;
@@ -938,8 +948,8 @@ function createDefaultTabla(num: number): TablaBloque {
     tipo: "tabla",
     titulo: `Tabla ${num}`,
     moduloActivo: "Cosecha",
-    fuentesSeleccionadas: ["REGISTRO_COSECHA"],
-    columnas: ["semana", "kg_cosechados", "horas_trabajadas", "rendimiento_kg_hr"],
+    fuentesSeleccionadas: [],
+    columnas: [],
     camposCalculados: [],
   };
 }
@@ -986,6 +996,32 @@ function sanitizeLegacyBlockNotes(builder: BuilderConfig): BuilderConfig {
         return rest as ReporteBloque;
       }
       return bloque;
+    }),
+  };
+}
+
+function normalizeTextBlockIaConfig(builder: BuilderConfig): BuilderConfig {
+  const referenceIds = new Set(
+    builder.bloques
+      .filter((bloque): bloque is GraficoBloque | TablaBloque => bloque.tipo !== "texto")
+      .map((bloque) => bloque.id),
+  );
+
+  return {
+    ...builder,
+    bloques: builder.bloques.map((bloque) => {
+      if (bloque.tipo !== "texto") return bloque;
+      const rawRefs = Array.isArray(bloque.iaFuenteBloquesIds)
+        ? bloque.iaFuenteBloquesIds
+        : [];
+      const validRefs = rawRefs.filter((id): id is string =>
+        typeof id === "string" && referenceIds.has(id),
+      );
+      return {
+        ...bloque,
+        iaEditable: bloque.iaEditable ?? true,
+        iaFuenteBloquesIds: validRefs,
+      } as TextoBloque;
     }),
   };
 }
@@ -1339,6 +1375,8 @@ function TablaBloqueView({
 
   const [dragColId, setDragColId] = useState<string | null>(null);
   const [dropColId, setDropColId] = useState<string | null>(null);
+  const [dragModuleKey, setDragModuleKey] = useState<string | null>(null);
+  const [dropModuleKey, setDropModuleKey] = useState<string | null>(null);
 
   const handleDropReorderColumn = useCallback((targetId: string) => {
     if (!onReorderColumns || !dragColId || dragColId === targetId) return;
@@ -1362,11 +1400,43 @@ function TablaBloqueView({
         }
       }
     }
+    // Ensure calculated fields render under a real module band instead of __unknown__.
+    for (const calc of bloque.camposCalculados ?? []) {
+      if (!result[calc.id]) result[calc.id] = "Cálculos";
+    }
     return result;
-  }, [bloque.fuentesSeleccionadas]);
+  }, [bloque.fuentesSeleccionadas, bloque.camposCalculados]);
+
+  const orderedModules = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    cols.forEach((id) => {
+      const modulo = colModuleKey[id] ?? "General";
+      if (seen.has(modulo)) return;
+      seen.add(modulo);
+      out.push(modulo);
+    });
+    return out;
+  }, [cols, colModuleKey]);
+
+  const handleDropReorderModule = useCallback((targetModule: string) => {
+    if (!onReorderColumns || !dragModuleKey || dragModuleKey === targetModule) return;
+    const nextModules = [...orderedModules];
+    const from = nextModules.indexOf(dragModuleKey);
+    const to = nextModules.indexOf(targetModule);
+    if (from < 0 || to < 0) return;
+    const [moved] = nextModules.splice(from, 1);
+    nextModules.splice(to, 0, moved);
+
+    const groupedCols = nextModules.flatMap((modKey) =>
+      cols.filter((id) => (colModuleKey[id] ?? "General") === modKey),
+    );
+    onReorderColumns(groupedCols);
+  }, [onReorderColumns, dragModuleKey, orderedModules, cols, colModuleKey]);
 
   // Theme-aware module colors so changing palette updates tables too.
   const moduleThemeColor = useMemo((): Record<string, string> => {
+    const moduleColorOverrides = ((bloque.estilos as any)?.moduleColors ?? estiloPlantilla?.moduleColors ?? {}) as Record<string, string>;
     const orderedModules: string[] = [];
     for (const id of cols) {
       const m = colModuleKey[id];
@@ -1375,10 +1445,10 @@ function TablaBloqueView({
     }
     const map: Record<string, string> = {};
     orderedModules.forEach((m, i) => {
-      map[m] = colors[i % colors.length];
+      map[m] = moduleColorOverrides[m] ?? colors[i % colors.length];
     });
     return map;
-  }, [cols, colModuleKey, colors]);
+  }, [cols, colModuleKey, colors, estiloPlantilla?.moduleColors, (bloque.estilos as any)?.moduleColors]);
 
   // Build colspan bands for the super-header row
   type ModuleBand = { key: string; label: string; span: number; isDim: boolean };
@@ -1386,7 +1456,7 @@ function TablaBloqueView({
     const bands: ModuleBand[] = [];
     for (const id of cols) {
       const isDim = groupByKeys.includes(id) || camposDisponibles.find(c => c.id === id)?.tipo === "dimension";
-      const label = isDim ? "__dim__" : (colModuleKey[id] ?? "__unknown__");
+      const label = colModuleKey[id] ?? "General";
       if (bands.length > 0 && bands[bands.length - 1].label === label) {
         bands[bands.length - 1].span++;
       } else {
@@ -1626,9 +1696,16 @@ function TablaBloqueView({
     );
   }
 
-  // Plantilla-level style takes precedence; fall back to per-block estilos/tipografia for backward compat
-  const est = estiloPlantilla ?? bloque.estilos ?? { mostrarBordes: true, alternarFilas: true, tamañoFuente: "sm" as const, alineacion: "left" as const, compacta: false };
-  const t = estiloPlantilla?.tipografia ?? bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
+  // Per-table style takes precedence; global style works as fallback defaults.
+  const estGlobal = estiloPlantilla ?? { mostrarBordes: true, alternarFilas: true, alineacion: "left" as const, compacta: false, tipografia: DEFAULT_TIPOGRAFIA };
+  const estLocal = bloque.estilos ?? {};
+  const est = {
+    mostrarBordes: estLocal.mostrarBordes ?? estGlobal.mostrarBordes,
+    alternarFilas: estLocal.alternarFilas ?? estGlobal.alternarFilas,
+    alineacion: estLocal.alineacion ?? estGlobal.alineacion,
+    compacta: estLocal.compacta ?? estGlobal.compacta,
+  };
+  const t = bloque.tipografia ?? estiloPlantilla?.tipografia ?? DEFAULT_TIPOGRAFIA;
   const fontFamily = t.fuente;
   const fontSize = `${t.tamano}px`;
   const cellPad = est.compacta ? "px-1.5 py-0.5" : "px-3 py-1.5";
@@ -1673,19 +1750,46 @@ function TablaBloqueView({
           {hasMultipleModules && (
             <tr>
               {moduleBands.map((band) => {
-                const mc = !band.isDim ? moduleThemeColor[band.label] : undefined;
+                const mc = moduleThemeColor[band.label];
+                const canReorderModule = Boolean(onReorderColumns) && orderedModules.length > 1;
+                const isDropTarget = dropModuleKey === band.label && dragModuleKey !== null && dragModuleKey !== band.label;
                 return (
                   <th
                     key={band.key}
                     colSpan={band.span}
+                    draggable={canReorderModule}
+                    onDragStart={(e) => {
+                      if (!canReorderModule) return;
+                      e.dataTransfer.effectAllowed = "move";
+                      setDragModuleKey(band.label);
+                      setDropModuleKey(band.label);
+                    }}
+                    onDragOver={(e) => {
+                      if (!canReorderModule) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      setDropModuleKey(band.label);
+                    }}
+                    onDrop={(e) => {
+                      if (!canReorderModule) return;
+                      e.preventDefault();
+                      handleDropReorderModule(band.label);
+                      setDragModuleKey(null);
+                      setDropModuleKey(null);
+                    }}
+                    onDragEnd={() => {
+                      setDragModuleKey(null);
+                      setDropModuleKey(null);
+                    }}
                     className={cn(
                       "text-[10px] font-bold text-center uppercase tracking-wide border-b-2 whitespace-nowrap",
                       thPad,
-                      band.isDim
-                        ? "bg-muted/20 border-b-border text-transparent select-none"
-                        : mc
-                          ? ""
-                          : "bg-muted/40 text-muted-foreground border-b-border",
+                      canReorderModule ? "cursor-move select-none" : "",
+                      dragModuleKey === band.label ? "opacity-60" : "",
+                      isDropTarget ? "ring-1 ring-primary/60" : "",
+                      mc
+                        ? ""
+                        : "bg-muted/40 text-muted-foreground border-b-border",
                       cellBorder,
                     )}
                     style={mc
@@ -1697,7 +1801,7 @@ function TablaBloqueView({
                       }
                       : { fontFamily }}
                   >
-                    {band.isDim ? "" : band.label}
+                    {band.label}
                   </th>
                 );
               })}
@@ -1817,9 +1921,15 @@ const SUBTIPO_STYLES: Record<TextoBloque["subtipo"], { bg: string; border: strin
   libre:         { bg: "bg-muted/10",     border: "border-border/50",  label: ""              },
 };
 
-function TextoBloqueView({ bloque }: { bloque: TextoBloque }) {
+function TextoBloqueView({
+  bloque,
+  estiloPlantilla,
+}: {
+  bloque: TextoBloque;
+  estiloPlantilla?: { tipografia: TipografiaBloque };
+}) {
   const s = SUBTIPO_STYLES[bloque.subtipo];
-  const t = bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
+  const t = estiloPlantilla?.tipografia ?? bloque.tipografia ?? DEFAULT_TIPOGRAFIA;
   const fontFamily = t.fuente;
   const fontSize = `${t.tamano}pt`;
   const heading = bloque.titulo || s.label;
@@ -1952,7 +2062,7 @@ interface FuenteSelectorProps {
   onFuenteToggle: (id: string) => void;
 }
 function FuenteSelector({ fuentesSeleccionadas, onFuenteToggle }: FuenteSelectorProps) {
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(Object.keys(MODULOS_FUENTES)));
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   return (
     <div className="space-y-2">
       {Object.entries(MODULOS_FUENTES).map(([modulo, { icon: MIcon, color, fuentes }]) => {
@@ -2029,10 +2139,15 @@ function resolveFieldLabel(token: string): string {
 interface CamposCalculadosEditorProps {
   camposCalculados: CampoCalculado[];
   fuentesSeleccionadas: string[];
+  availableCampos?: CampoInfo[];
   onChange: (calcs: CampoCalculado[]) => void;
 }
-function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChange }: CamposCalculadosEditorProps) {
+function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, availableCampos, onChange }: CamposCalculadosEditorProps) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap(m => m.fuentes), []);
+  const allowedMetricFieldIds = useMemo(() => {
+    if (!availableCampos || availableCampos.length === 0) return null;
+    return new Set(availableCampos.filter((c) => c.tipo === "metrica").map((c) => c.id));
+  }, [availableCampos]);
 
   // Metric fields for formula builder
   const metricFields = useMemo(() => {
@@ -2040,10 +2155,10 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, onChan
       const fuente = allFuentes.find(f => f.id === fId);
       if (!fuente) return [];
       return fuente.campos
-        .filter(c => c.tipo === "metrica")
+        .filter(c => c.tipo === "metrica" && (!allowedMetricFieldIds || allowedMetricFieldIds.has(c.id)))
         .map(c => ({ token: `${fId}:${c.id}`, label: `${fuente.label} - ${c.label}`, unidad: c.unidad }));
     });
-  }, [fuentesSeleccionadas, allFuentes]);
+  }, [fuentesSeleccionadas, allFuentes, allowedMetricFieldIds]);
 
   const addCalculo = () => {
     const newCalc: CampoCalculado = {
@@ -2297,6 +2412,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
   const [encDropIdx, setEncDropIdx] = useState<number | null>(null);
   const [tablaColDragId, setTablaColDragId] = useState<string | null>(null);
   const [tablaColDropId, setTablaColDropId] = useState<string | null>(null);
+  const [tablaModuleDragKey, setTablaModuleDragKey] = useState<string | null>(null);
+  const [tablaModuleDropKey, setTablaModuleDropKey] = useState<string | null>(null);
   const [layoutBlockDragId, setLayoutBlockDragId] = useState<string | null>(null);
   const [layoutBlockDropId, setLayoutBlockDropId] = useState<string | null>(null);
   const [designFocusSection, setDesignFocusSection] = useState<DesignSectionId | "all">("encabezado");
@@ -2340,12 +2457,31 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
       alturaBloques: {},
       estiloTablas: { mostrarBordes: true, alternarFilas: true, alineacion: "left", compacta: false, tipografia: { ...DEFAULT_TIPOGRAFIA } },
       estiloGraficos: { tipografia: { ...DEFAULT_TIPOGRAFIA } },
+      estiloTextos: { tipografia: { ...DEFAULT_TIPOGRAFIA } },
     },
   };
 
   const [config, setConfig] = useState<BuilderConfig>(() =>
-    sanitizeLegacyBlockNotes(existingConfig ? migrateConfig(existingConfig) : defaultConfig),
+    normalizeTextBlockIaConfig(
+      sanitizeLegacyBlockNotes(existingConfig ? migrateConfig(existingConfig) : defaultConfig),
+    ),
   );
+
+  const bloquesReferenciaTexto = useMemo(() =>
+    config.bloques
+      .filter((bloque): bloque is GraficoBloque | TablaBloque => bloque.tipo !== "texto")
+      .map((bloque, idx) => {
+        const tipoLabel = bloque.tipo === "grafico" ? "Gráfico" : "Tabla";
+        const titulo = bloque.titulo?.trim() || `${tipoLabel} ${idx + 1}`;
+        const fuentes = (bloque.fuentesSeleccionadas ?? []).filter(Boolean);
+        return {
+          id: bloque.id,
+          tipoLabel,
+          titulo,
+          fuentesLabel: fuentes.length > 0 ? fuentes.join(", ") : "Sin fuentes",
+        };
+      }),
+  [config.bloques]);
 
   const upd = useCallback(<K extends keyof BuilderConfig>(key: K, val: BuilderConfig[K]) => {
     setConfig((prev) => ({ ...prev, [key]: val }));
@@ -2710,6 +2846,40 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
       .map((id) => map.get(id))
       .filter((c): c is CampoInfo => Boolean(c));
   }, [selectedCampos, selectedTablaOrderedColumnIds]);
+
+  const selectedTablaModuleByColumnId = useMemo(() => {
+    const map: Record<string, string> = {};
+    selectedCampos.forEach((campo) => {
+      map[campo.id] = campo.origenes?.[0]?.modulo ?? campo.modulo ?? "General";
+    });
+    return map;
+  }, [selectedCampos]);
+
+  const selectedTablaModuleOrder = useMemo(() => {
+    const seen = new Set<string>();
+    const order: string[] = [];
+    selectedTablaOrderedColumnIds.forEach((id) => {
+      const modulo = selectedTablaModuleByColumnId[id] ?? "General";
+      if (seen.has(modulo)) return;
+      seen.add(modulo);
+      order.push(modulo);
+    });
+    return order;
+  }, [selectedTablaOrderedColumnIds, selectedTablaModuleByColumnId]);
+
+  const selectedTablaModuleColumnCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    selectedTablaOrderedColumnIds.forEach((id) => {
+      const modulo = selectedTablaModuleByColumnId[id] ?? "General";
+      counts[modulo] = (counts[modulo] ?? 0) + 1;
+    });
+    return counts;
+  }, [selectedTablaOrderedColumnIds, selectedTablaModuleByColumnId]);
+
+  const selectedTablaDimensiones = useMemo(
+    () => selectedTablaOrderedCampos.filter((c) => c.tipo === "dimension"),
+    [selectedTablaOrderedCampos],
+  );
 
   function updPlantilla(key: keyof PlantillaConfig, val: PlantillaConfig[keyof PlantillaConfig]) {
     setConfig((prev) => ({
@@ -3285,12 +3455,12 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             />
                           </div>
                         </details>
-                        {/* Cálculos cruzados */}
+                        {/* Cálculos personalizados */}
                         {selectedTabla.fuentesSeleccionadas.length > 0 && (
                           <details className="rounded-lg border border-violet-200/70 bg-violet-50/20 overflow-hidden group">
                             <summary className="list-none cursor-pointer px-2.5 py-2 flex items-center gap-2">
                               <Calculator className="w-3 h-3 text-violet-500" />
-                              <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 uppercase tracking-wide flex-1">Cálculos cruzados (fórmulas)</span>
+                              <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 uppercase tracking-wide flex-1">Cálculos personalizados (fórmulas)</span>
                               <span className="text-[9px] text-violet-500">
                                 {selectedTabla.camposCalculados?.length ?? 0}
                               </span>
@@ -3300,13 +3470,26 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                               <CamposCalculadosEditor
                                 camposCalculados={selectedTabla.camposCalculados ?? []}
                                 fuentesSeleccionadas={selectedTabla.fuentesSeleccionadas}
-                                onChange={(calcs) => updBloque(selectedTabla.id, { camposCalculados: calcs })}
+                                availableCampos={selectedTablaOrderedCampos}
+                                onChange={(calcs) => {
+                                  const prevCalcIds = new Set((selectedTabla.camposCalculados ?? []).map(c => c.id));
+                                  const newCalcIds = calcs.filter(c => !prevCalcIds.has(c.id)).map(c => c.id);
+
+                                  if (newCalcIds.length > 0 && selectedTabla.columnas.length > 0) {
+                                    const nextCols = [...selectedTabla.columnas, ...newCalcIds]
+                                      .filter((id, idx, arr) => id && arr.indexOf(id) === idx);
+                                    updBloque(selectedTabla.id, { camposCalculados: calcs, columnas: nextCols });
+                                    return;
+                                  }
+
+                                  updBloque(selectedTabla.id, { camposCalculados: calcs });
+                                }}
                               />
                             </div>
                           </details>
                         )}
                         {/* Tabla: Agrupar por (multi-select) */}
-                        {selectedTabla && selectedDimensiones.length > 0 && (
+                        {selectedTabla && selectedTablaDimensiones.length > 0 && (
                           <details
                             open={(selectedTabla.groupBy?.length ?? 0) > 0}
                             className="rounded-lg border border-border/70 bg-card/40 overflow-hidden group"
@@ -3322,7 +3505,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                               Esta agrupación sí cambia la estructura visible de la tabla y sus subtotales.
                             </p>
                             <div className="flex flex-wrap gap-1 items-center">
-                              {selectedDimensiones.map((d) => {
+                              {selectedTablaDimensiones.map((d) => {
                                 const isActive = (selectedTabla.groupBy ?? []).includes(d.id);
                                 return (
                                   <button key={d.id}
@@ -3351,7 +3534,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             </div>
                             {(selectedTabla.groupBy?.length ?? 0) > 0 && (
                               <p className="text-[10px] text-primary/70">
-                                Jerarquía: <strong>{(selectedTabla.groupBy ?? []).map(id => selectedDimensiones.find(d => d.id === id)?.label ?? id).join(" → ")}</strong>
+                                Jerarquía: <strong>{(selectedTabla.groupBy ?? []).map(id => selectedTablaDimensiones.find(d => d.id === id)?.label ?? id).join(" → ")}</strong>
                               </p>
                             )}
                             {(selectedTabla.groupBy?.length ?? 1) > 1 && (
@@ -3391,6 +3574,77 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
                                   <GripVertical className="w-3 h-3" /> Orden de visualización
                                 </p>
+                                {selectedTablaModuleOrder.length > 1 && (
+                                  <>
+                                    <p className="text-[10px] text-muted-foreground">
+                                      Arrastra un módulo para mover todo su grupo de columnas.
+                                    </p>
+                                    <div className="space-y-1">
+                                      {selectedTablaModuleOrder.map((modulo) => {
+                                        const isDropTarget = tablaModuleDropKey === modulo && tablaModuleDragKey !== null && tablaModuleDragKey !== modulo;
+                                        const count = selectedTablaModuleColumnCounts[modulo] ?? 0;
+                                        return (
+                                          <div
+                                            key={`module_order_${modulo}`}
+                                            draggable
+                                            onDragStart={(e) => {
+                                              e.dataTransfer.effectAllowed = "move";
+                                              setTablaModuleDragKey(modulo);
+                                              setTablaModuleDropKey(modulo);
+                                            }}
+                                            onDragOver={(e) => {
+                                              e.preventDefault();
+                                              e.dataTransfer.dropEffect = "move";
+                                              setTablaModuleDropKey(modulo);
+                                            }}
+                                            onDrop={(e) => {
+                                              e.preventDefault();
+                                              if (!selectedTabla || !tablaModuleDragKey || tablaModuleDragKey === modulo) {
+                                                setTablaModuleDragKey(null);
+                                                setTablaModuleDropKey(null);
+                                                return;
+                                              }
+
+                                              const nextModules = [...selectedTablaModuleOrder];
+                                              const from = nextModules.indexOf(tablaModuleDragKey);
+                                              const to = nextModules.indexOf(modulo);
+                                              if (from >= 0 && to >= 0) {
+                                                const [movedModule] = nextModules.splice(from, 1);
+                                                nextModules.splice(to, 0, movedModule);
+
+                                                const groupedIds = nextModules.flatMap((moduleKey) =>
+                                                  selectedTablaOrderedColumnIds.filter((id) => (selectedTablaModuleByColumnId[id] ?? "General") === moduleKey),
+                                                );
+                                                setTablaColumnOrder(selectedTabla.id, groupedIds);
+                                              }
+
+                                              setTablaModuleDragKey(null);
+                                              setTablaModuleDropKey(null);
+                                            }}
+                                            onDragEnd={() => {
+                                              setTablaModuleDragKey(null);
+                                              setTablaModuleDropKey(null);
+                                            }}
+                                            className={cn(
+                                              "flex items-center gap-2 px-2 py-1.5 rounded border bg-background text-xs",
+                                              "cursor-move select-none",
+                                              tablaModuleDragKey === modulo ? "opacity-60" : "",
+                                              isDropTarget ? "border-primary ring-1 ring-primary/50" : "border-border",
+                                            )}
+                                            title="Arrastra para mover todo el módulo"
+                                          >
+                                            <GripVertical className="w-3 h-3 text-muted-foreground/50 shrink-0" />
+                                            <div className="w-2 h-2 rounded-full bg-primary/60 shrink-0" />
+                                            <span className="flex-1 truncate text-[10px]">{modulo}</span>
+                                            <span className="text-[9px] px-1 py-0.5 rounded border border-border/70 text-muted-foreground">
+                                              {count} col{count !== 1 ? "s" : ""}
+                                            </span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </>
+                                )}
                                 <p className="text-[10px] text-muted-foreground">
                                   Arrastra para ordenar cómo se muestran las columnas en la tabla.
                                 </p>
@@ -3585,6 +3839,102 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             </div>
                           </details>
                         )}
+
+                        <details className="rounded-lg border border-border/70 bg-card/40 overflow-hidden group">
+                          <summary className="list-none cursor-pointer px-2.5 py-2 flex items-center gap-2">
+                            <Palette className="w-3 h-3 text-muted-foreground" />
+                            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex-1">Estilo personalizado de esta tabla</span>
+                            <ChevronDown className="w-3 h-3 text-muted-foreground transition-transform group-open:rotate-180" />
+                          </summary>
+                          <div className="px-2.5 pb-2.5 border-t border-border/60 space-y-2">
+                            {(() => {
+                              const globalStyle = (config.plantilla as any)?.estiloTablas ?? { mostrarBordes: true, alternarFilas: true, alineacion: "left", compacta: false };
+                              const et = selectedTabla.estilos ?? {
+                                mostrarBordes: globalStyle.mostrarBordes,
+                                alternarFilas: globalStyle.alternarFilas,
+                                alineacion: globalStyle.alineacion,
+                                compacta: globalStyle.compacta,
+                              };
+                              const updTablaStyle = (patch: object) => updBloque(selectedTabla.id, { estilos: { ...et, ...patch } });
+                              const moduleColors = (et.moduleColors ?? {}) as Record<string, string>;
+
+                              return (
+                                <>
+                                  {["mostrarBordes", "alternarFilas", "compacta"].map((key) => (
+                                    <div key={key} className="flex items-center justify-between">
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {key === "mostrarBordes" ? "Mostrar bordes" : key === "alternarFilas" ? "Filas alternadas" : "Vista compacta"}
+                                      </span>
+                                      <Switch
+                                        checked={!!(et as any)[key]}
+                                        onCheckedChange={(v) => updTablaStyle({ [key]: v })}
+                                        className="scale-75"
+                                      />
+                                    </div>
+                                  ))}
+                                  <div className="space-y-1">
+                                    <span className="text-[10px] text-muted-foreground">Alineación</span>
+                                    <div className="flex gap-1">
+                                      {(["left", "center", "right"] as const).map((al) => (
+                                        <button
+                                          key={al}
+                                          onClick={() => updTablaStyle({ alineacion: al })}
+                                          className={cn("flex-1 flex items-center justify-center py-1 rounded border transition-all",
+                                            et.alineacion === al ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30")}
+                                        >
+                                          {al === "left" ? <AlignLeft className="w-3 h-3" /> : al === "center" ? <AlignCenter className="w-3 h-3" /> : <AlignRight className="w-3 h-3" />}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {selectedTablaModuleOrder.length > 0 && (
+                                    <div className="space-y-1.5">
+                                      <span className="text-[10px] text-muted-foreground">Color por módulo</span>
+                                      <div className="space-y-1.5">
+                                        {selectedTablaModuleOrder.map((modulo, idx) => {
+                                          const fallbackColor = paleta.colors[idx % paleta.colors.length];
+                                          const currentColor = moduleColors[modulo] ?? fallbackColor;
+                                          return (
+                                            <div key={modulo} className="flex items-center gap-2 rounded border border-border/70 bg-card px-2 py-1.5">
+                                              <span className="w-2.5 h-2.5 rounded-full border border-border/60" style={{ backgroundColor: currentColor }} />
+                                              <span className="text-[10px] flex-1 truncate">{modulo}</span>
+                                              <input
+                                                type="color"
+                                                value={currentColor}
+                                                onChange={(e) => {
+                                                  updTablaStyle({
+                                                    moduleColors: {
+                                                      ...moduleColors,
+                                                      [modulo]: e.target.value,
+                                                    },
+                                                  });
+                                                }}
+                                                className="h-6 w-8 rounded border border-border bg-background p-0"
+                                                title={`Color para ${modulo}`}
+                                              />
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const next = { ...moduleColors };
+                                                  delete next[modulo];
+                                                  updTablaStyle({ moduleColors: next });
+                                                }}
+                                                className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground"
+                                              >
+                                                Paleta
+                                              </button>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </details>
                       </div>
                     </div>
                   )}
@@ -3607,7 +3957,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                           subtipo: "libre",
                           titulo: "",
                           colSpan: "full",
-                          tipografia: { ...DEFAULT_TIPOGRAFIA },
+                          iaEditable: true,
+                          iaFuenteBloquesIds: [],
                         };
                         setConfig(prev => ({ ...prev, bloques: [...prev.bloques, newBloque] }));
                         setSelectedBloqueId(newBloque.id);
@@ -3633,7 +3984,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             subtipo: "observaciones",
                             titulo: "",
                             colSpan: "full",
-                            tipografia: { ...DEFAULT_TIPOGRAFIA },
+                            iaEditable: true,
+                            iaFuenteBloquesIds: [],
                           };
                           setConfig(prev => ({ ...prev, bloques: [...prev.bloques, newBloque] }));
                           setSelectedBloqueId(newBloque.id);
@@ -3670,6 +4022,8 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                   {(() => {
                     const selectedTexto = config.bloques.find(b => b.id === selectedBloqueId && b.tipo === "texto") as TextoBloque | undefined;
                     if (!selectedTexto) return null;
+                    const iaEnabled = selectedTexto.iaEditable !== false;
+                    const selectedRefIds = selectedTexto.iaFuenteBloquesIds ?? [];
                     return (
                       <div className="rounded-lg border-2 border-primary/20 bg-primary/3 overflow-hidden">
                         <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 border-b border-primary/15">
@@ -3693,11 +4047,98 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             <Label className="text-[11px] text-muted-foreground">Título (opcional)</Label>
                             <Input value={selectedTexto.titulo ?? ""} onChange={e => updBloque(selectedTexto.id, { titulo: e.target.value } as any)} placeholder="Ej. Observaciones del período" className="h-7 text-xs" />
                           </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[11px] text-muted-foreground">Relleno automático</Label>
+                            <div className="grid grid-cols-2 gap-1">
+                              <button
+                                type="button"
+                                onClick={() => updBloque(selectedTexto.id, { iaEditable: false, iaFuenteBloquesIds: [] })}
+                                className={cn(
+                                  "py-1.5 rounded border text-[10px] transition-all",
+                                  !iaEnabled
+                                    ? "border-primary bg-primary/10 text-primary font-medium"
+                                    : "border-border text-muted-foreground hover:border-primary/40",
+                                )}
+                              >
+                                Manual
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => updBloque(selectedTexto.id, { iaEditable: true })}
+                                className={cn(
+                                  "py-1.5 rounded border text-[10px] transition-all",
+                                  iaEnabled
+                                    ? "border-primary bg-primary/10 text-primary font-medium"
+                                    : "border-border text-muted-foreground hover:border-primary/40",
+                                )}
+                              >
+                                Llenar con IA editable
+                              </button>
+                            </div>
+
+                            {iaEnabled && (
+                              <div className="rounded-md border border-border bg-background/80 p-2 space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-[10px] font-medium text-foreground">Referencias para la IA</p>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground"
+                                      onClick={() => updBloque(selectedTexto.id, { iaFuenteBloquesIds: bloquesReferenciaTexto.map((ref) => ref.id) })}
+                                      disabled={bloquesReferenciaTexto.length === 0}
+                                    >
+                                      Todos
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground"
+                                      onClick={() => updBloque(selectedTexto.id, { iaFuenteBloquesIds: [] })}
+                                    >
+                                      Limpiar
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {bloquesReferenciaTexto.length === 0 ? (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    Agrega al menos un gráfico o tabla para usarlo como contexto de redacción.
+                                  </p>
+                                ) : (
+                                  <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                                    {bloquesReferenciaTexto.map((ref) => {
+                                      const isOn = selectedRefIds.includes(ref.id);
+                                      return (
+                                        <label key={ref.id} className="flex items-start gap-2 p-1.5 rounded border border-border/70 bg-muted/10 hover:bg-muted/20 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={isOn}
+                                            onChange={() => {
+                                              const next = isOn
+                                                ? selectedRefIds.filter((id) => id !== ref.id)
+                                                : [...selectedRefIds, ref.id];
+                                              updBloque(selectedTexto.id, { iaFuenteBloquesIds: next });
+                                            }}
+                                            className="mt-0.5 h-3.5 w-3.5"
+                                          />
+                                          <div className="min-w-0">
+                                            <p className="text-[10px] font-medium text-foreground truncate">{ref.tipoLabel}: {ref.titulo}</p>
+                                            <p className="text-[9px] text-muted-foreground truncate">{ref.fuentesLabel}</p>
+                                          </div>
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+
+                                <p className="text-[9px] text-muted-foreground">
+                                  Si no seleccionas referencias, la IA usará todos los gráficos y tablas disponibles.
+                                </p>
+                              </div>
+                            )}
+                          </div>
                           <p className="text-[10px] text-muted-foreground border border-border/50 rounded p-2 bg-muted/20">
                             Este bloque es un área en blanco de la plantilla. El contenido lo escribe el usuario en el informe final.
                           </p>
-                          {/* Tipografía */}
-                          <TipografiaPanel tipografia={selectedTexto.tipografia ?? DEFAULT_TIPOGRAFIA} onChange={t => updBloque(selectedTexto.id, { tipografia: t } as any)} />
                         </div>
                       </div>
                     );
@@ -4016,6 +4457,22 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       <p className="text-[10px] text-muted-foreground border border-border/50 rounded px-2 py-1.5 bg-muted/20">
                         Notas y conclusiones se gestionan con los bloques de texto en la pestaña Textos.
                       </p>
+                      {(() => {
+                        const etx = (config.plantilla as PlantillaConfig).estiloTextos ?? {
+                          tipografia: { ...DEFAULT_TIPOGRAFIA },
+                        };
+                        return (
+                          <div className="space-y-1 pt-1">
+                            <span className="text-[11px] text-muted-foreground">Tipografía global de bloques de texto</span>
+                            <div className="p-2 rounded-lg border border-border bg-muted/5">
+                              <TipografiaPanel
+                                tipografia={etx.tipografia ?? DEFAULT_TIPOGRAFIA}
+                                onChange={(t) => updPlantilla("estiloTextos", { ...etx, tipografia: t })}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })()}
                       <div className="flex items-center justify-between">
                         <span className="text-xs">Firma del responsable</span>
                         <Switch
@@ -4202,7 +4659,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                   {/* Estilo global de tablas */}
                   <div className="space-y-2">
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                      <Table2 className="w-3.5 h-3.5" /> Estilo global de tablas
+                      <Table2 className="w-3.5 h-3.5" /> Estilo predeterminado de tablas
                     </Label>
                     <div className="p-3 rounded-lg border border-border bg-muted/5 space-y-3">
                       {(() => {
@@ -4515,7 +4972,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                       >
                         {bloque.tipo === "texto" ? (
                           <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full">
-                            <TextoBloqueView bloque={bloque as TextoBloque} />
+                            <TextoBloqueView bloque={bloque as TextoBloque} estiloPlantilla={pl?.estiloTextos} />
                           </div>
                         ) : (
                           <div className="border border-border/60 rounded overflow-hidden cursor-pointer hover:border-primary/40 transition-colors h-full flex flex-col">
@@ -4908,7 +5365,7 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             onReorderColumns={(nextCols) => setTablaColumnOrder(bloque.id, nextCols)}
                           />
                         ) : (
-                          <TextoBloqueView bloque={bloque as TextoBloque} />
+                          <TextoBloqueView bloque={bloque as TextoBloque} estiloPlantilla={config.plantilla?.estiloTextos} />
                         )}
                       </div>
 
