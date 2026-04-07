@@ -233,6 +233,12 @@ const PRODUCER_DASHBOARD_MODULE_KEY_SET = new Set<ProducerDashboardModuleKey>(
 );
 
 const ROLE_MODULE_PERMISSION_OVERRIDES: Partial<Record<UserRole, Partial<Record<ModuleKey, ActionPermission[]>>>> = {
+  jefe_area: {
+    configuracion: [],
+  },
+  supervisor: {
+    configuracion: [],
+  },
   lector: {
     informes: ["ver", "exportar"],
   },

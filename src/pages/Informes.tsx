@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { InformesBuilder, type BuilderConfig, type GraficoBloque, type ReporteBloque, type TablaBloque, type TextoBloque } from "./InformesBuilder";
 import { InformeVersionDialog } from "@/components/dashboard/InformeVersionDialog";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -4169,8 +4170,10 @@ const normalizeCategoria = (categoria: CategoriaInforme): Exclude<CategoriaInfor
   categoria === "cosecha" ? "siembra" : categoria;
 
 const Informes = () => {
+  const [searchParams] = useSearchParams();
   const { role, hasPermission, currentUser, productores, clientes } = useRole();
   const { cultivos, variedades } = useConfig();
+  const actionParam = (searchParams.get("action") ?? "").toLowerCase();
   const userLevel = ROLE_LEVELS[role];
   const canExport = hasPermission("informes", "exportar");
   const isSupervisorOrLector = ["supervisor", "lector"].includes(role);
@@ -4254,6 +4257,20 @@ const Informes = () => {
     );
     setBuilderOpen(true);
   };
+
+  const autoOpenBuilderHandledRef = useRef(false);
+  useEffect(() => {
+    const shouldAutoOpenBuilder =
+      actionParam === "create-template" ||
+      actionParam === "new-template" ||
+      actionParam === "crear-plantilla";
+
+    if (!shouldAutoOpenBuilder || !canManageTemplates || autoOpenBuilderHandledRef.current) return;
+    setMainView("plantillas");
+    setActiveNav("all");
+    openBuilder();
+    autoOpenBuilderHandledRef.current = true;
+  }, [actionParam, canManageTemplates]);
 
   const handleBuilderSave = (cfg: BuilderConfig) => {
     if (cfg.id) {

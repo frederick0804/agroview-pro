@@ -629,7 +629,15 @@ function LibParamForm({
 // Hub central: tarjetas de formularios con campos inline, biblioteca en Sheet,
 // gestión de versiones y configuración avanzada de campos.
 
-function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?: (v: boolean) => void; highlightDefId?: string }) {
+function TabFormularios({
+  onPendingChange,
+  highlightDefId,
+  autoOpenCreateModal,
+}: {
+  onPendingChange?: (v: boolean) => void;
+  highlightDefId?: string;
+  autoOpenCreateModal?: boolean;
+}) {
   const {
     definiciones, allDefiniciones, parametros, datos, cultivos, allCultivos, parametrosLib,
     addDef, addEvento, updDef, delDef, dupDef, copyDefToClient,
@@ -757,6 +765,11 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
   const [eventosSheetView, setEventosSheetView] = useState<"list" | "detail" | "new">("list");
   const [eventosSelectedRootId, setEventosSelectedRootId] = useState<string | null>(null);
   const [eventosDetailTab, setEventosDetailTab] = useState<"general" | "campos" | "historial" | "accesos">("general");
+  const [newEventoStep, setNewEventoStep] = useState<"basico" | "avanzado" | "campos">("basico");
+  const [newEventoStep2Completed, setNewEventoStep2Completed] = useState(false);
+  const [newEventoCampoSearch, setNewEventoCampoSearch] = useState("");
+  const [newEventoCampoTypeFilter, setNewEventoCampoTypeFilter] = useState<string>("Todos");
+  const [newEventoSelectedLibIds, setNewEventoSelectedLibIds] = useState<Set<string>>(new Set());
   const [newEventoNombre, setNewEventoNombre]           = useState("");
   const [newEventoDescripcion, setNewEventoDescripcion] = useState("");
   const [newEventoEstado, setNewEventoEstado]           = useState<"activo" | "borrador">("activo");
@@ -852,6 +865,13 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
     setNewDefModalOpen(true);
   };
 
+  const autoOpenCreateHandledRef = useRef(false);
+  useEffect(() => {
+    if (!autoOpenCreateModal || autoOpenCreateHandledRef.current) return;
+    openNewDefModal();
+    autoOpenCreateHandledRef.current = true;
+  }, [autoOpenCreateModal]);
+
   const openAccesosModal = (defId: string) => {
     setAccesosModal(defId);
     setAccSearch("");
@@ -860,6 +880,11 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
   };
 
   const resetNewEventoForm = () => {
+    setNewEventoStep("basico");
+    setNewEventoStep2Completed(false);
+    setNewEventoCampoSearch("");
+    setNewEventoCampoTypeFilter("Todos");
+    setNewEventoSelectedLibIds(new Set());
     setNewEventoNombre("");
     setNewEventoDescripcion("");
     setNewEventoEstado("activo");
@@ -899,6 +924,43 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
   const newDefStepIndex = newDefStep === "basico" ? 1 : newDefStep === "avanzado" ? 2 : 3;
   const newDefStep1Completed = newDefForm.nombre.trim().length > 0;
   const newDefStep3Completed = newDefSelectedLibIds.size > 0;
+
+  const newEventoStepIndex = newEventoStep === "basico" ? 1 : newEventoStep === "avanzado" ? 2 : 3;
+  const newEventoStep1Completed = newEventoNombre.trim().length > 0;
+  const newEventoStep3Completed = newEventoSelectedLibIds.size > 0;
+
+  const filteredNewEventoLib = useMemo(() => {
+    const q = newEventoCampoSearch.trim().toLowerCase();
+    return parametrosLib.filter(p => {
+      if (p.activo === false) return false;
+      const typeOk = newEventoCampoTypeFilter === "Todos" || p.tipo_dato === newEventoCampoTypeFilter;
+      if (!typeOk) return false;
+      if (!q) return true;
+      return (
+        p.nombre.toLowerCase().includes(q) ||
+        p.descripcion?.toLowerCase().includes(q) ||
+        p.codigo?.toLowerCase().includes(q)
+      );
+    });
+  }, [parametrosLib, newEventoCampoSearch, newEventoCampoTypeFilter]);
+
+  const createEventoFromWizard = () => {
+    if (!eventosSheet || !newEventoStep1Completed || !newEventoStep2Completed || !newEventoStep3Completed) return;
+    const created = addEvento(
+      eventosSheet.defId,
+      eventosSheet.modulo,
+      newEventoNombre.trim(),
+      newEventoDescripcion.trim(),
+      newEventoEstado,
+    );
+    newEventoSelectedLibIds.forEach((libId) => {
+      const lib = parametrosLib.find(p => p.id === libId);
+      if (lib) addPar(created.id, lib.id, lib.nombre);
+    });
+    setExpandedEventos(prev => new Set(prev).add(eventosSheet.rootId));
+    setEventosSheetView("list");
+    resetNewEventoForm();
+  };
 
   const createDefinitionFromWizard = () => {
     const nombre = newDefForm.nombre.trim();
@@ -3167,6 +3229,58 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                           </p>
                         </div>
                       </div>
+
+                      {/* Wizard steps */}
+                      <div className="mt-4 space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setNewEventoStep("basico")}
+                            className={cn(
+                              "text-xs font-medium px-2.5 py-1 rounded-full border transition-colors",
+                              newEventoStep === "basico"
+                                ? "bg-amber-500 text-white border-amber-500"
+                                : "bg-muted/40 text-muted-foreground border-border hover:border-amber-400/60",
+                            )}
+                          >
+                            1. Básico
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!newEventoStep1Completed && newEventoStep !== "avanzado"}
+                            onClick={() => setNewEventoStep("avanzado")}
+                            className={cn(
+                              "text-xs font-medium px-2.5 py-1 rounded-full border transition-colors",
+                              newEventoStep === "avanzado"
+                                ? "bg-amber-500 text-white border-amber-500"
+                                : "bg-muted/40 text-muted-foreground border-border hover:border-amber-400/60",
+                              !newEventoStep1Completed && newEventoStep !== "avanzado" && "opacity-50 cursor-not-allowed hover:border-border",
+                            )}
+                          >
+                            2. Avanzado
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!newEventoStep2Completed && newEventoStep !== "campos"}
+                            onClick={() => setNewEventoStep("campos")}
+                            className={cn(
+                              "text-xs font-medium px-2.5 py-1 rounded-full border transition-colors",
+                              newEventoStep === "campos"
+                                ? "bg-amber-500 text-white border-amber-500"
+                                : "bg-muted/40 text-muted-foreground border-border hover:border-amber-400/60",
+                              !newEventoStep2Completed && newEventoStep !== "campos" && "opacity-50 cursor-not-allowed hover:border-border",
+                            )}
+                          >
+                            3. Campos
+                          </button>
+                        </div>
+                        <div className="h-1 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full bg-amber-500 transition-all duration-300"
+                            style={{ width: `${((newEventoStepIndex - 1) / 2) * 100}%` }}
+                          />
+                        </div>
+                      </div>
                     </div>
 
                     {/* Formulario ? scrollable */}
@@ -3180,27 +3294,141 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                         </p>
                       </div>
 
-                      {/* Nombre */}
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-foreground/80">
-                          Nombre del evento <span className="text-amber-500">*</span>
-                        </label>
-                        <Input
-                          value={newEventoNombre}
-                          onChange={e => setNewEventoNombre(e.target.value)}
-                          placeholder="ej. Seguimiento semanal, Aplicación de riego"
-                          autoFocus
-                        />
-                      </div>
+                      {newEventoStep === "basico" ? (
+                        <>
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-semibold text-foreground/80">
+                              Nombre del evento <span className="text-amber-500">*</span>
+                            </label>
+                            <Input
+                              value={newEventoNombre}
+                              onChange={e => setNewEventoNombre(e.target.value)}
+                              placeholder="ej. Seguimiento semanal, Aplicación de riego"
+                              autoFocus
+                            />
+                          </div>
 
-                      {/* Descripción */}
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-foreground/80">Descripción</label>
-                        <Input
-                          value={newEventoDescripcion}
-                          onChange={e => setNewEventoDescripcion(e.target.value)}
-                          placeholder="Describe brevemente para qué sirve este evento?"
-                        />
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-semibold text-foreground/80">Descripción</label>
+                            <Input
+                              value={newEventoDescripcion}
+                              onChange={e => setNewEventoDescripcion(e.target.value)}
+                              placeholder="Describe brevemente para qué sirve este evento"
+                            />
+                          </div>
+                        </>
+                      ) : newEventoStep === "avanzado" ? (
+                        <>
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-semibold text-foreground/80">Estado inicial</label>
+                            <div className="grid grid-cols-2 gap-2">
+                              {(["activo", "borrador"] as const).map((st) => (
+                                <button
+                                  key={st}
+                                  type="button"
+                                  onClick={() => setNewEventoEstado(st)}
+                                  className={cn(
+                                    "h-9 rounded-lg border text-xs font-medium transition-colors",
+                                    newEventoEstado === st
+                                      ? "border-amber-500 bg-amber-500/10 text-amber-700"
+                                      : "border-border text-muted-foreground hover:border-amber-400/50",
+                                  )}
+                                >
+                                  {st === "activo" ? "Activo" : "Borrador"}
+                                </button>
+                              ))}
+                            </div>
+                            <p className="text-[11px] text-muted-foreground">
+                              Recomendado: iniciar en borrador y activar cuando valides el flujo.
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-semibold text-foreground">Selecciona campos para el evento</p>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted border border-border">
+                                {newEventoSelectedLibIds.size} seleccionado{newEventoSelectedLibIds.size !== 1 ? "s" : ""}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <div className="relative flex-1 min-w-0">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                                <input
+                                  value={newEventoCampoSearch}
+                                  onChange={e => setNewEventoCampoSearch(e.target.value)}
+                                  placeholder="Buscar campo en biblioteca"
+                                  className="w-full pl-8 pr-2 py-1.5 text-xs rounded-md border border-border bg-background focus:outline-none focus:border-amber-400/70"
+                                />
+                              </div>
+                              <select
+                                value={newEventoCampoTypeFilter}
+                                onChange={e => setNewEventoCampoTypeFilter(e.target.value)}
+                                className="text-xs h-8 px-2 rounded-md border border-border bg-background"
+                              >
+                                <option value="Todos">Todos</option>
+                                {TIPO_DATO_OPTIONS.map(t => (
+                                  <option key={t.value} value={t.value}>{t.label}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="max-h-72 overflow-y-auto pr-1 space-y-1">
+                              {filteredNewEventoLib.length === 0 ? (
+                                <div className="text-xs text-muted-foreground border border-dashed border-border rounded-lg p-3 text-center">
+                                  No hay campos disponibles con ese filtro.
+                                </div>
+                              ) : (
+                                filteredNewEventoLib.map(p => {
+                                  const checked = newEventoSelectedLibIds.has(p.id);
+                                  return (
+                                    <button
+                                      key={p.id}
+                                      type="button"
+                                      onClick={() => setNewEventoSelectedLibIds(prev => {
+                                        const n = new Set(prev);
+                                        checked ? n.delete(p.id) : n.add(p.id);
+                                        return n;
+                                      })}
+                                      className={cn(
+                                        "w-full flex items-start gap-2 px-2.5 py-2 rounded-md border text-left transition-colors",
+                                        checked
+                                          ? "border-amber-400/70 bg-amber-500/10"
+                                          : "border-border hover:border-amber-400/50 hover:bg-muted/30",
+                                      )}
+                                    >
+                                      {checked ? <CheckSquare className="w-3.5 h-3.5 mt-0.5 text-amber-600" /> : <Square className="w-3.5 h-3.5 mt-0.5 text-muted-foreground" />}
+                                      <div className="min-w-0">
+                                        <p className="text-xs font-medium text-foreground truncate">{p.nombre}</p>
+                                        <p className="text-[11px] text-muted-foreground truncate">{p.tipo_dato}{p.codigo ? ` · ${p.codigo}` : ""}</p>
+                                      </div>
+                                    </button>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground mb-2">Checklist final</p>
+                        {[
+                          { ok: newEventoStep1Completed, label: "Paso 1 completado" },
+                          { ok: newEventoStep2Completed, label: "Paso 2 completado" },
+                          { ok: newEventoStep3Completed, label: "Al menos 1 campo seleccionado" },
+                          { ok: newEventoStep === "campos", label: "Estás en paso 3" },
+                        ].map(({ ok, label }) => (
+                          <p key={label} className="flex items-center gap-1.5 mb-1">
+                            {ok
+                              ? <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                              : <div className="w-3.5 h-3.5 rounded-full border border-muted-foreground/40 shrink-0" />
+                            }
+                            <span className={ok ? "text-foreground" : ""}>{label}</span>
+                          </p>
+                        ))}
                       </div>
 
                     </div>
@@ -3210,27 +3438,47 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                       <Button
                         variant="outline"
                         className="flex-1"
-                        onClick={() => setEventosSheetView("list")}
-                      >
-                        Cancelar
-                      </Button>
-                      <Button
-                        disabled={!newEventoNombre.trim()}
                         onClick={() => {
-                          addEvento(
-                            eventosSheet.defId,
-                            eventosSheet.modulo,
-                            newEventoNombre.trim(),
-                            newEventoDescripcion.trim(),
-                          );
-                          // Si el estado inicial es borrador, actualizarlo luego
-                          setEventosSheetView("list");
+                          if (newEventoStep === "campos") setNewEventoStep("avanzado");
+                          else if (newEventoStep === "avanzado") setNewEventoStep("basico");
+                          else setEventosSheetView("list");
                         }}
-                        className="flex-1 bg-amber-500 hover:bg-amber-600 text-white"
                       >
-                        <Zap className="w-4 h-4 mr-1.5" />
-                        Crear evento
+                        {newEventoStep === "basico" ? "Cancelar" : "Atrás"}
                       </Button>
+
+                      {newEventoStep === "basico" && (
+                        <Button
+                          className="flex-1 bg-amber-500 hover:bg-amber-600 text-white"
+                          disabled={!newEventoStep1Completed}
+                          onClick={() => setNewEventoStep("avanzado")}
+                        >
+                          Siguiente: Avanzado
+                        </Button>
+                      )}
+
+                      {newEventoStep === "avanzado" && (
+                        <Button
+                          className="flex-1 bg-amber-500 hover:bg-amber-600 text-white"
+                          onClick={() => {
+                            setNewEventoStep2Completed(true);
+                            setNewEventoStep("campos");
+                          }}
+                        >
+                          Siguiente: Campos
+                        </Button>
+                      )}
+
+                      {newEventoStep === "campos" && (
+                        <Button
+                          disabled={!newEventoStep1Completed || !newEventoStep2Completed || !newEventoStep3Completed}
+                          onClick={createEventoFromWizard}
+                          className="flex-1 bg-amber-500 hover:bg-amber-600 text-white"
+                        >
+                          <Zap className="w-4 h-4 mr-1.5" />
+                          Crear evento
+                        </Button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -6536,7 +6784,7 @@ const INFORMES_ACCION_INFO: Record<ActionPermission, { desc: string; importante?
   configurar: { desc: "Ver informes de todos los módulos sin restricción de área", importante: true },
 };
 
-function TabUsuarios() {
+function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean }) {
   const {
     addOverride, removeOverride, getUserOverrides, getRoleBasePermissions,
     clientes, productores, users: contextUsers, addUser, updUser, toggleUserActive,
@@ -6639,6 +6887,13 @@ function TabUsuarios() {
     setFormModulosActivos(defaultMods);
     setUserModal(true);
   };
+
+  const autoOpenCreateHandledRef = useRef(false);
+  useEffect(() => {
+    if (!autoOpenCreateModal || autoOpenCreateHandledRef.current) return;
+    openCreateModal();
+    autoOpenCreateHandledRef.current = true;
+  }, [autoOpenCreateModal]);
 
   const openEditModal = (userId: number) => {
     const u = contextUsers.find(x => x.id === userId);
@@ -8282,7 +8537,10 @@ const Configuracion = () => {
   const validTabs      = ["cultivos", "formularios", "usuarios"];
   // "campos" is an alias for "formularios" used by the "Editar campos del formulario" button
   const rawTab         = searchParams.get("tab") ?? "";
+  const actionParam    = (searchParams.get("action") ?? "").toLowerCase();
   const initialTab     = rawTab === "campos" ? "formularios" : validTabs.includes(rawTab) ? rawTab : "cultivos";
+  const autoOpenFormCreate = actionParam === "create-form" || actionParam === "crear-formulario";
+  const autoOpenUserCreate = actionParam === "add-user" || actionParam === "create-user" || actionParam === "agregar-usuario";
   const highlightDefId = searchParams.get("def") ?? undefined;
   const [activeTab, setActiveTab] = useState(initialTab);
   const { hasPendingChanges: hasPending, setHasPendingChanges: setHasPending } = useConfig();
@@ -8345,13 +8603,17 @@ const Configuracion = () => {
           <TabCultivos />
         </TabsContent>
         <TabsContent value="formularios">
-          <TabFormularios onPendingChange={setHasPending} highlightDefId={highlightDefId} />
+          <TabFormularios
+            onPendingChange={setHasPending}
+            highlightDefId={highlightDefId}
+            autoOpenCreateModal={autoOpenFormCreate}
+          />
         </TabsContent>
         <TabsContent value="empresas">
           <TabEmpresas />
         </TabsContent>
         <TabsContent value="usuarios">
-          <TabUsuarios />
+          <TabUsuarios autoOpenCreateModal={autoOpenUserCreate} />
         </TabsContent>
       </Tabs>
 

@@ -41,7 +41,7 @@ interface ConfigContextType {
   definiciones: ModDef[];
   allDefiniciones: ModDef[];                                           // sin filtro (solo super_admin)
   addDef: (input?: AddDefInput) => ModDef;
-  addEvento: (registroDefId: string, modulo: string, nombre?: string, descripcion?: string) => void;
+  addEvento: (registroDefId: string, modulo: string, nombre?: string, descripcion?: string, estado?: EstadoDef) => ModDef;
   updDef: (rowIndex: number, key: keyof ModDef, value: unknown) => void;
   delDef: (rowIndex: number) => void;
   dupDef: (id: string, nombre?: string) => void;
@@ -227,9 +227,9 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     return newDef;
   };
 
-  const addEvento = (registroDefId: string, modulo: string, nombre?: string, descripcion?: string) => {
+  const addEvento = (registroDefId: string, modulo: string, nombre?: string, descripcion?: string, estado?: EstadoDef): ModDef => {
     const registro = allDefiniciones.find(d => d.id === registroDefId);
-    setDefiniciones(prev => [...prev, {
+    const newEvento: ModDef = {
       id: `evt-${Date.now()}`,
       tipo: "personalizado" as const,
       nombre: nombre ?? "",
@@ -238,13 +238,15 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       nivel_minimo: registro?.nivel_minimo ?? 1,
       roles_excluidos: [],
       modulo,
-      estado: "borrador" as EstadoDef,
+      estado: estado ?? ("borrador" as EstadoDef),
       cultivo_id: registro?.cultivo_id,
       cliente_id: registro?.cliente_id ?? currentClienteId,
       productor_id: registro?.productor_id,
       tipo_formulario: "evento" as const,
       registro_padre_id: registroDefId,
-    }]);
+    };
+    setDefiniciones(prev => [...prev, newEvento]);
+    return newEvento;
   };
 
   const updDef = (i: number, k: keyof ModDef, v: unknown) => {
