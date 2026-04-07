@@ -1612,29 +1612,11 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                     </select>
                   </div>
 
-                  <div className="mt-2 flex items-center justify-between gap-2" onClick={e => e.stopPropagation()}>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openAccesosModal(latest.id)}
-                      className="h-7 px-2.5 text-[11px] border-primary/30 text-primary hover:bg-primary/10"
-                    >
-                      <Lock className="w-3.5 h-3.5 mr-1" />
-                      Gestionar accesos
-                    </Button>
-                    <span className="text-[10px] text-muted-foreground">
-                      {accesosCount > 0
-                        ? `${accesosCount} override${accesosCount > 1 ? "s" : ""} configurado${accesosCount > 1 ? "s" : ""}`
-                        : "Sin overrides configurados"}
-                    </span>
-                  </div>
-
-                  {/* Control de acceso ? colapsable */}
+                  {/* Control de acceso — colapsable */}
                   <div className="mt-2.5 pt-2 border-t border-border/40" onClick={e => e.stopPropagation()}>
-                    {/* Fila resumen ? siempre visible, clic para expandir */}
-                    <button
+                    {/* Fila resumen — siempre visible */}
+                    <div className="flex items-center gap-1.5 w-full group/acc hover:bg-primary/5 rounded-md px-1.5 py-1 transition-colors cursor-pointer"
                       onClick={() => toggleExpandAcceso(rootId)}
-                      className="flex items-center gap-1.5 w-full group/acc hover:bg-primary/5 rounded-md px-1.5 py-1 transition-colors"
                     >
                       <Lock className="w-2.5 h-2.5 text-muted-foreground/50 shrink-0" />
                       <span className={cn(
@@ -1652,14 +1634,21 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                       )}
                       {accesosCount > 0 && (
                         <span className="text-[10px] text-primary/70 font-medium shrink-0">
-                          {accesosCount} override{accesosCount > 1 ? "s" : ""}
+                          {accesosCount} ajuste{accesosCount > 1 ? "s" : ""}
                         </span>
                       )}
+                      <button
+                        onClick={e => { e.stopPropagation(); openAccesosModal(latest.id); }}
+                        className="ml-auto text-[10px] font-medium px-2 py-0.5 rounded-md border border-primary/25 bg-primary/5 text-primary hover:bg-primary/15 transition-colors shrink-0 flex items-center gap-1"
+                      >
+                        <Lock className="w-2.5 h-2.5" />
+                        Accesos
+                      </button>
                       <ChevronDown className={cn(
-                        "w-3 h-3 text-muted-foreground/40 ml-auto transition-transform duration-200",
+                        "w-3 h-3 text-muted-foreground/40 transition-transform duration-200 shrink-0",
                         isExpAcceso && "rotate-180",
                       )} />
-                    </button>
+                    </div>
 
                     {/* Controles expandidos */}
                     {isExpAcceso && (
@@ -1710,15 +1699,12 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                             <div className="flex items-center gap-1.5">
                               <Users2 className="w-2.5 h-2.5 text-muted-foreground/60 shrink-0" />
                               {accesos.length === 0
-                                ? <span className="text-[9px] text-muted-foreground/50 italic">Sin overrides</span>
+                                ? <span className="text-[9px] text-muted-foreground/50 italic">Sin ajustes</span>
                                 : <>
-                                    {nAllow > 0 && <span className="text-[9px] font-medium text-success">? {nAllow}</span>}
-                                    {nBlock > 0 && <span className="text-[9px] font-medium text-destructive">? {nBlock}</span>}
+                                    {nAllow > 0 && <span className="text-[9px] font-medium text-success">{nAllow} permitido{nAllow > 1 ? "s" : ""}</span>}
+                                    {nBlock > 0 && <span className="text-[9px] font-medium text-destructive">{nBlock} bloqueado{nBlock > 1 ? "s" : ""}</span>}
                                   </>
                               }
-                              <button onClick={() => openAccesosModal(latest.id)} className="ml-auto text-[9px] font-medium text-primary hover:underline transition-colors shrink-0">
-                                Gestionar accesos ?
-                              </button>
                             </div>
                           );
                         })()}
@@ -2643,20 +2629,6 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                           Crear primer evento
                         </Button>
 
-                        <div className="w-full pt-1">
-                          <p className="text-[11px] text-muted-foreground mb-1.5">Plantillas rápidas</p>
-                          <div className="flex flex-wrap justify-center gap-1.5">
-                            {EVENTO_TEMPLATES.map(template => (
-                              <button
-                                key={template.id}
-                                onClick={() => applyEventoTemplate(template.id)}
-                                className="text-[11px] px-2 py-1 rounded-md border border-border bg-background hover:border-amber-300 hover:bg-amber-50 transition-colors"
-                              >
-                                {template.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
                       </div>
                     ) : filteredSheetEventoFamilies.length === 0 ? (
                       <div className="flex flex-col items-center gap-2 py-10 text-center">
@@ -2762,10 +2734,10 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                                 </Button>
                                 <Button
                                   size="sm"
-                                  className="h-6 px-2 text-[10px]"
+                                  className="h-6 px-2.5 text-[10px] gap-1"
                                   onClick={() => openEventoDetail(evRootId, "general")}
                                 >
-                                  Abrir
+                                  Ver detalle
                                 </Button>
                               </div>
                             </div>
@@ -3130,7 +3102,7 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                               <div className="rounded-lg border border-border bg-card p-3 space-y-2">
                                 <div className="grid grid-cols-3 gap-2 text-[10px]">
                                   <div className="rounded-md border border-border px-2 py-1 bg-muted/40">
-                                    <span className="font-semibold text-foreground">{evAccesos.length}</span> override(s)
+                                    <span className="font-semibold text-foreground">{evAccesos.length}</span> ajuste{evAccesos.length !== 1 ? "s" : ""}
                                   </div>
                                   <div className="rounded-md border border-green-200 bg-green-50 px-2 py-1 text-green-700">
                                     <span className="font-semibold">{accAllowed}</span> permitidos
@@ -3231,37 +3203,6 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                         />
                       </div>
 
-                      {/* Estado inicial */}
-                      <div className="space-y-2">
-                        <label className="text-xs font-semibold text-foreground/80">Estado inicial</label>
-                        <div className="flex gap-2">
-                          {(["activo", "borrador"] as const).map(est => (
-                            <button
-                              key={est}
-                              onClick={() => setNewEventoEstado(est)}
-                              className={cn(
-                                "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-medium transition-all",
-                                newEventoEstado === est
-                                  ? est === "activo"
-                                    ? "bg-green-50 border-green-300 text-green-700 dark:bg-green-900/20 dark:border-green-700 dark:text-green-400"
-                                    : "bg-yellow-50 border-yellow-300 text-yellow-700 dark:bg-yellow-900/20 dark:border-yellow-700 dark:text-yellow-400"
-                                  : "bg-muted/40 border-border text-muted-foreground hover:bg-muted",
-                              )}
-                            >
-                              <span className={cn(
-                                "w-1.5 h-1.5 rounded-full",
-                                est === "activo" ? "bg-green-500" : "bg-yellow-400",
-                              )} />
-                              {est === "activo" ? "Activo" : "Borrador"}
-                            </button>
-                          ))}
-                        </div>
-                        <p className="text-[11px] text-muted-foreground/70">
-                          {newEventoEstado === "activo"
-                            ? "Visible y disponible para los usuarios de inmediato."
-                            : "Oculto para los usuarios mientras terminas de configurarlo."}
-                        </p>
-                      </div>
                     </div>
 
                     {/* Footer fijo */}
@@ -4358,7 +4299,7 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
                           {/* Quick actions */}
                           {accSelected.size === 0 && (hasOverride ? (
                             <button
-                              title="Quitar override - volver a reglas de rol"
+                              title="Quitar ajuste - volver a reglas de rol"
                               onClick={() => removeDefAcceso(acceso!.id)}
                               className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
                             >
@@ -4388,14 +4329,14 @@ function TabFormularios({ onPendingChange, highlightDefId }: { onPendingChange?:
               {/* Footer */}
               <div className="px-4 py-3 border-t border-border flex items-center justify-between shrink-0 bg-muted/20">
                 <p className="text-[10px] text-muted-foreground">
-                  {allUsers.length} usuarios &middot; {allAccesos.length} con override
+                  {allUsers.length} usuarios &middot; {allAccesos.length} con ajuste personalizado
                 </p>
                 {allAccesos.length > 0 && (
                   <button
                     onClick={() => allAccesos.forEach(a => removeDefAcceso(a.id))}
                     className="text-[10px] text-destructive hover:text-destructive/70 transition-colors"
                   >
-                    Limpiar todos los overrides
+                    Limpiar todos los ajustes
                   </button>
                 )}
               </div>
@@ -7079,8 +7020,8 @@ function TabUsuarios() {
                 >
                   último acceso <SortArrow col="ultimoAcceso" />
                 </th>
-                <th className="text-center px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-12">
-                  Esp.
+                <th className="text-center px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-12" title="Ajustes de permisos personalizados">
+                  Aj.
                 </th>
                 {(isSuperAdmin || isClienteAdmin) && (
                   <th className="text-center px-2 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-16">
@@ -7375,8 +7316,8 @@ function TabUsuarios() {
                     <div className="flex items-center gap-2 p-2.5 rounded-lg bg-primary/5 border border-primary/15">
                       <ShieldAlert className="w-3.5 h-3.5 text-primary/60 shrink-0" />
                       <span className="text-[11px] text-primary/80 flex-1">
-                        {userOverrides.length > 0 && <><strong>{userOverrides.length}</strong> override{userOverrides.length !== 1 ? "s" : ""} de módulo</>}
-                        {userOverrides.length > 0 && accesosDelUsuario.length > 0 && " - "}
+                        {userOverrides.length > 0 && <><strong>{userOverrides.length}</strong> ajuste{userOverrides.length !== 1 ? "s" : ""} de módulo</>}
+                        {userOverrides.length > 0 && accesosDelUsuario.length > 0 && " · "}
                         {accesosDelUsuario.length > 0 && <><strong>{accesosDelUsuario.length}</strong> de formulario</>}
                       </span>
                       <button
@@ -7387,7 +7328,7 @@ function TabUsuarios() {
                       </button>
                     </div>
                   ) : (
-                    <p className="text-[11px] text-muted-foreground/50 italic">Sin overrides - acceso según rol</p>
+                    <p className="text-[11px] text-muted-foreground/50 italic">Sin ajustes — acceso según rol</p>
                   )}
                 </div>
 
@@ -7405,11 +7346,11 @@ function TabUsuarios() {
                     </span>
                     <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                       <span className="w-2 h-2 rounded-full bg-success shrink-0" />
-                      Override: permitido
+                      Ajuste: permitido
                     </span>
                     <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                       <span className="w-2 h-2 rounded-full bg-destructive shrink-0" />
-                      Override: bloqueado
+                      Ajuste: bloqueado
                     </span>
                   </div>
                   {/* Buscador */}
@@ -7445,7 +7386,7 @@ function TabUsuarios() {
                         <div className="px-4 py-2.5 bg-muted/30 flex items-center gap-3">
                           <p className="text-[11px] font-bold text-foreground/70 uppercase tracking-wider flex-1">{mod.label}</p>
                           {/* Botones de acción del módulo */}
-                          <div className="flex gap-1" title="Clic para agregar/quitar override de módulo">
+                          <div className="flex gap-1" title="Clic para ajustar permiso del módulo">
                             {ALL_ACTIONS.map(a => {
                               const ov        = userOverrides.find(o => o.modulo === mod.value && o.accion === a.value);
                               const hasBase   = getRoleBasePermissions(selectedUser.roleKey, mod.value).includes(a.value);
@@ -7454,7 +7395,7 @@ function TabUsuarios() {
                               const locked     = wouldGrant && !canGrantAction(mod.value, a.value);
                               const tip        = locked
                                 ? `${a.label}: no puedes otorgar lo que no tienes`
-                                : `${a.label}: ${effective ? "Permitido" : "Denegado"}${ov ? " (override)" : " (base)"}`;
+                                : `${a.label}: ${effective ? "Permitido" : "Denegado"}${ov ? " (ajustado)" : " (según rol)"}`;
                               return (
                                 <button
                                   key={a.value}
@@ -7552,14 +7493,14 @@ function TabUsuarios() {
                                     )}
                                   >
                                     {ovAcceso
-                                      ? ovAcceso.habilitado ? "override" : "bloqueado"
+                                      ? ovAcceso.habilitado ? "ajustado" : "bloqueado"
                                       : roleOK ? "por rol" : "sin acceso"
                                     }
                                   </span>
                                   {ovAcceso ? (
                                     <button
                                       onClick={() => removeDefAcceso(ovAcceso.id)}
-                                      title="Quitar override - volver a reglas del rol"
+                                      title="Quitar ajuste - volver a reglas del rol"
                                       className="text-[10px] px-2 py-0.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
                                     >
                                       rol
@@ -7602,7 +7543,7 @@ function TabUsuarios() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <ShieldAlert className="w-5 h-5 text-primary" />
-              Agregar Override
+              Ajuste de permiso
             </DialogTitle>
             <DialogDescription className="text-xs">
               {matrixModal && selectedUser && (() => {
@@ -7712,7 +7653,7 @@ function TabUsuarios() {
                 (!!matrixModal?.habilitado && !canGrantAction(matrixModal.modulo, matrixModal.accion))
               }
             >
-              <Plus className="w-3.5 h-3.5 mr-1.5" /> Guardar override
+              <Plus className="w-3.5 h-3.5 mr-1.5" /> Guardar ajuste
             </Button>
           </DialogFooter>
         </DialogContent>
