@@ -8,6 +8,7 @@ import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { RoleNotifications } from "@/components/dashboard/RoleNotifications";
 import { WeatherChatWidget } from "@/components/dashboard/WeatherChatWidget";
 import { Button } from "@/components/ui/button";
+import { Carousel, CarouselContent, CarouselItem, type CarouselApi } from "@/components/ui/carousel";
 import {
   useRole,
   PRODUCER_DASHBOARD_MODULES,
@@ -19,7 +20,7 @@ import {
   Leaf, FlaskConical, Factory, ShoppingCart, TrendingUp,
   Users, Tractor, Scissors, Package, Sprout,
   ShieldCheck, Eye, Sparkles, LayoutDashboard, ArrowRight,
-  Settings, FileText, ClipboardList, Plus,
+  Settings, FileText, ClipboardList, Plus, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -37,6 +38,7 @@ type QuickActionDef = {
   roles?: UserRole[];
   getPath: (ctx: { area?: string }) => string | null;
 };
+type RightRailSlide = { id: string; label: string; content: React.ReactNode };
 type Activity = { id: string; description: string; timestamp: string; type: "info" | "success" | "warning" };
 type Metric   = { title: string; value: string; change?: number; changeLabel?: string; variant?: "default" | "success" | "warning" | "info" };
 type ResumenMetric = Metric & { icon: React.ReactNode };
@@ -599,7 +601,7 @@ function ModuleTabContent({
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
         {/* Trend area chart */}
         <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4">{data.trendLabel}</h3>
@@ -636,7 +638,7 @@ function ModuleTabContent({
       </div>
 
       {/* Activity + Go-to-module */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
         <div className="lg:col-span-2">
           <RecentActivity activities={data.activities} title={`Actividad reciente — ${tab.label}`} />
         </div>
@@ -667,6 +669,93 @@ function ModuleTabContent({
           <RoleNotifications maxItems={3} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function RightRailCarousel({ slides }: { slides: RightRailSlide[] }) {
+  const [api, setApi] = useState<CarouselApi>();
+  const [activeIndex, setActiveIndex] = useState(0);
+  const slideHeightClass = "h-[280px]";
+
+  useEffect(() => {
+    if (!api) return;
+
+    const handleSelect = () => {
+      setActiveIndex(api.selectedScrollSnap());
+    };
+
+    handleSelect();
+    api.on("select", handleSelect);
+    api.on("reInit", handleSelect);
+
+    return () => {
+      api.off("select", handleSelect);
+      api.off("reInit", handleSelect);
+    };
+  }, [api]);
+
+  if (slides.length === 0) return null;
+  if (slides.length === 1) return <>{slides[0].content}</>;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2 px-1">
+        <div className="flex items-center gap-1 overflow-x-auto">
+          {slides.map((slide, idx) => (
+            <button
+              key={slide.id}
+              type="button"
+              onClick={() => api?.scrollTo(idx)}
+              title={slide.label}
+              aria-label={`Ir a ${slide.label}`}
+              className={cn(
+                "h-7 px-2.5 rounded-full text-[10px] font-medium whitespace-nowrap border transition-colors",
+                activeIndex === idx
+                  ? "bg-primary/10 text-primary border-primary/30"
+                  : "bg-background text-muted-foreground border-border hover:text-foreground",
+              )}
+            >
+              {slide.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => api?.scrollPrev()}
+            aria-label="Slide anterior"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => api?.scrollNext()}
+            aria-label="Siguiente slide"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      <Carousel setApi={setApi} opts={{ align: "start", loop: true }} className={cn("w-full", slideHeightClass)}>
+        <CarouselContent className="-ml-0 h-full">
+          {slides.map((slide) => (
+            <CarouselItem key={slide.id} className="pl-0 h-full">
+              <div className={cn("h-full overflow-hidden", slideHeightClass)}>
+                {slide.content}
+              </div>
+            </CarouselItem>
+          ))}
+        </CarouselContent>
+      </Carousel>
     </div>
   );
 }
@@ -744,7 +833,7 @@ function ResumenTabContent({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
             <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
               <h3 className="text-sm font-semibold text-foreground mb-4">{resumenData.barTitle}</h3>
               <ResponsiveContainer width="100%" height={240}>
@@ -759,16 +848,36 @@ function ResumenTabContent({
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className="space-y-4">
-              {quickActions.length > 0 && <QuickActions actions={quickActions} />}
-              <RoleNotifications maxItems={4} />
-              <RecentActivity activities={resumenData.activities} />
+            <div>
+              <RightRailCarousel
+                slides={[
+                  ...(quickActions.length > 0
+                    ? [
+                        {
+                          id: "resumen-acciones",
+                          label: "Acciones rápidas",
+                          content: <QuickActions actions={quickActions} className="h-full overflow-y-auto" />,
+                        },
+                      ]
+                    : []),
+                  {
+                    id: "resumen-notificaciones",
+                    label: "Notificaciones",
+                    content: <RoleNotifications maxItems={4} className="h-full overflow-y-auto" />,
+                  },
+                  {
+                    id: "resumen-actividad",
+                    label: "Actividad",
+                    content: <RecentActivity activities={resumenData.activities} className="h-full overflow-y-auto" />,
+                  },
+                ]}
+              />
             </div>
           </div>
         </>
       ) : (
         <>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
             <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
               <h3 className="text-sm font-semibold text-foreground mb-4">{resumenData.productionTitle}</h3>
               <ResponsiveContainer width="100%" height={220}>
@@ -806,7 +915,7 @@ function ResumenTabContent({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
             <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
               <h3 className="text-sm font-semibold text-foreground mb-4">{resumenData.barTitle}</h3>
               <ResponsiveContainer width="100%" height={220}>
@@ -821,10 +930,30 @@ function ResumenTabContent({
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className="space-y-4">
-              {quickActions.length > 0 && <QuickActions actions={quickActions} />}
-              <RoleNotifications maxItems={4} />
-              <RecentActivity activities={resumenData.activities} />
+            <div>
+              <RightRailCarousel
+                slides={[
+                  ...(quickActions.length > 0
+                    ? [
+                        {
+                          id: "resumen-fallback-acciones",
+                          label: "Acciones rápidas",
+                          content: <QuickActions actions={quickActions} className="h-full overflow-y-auto" />,
+                        },
+                      ]
+                    : []),
+                  {
+                    id: "resumen-fallback-notificaciones",
+                    label: "Notificaciones",
+                    content: <RoleNotifications maxItems={4} className="h-full overflow-y-auto" />,
+                  },
+                  {
+                    id: "resumen-fallback-actividad",
+                    label: "Actividad",
+                    content: <RecentActivity activities={resumenData.activities} className="h-full overflow-y-auto" />,
+                  },
+                ]}
+              />
             </div>
           </div>
         </>
@@ -915,7 +1044,7 @@ function AreaManagerDashboard({ area, areaLabel, areaColor, quickActions }: {
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start mb-5">
         <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4">{data.trendLabel}</h3>
           <ResponsiveContainer width="100%" height={220}>
@@ -949,27 +1078,49 @@ function AreaManagerDashboard({ area, areaLabel, areaColor, quickActions }: {
       </div>
 
       {/* Activity + Quick actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
         <div className="lg:col-span-2">
           <RecentActivity activities={data.activities} title={`Actividad reciente — ${areaLabel}`} />
         </div>
-        <div className="space-y-4">
-          {quickActions.length > 0 && <QuickActions actions={quickActions} />}
-          <RoleNotifications maxItems={4} />
-          <div className="bg-card rounded-xl border border-border p-4 flex flex-col items-center gap-3 text-center">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `color-mix(in srgb, ${areaColor} 14%, transparent)` }}>
-              <tab.Icon className="w-5 h-5" style={{ color: areaColor }} />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-foreground">Ir al módulo {areaLabel}</p>
-              <p className="text-[11px] text-muted-foreground">Gestionar registros</p>
-            </div>
-            {tab.path && (
-              <Button size="sm" onClick={() => navigate(tab.path!)} className="gap-1.5 text-xs text-white w-full" style={{ backgroundColor: areaColor }}>
-                Abrir {areaLabel} <ArrowRight className="w-3 h-3" />
-              </Button>
-            )}
-          </div>
+        <div>
+          <RightRailCarousel
+            slides={[
+              ...(quickActions.length > 0
+                ? [
+                    {
+                      id: "area-acciones",
+                      label: "Acciones rápidas",
+                      content: <QuickActions actions={quickActions} className="h-full overflow-y-auto" />,
+                    },
+                  ]
+                : []),
+              {
+                id: "area-notificaciones",
+                label: "Notificaciones",
+                content: <RoleNotifications maxItems={4} className="h-full overflow-y-auto" />,
+              },
+              {
+                id: "area-modulo",
+                label: "Módulo",
+                content: (
+                  <div className="bg-card rounded-xl border border-border p-4 h-full overflow-y-auto flex flex-col items-center gap-3 text-center">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `color-mix(in srgb, ${areaColor} 14%, transparent)` }}>
+                      <tab.Icon className="w-5 h-5" style={{ color: areaColor }} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-foreground">Ir al módulo {areaLabel}</p>
+                      <p className="text-[11px] text-muted-foreground">Gestionar registros</p>
+                    </div>
+                    {tab.path && (
+                      <Button size="sm" onClick={() => navigate(tab.path!)} className="gap-1.5 text-xs text-white w-full" style={{ backgroundColor: areaColor }}>
+                        Abrir {areaLabel} <ArrowRight className="w-3 h-3" />
+                      </Button>
+                    )}
+                  </div>
+                ),
+              },
+            ]}
+          />
         </div>
       </div>
     </>
@@ -1012,7 +1163,7 @@ function SupervisorDashboard({ area, areaLabel, areaColor, quickActions }: {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
         <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4">Resumen — {areaLabel}</h3>
           <ResponsiveContainer width="100%" height={220}>
@@ -1031,10 +1182,30 @@ function SupervisorDashboard({ area, areaLabel, areaColor, quickActions }: {
             </AreaChart>
           </ResponsiveContainer>
         </div>
-        <div className="space-y-4">
-          {quickActions.length > 0 && <QuickActions actions={quickActions} />}
-          <RoleNotifications maxItems={3} />
-          <RecentActivity activities={activities} />
+        <div>
+          <RightRailCarousel
+            slides={[
+              ...(quickActions.length > 0
+                ? [
+                    {
+                      id: "supervisor-acciones",
+                      label: "Acciones rápidas",
+                      content: <QuickActions actions={quickActions} className="h-full overflow-y-auto" />,
+                    },
+                  ]
+                : []),
+              {
+                id: "supervisor-notificaciones",
+                label: "Notificaciones",
+                content: <RoleNotifications maxItems={3} className="h-full overflow-y-auto" />,
+              },
+              {
+                id: "supervisor-actividad",
+                label: "Actividad",
+                content: <RecentActivity activities={activities} className="h-full overflow-y-auto" />,
+              },
+            ]}
+          />
         </div>
       </div>
     </>
@@ -1074,7 +1245,7 @@ function ReaderDashboard({ area, areaLabel, areaColor }: {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
         <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4">Tendencia — {areaLabel}</h3>
           <ResponsiveContainer width="100%" height={220}>
