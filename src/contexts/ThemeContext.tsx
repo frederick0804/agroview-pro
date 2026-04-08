@@ -73,7 +73,7 @@ export function applyTheme(theme: ThemeConfig): void {
   // — Color primario + variables del sidebar derivadas del mismo matiz —
   if (HEX_RE.test(theme.colorPrimario)) {
     const hsl = hexToHsl(theme.colorPrimario);
-    const { h, s } = hexToHslParts(theme.colorPrimario);
+    const { h, s, l } = hexToHslParts(theme.colorPrimario);
     const fg = getLuminance(theme.colorPrimario) > 0.4 ? "20 14% 4%" : "0 0% 98%";
 
     root.style.setProperty("--primary", hsl);
@@ -96,6 +96,24 @@ export function applyTheme(theme: ThemeConfig): void {
     // Items activos del sidebar — usa el primario directo
     root.style.setProperty("--sidebar-primary",             hsl);
     root.style.setProperty("--sidebar-primary-foreground",  fg);
+
+    // Tablas: derivadas siempre del color primario (sin campo extra de configuración).
+    const tableS = Math.min(Math.max(s, 28), 65);
+    if (theme.darkMode) {
+      const headerL = Math.min(Math.max(Math.round(l * 0.45), 14), 30);
+      root.style.setProperty("--table-header", `${h} ${tableS}% ${headerL}%`);
+      root.style.setProperty("--table-header-foreground", "0 0% 98%");
+      root.style.setProperty("--table-row-hover", `${h} ${Math.min(tableS, 26)}% ${Math.min(headerL + 4, 24)}%`);
+      root.style.setProperty("--table-row-selected", `${h} ${Math.min(tableS + 4, 32)}% ${Math.min(headerL + 9, 30)}%`);
+      root.style.setProperty("--table-border", `${h} ${Math.min(tableS, 22)}% ${Math.min(headerL + 8, 32)}%`);
+    } else {
+      const headerL = Math.min(Math.max(Math.round(l * 0.78), 22), 42);
+      root.style.setProperty("--table-header", `${h} ${tableS}% ${headerL}%`);
+      root.style.setProperty("--table-header-foreground", "0 0% 100%");
+      root.style.setProperty("--table-row-hover", `${h} ${Math.min(tableS, 30)}% 96%`);
+      root.style.setProperty("--table-row-selected", `${h} ${Math.min(tableS + 8, 40)}% 92%`);
+      root.style.setProperty("--table-border", `${h} ${Math.min(tableS, 18)}% 86%`);
+    }
   }
 
   // — Color de acento —

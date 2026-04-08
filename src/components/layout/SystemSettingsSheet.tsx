@@ -153,7 +153,11 @@ export function SystemSettingsSheet({ open, onOpenChange }: SystemSettingsSheetP
               <div>
                 <p className="text-sm font-medium text-foreground mb-3">Colores</p>
                 <div className="space-y-3">
-                  {(["colorPrimario", "colorSecundario", "colorAccent"] as const).map((key, i) => (
+                  {([
+                    { key: "colorPrimario", label: "Color Primario" },
+                    { key: "colorSecundario", label: "Color Secundario" },
+                    { key: "colorAccent", label: "Color de Acento" },
+                  ] as const).map(({ key, label }) => (
                     <div key={key} className="flex items-center gap-3">
                       <input
                         type="color"
@@ -163,7 +167,7 @@ export function SystemSettingsSheet({ open, onOpenChange }: SystemSettingsSheetP
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-muted-foreground mb-1">
-                          {["Color Primario", "Color Secundario", "Color de Acento"][i]}
+                          {label}
                         </p>
                         <Input
                           value={draft[key]}
