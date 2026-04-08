@@ -24,11 +24,20 @@ interface CampoConfigDrawerProps {
 }
 
 type CalculoCampoRef = NonNullable<ModParam["calculo_campos"]>[number];
+type RelacionOperacion = NonNullable<ModParam["relacion_origen_operacion"]>;
+
+const parseValores = (raw: string): Record<string, string> => {
+  try {
+    return JSON.parse(raw || "{}");
+  } catch {
+    return {};
+  }
+};
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: CampoConfigDrawerProps) {
-  const { definiciones, parametros } = useConfig();
+  const { definiciones, parametros, datos } = useConfig();
   const [etiqueta, setEtiqueta]         = useState("");
   const [valorDefault, setValorDefault] = useState("");
   const [visible, setVisible]           = useState(true);
@@ -53,6 +62,8 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
   const [relacionCampoValor, setRelacionCampoValor] = useState<string>("");
   const [relacionFiltrosComunes, setRelacionFiltrosComunes] = useState<string[]>([]);
   const [relacionAgruparPor, setRelacionAgruparPor] = useState<string>("");
+  const [relacionOperacion, setRelacionOperacion] = useState<RelacionOperacion>("valores_unicos");
+  const [relacionValorEspecifico, setRelacionValorEspecifico] = useState<string>("");
   // Campos calculados
   const [esCalculado,        setEsCalculado]        = useState<boolean>(false);
   const [calculoTipo,        setCalculoTipo]        = useState<"suma" | "promedio" | "maximo" | "minimo" | "formula_personalizada">("suma");
@@ -82,6 +93,8 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
     setRelacionCampoValor(campo.relacion_campo_valor ?? "");
     setRelacionFiltrosComunes(campo.relacion_filtros_comunes ?? []);
     setRelacionAgruparPor(campo.relacion_agrupar_por ?? "");
+    setRelacionOperacion(campo.relacion_origen_operacion ?? "valores_unicos");
+    setRelacionValorEspecifico(campo.relacion_origen_valor_especifico ?? "");
     setEsCalculado(campo.es_calculado ?? false);
     setCalculoTipo(campo.calculo_tipo ?? "suma");
     setCalculoCampos((campo.calculo_campos ?? []).map((c) => ({
@@ -106,9 +119,31 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
 
   // Para el config de relación: campos disponibles en la definición fuente
   const defFuente = definiciones.find(d => d.id === relacionDefId);
+  const campoValorEfectivo = relacionCampoValor || relacionCampoLabel;
   const camposFuente = defFuente
-    ? parametros.filter(p => p.definicion_id === defFuente.id).sort((a, b) => a.orden - b.orden)
+    ? parametros
+        .filter(p => p.definicion_id === defFuente.id && !(defFuente.id === campo.definicion_id && p.id === campo.id))
+        .sort((a, b) => a.orden - b.orden)
     : [];
+  const rowsFuenteRelacion = relacionDefId
+    ? datos.filter((d) => d.definicion_id === relacionDefId)
+    : [];
+  const campoFuenteValor = camposFuente.find((p) => p.nombre === campoValorEfectivo) ?? null;
+  const relacionCampoValorEsNumero = campoFuenteValor?.tipo_dato === "Número";
+  const relacionTextoUniqueValues = (!relacionCampoValorEsNumero && relacionDefId && campoValorEfectivo)
+    ? Array.from(new Set(
+        rowsFuenteRelacion
+          .map((row) => String(parseValores(row.valores)[campoValorEfectivo] ?? "").trim())
+          .filter(Boolean)
+      )).sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }))
+    : [];
+  const relacionOperacionNormalizada: RelacionOperacion = relacionCampoValorEsNumero
+    ? (["suma", "promedio", "maximo", "minimo", "valores_unicos"].includes(relacionOperacion)
+        ? relacionOperacion
+        : "suma")
+    : (["valores_unicos", "valor_especifico"].includes(relacionOperacion)
+        ? relacionOperacion
+        : "valores_unicos");
 
   const camposDefActual = parametros
     .filter((p) => p.definicion_id === campo.definicion_id && p.id !== campo.id)
@@ -218,6 +253,16 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
         : null,
       relacion_agrupar_por: showRelacion && relacionDefId && relacionAgruparPor
         ? relacionAgruparPor
+        : null,
+      relacion_origen_operacion: showRelacion && relacionDefId && campoValorEfectivo
+        ? relacionOperacionNormalizada
+        : null,
+      relacion_origen_valor_especifico: showRelacion
+        && relacionDefId
+        && !relacionCampoValorEsNumero
+        && relacionOperacionNormalizada === "valor_especifico"
+        && relacionValorEspecifico.trim()
+        ? relacionValorEspecifico.trim()
         : null,
       es_calculado:         showCalculado && esCalculado ? esCalculado : undefined,
       calculo_tipo:         showCalculado && esCalculado ? calculoTipo : undefined,
@@ -426,7 +471,7 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                 <div className="flex items-start gap-2 text-[11px] text-muted-foreground bg-background rounded-md px-2.5 py-2 border">
                   <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-primary" />
                   <span>
-                    Este campo mostrará un desplegable con registros de otra definición.
+                    Este campo mostrará un desplegable con registros de otra definición o del mismo formulario.
                     Ej: <em>"Personal Siembra"</em> trae los trabajadores del formulario de Personal.
                   </span>
                 </div>
@@ -446,32 +491,36 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                         setRelacionCampoValor("");
                         setRelacionFiltrosComunes([]);
                         setRelacionAgruparPor("");
+                        setRelacionOperacion("valores_unicos");
+                        setRelacionValorEspecifico("");
                         return;
                       }
 
                       const nextCamposFuente = parametros
-                        .filter((p) => p.definicion_id === nextDefId)
+                        .filter((p) => p.definicion_id === nextDefId && !(nextDefId === campo.definicion_id && p.id === campo.id))
                         .sort((a, b) => a.orden - b.orden);
                       const nextCamposComunes = getCamposComunesConDef(nextDefId);
                       const defaultLabelField = pickDefaultLabelField(nextCamposFuente);
+                      const defaultTipo = nextCamposFuente.find((p) => p.nombre === defaultLabelField)?.tipo_dato;
                       const commonNames = nextCamposComunes.map((c) => c.nombre);
 
                       setRelacionCampoLabel(defaultLabelField);
                       setRelacionCampoValor(defaultLabelField);
                       setRelacionFiltrosComunes(commonNames);
                       setRelacionAgruparPor(pickDefaultGroupField(nextCamposComunes));
+                      setRelacionOperacion(defaultTipo === "Número" ? "suma" : "valores_unicos");
+                      setRelacionValorEspecifico("");
                     }}
                   >
                     <option value="">— Seleccionar formulario —</option>
-                    {definiciones
-                      .filter(d => d.id !== campo.definicion_id)
-                      .map(d => (
-                        <option key={d.id} value={d.id}>{d.nombre}</option>
-                      ))
-                    }
+                    {definiciones.map(d => (
+                      <option key={d.id} value={d.id}>
+                        {d.nombre}{d.id === campo.definicion_id ? " (mismo formulario)" : ""}
+                      </option>
+                    ))}
                   </select>
                   <p className="text-[10px] text-muted-foreground">
-                    Los registros de este formulario aparecerán en el dropdown.
+                    Puedes usar otro formulario o el mismo formulario actual como fuente de registros.
                   </p>
                 </div>
 
@@ -482,7 +531,20 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                     <select
                       className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                       value={relacionCampoLabel}
-                      onChange={e => setRelacionCampoLabel(e.target.value)}
+                      onChange={e => {
+                        const nextLabel = e.target.value;
+                        setRelacionCampoLabel(nextLabel);
+                        if (!relacionCampoValor) {
+                          const sourceField = camposFuente.find((p) => p.nombre === nextLabel);
+                          if (sourceField?.tipo_dato === "Número") {
+                            if (!["suma", "promedio", "maximo", "minimo", "valores_unicos"].includes(relacionOperacionNormalizada)) {
+                              setRelacionOperacion("suma");
+                            }
+                          } else if (["suma", "promedio", "maximo", "minimo"].includes(relacionOperacionNormalizada)) {
+                            setRelacionOperacion("valores_unicos");
+                          }
+                        }
+                      }}
                     >
                       <option value="">— Seleccionar campo —</option>
                       {camposFuente.map(p => (
@@ -504,7 +566,20 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                     <select
                       className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                       value={relacionCampoValor}
-                      onChange={e => setRelacionCampoValor(e.target.value)}
+                      onChange={e => {
+                        const nextCampoValor = e.target.value;
+                        setRelacionCampoValor(nextCampoValor);
+                        const fieldName = nextCampoValor || relacionCampoLabel;
+                        const sourceField = camposFuente.find((p) => p.nombre === fieldName);
+                        if (sourceField?.tipo_dato === "Número") {
+                          if (!["suma", "promedio", "maximo", "minimo", "valores_unicos"].includes(relacionOperacionNormalizada)) {
+                            setRelacionOperacion("suma");
+                          }
+                        } else if (["suma", "promedio", "maximo", "minimo"].includes(relacionOperacionNormalizada)) {
+                          setRelacionOperacion("valores_unicos");
+                        }
+                        setRelacionValorEspecifico("");
+                      }}
                     >
                       <option value="">— Igual que etiqueta —</option>
                       {camposFuente.map(p => (
@@ -516,6 +591,73 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                     <p className="text-[10px] text-muted-foreground">
                       Qué campo se guarda en el registro. Por defecto es el mismo que la etiqueta.
                     </p>
+                  </div>
+                )}
+
+                {/* Origen de campos vinculados */}
+                {relacionDefId && campoValorEfectivo && (
+                  <div className="space-y-2 rounded-md border border-border/70 bg-background p-2.5">
+                    <Label className="text-xs font-medium">Origen de los campos vinculados</Label>
+                    <p className="text-[10px] text-muted-foreground">
+                      Campo origen: <strong>{campoFuenteValor?.etiqueta_personalizada || campoValorEfectivo.replace(/_/g, " ")}</strong>
+                      {campoFuenteValor ? ` (${campoFuenteValor.tipo_dato})` : ""}
+                    </p>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                        {relacionCampoValorEsNumero ? "Operación para campo numérico" : "Modo para campo no numérico"}
+                      </Label>
+                      <select
+                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                        value={relacionOperacionNormalizada}
+                        onChange={(e) => {
+                          setRelacionOperacion(e.target.value as RelacionOperacion);
+                          if (e.target.value !== "valor_especifico") {
+                            setRelacionValorEspecifico("");
+                          }
+                        }}
+                      >
+                        {relacionCampoValorEsNumero ? (
+                          <>
+                            <option value="suma">Suma</option>
+                            <option value="promedio">Promedio</option>
+                            <option value="maximo">Máximo</option>
+                            <option value="minimo">Mínimo</option>
+                            <option value="valores_unicos">Listar valores únicos</option>
+                          </>
+                        ) : (
+                          <>
+                            <option value="valores_unicos">Listar valores únicos</option>
+                            <option value="valor_especifico">Usar un valor específico</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
+
+                    {!relacionCampoValorEsNumero && relacionOperacion === "valor_especifico" && (
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Valor específico</Label>
+                        {relacionTextoUniqueValues.length > 0 ? (
+                          <select
+                            className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                            value={relacionValorEspecifico}
+                            onChange={(e) => setRelacionValorEspecifico(e.target.value)}
+                          >
+                            <option value="">— Seleccionar valor —</option>
+                            {relacionTextoUniqueValues.map((v) => (
+                              <option key={v} value={v}>{v}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Input
+                            value={relacionValorEspecifico}
+                            onChange={(e) => setRelacionValorEspecifico(e.target.value)}
+                            placeholder="Escribe el valor exacto"
+                            className="h-8 text-xs"
+                          />
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -560,7 +702,7 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                       </div>
                     )}
                     <p className="text-[10px] text-muted-foreground">
-                      Solo se mostrarán registros fuente que coincidan con estos campos del registro actual.
+                      Se comparan campos con el mismo nombre entre la definición actual y la definición vinculada para filtrar por coincidencia.
                     </p>
                   </div>
                 )}
@@ -595,6 +737,25 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                       Al registrar datos, aparecerá un dropdown con los registros de{" "}
                       <strong>{defFuente?.nombre}</strong>, mostrando el campo{" "}
                       <strong>{relacionCampoLabel.replace(/_/g, " ")}</strong>
+                      {campoValorEfectivo && (
+                        <>
+                          {" "}y tomando como origen de valor{" "}
+                          <strong>{campoValorEfectivo.replace(/_/g, " ")}</strong>
+                        </>
+                      )}
+                      {relacionCampoValorEsNumero ? (
+                        <>
+                          {" "}con operación <strong>{relacionOperacionNormalizada}</strong>
+                        </>
+                      ) : relacionOperacionNormalizada === "valor_especifico" && relacionValorEspecifico.trim() ? (
+                        <>
+                          {" "}usando el valor específico <strong>{relacionValorEspecifico.trim()}</strong>
+                        </>
+                      ) : (
+                        <>
+                          {" "}listando valores únicos
+                        </>
+                      )}
                       {relacionFiltrosComunes.length > 0 && (
                         <>
                           {" "}y filtrando por coincidencia en{" "}

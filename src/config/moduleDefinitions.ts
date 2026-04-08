@@ -184,6 +184,15 @@ export interface ModParam {
   relacion_filtros_comunes?: string[] | null;
   /** Campo de la fuente para agrupar visualmente opciones de relación */
   relacion_agrupar_por?:     string | null;
+  /**
+   * Estrategia para construir opciones desde la fuente de relación:
+   * - valores_unicos: lista única de valores del campo seleccionado
+   * - valor_especifico: solo deja disponible un valor puntual
+   * - suma/promedio/maximo/minimo: agrega valores numéricos de la fuente
+   */
+  relacion_origen_operacion?: "valores_unicos" | "valor_especifico" | "suma" | "promedio" | "maximo" | "minimo" | null;
+  /** Valor puntual permitido cuando relacion_origen_operacion = valor_especifico */
+  relacion_origen_valor_especifico?: string | null;
   // ── Tipo "Número" calculado: operaciones sobre otros campos ─────────────────
   /** Si es true, este campo se calcula automáticamente desde otros campos */
   es_calculado?:             boolean;

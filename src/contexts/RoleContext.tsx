@@ -91,7 +91,7 @@ const AREA_MODULES = [
   "post-cosecha", "produccion", "recursos-humanos", "comercial",
 ] as const;
 
-// 6 usuarios demo — uno por rol
+// Usuarios demo para pruebas (más volumen para filtros, destinatarios y roles)
 export const INITIAL_USERS: HardcodedUser[] = [
   {
     id: 1,
@@ -150,6 +150,145 @@ export const INITIAL_USERS: HardcodedUser[] = [
     role: "lector",
     clienteId: 2, // Frutas del Valle
     area_asignada: "vivero", // solo Vivero, solo lectura
+    activo: true,
+  },
+  {
+    id: 7,
+    nombre: "Sofía Rojas",
+    email: "sofia.rojas@agroworkin.com",
+    password: "sup123",
+    role: "supervisor",
+    clienteId: 1,
+    area_asignada: "cultivo",
+    activo: true,
+  },
+  {
+    id: 8,
+    nombre: "Pedro Alarcón",
+    email: "pedro.alarcon@agroworkin.com",
+    password: "sup123",
+    role: "supervisor",
+    clienteId: 1,
+    area_asignada: "cosecha",
+    activo: true,
+  },
+  {
+    id: 9,
+    nombre: "Camila Fuentes",
+    email: "camila.fuentes@agroworkin.com",
+    password: "jefe123",
+    role: "jefe_area",
+    clienteId: 1,
+    area_asignada: "cosecha",
+    activo: true,
+  },
+  {
+    id: 10,
+    nombre: "Diego Herrera",
+    email: "diego.herrera@agroworkin.com",
+    password: "lector123",
+    role: "lector",
+    clienteId: 1,
+    area_asignada: "cultivo",
+    activo: true,
+  },
+  {
+    id: 11,
+    nombre: "Valentina Pino",
+    email: "valentina.pino@agroworkin.com",
+    password: "prod123",
+    role: "productor",
+    clienteId: 1,
+    productorId: 2,
+    activo: true,
+  },
+  {
+    id: 12,
+    nombre: "Esteban Muñoz",
+    email: "esteban.munoz@agroworkin.com",
+    password: "prod123",
+    role: "productor",
+    clienteId: 2,
+    productorId: 3,
+    activo: true,
+  },
+  {
+    id: 13,
+    nombre: "Paula Navarro",
+    email: "paula.navarro@agroworkin.com",
+    password: "admin123",
+    role: "cliente_admin",
+    clienteId: 2,
+    activo: true,
+  },
+  {
+    id: 14,
+    nombre: "Nicolás Vega",
+    email: "nicolas.vega@agroworkin.com",
+    password: "jefe123",
+    role: "jefe_area",
+    clienteId: 2,
+    area_asignada: "vivero",
+    activo: true,
+  },
+  {
+    id: 15,
+    nombre: "Daniela Castro",
+    email: "daniela.castro@agroworkin.com",
+    password: "sup123",
+    role: "supervisor",
+    clienteId: 2,
+    area_asignada: "vivero",
+    activo: true,
+  },
+  {
+    id: 16,
+    nombre: "Martín Ibarra",
+    email: "martin.ibarra@agroworkin.com",
+    password: "lector123",
+    role: "lector",
+    clienteId: 2,
+    area_asignada: "vivero",
+    activo: true,
+  },
+  {
+    id: 17,
+    nombre: "Fernanda Ruiz",
+    email: "fernanda.ruiz@agroworkin.com",
+    password: "sup123",
+    role: "supervisor",
+    clienteId: 1,
+    area_asignada: "laboratorio",
+    activo: true,
+  },
+  {
+    id: 18,
+    nombre: "Tomás Vidal",
+    email: "tomas.vidal@agroworkin.com",
+    password: "lector123",
+    role: "lector",
+    clienteId: 1,
+    area_asignada: "cosecha",
+    activo: true,
+  },
+  {
+    id: 19,
+    nombre: "Carolina Peña",
+    email: "carolina.pena@agroworkin.com",
+    password: "prod123",
+    role: "productor",
+    clienteId: 1,
+    productorId: 1,
+    activo: true,
+  },
+  {
+    id: 20,
+    nombre: "Sebastián León",
+    email: "sebastian.leon@agroworkin.com",
+    password: "prod123",
+    role: "productor",
+    clienteId: 2,
+    productorId: 3,
     activo: true,
   },
 ];
@@ -237,9 +376,11 @@ const ROLE_MODULE_PERMISSION_OVERRIDES: Partial<Record<UserRole, Partial<Record<
     configuracion: [],
   },
   supervisor: {
+    dashboard: [],
     configuracion: [],
   },
   lector: {
+    dashboard: [],
     informes: ["ver", "exportar"],
   },
 };
@@ -413,6 +554,18 @@ function saveToStorage(key: string, value: unknown): void {
   }
 }
 
+function mergeStoredUsersWithDemo(storedUsers: HardcodedUser[]): HardcodedUser[] {
+  const byEmail = new Map<string, HardcodedUser>();
+  storedUsers.forEach((u) => byEmail.set(u.email.toLowerCase(), u));
+  INITIAL_USERS.forEach((u) => {
+    const key = u.email.toLowerCase();
+    if (!byEmail.has(key)) {
+      byEmail.set(key, u);
+    }
+  });
+  return Array.from(byEmail.values());
+}
+
 export function RoleProvider({ children }: { children: ReactNode }) {
   // ── Lazy initialization: cargar desde localStorage ──
   const [isAuthenticated, setIsAuthenticated] = useState(() =>
@@ -428,7 +581,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     loadFromStorage(STORAGE_KEYS.OVERRIDES, OVERRIDES_DEMO)
   );
   const [users, setUsers] = useState<HardcodedUser[]>(() =>
-    loadFromStorage(STORAGE_KEYS.USERS, INITIAL_USERS)
+    mergeStoredUsersWithDemo(loadFromStorage(STORAGE_KEYS.USERS, INITIAL_USERS))
   );
   const [empresaCtxId, setEmpresaCtxId] = useState<number | null>(() =>
     loadFromStorage(STORAGE_KEYS.EMPRESA_CTX, null)
@@ -452,6 +605,14 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     saveToStorage(STORAGE_KEYS.USERS, users);
   }, [users]);
+
+  // Ensure new demo users are injected even when a previous localStorage snapshot exists.
+  useEffect(() => {
+    setUsers((prev) => {
+      const merged = mergeStoredUsersWithDemo(prev);
+      return merged.length === prev.length ? prev : merged;
+    });
+  }, []);
 
   useEffect(() => {
     saveToStorage(STORAGE_KEYS.CLIENTES, clientes);
@@ -544,6 +705,9 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   };
 
   const productorCanAccessModule = (modulo: string): boolean => {
+    // Configuración siempre accesible para productor
+    if (modulo === "configuracion") return true;
+
     const activeDashboardModules = new Set(
       getProductorDashboardModules(currentUser?.productorId)
     );
@@ -556,12 +720,12 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
   // ─── Module access logic ─────────────────────────────────────────────────────
   // Roles with area_asignada (jefe_area, supervisor, lector) can only access
-  // their assigned module. Dashboard is always accessible.
+  // their assigned module.
   // super_admin, cliente_admin → access all modules.
   // productor → access only modules configured in dashboard profile.
   const canAccessModule = (modulo: string): boolean => {
-    // Dashboard siempre accesible
-    if (modulo === "dashboard") return true;
+    // Dashboard no está habilitado para supervisor ni lector.
+    if (modulo === "dashboard") return role !== "supervisor" && role !== "lector";
     // super_admin → todo
     if (role === "super_admin") return true;
     // cliente_admin → todo de su empresa
@@ -655,7 +819,13 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
   // Usuarios CRUD
   const addUser = (u: Omit<HardcodedUser, "id">): HardcodedUser => {
-    const newU: HardcodedUser = { ...u, id: Date.now() };
+    if (role !== "super_admin") {
+      throw new Error("Solo super_admin puede crear usuarios.");
+    }
+    const newU: HardcodedUser = {
+      ...u,
+      id: Date.now() + Math.floor(Math.random() * 1000),
+    };
     setUsers(prev => [...prev, newU]);
     return newU;
   };

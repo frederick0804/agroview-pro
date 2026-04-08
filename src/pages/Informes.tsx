@@ -102,6 +102,7 @@ interface Informe {
   hora_envio?: string;
   destinatarios_programados?: string[];
   formato_preferido?: FormatoExport;
+  filtros_automaticos?: Record<string, unknown>;
   veces_generado: number;
   ultimo_uso?: string;
   cliente_id?: number;
@@ -1160,12 +1161,14 @@ function GeneracionRow({
   informeNombre,
   categoriaCfg,
   onClick,
+  onPreview,
   onDownload,
 }: {
   gen: InformeGeneracion;
   informeNombre: string;
   categoriaCfg: (typeof CATEGORIA_CONFIG)[CategoriaInforme];
   onClick?: () => void;
+  onPreview?: () => void;
   onDownload?: (gen: InformeGeneracion) => void;
 }) {
   const CatIcon = categoriaCfg.icon;
@@ -1187,11 +1190,17 @@ function GeneracionRow({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : -1}
       onClick={onClick}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick?.(); }}
-      className="group w-full text-left flex items-center gap-3 px-4 py-3 cursor-pointer border-b border-border last:border-b-0 hover:bg-muted/40 transition-colors"
+      onKeyDown={(e) => {
+        if (!onClick) return;
+        if (e.key === "Enter" || e.key === " ") onClick();
+      }}
+      className={cn(
+        "group w-full text-left flex items-center gap-3 px-4 py-3 border-b border-border last:border-b-0 transition-colors",
+        onClick ? "cursor-pointer hover:bg-muted/40" : "cursor-default",
+      )}
     >
       {/* Category icon */}
       <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border", categoriaCfg.bg, categoriaCfg.border)}>
@@ -1233,6 +1242,17 @@ function GeneracionRow({
       <button
         onClick={(e) => {
           e.stopPropagation();
+          onPreview?.();
+        }}
+        className="h-7 px-2 rounded-md border border-border text-[10px] text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-muted/50 transition-colors flex items-center gap-1"
+        title="Previsualizar"
+      >
+        <Eye className="w-3 h-3" /> Ver previa
+      </button>
+
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
           onDownload?.(gen);
         }}
         className="h-7 px-2 rounded-md border border-border text-[10px] text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-muted/50 transition-colors flex items-center gap-1"
@@ -1240,6 +1260,320 @@ function GeneracionRow({
       >
         <Download className="w-3 h-3" /> Descargar
       </button>
+    </div>
+  );
+}
+
+function GeneracionPreviewModal({
+  gen,
+  informe,
+  onClose,
+  onDownload,
+}: {
+  gen: InformeGeneracion;
+  informe: Informe | null;
+  onClose: () => void;
+  onDownload: (gen: InformeGeneracion) => void;
+}) {
+  const categoria = normalizeCategoria(gen.categoria);
+  const categoriaCfg = CATEGORIA_CONFIG[categoria];
+  const CategoriaIcon = categoriaCfg.icon;
+  const formatoCfg = FORMATO_CONFIG[gen.formato];
+  const FormatoIcon = formatoCfg.icon;
+  const formatPreviewLabel: Record<FormatoExport, string> = {
+    pdf: "Vista tipo PDF",
+    excel: "Vista tipo Excel",
+    csv: "Vista tipo CSV",
+    word: "Vista tipo Word",
+  };
+
+  const seed = hashText(`${gen.id}|${gen.informe_id}|${gen.fecha}|${gen.usuario}|${gen.formato}`);
+  const registros = gen.registros_procesados ?? (120 + (seed % 260));
+  const tiempoMs = gen.tiempo_ms ?? (900 + (seed % 1800));
+  const cobertura = Math.min(99, 72 + (seed % 24));
+  const rendimiento = Math.min(98, 65 + ((seed >> 3) % 30));
+  const alertas = seed % 5;
+  const bloques = informe?.builderConfig?.bloques.length ?? (2 + (seed % 3));
+
+  const serie = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago"].map((label, idx) => ({
+    label,
+    value: 30 + ((seed + idx * 19) % 66),
+  }));
+
+  const filas = Array.from({ length: 5 }).map((_, idx) => {
+    const indicador = 28 + ((seed + idx * 17) % 70);
+    const variacion = ((seed + idx * 13) % 19) - 9;
+    return {
+      lote: `Lote-${String(idx + 1).padStart(2, "0")}`,
+      indicador,
+      variacion,
+      estado: variacion >= 4 ? "Alza" : variacion <= -4 ? "Baja" : "Estable",
+    };
+  });
+
+  const sheetHeaders = ["Fecha", "Lote", "Indicador", "Variación %", "Estado", "Cobertura %", "Rendimiento %", "Usuario"];
+  const sheetRows = filas.map((row, idx) => {
+    const rowDate = new Date(new Date(gen.fecha).getTime() - idx * 86400000);
+    return [
+      toDateInputValue(rowDate),
+      row.lote,
+      String(row.indicador),
+      `${row.variacion >= 0 ? "+" : ""}${row.variacion}`,
+      row.estado,
+      String(Math.max(0, Math.min(100, cobertura - idx))),
+      String(Math.max(0, Math.min(100, rendimiento - idx))),
+      gen.usuario,
+    ];
+  });
+
+  const csvPreviewText = [
+    sheetHeaders.join(","),
+    ...sheetRows.map((row) => row.map((cell) => String(cell).replace(/,/g, " ")).join(",")),
+  ].join("\n");
+
+  const wordHighlights = [
+    `Se procesaron ${registros} registros en ${formatMs(tiempoMs)} con estado ${gen.estado}.`,
+    `Cobertura operativa estimada de ${cobertura}% y rendimiento consolidado de ${rendimiento}%.`,
+    `La plantilla utilizada contiene ${bloques} bloque${bloques !== 1 ? "s" : ""} y ${alertas} alerta${alertas !== 1 ? "s" : ""} detectada${alertas !== 1 ? "s" : ""}.`,
+  ];
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-4xl max-h-[86vh] overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-border flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={cn("p-2 rounded-lg border shrink-0", categoriaCfg.bg, categoriaCfg.border)}>
+              <CategoriaIcon className={cn("w-4 h-4", categoriaCfg.color)} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-sm font-bold truncate">Previsualización de informe generado</h2>
+              <p className="text-xs text-muted-foreground truncate">
+                {gen.informe_nombre} · {formatDateTime(gen.fecha)} · {gen.usuario}
+              </p>
+            </div>
+          </div>
+          <span className="hidden sm:inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border text-[10px] text-muted-foreground bg-muted/40">
+            <FormatoIcon className="w-3 h-3" /> {formatPreviewLabel[gen.formato]}
+          </span>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
+            aria-label="Cerrar previsualización"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-muted/20">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 flex items-start gap-2">
+            <Sparkles className="w-3.5 h-3.5 text-blue-600 mt-0.5" />
+            <p className="text-[11px] text-blue-800">
+              Esta simulación replica la apariencia de {formatoCfg.label} para revisar el contenido dentro de la app antes de descargar el documento final.
+            </p>
+          </div>
+
+          {gen.estado === "error" && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 flex items-start gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-600 mt-0.5" />
+              <p className="text-[11px] text-rose-800">
+                Esta generación aparece con estado Error. La previsualización se muestra como referencia para análisis, pero el archivo real podría no estar completo.
+              </p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+            <div className="rounded-lg border border-border bg-card p-2.5">
+              <p className="text-[10px] text-muted-foreground">Registros</p>
+              <p className="text-base font-bold">{registros}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-card p-2.5">
+              <p className="text-[10px] text-muted-foreground">Tiempo de ejecución</p>
+              <p className="text-base font-bold">{formatMs(tiempoMs)}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-card p-2.5">
+              <p className="text-[10px] text-muted-foreground">Cobertura</p>
+              <p className="text-base font-bold">{cobertura}%</p>
+            </div>
+            <div className="rounded-lg border border-border bg-card p-2.5">
+              <p className="text-[10px] text-muted-foreground">Rendimiento</p>
+              <p className="text-base font-bold">{rendimiento}%</p>
+            </div>
+          </div>
+
+          {gen.formato === "pdf" && (
+            <div className="rounded-xl border border-zinc-300 bg-zinc-200/60 p-4">
+              <div className="mx-auto max-w-2xl bg-white text-zinc-900 border border-zinc-300 shadow-xl">
+                <div className="px-6 py-4 border-b border-zinc-200">
+                  <p className="text-[10px] uppercase tracking-widest text-zinc-500">Reporte PDF</p>
+                  <h3 className="text-sm font-bold mt-1">{gen.informe_nombre}</h3>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
+                    <div>
+                      <p className="text-zinc-500 uppercase">Generado</p>
+                      <p className="font-semibold">{formatDate(gen.fecha)}</p>
+                    </div>
+                    <div>
+                      <p className="text-zinc-500 uppercase">Usuario</p>
+                      <p className="font-semibold truncate">{gen.usuario}</p>
+                    </div>
+                    <div>
+                      <p className="text-zinc-500 uppercase">Código</p>
+                      <p className="font-semibold">{informe?.codigo ?? gen.informe_id}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-6 space-y-4">
+                  <div className="rounded border border-zinc-200 p-3">
+                    <p className="text-[10px] font-semibold uppercase text-zinc-500 mb-2">Indicadores visuales</p>
+                    <div className="h-28 flex items-end gap-2">
+                      {serie.map((item) => (
+                        <div key={item.label} className="flex-1 flex flex-col items-center justify-end gap-1">
+                          <div className="w-full rounded-t bg-zinc-700/70" style={{ height: `${item.value}%` }} />
+                          <span className="text-[8px] text-zinc-500">{item.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <table className="w-full text-[10px] border-collapse">
+                    <thead>
+                      <tr className="bg-zinc-100">
+                        <th className="border border-zinc-300 px-2 py-1 text-left">Lote</th>
+                        <th className="border border-zinc-300 px-2 py-1 text-left">Indicador</th>
+                        <th className="border border-zinc-300 px-2 py-1 text-left">Variación</th>
+                        <th className="border border-zinc-300 px-2 py-1 text-left">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filas.map((row) => (
+                        <tr key={row.lote}>
+                          <td className="border border-zinc-300 px-2 py-1">{row.lote}</td>
+                          <td className="border border-zinc-300 px-2 py-1">{row.indicador}</td>
+                          <td className="border border-zinc-300 px-2 py-1">{row.variacion >= 0 ? `+${row.variacion}` : row.variacion}%</td>
+                          <td className="border border-zinc-300 px-2 py-1">{row.estado}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="px-6 py-2 border-t border-zinc-200 text-[9px] text-zinc-500 flex items-center justify-between">
+                  <span>{informe?.nombre ?? gen.informe_nombre}</span>
+                  <span>Página 1 de 1</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {gen.formato === "excel" && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 space-y-2">
+              <p className="text-xs font-semibold text-emerald-800">Hoja de cálculo (.xlsx)</p>
+              <div className="overflow-x-auto rounded-lg border border-border bg-card">
+                <table className="min-w-[820px] text-[11px] font-mono">
+                  <thead>
+                    <tr className="bg-emerald-100/70 border-b border-emerald-200">
+                      <th className="w-10 px-2 py-1 text-center text-emerald-700">#</th>
+                      {sheetHeaders.map((_, idx) => (
+                        <th key={idx} className="px-2 py-1 text-left text-emerald-700">{String.fromCharCode(65 + idx)}</th>
+                      ))}
+                    </tr>
+                    <tr className="bg-muted/40 border-b border-border">
+                      <th className="px-2 py-1 text-center">1</th>
+                      {sheetHeaders.map((header) => (
+                        <th key={header} className="px-2 py-1 text-left font-semibold">{header}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sheetRows.map((row, idx) => (
+                      <tr key={`${row[1]}-${idx}`} className="border-b border-border/70 last:border-b-0">
+                        <td className="px-2 py-1 text-center text-muted-foreground">{idx + 2}</td>
+                        {row.map((cell, cidx) => (
+                          <td key={`${idx}-${cidx}`} className="px-2 py-1 whitespace-nowrap">{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {gen.formato === "word" && (
+            <div className="rounded-xl border border-slate-300 bg-slate-100/70 p-4">
+              <div className="mx-auto max-w-2xl bg-white border border-slate-300 shadow-lg p-8 text-slate-900" style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>
+                <h3 className="text-xl font-semibold">{gen.informe_nombre}</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Documento generado el {formatDateTime(gen.fecha)} por {gen.usuario}
+                </p>
+
+                <p className="text-[15px] leading-7 mt-5">
+                  Este documento presenta una síntesis operativa del período analizado, incluyendo métricas consolidadas,
+                  alertas relevantes y observaciones de seguimiento para la toma de decisiones.
+                </p>
+
+                <h4 className="text-sm font-semibold mt-6 uppercase tracking-wide">Hallazgos principales</h4>
+                <ul className="mt-2 space-y-1 text-[15px] leading-7 list-disc pl-6">
+                  {wordHighlights.map((highlight) => (
+                    <li key={highlight}>{highlight}</li>
+                  ))}
+                </ul>
+
+                <h4 className="text-sm font-semibold mt-6 uppercase tracking-wide">Resumen numérico</h4>
+                <table className="w-full mt-2 text-sm border-collapse">
+                  <tbody>
+                    <tr>
+                      <td className="border border-slate-300 px-2 py-1 font-semibold">Cobertura</td>
+                      <td className="border border-slate-300 px-2 py-1">{cobertura}%</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 px-2 py-1 font-semibold">Rendimiento</td>
+                      <td className="border border-slate-300 px-2 py-1">{rendimiento}%</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 px-2 py-1 font-semibold">Alertas</td>
+                      <td className="border border-slate-300 px-2 py-1">{alertas}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {gen.formato === "csv" && (
+            <div className="rounded-xl border border-slate-300 bg-slate-50 p-3 space-y-2">
+              <p className="text-xs font-semibold text-slate-700">Archivo plano CSV (separado por comas)</p>
+              <pre className="rounded-lg border border-border bg-card p-3 text-[11px] font-mono whitespace-pre overflow-x-auto leading-5">
+                {csvPreviewText}
+              </pre>
+            </div>
+          )}
+
+          <div className="rounded-md border border-border bg-muted/40 p-2 text-[10px] text-muted-foreground">
+            Si necesitas el documento oficial, usa Descargar. Esta vista mantiene el estilo del formato seleccionado para validación rápida en pantalla.
+          </div>
+        </div>
+
+        <div className="px-5 py-3 border-t border-border flex items-center justify-between gap-2">
+          <span className="text-[10px] text-muted-foreground">
+            {informe ? `${informe.codigo} · ${informe.nombre}` : gen.informe_id}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onClose}>
+              Cerrar
+            </Button>
+            <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => onDownload(gen)}>
+              <Download className="w-3.5 h-3.5" /> Descargar
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1606,7 +1940,7 @@ interface DetailPanelProps {
   onToggleFavorite: () => void;
   onClose: () => void;
   onConfigure: () => void;
-  onUpdateSchedule?: (changes: Partial<Pick<Informe, "es_programado" | "frecuencia_programacion" | "hora_envio" | "destinatarios_programados" | "formato_preferido">>) => void;
+  onUpdateSchedule?: (changes: Partial<Pick<Informe, "es_programado" | "frecuencia_programacion" | "hora_envio" | "destinatarios_programados" | "formato_preferido" | "filtros_automaticos">>) => void;
   onDeleteTemplate?: () => void;
   onRestoreVersion?: (snap: InformeSnapshot) => void;
   onCopyVersionAsNew?: (snap: InformeSnapshot) => void;
@@ -1918,6 +2252,7 @@ function DetailPanel({
   const [schedDestinatarios, setSchedDestinatarios] = useState<string[]>(
     informe.destinatarios_programados ?? [],
   );
+  const [schedRoleFocus, setSchedRoleFocus] = useState<string | null>(null);
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [showUserSearch, setShowUserSearch] = useState(false);
   const userSearchRef = useRef<HTMLDivElement>(null);
@@ -1926,6 +2261,120 @@ function DetailPanel({
   const isSupervisorOrLector = currentUser?.role === "supervisor" || currentUser?.role === "lector";
   const [schedFormato, setSchedFormato] = useState<FormatoExport>(informe.formato_preferido ?? "pdf");
   const [schedSaved, setSchedSaved] = useState(false);
+
+  const visibleScheduleUsers = useMemo(() =>
+    users.filter((u) =>
+      u.activo !== false
+      && (currentUser?.role === "super_admin" || u.clienteId === currentUser?.clienteId)
+      && u.id !== currentUser?.id,
+    ),
+  [users, currentUser]);
+
+  // Migracion de configuraciones antiguas: tokens role:* -> seleccion explicita por usuario.
+  useEffect(() => {
+    const roleTokens = schedDestinatarios.filter((token) => token.startsWith("role:"));
+    if (roleTokens.length === 0) return;
+
+    const explicitUsers = new Map<string, string>();
+    schedDestinatarios
+      .filter((token) => token.startsWith("user:"))
+      .forEach((token) => {
+        const email = token.slice(5).trim().toLowerCase();
+        if (!email) return;
+        explicitUsers.set(email, token);
+      });
+
+    roleTokens.forEach((roleToken) => {
+      const roleKey = roleToken.slice(5);
+      visibleScheduleUsers
+        .filter((user) => user.role === roleKey)
+        .forEach((user) => {
+          explicitUsers.set(user.email.toLowerCase(), `user:${user.email}`);
+        });
+    });
+
+    setSchedDestinatarios(Array.from(explicitUsers.values()));
+  }, [schedDestinatarios, visibleScheduleUsers]);
+
+  const resolveScheduleRecipients = useCallback((tokens: string[]) => {
+    const byEmail = new Map<string, {
+      userId: number | null;
+      nombre: string;
+      email: string;
+      role: string | null;
+      productorId: number | null;
+    }>();
+
+    const addRecipient = (recipient: {
+      userId: number | null;
+      nombre: string;
+      email: string;
+      role: string | null;
+      productorId: number | null;
+    }) => {
+      byEmail.set(recipient.email.toLowerCase(), recipient);
+    };
+
+    tokens.forEach((token) => {
+      if (token.startsWith("role:")) {
+        const roleKey = token.slice(5);
+        visibleScheduleUsers
+          .filter((u) => u.role === roleKey)
+          .forEach((u) => {
+            addRecipient({
+              userId: u.id,
+              nombre: u.nombre,
+              email: u.email,
+              role: u.role,
+              productorId: u.productorId ?? null,
+            });
+          });
+        return;
+      }
+
+      if (token.startsWith("user:")) {
+        const rawEmail = token.slice(5).trim();
+        if (!rawEmail) return;
+        const matched = visibleScheduleUsers.find((u) => u.email.toLowerCase() === rawEmail.toLowerCase());
+        if (matched) {
+          addRecipient({
+            userId: matched.id,
+            nombre: matched.nombre,
+            email: matched.email,
+            role: matched.role,
+            productorId: matched.productorId ?? null,
+          });
+        } else {
+          addRecipient({
+            userId: null,
+            nombre: rawEmail,
+            email: rawEmail,
+            role: null,
+            productorId: null,
+          });
+        }
+      }
+    });
+
+    return Array.from(byEmail.values());
+  }, [visibleScheduleUsers]);
+
+  const scheduledRecipients = useMemo(
+    () => resolveScheduleRecipients(schedDestinatarios),
+    [resolveScheduleRecipients, schedDestinatarios],
+  );
+
+  const scheduledDispatchPlan = useMemo(() =>
+    scheduledRecipients.map((recipient) => ({
+      userId: recipient.userId,
+      nombre: recipient.nombre,
+      email: recipient.email,
+      role: recipient.role,
+      productorId: productorSeleccionado !== "todos"
+        ? String(productorSeleccionado)
+        : (recipient.productorId !== null ? String(recipient.productorId) : null),
+    })),
+  [scheduledRecipients, productorSeleccionado]);
 
   useEffect(() => {
     if (!isSupervisorOrLector) return;
@@ -2249,6 +2698,9 @@ function DetailPanel({
         definiciones: definicionesSeleccionadas.length > 0 ? definicionesSeleccionadas : null,
         // Incluir filtros jerárquicos del cultivo
         estructuraJerarquica: Object.keys(estructuraFiltros).length > 0 ? estructuraFiltros : null,
+        // Envío automático personalizado: 1 informe por destinatario.
+        estrategia_envio: "por_usuario",
+        plan_envio_por_usuario: scheduledDispatchPlan,
       };
     }
 
@@ -2268,6 +2720,7 @@ function DetailPanel({
         hora: schedHora,
         formato: schedFormato,
         destinatarios: schedDestinatarios.length,
+        informesPorEjecucion: scheduledDispatchPlan.length,
         filtros: filtrosAutomaticos,
       });
     }
@@ -3708,58 +4161,107 @@ function DetailPanel({
                   ];
 
                   // Users visible to current user (same clienteId, or all for super_admin)
-                  const visibleUsers = users.filter(u =>
-                    u.activo !== false &&
-                    (currentUser?.role === "super_admin" || u.clienteId === currentUser?.clienteId) &&
-                    u.id !== currentUser?.id,
+                  const visibleUsers = visibleScheduleUsers;
+
+                  const selectedUserEmails = new Set(
+                    schedDestinatarios
+                      .filter((token) => token.startsWith("user:"))
+                      .map((token) => token.slice(5).trim().toLowerCase())
+                      .filter(Boolean),
                   );
+
+                  const usersByRole = (roleKey: string) =>
+                    visibleUsers.filter((u) => u.role === roleKey);
 
                   // Count users per role
                   const countByRole = (roleKey: string) =>
-                    visibleUsers.filter(u => u.role === roleKey).length;
+                    usersByRole(roleKey).length;
 
-                  const toggleRole = (roleKey: string) => {
-                    const token = `role:${roleKey}`;
-                    setSchedDestinatarios(prev =>
-                      prev.includes(token) ? prev.filter(t => t !== token) : [...prev, token],
-                    );
-                  };
+                  const selectedCountByRole = (roleKey: string) =>
+                    usersByRole(roleKey).filter((user) => selectedUserEmails.has(user.email.toLowerCase())).length;
 
-                  const addUser = (email: string) => {
-                    const token = `user:${email}`;
-                    if (!schedDestinatarios.includes(token)) {
-                      setSchedDestinatarios(prev => [...prev, token]);
-                    }
+                  const isUserSelected = (email: string) =>
+                    selectedUserEmails.has(email.toLowerCase());
+
+                  const addUser = (user: typeof visibleUsers[number]) => {
+                    setSchedDestinatarios((prev) => {
+                      const emailLower = user.email.toLowerCase();
+                      const exists = prev.some(
+                        (token) => token.startsWith("user:") && token.slice(5).trim().toLowerCase() === emailLower,
+                      );
+                      const withoutRoleToken = prev.filter((token) => token !== `role:${user.role}`);
+                      if (exists) return withoutRoleToken;
+                      return [...withoutRoleToken, `user:${user.email}`];
+                    });
                     setUserSearchQuery("");
                     setShowUserSearch(false);
+                  };
+
+                  const toggleUser = (user: typeof visibleUsers[number]) => {
+                    setSchedDestinatarios((prev) => {
+                      const emailLower = user.email.toLowerCase();
+                      const withoutRoleToken = prev.filter((token) => token !== `role:${user.role}`);
+                      const alreadySelected = withoutRoleToken.some(
+                        (token) => token.startsWith("user:") && token.slice(5).trim().toLowerCase() === emailLower,
+                      );
+
+                      if (alreadySelected) {
+                        return withoutRoleToken.filter(
+                          (token) => !(token.startsWith("user:") && token.slice(5).trim().toLowerCase() === emailLower),
+                        );
+                      }
+
+                      return [...withoutRoleToken, `user:${user.email}`];
+                    });
+                  };
+
+                  const toggleAllRoleUsers = (roleKey: string) => {
+                    const roleUsers = usersByRole(roleKey);
+                    if (roleUsers.length === 0) return;
+
+                    const roleEmails = new Set(roleUsers.map((user) => user.email.toLowerCase()));
+                    const allSelected = roleUsers.every((user) => selectedUserEmails.has(user.email.toLowerCase()));
+
+                    setSchedDestinatarios((prev) => {
+                      const tokensByEmail = new Map<string, string>();
+
+                      prev.forEach((token) => {
+                        if (!token.startsWith("user:")) return;
+                        const email = token.slice(5).trim().toLowerCase();
+                        if (!email || roleEmails.has(email)) return;
+                        tokensByEmail.set(email, token);
+                      });
+
+                      if (!allSelected) {
+                        roleUsers.forEach((user) => {
+                          tokensByEmail.set(user.email.toLowerCase(), `user:${user.email}`);
+                        });
+                      }
+
+                      return Array.from(tokensByEmail.values());
+                    });
                   };
 
                   const removeItem = (token: string) => {
                     setSchedDestinatarios(prev => prev.filter(t => t !== token));
                   };
 
-                  // Expand selections into actual user count
-                  const estimatedCount = (() => {
-                    const counted = new Set<string>();
-                    for (const token of schedDestinatarios) {
-                      if (token.startsWith("role:")) {
-                        const roleKey = token.slice(5);
-                        visibleUsers.filter(u => u.role === roleKey).forEach(u => counted.add(u.email));
-                      } else if (token.startsWith("user:")) {
-                        counted.add(token.slice(5));
-                      }
-                    }
-                    return counted.size;
-                  })();
+                  // Expand selections into per-user dispatches.
+                  const estimatedCount = scheduledDispatchPlan.length;
 
-                  // Filtered users for search
-                  const searchResults = userSearchQuery.length >= 1
-                    ? visibleUsers.filter(u =>
-                        (u.nombre.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
-                         u.email.toLowerCase().includes(userSearchQuery.toLowerCase())) &&
-                        !schedDestinatarios.includes(`user:${u.email}`),
-                      ).slice(0, 6)
-                    : [];
+                  // Filtered users for search (show initial suggestions when query is empty)
+                  const normalizedUserQuery = userSearchQuery.trim().toLowerCase();
+                  const searchResults = visibleUsers
+                    .filter((u) => !isUserSelected(u.email))
+                    .filter((u) =>
+                      normalizedUserQuery.length === 0
+                        ? true
+                        : (
+                          u.nombre.toLowerCase().includes(normalizedUserQuery)
+                          || u.email.toLowerCase().includes(normalizedUserQuery)
+                        ),
+                    )
+                    .slice(0, 6);
 
                   return (
                     <div className="space-y-3">
@@ -3767,38 +4269,90 @@ function DetailPanel({
                         <Mail className="w-3 h-3" /> Destinatarios
                       </Label>
 
-                      {/* — Por rol — */}
-                      <div className="space-y-1.5">
+                      {/* — Seleccion por rol — */}
+                      <div className="space-y-2">
                         <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-                          <Users className="w-3 h-3" /> Por grupo de rol
+                          <Users className="w-3 h-3" /> Selecciona por rol (usuarios individuales o todos)
                         </p>
-                        <div className="flex flex-wrap gap-1.5">
+                        <div className="space-y-2">
                           {ROLES_DISPONIBLES.map(r => {
-                            const count = countByRole(r.key);
-                            const active = schedDestinatarios.includes(`role:${r.key}`);
+                            const roleUsers = usersByRole(r.key);
+                            const count = roleUsers.length;
+                            const selectedCount = selectedCountByRole(r.key);
+                            const allSelected = count > 0 && selectedCount === count;
+                            const expanded = schedRoleFocus === r.key;
                             if (count === 0) return null;
+
                             return (
-                              <button
+                              <div
                                 key={r.key}
-                                type="button"
-                                onClick={() => toggleRole(r.key)}
                                 className={cn(
-                                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-all",
-                                  active
-                                    ? cn(r.bg, r.border, r.color, "shadow-sm")
-                                    : "bg-card border-border text-muted-foreground hover:border-primary/40 hover:bg-muted/50",
+                                  "rounded-lg border p-2.5 space-y-2",
+                                  expanded
+                                    ? cn(r.bg, r.border)
+                                    : "bg-card border-border",
                                 )}
                               >
-                                <Users className="w-3 h-3" />
-                                {r.label}
-                                <span className={cn(
-                                  "text-[9px] px-1 rounded-full font-bold",
-                                  active ? "bg-white/60 dark:bg-black/20" : "bg-muted",
-                                )}>
-                                  {count}
-                                </span>
-                                {active && <X className="w-2.5 h-2.5 ml-0.5 opacity-60" />}
-                              </button>
+                                <div className="flex items-center justify-between gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSchedRoleFocus((prev) => (prev === r.key ? null : r.key))}
+                                    className={cn(
+                                      "flex items-center gap-1.5 text-[11px] font-medium",
+                                      expanded ? r.color : "text-foreground",
+                                    )}
+                                  >
+                                    <Users className="w-3 h-3" />
+                                    {r.label}
+                                    <span className={cn(
+                                      "text-[9px] px-1.5 py-0.5 rounded-full font-semibold",
+                                      expanded ? "bg-white/70 dark:bg-black/20" : "bg-muted text-muted-foreground",
+                                    )}>
+                                      {selectedCount}/{count}
+                                    </span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleAllRoleUsers(r.key)}
+                                    className="h-7 px-2.5 rounded-md border border-border bg-background text-[10px] font-medium hover:bg-muted/60 transition-colors"
+                                  >
+                                    {allSelected ? "Quitar todos" : "Seleccionar todos"}
+                                  </button>
+                                </div>
+
+                                {expanded && (
+                                  <div className="rounded-md border border-border bg-background/80 max-h-44 overflow-y-auto">
+                                    {roleUsers.map((user) => {
+                                      const checked = isUserSelected(user.email);
+                                      return (
+                                        <button
+                                          key={user.id}
+                                          type="button"
+                                          onClick={() => toggleUser(user)}
+                                          className={cn(
+                                            "w-full flex items-center gap-2.5 px-2.5 py-2 text-left transition-colors border-b border-border/60 last:border-b-0",
+                                            checked ? "bg-primary/5" : "hover:bg-muted/50",
+                                          )}
+                                        >
+                                          <span className={cn(
+                                            "w-4 h-4 rounded border flex items-center justify-center flex-shrink-0",
+                                            checked
+                                              ? "bg-primary border-primary text-primary-foreground"
+                                              : "bg-card border-border",
+                                          )}>
+                                            {checked && <Check className="w-3 h-3" />}
+                                          </span>
+                                          <div className="min-w-0 flex-1">
+                                            <p className="text-xs font-medium truncate">{user.nombre}</p>
+                                            <p className="text-[10px] text-muted-foreground truncate">{user.email}</p>
+                                          </div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
                             );
                           })}
                         </div>
@@ -3828,7 +4382,7 @@ function DetailPanel({
                                 <button
                                   key={u.id}
                                   type="button"
-                                  onMouseDown={() => addUser(u.email)}
+                                  onMouseDown={() => addUser(u)}
                                   className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted/60 transition-colors"
                                 >
                                   <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -3845,7 +4399,7 @@ function DetailPanel({
                               ))}
                             </div>
                           )}
-                          {showUserSearch && userSearchQuery.length >= 1 && searchResults.length === 0 && (
+                          {showUserSearch && normalizedUserQuery.length >= 1 && searchResults.length === 0 && (
                             <div className="absolute z-50 top-full mt-1 w-full rounded-md border border-border bg-popover shadow-md px-3 py-2">
                               <p className="text-xs text-muted-foreground">Sin resultados para "{userSearchQuery}"</p>
                             </div>
@@ -3894,7 +4448,14 @@ function DetailPanel({
                           {estimatedCount > 0 && (
                             <p className="text-[10px] text-muted-foreground flex items-center gap-1">
                               <Mail className="w-2.5 h-2.5" />
-                              ~{estimatedCount} destinatario{estimatedCount !== 1 ? "s" : ""} recibirán este informe
+                              ~{estimatedCount} destinatario{estimatedCount !== 1 ? "s" : ""} recibirán {estimatedCount} informe{estimatedCount !== 1 ? "s" : ""} (1 por usuario)
+                            </p>
+                          )}
+                          {estimatedCount > 0 && (
+                            <p className="text-[10px] text-muted-foreground">
+                              {productorSeleccionado === "todos"
+                                ? "Con \"Todos los productores\": cada destinatario recibe solo su informe. Si el usuario tiene productor asignado, se usa ese productor; si no, se envía consolidado."
+                                : "Con productor fijo: cada destinatario recibe solo su informe del productor seleccionado."}
                             </p>
                           )}
                         </div>
@@ -3902,7 +4463,7 @@ function DetailPanel({
 
                       {schedDestinatarios.length === 0 && (
                         <p className="text-[10px] text-muted-foreground italic">
-                          Selecciona al menos un rol o usuario para el envío automático.
+                          Selecciona al menos un usuario (puedes hacerlo por rol o de forma individual).
                         </p>
                       )}
                     </div>
@@ -4169,13 +4730,17 @@ const moduleToCategorias: Record<string, CategoriaInforme[]> = {
 const normalizeCategoria = (categoria: CategoriaInforme): Exclude<CategoriaInforme, "cosecha"> =>
   categoria === "cosecha" ? "siembra" : categoria;
 
+const LECTOR_ALLOWED_INFORME_ID = "inf-15";
+
 const Informes = () => {
   const [searchParams] = useSearchParams();
   const { role, hasPermission, currentUser, productores, clientes } = useRole();
   const { cultivos, variedades } = useConfig();
   const actionParam = (searchParams.get("action") ?? "").toLowerCase();
   const userLevel = ROLE_LEVELS[role];
+  const isLectorRole = role === "lector";
   const canExport = hasPermission("informes", "exportar");
+  const canGenerateFromTemplate = canExport && !isLectorRole;
   const isSupervisorOrLector = ["supervisor", "lector"].includes(role);
 
   // Area restriction for area-bound roles
@@ -4221,13 +4786,16 @@ const Informes = () => {
 
   const [informes, setInformes] = useState<Informe[]>(INFORMES_DEMO);
   const [generaciones] = useState<InformeGeneracion[]>(GENERACIONES_DEMO);
-  const [mainView, setMainView] = useState<"plantillas" | "generados">("plantillas");
+  const [mainView, setMainView] = useState<"plantillas" | "generados">(
+    isLectorRole ? "generados" : "plantillas",
+  );
   const [search, setSearch] = useState("");
   const [filterTipo, setFilterTipo] = useState<string>("all");
   const [filterEstado, setFilterEstado] = useState<string>("all");
   const [activeNav, setActiveNav] = useState<string>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewGeneracionId, setPreviewGeneracionId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Informe | null>(null);
 
   const todayDateInput = useMemo(() => toDateInputValue(new Date()), []);
@@ -4271,6 +4839,19 @@ const Informes = () => {
     openBuilder();
     autoOpenBuilderHandledRef.current = true;
   }, [actionParam, canManageTemplates]);
+
+  useEffect(() => {
+    if (!isLectorRole) return;
+    if (mainView !== "generados") {
+      setMainView("generados");
+    }
+    if (selectedId !== null) {
+      setSelectedId(null);
+    }
+    if (previewId !== null) {
+      setPreviewId(null);
+    }
+  }, [isLectorRole, mainView, selectedId, previewId]);
 
   const handleBuilderSave = (cfg: BuilderConfig) => {
     if (cfg.id) {
@@ -4338,12 +4919,17 @@ const Informes = () => {
   };
 
   const canAccessInforme = useCallback((inf: Informe): boolean => {
+    // Lector: acceso estricto a un unico informe definido por negocio.
+    if (isLectorRole) {
+      return inf.id === LECTOR_ALLOWED_INFORME_ID;
+    }
+
     if (userLevel < inf.nivel_acceso_minimo) return false;
     if (inf.roles_permitidos && inf.roles_permitidos.length > 0) {
       return inf.roles_permitidos.includes(role);
     }
     return true;
-  }, [userLevel, role]);
+  }, [isLectorRole, userLevel, role]);
 
   // ── Version action handlers ──
   const restoreVersion = (snap: InformeSnapshot) => {
@@ -4508,9 +5094,10 @@ const Informes = () => {
   // ── Reglas para generados ──
   // super_admin / cliente_admin / productor → ven TODOS los generados
   // jefe_area → ve todos los generados de su área (cualquier usuario)
-  // supervisor / lector → SOLO ven SUS propias generaciones de su área
+  // supervisor → SOLO ve SUS propias generaciones de su área
+  // lector → ve generados de los informes a los que tenga acceso
   //   EXCEPCIÓN: si tienen override "configurar" en informes → ven todo (hasGlobalInformesAccess)
-  const isUserRestricted = ["supervisor", "lector"].includes(role) && !hasGlobalInformesAccess;
+  const isUserRestricted = role === "supervisor" && !hasGlobalInformesAccess;
 
   const roleScopedGeneraciones = useMemo(() => {
     let list = generaciones;
@@ -4636,6 +5223,23 @@ const Informes = () => {
     return list.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
   }, [generacionesFiltradasBase, activeNav, search]);
 
+  const previewGeneracion = useMemo(
+    () => roleScopedGeneraciones.find((g) => g.id === previewGeneracionId) ?? null,
+    [roleScopedGeneraciones, previewGeneracionId],
+  );
+
+  const previewGeneracionInforme = useMemo(
+    () => (previewGeneracion ? informes.find((i) => i.id === previewGeneracion.informe_id) ?? null : null),
+    [previewGeneracion, informes],
+  );
+
+  useEffect(() => {
+    if (!previewGeneracionId) return;
+    if (!previewGeneracion) {
+      setPreviewGeneracionId(null);
+    }
+  }, [previewGeneracionId, previewGeneracion]);
+
   const genNavCounts = useMemo(() => {
     const base = generacionesFiltradasBase;
     const result: Record<string, number> = { all: base.length };
@@ -4714,52 +5318,62 @@ const Informes = () => {
         actions={
           <div className="flex items-center gap-2">
             {/* ── Plantillas / Generados toggle ── */}
-            <div className="flex items-center rounded-lg border border-border bg-muted/40 p-0.5">
-              <button
-                onClick={() => { setMainView("plantillas"); setActiveNav("all"); setSearch(""); }}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
-                  mainView === "plantillas"
-                    ? "bg-background shadow-sm text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                Plantillas
-                <span className={cn(
-                  "text-[9px] px-1.5 py-0.5 rounded-full font-semibold",
-                  mainView === "plantillas" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
-                )}>
-                  {navCounts.all}
-                </span>
-              </button>
-              <button
-                onClick={() => {
-                  setMainView("generados");
-                  setSearch("");
-                  setSelectedId(null);
-                  resetGeneradosFilters();
-                }}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
-                  mainView === "generados"
-                    ? "bg-background shadow-sm text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
+            {isLectorRole ? (
+              <div className="flex items-center rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium shadow-sm gap-1.5">
                 <FilePlus className="w-3.5 h-3.5" />
                 Generados
-                <span className={cn(
-                  "text-[9px] px-1.5 py-0.5 rounded-full font-semibold",
-                  mainView === "generados" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
-                )}>
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold bg-primary/10 text-primary">
                   {genNavCounts.all}
                 </span>
-              </button>
-            </div>
+              </div>
+            ) : (
+              <div className="flex items-center rounded-lg border border-border bg-muted/40 p-0.5">
+                <button
+                  onClick={() => { setMainView("plantillas"); setActiveNav("all"); setSearch(""); }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                    mainView === "plantillas"
+                      ? "bg-background shadow-sm text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  Plantillas
+                  <span className={cn(
+                    "text-[9px] px-1.5 py-0.5 rounded-full font-semibold",
+                    mainView === "plantillas" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+                  )}>
+                    {navCounts.all}
+                  </span>
+                </button>
+                <button
+                  onClick={() => {
+                    setMainView("generados");
+                    setSearch("");
+                    setSelectedId(null);
+                    resetGeneradosFilters();
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                    mainView === "generados"
+                      ? "bg-background shadow-sm text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <FilePlus className="w-3.5 h-3.5" />
+                  Generados
+                  <span className={cn(
+                    "text-[9px] px-1.5 py-0.5 rounded-full font-semibold",
+                    mainView === "generados" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+                  )}>
+                    {genNavCounts.all}
+                  </span>
+                </button>
+              </div>
+            )}
 
             {/* Botón nuevo informe solo en vista plantillas y si puede gestionar */}
-            {mainView === "plantillas" && canManageTemplates && (
+            {mainView === "plantillas" && canManageTemplates && !isLectorRole && (
               <Button size="sm" className="gap-1.5" onClick={() => openBuilder()}>
                 <Plus className="w-4 h-4" />
                 Nueva plantilla
@@ -4778,7 +5392,9 @@ const Informes = () => {
               Estás viendo informes del área de <span className="font-semibold">{area}</span>.
               {canManageTemplates
                 ? " Puedes gestionar plantillas y generaciones de tu área."
-                : " Solo puedes consultar y generar informes de tu módulo."}
+                : isLectorRole
+                  ? " Solo puedes consultar informes generados a los que tengas acceso."
+                  : " Solo puedes consultar y generar informes de tu módulo."}
             </p>
             {isUserRestricted && (
               <p className="text-blue-600 dark:text-blue-400">
@@ -5185,6 +5801,8 @@ const Informes = () => {
                             gen={gen}
                             informeNombre={gen.informe_nombre}
                             categoriaCfg={catCfg}
+                            onClick={() => setPreviewGeneracionId(gen.id)}
+                            onPreview={() => setPreviewGeneracionId(gen.id)}
                             onDownload={handleDownloadGeneracion}
                           />
                         ))}
@@ -5198,6 +5816,8 @@ const Informes = () => {
                       gen={gen}
                       informeNombre={gen.informe_nombre}
                       categoriaCfg={CATEGORIA_CONFIG[normalizeCategoria(gen.categoria)]}
+                      onClick={() => setPreviewGeneracionId(gen.id)}
+                      onPreview={() => setPreviewGeneracionId(gen.id)}
                       onDownload={handleDownloadGeneracion}
                     />
                   ))
@@ -5208,13 +5828,13 @@ const Informes = () => {
         </div>
 
         {/* ── Right detail panel ── */}
-        {selectedInforme && (
+        {selectedInforme && mainView === "plantillas" && !isLectorRole && (
           <div className="w-[340px] flex-shrink-0 bg-card border border-border rounded-xl overflow-hidden sticky top-4 h-[calc(100vh-6rem)] flex flex-col">
             <DetailPanel
               key={selectedInforme.id}
               informe={selectedInforme}
               canAccess={canAccessInforme(selectedInforme)}
-              canExport={canExport}
+              canExport={canGenerateFromTemplate}
               canCreate={canEditInformeTemplate(selectedInforme)}
               onToggleFavorite={() => toggleFavorite(selectedInforme.id)}
               onClose={() => setSelectedId(null)}
@@ -5239,6 +5859,15 @@ const Informes = () => {
           </div>
         )}
       </div>
+
+      {previewGeneracion && (
+        <GeneracionPreviewModal
+          gen={previewGeneracion}
+          informe={previewGeneracionInforme}
+          onClose={() => setPreviewGeneracionId(null)}
+          onDownload={handleDownloadGeneracion}
+        />
+      )}
 
       {/* Quick Preview Modal */}
       {previewInforme && (

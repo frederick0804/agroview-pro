@@ -409,33 +409,24 @@ export default function Perfil() {
                   Módulos
                 </p>
                 <span className="text-[11px] text-muted-foreground">
-                  {accesibles.length} de {ALL_MODULES.length} habilitados
+                  {accesibles.length} habilitados
                 </span>
               </div>
-              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
-                {ALL_MODULES.map(({ id, label, icon: Icon }) => {
-                  const on = hasPermission(id, "ver");
-                  return (
+              {accesibles.length > 0 ? (
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                  {accesibles.map(({ id, label, icon: Icon }) => (
                     <div
                       key={id}
-                      className={cn(
-                        "flex flex-col items-center gap-1 px-2 py-2 rounded-lg border text-center transition-colors",
-                        on
-                          ? "bg-primary/5 border-primary/15 text-primary"
-                          : "bg-muted/20 border-border/40 text-muted-foreground/40",
-                      )}
+                      className="flex flex-col items-center gap-1 px-2 py-2 rounded-lg border text-center transition-colors bg-primary/5 border-primary/15 text-primary"
                     >
                       <Icon className="w-3.5 h-3.5" />
-                      <span className={cn(
-                        "text-[10px] font-medium leading-tight",
-                        !on && "line-through",
-                      )}>
-                        {label}
-                      </span>
+                      <span className="text-[10px] font-medium leading-tight">{label}</span>
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No tienes módulos habilitados.</p>
+              )}
             </div>
           </div>
         </section>

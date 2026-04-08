@@ -930,9 +930,9 @@ function createDefaultGrafico(num: number): GraficoBloque {
     tipo: "grafico",
     titulo: `Gráfico ${num}`,
     moduloActivo: "Cosecha",
-    fuentesSeleccionadas: ["REGISTRO_COSECHA"],
-    dimension: "semana",
-    metricas: ["kg_cosechados", "rendimiento_kg_hr"],
+    fuentesSeleccionadas: [],
+    dimension: "",
+    metricas: [],
     tipoGrafico: "bar_v",
     apilado: false,
     mostrarLeyenda: true,
@@ -2126,9 +2126,18 @@ const OP_OPTIONS: Array<{ value: CampoCalculado["operacion"]; label: string; sym
   { value: "pct", label: "Porcentaje (A/B × 100)", symbol: "%" },
 ];
 
+const CALC_FIELD_PREFIX = "calc:";
+
 // Helper: resolve "FUENTE_ID:campo_id" → label
-function resolveFieldLabel(token: string): string {
+function resolveFieldLabel(token: string, calcLabelById: Record<string, string> = {}): string {
   if (!token) return "-";
+  if (token.startsWith(CALC_FIELD_PREFIX)) {
+    const calcId = token.slice(CALC_FIELD_PREFIX.length);
+    return `Cálculo personalizado - ${calcLabelById[calcId] ?? calcId}`;
+  }
+  if (calcLabelById[token]) {
+    return `Cálculo personalizado - ${calcLabelById[token]}`;
+  }
   const [fuenteId, campoId] = token.split(":");
   const allFuentes = Object.values(MODULOS_FUENTES).flatMap(m => m.fuentes);
   const fuente = allFuentes.find(f => f.id === fuenteId);
@@ -2144,6 +2153,10 @@ interface CamposCalculadosEditorProps {
 }
 function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, availableCampos, onChange }: CamposCalculadosEditorProps) {
   const allFuentes = useMemo(() => Object.values(MODULOS_FUENTES).flatMap(m => m.fuentes), []);
+  const calcLabelById = useMemo(
+    () => Object.fromEntries(camposCalculados.map((calc, idx) => [calc.id, calc.label || `Cálculo ${idx + 1}`])),
+    [camposCalculados],
+  );
   const allowedMetricFieldIds = useMemo(() => {
     if (!availableCampos || availableCampos.length === 0) return null;
     return new Set(availableCampos.filter((c) => c.tipo === "metrica").map((c) => c.id));
@@ -2160,14 +2173,33 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, availa
     });
   }, [fuentesSeleccionadas, allFuentes, allowedMetricFieldIds]);
 
+  const getFormulaFieldOptions = useCallback((calcIndex: number) => {
+    const previousCalcs = camposCalculados
+      .slice(0, calcIndex)
+      .map((calc, idx) => ({
+        token: `${CALC_FIELD_PREFIX}${calc.id}`,
+        label: `Cálculo personalizado - ${calc.label || `Cálculo ${idx + 1}`}`,
+      }));
+
+    const merged = [...metricFields, ...previousCalcs];
+    return merged.filter((option, idx) => merged.findIndex((item) => item.token === option.token) === idx);
+  }, [metricFields, camposCalculados]);
+
+  const formulaFieldsForNewCalc = useMemo(
+    () => getFormulaFieldOptions(camposCalculados.length),
+    [getFormulaFieldOptions, camposCalculados.length],
+  );
+
   const addCalculo = () => {
+    const campoA = formulaFieldsForNewCalc[0]?.token ?? "";
+    const campoB = formulaFieldsForNewCalc[1]?.token ?? campoA;
     const newCalc: CampoCalculado = {
       id: `calc_${Date.now()}`,
       label: `Cálculo ${camposCalculados.length + 1}`,
       tipo: "formula",
       operacion: "/",
-      campoA: metricFields[0]?.token ?? "",
-      campoB: metricFields[1]?.token ?? metricFields[0]?.token ?? "",
+      campoA,
+      campoB,
       unidad: "",
     };
     onChange([...camposCalculados, newCalc]);
@@ -2194,12 +2226,15 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, availa
         </p>
       )}
       {camposCalculados.map((calc, i) => {
-        const fallbackMetricA = metricFields[0]?.token ?? "";
-        const fallbackMetricB = metricFields[1]?.token ?? fallbackMetricA;
+        const formulaFieldOptions = getFormulaFieldOptions(i);
+        const fallbackMetricA = formulaFieldOptions[0]?.token ?? "";
+        const fallbackMetricB = formulaFieldOptions[1]?.token ?? fallbackMetricA;
         const legacyAggField = getLegacyAggField(calc);
         const campoAValue = calc.campoA || legacyAggField || fallbackMetricA;
         const campoBValue = calc.campoB || legacyAggField || fallbackMetricB;
         const operacionValue = calc.operacion ?? "/";
+        const hasCampoAOption = campoAValue ? formulaFieldOptions.some((f) => f.token === campoAValue) : false;
+        const hasCampoBOption = campoBValue ? formulaFieldOptions.some((f) => f.token === campoBValue) : false;
 
         return (
           <div key={calc.id} className="rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/20 p-2.5 space-y-2">
@@ -2228,7 +2263,10 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, availa
                 className="w-full h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="">— Campo A —</option>
-                {metricFields.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
+                {!hasCampoAOption && campoAValue && (
+                  <option value={campoAValue}>{resolveFieldLabel(campoAValue, calcLabelById)}</option>
+                )}
+                {formulaFieldOptions.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
               </select>
               <div className="flex items-center gap-1.5">
                 <select
@@ -2245,14 +2283,17 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, availa
                   className="flex-1 min-w-0 h-7 text-[10px] px-1.5 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <option value="">— Campo B —</option>
-                  {metricFields.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
+                  {!hasCampoBOption && campoBValue && (
+                    <option value={campoBValue}>{resolveFieldLabel(campoBValue, calcLabelById)}</option>
+                  )}
+                  {formulaFieldOptions.map(f => <option key={f.token} value={f.token}>{f.label}</option>)}
                 </select>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
               <div className="flex-1 text-[9px] text-muted-foreground bg-muted/40 rounded px-2 py-1 font-mono truncate">
-                {calc.label || "resultado"} = {resolveFieldLabel(campoAValue).split(" - ")[1] ?? "A"} {OP_OPTIONS.find(o => o.value === operacionValue)?.symbol ?? "÷"} {resolveFieldLabel(campoBValue).split(" - ")[1] ?? "B"}
+                {calc.label || "resultado"} = {resolveFieldLabel(campoAValue, calcLabelById).split(" - ")[1] ?? "A"} {OP_OPTIONS.find(o => o.value === operacionValue)?.symbol ?? "÷"} {resolveFieldLabel(campoBValue, calcLabelById).split(" - ")[1] ?? "B"}
               </div>
               <input
                 value={calc.unidad ?? ""}
@@ -2269,9 +2310,9 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, availa
         <button
           type="button"
           onClick={addCalculo}
-          disabled={metricFields.length < 1}
+          disabled={formulaFieldsForNewCalc.length < 1}
           className={cn("flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-dashed text-[10px] font-medium transition-all",
-            metricFields.length < 1
+            formulaFieldsForNewCalc.length < 1
               ? "border-border/40 text-muted-foreground/40 cursor-not-allowed"
               : "border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20 hover:border-violet-400")}
         >
@@ -2279,9 +2320,9 @@ function CamposCalculadosEditor({ camposCalculados, fuentesSeleccionadas, availa
         </button>
       </div>
 
-      {metricFields.length === 0 && (
+      {formulaFieldsForNewCalc.length === 0 && (
         <p className="text-[9px] text-amber-600">
-          Selecciona al menos una fuente con campos métricos para crear cálculos.
+          Selecciona al menos una fuente con campos métricos para crear cálculos personalizados.
         </p>
       )}
     </div>
@@ -3210,12 +3251,12 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                             />
                           </div>
                         </details>
-                        {/* Cálculos cruzados */}
+                        {/* Cálculos personalizados */}
                         {selectedGrafico.fuentesSeleccionadas.length > 0 && (
                           <details className="rounded-lg border border-violet-200/70 bg-violet-50/20 overflow-hidden group">
                             <summary className="list-none cursor-pointer px-2.5 py-2 flex items-center gap-2">
                               <Calculator className="w-3 h-3 text-violet-500" />
-                              <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 uppercase tracking-wide flex-1">Cálculos cruzados (fórmulas)</span>
+                              <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 uppercase tracking-wide flex-1">Cálculos personalizados (fórmulas)</span>
                               <span className="text-[9px] text-violet-500">
                                 {selectedGrafico.camposCalculados?.length ?? 0}
                               </span>
@@ -3225,7 +3266,21 @@ export function InformesBuilder({ informe, existingConfig, onClose, onSave }: In
                               <CamposCalculadosEditor
                                 camposCalculados={selectedGrafico.camposCalculados ?? []}
                                 fuentesSeleccionadas={selectedGrafico.fuentesSeleccionadas}
-                                onChange={(calcs) => updBloque(selectedGrafico.id, { camposCalculados: calcs })}
+                                onChange={(calcs) => {
+                                  const prevCalcIds = new Set((selectedGrafico.camposCalculados ?? []).map((c) => c.id));
+                                  const newCalcIds = calcs
+                                    .filter((c) => !prevCalcIds.has(c.id))
+                                    .map((c) => c.id);
+
+                                  if (newCalcIds.length > 0) {
+                                    const nextMetricas = [...selectedGrafico.metricas, ...newCalcIds]
+                                      .filter((id, idx, arr) => id && arr.indexOf(id) === idx);
+                                    updBloque(selectedGrafico.id, { camposCalculados: calcs, metricas: nextMetricas });
+                                    return;
+                                  }
+
+                                  updBloque(selectedGrafico.id, { camposCalculados: calcs });
+                                }}
                               />
                             </div>
                           </details>

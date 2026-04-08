@@ -6794,6 +6794,9 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
 
   const isSuperAdmin = currentRole_ctx === "super_admin";
   const isClienteAdmin = currentRole_ctx === "cliente_admin";
+  const canCreateUsers = isSuperAdmin;
+  const canManageUserAccounts = isSuperAdmin;
+  const canEditUserRoles = isSuperAdmin;
 
   // Derive BASE_USERS reactively from context.
   // Reglas de visibilidad:
@@ -6870,6 +6873,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
   }, [currentRole_ctx]);
 
   const openCreateModal = () => {
+    if (!canCreateUsers) return;
     const defaultRole = assignableRoles.length > 0 ? assignableRoles[0][0] : "lector";
     // Inicializar con todos los módulos que el rol tiene por defecto
     const defaultMods = new Set(
@@ -6890,12 +6894,13 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
 
   const autoOpenCreateHandledRef = useRef(false);
   useEffect(() => {
-    if (!autoOpenCreateModal || autoOpenCreateHandledRef.current) return;
+    if (!autoOpenCreateModal || autoOpenCreateHandledRef.current || !canCreateUsers) return;
     openCreateModal();
     autoOpenCreateHandledRef.current = true;
-  }, [autoOpenCreateModal]);
+  }, [autoOpenCreateModal, canCreateUsers]);
 
   const openEditModal = (userId: number) => {
+    if (!canManageUserAccounts) return;
     const u = contextUsers.find(x => x.id === userId);
     if (!u) return;
     // Calcular módulos activos: los que tiene el rol menos los bloqueados por override
@@ -6944,6 +6949,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
       updUser(editingUserId, payload);
       userId = editingUserId;
     } else {
+      if (!canCreateUsers) return;
       const created = addUser(payload);
       userId = created.id;
     }
@@ -7023,11 +7029,11 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
   // Derive users with locally overridden roles + reactive empresa name
   const users = useMemo(() =>
     BASE_USERS.map(u => {
-      const roleKey = userRoleMap.get(u.id) ?? u.roleKey;
+      const roleKey = canEditUserRoles ? (userRoleMap.get(u.id) ?? u.roleKey) : u.roleKey;
       const empresa = u.clienteId ? clientes.find(c => c.id === u.clienteId)?.nombre ?? "N/D" : "Plataforma";
       return { ...u, roleKey, rol: roleNameMap[roleKey], nivel: ROLE_LEVELS[roleKey], empresa };
     }),
-  [BASE_USERS, userRoleMap, clientes]);
+  [BASE_USERS, userRoleMap, clientes, canEditUserRoles]);
 
   const rolesDisponibles    = useMemo(() => Array.from(new Set(users.map(u => u.rol))), [users]);
   const empresasDisponibles = useMemo(() => Array.from(new Set(users.map(u => u.empresa))), [users]);
@@ -7188,7 +7194,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
           {filtered.length} de {users.length} usuarios
         </span>
 
-        {(isSuperAdmin || isClienteAdmin) && (
+        {canCreateUsers && (
           <Button size="sm" className="h-9 gap-1.5" onClick={openCreateModal}>
             <Plus className="w-3.5 h-3.5" />
             Nuevo usuario
@@ -7278,7 +7284,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
                 <th className="text-center px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-12" title="Ajustes de permisos personalizados">
                   Aj.
                 </th>
-                {(isSuperAdmin || isClienteAdmin) && (
+                {canManageUserAccounts && (
                   <th className="text-center px-2 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-16">
                     Acc.
                   </th>
@@ -7288,7 +7294,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
             <tbody>
               {paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-sm text-muted-foreground">
+                  <td colSpan={canManageUserAccounts ? 7 : 6} className="py-12 text-center text-sm text-muted-foreground">
                     Sin usuarios que coincidan con los filtros.
                   </td>
                 </tr>
@@ -7357,21 +7363,33 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
 
                     {/* Role: inline select */}
                     <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
-                      <select
-                        value={currentRole}
-                        onChange={e => {
-                          const newRole = e.target.value as UserRoleT;
-                          setUserRoleMap(m => { const n = new Map(m); n.set(user.id, newRole); return n; });
-                        }}
-                        className={cn(
-                          "text-[11px] font-medium px-1.5 py-0.5 rounded-full border-0 ring-1 ring-transparent cursor-pointer outline-none transition-all hover:ring-primary/40 focus:ring-primary max-w-[130px] truncate",
-                          config?.color ?? "bg-muted text-muted-foreground",
-                        )}
-                      >
-                        {(Object.entries(roleNameMap) as [UserRoleT, string][]).map(([key, label]) => (
-                          <option key={key} value={key}>{label}</option>
-                        ))}
-                      </select>
+                      {canEditUserRoles ? (
+                        <select
+                          value={currentRole}
+                          onChange={e => {
+                            const newRole = e.target.value as UserRoleT;
+                            setUserRoleMap(m => { const n = new Map(m); n.set(user.id, newRole); return n; });
+                          }}
+                          className={cn(
+                            "text-[11px] font-medium px-1.5 py-0.5 rounded-full border-0 ring-1 ring-transparent cursor-pointer outline-none transition-all hover:ring-primary/40 focus:ring-primary max-w-[130px] truncate",
+                            config?.color ?? "bg-muted text-muted-foreground",
+                          )}
+                        >
+                          {(Object.entries(roleNameMap) as [UserRoleT, string][]).map(([key, label]) => (
+                            <option key={key} value={key}>{label}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span
+                          className={cn(
+                            "inline-flex items-center text-[11px] font-medium px-1.5 py-0.5 rounded-full max-w-[130px] truncate",
+                            config?.color ?? "bg-muted text-muted-foreground",
+                          )}
+                          title="Solo super admin puede cambiar el rol"
+                        >
+                          {roleNameMap[currentRole]}
+                        </span>
+                      )}
                       {/* Level bar */}
                       <div className="flex items-center gap-0.5 mt-1 px-1">
                         {Array.from({ length: 6 }).map((_, idx) => (
@@ -7412,7 +7430,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
                     </td>
 
                     {/* Actions */}
-                    {(isSuperAdmin || isClienteAdmin) && (
+                    {canManageUserAccounts && (
                       <td className="px-2 py-2 text-center" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1">
                           <button
@@ -8305,15 +8323,15 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
 
                   {/* área asignada */}
                   <div className="space-y-1.5">
-                    <Label htmlFor="usr-area" className="text-xs font-medium">área asignada</Label>
+                    <Label htmlFor="usr-area" className="text-xs font-medium">Descripción del área asignada</Label>
                     <Input
                       id="usr-area"
                       value={formAreaAsignada}
                       onChange={e => setFormAreaAsignada(e.target.value)}
-                      placeholder="Ej: Cosecha, Laboratorio, Campo"
+                      placeholder="Ej: Área de Cosecha, Laboratorio, Campo Norte"
                       className="h-9"
                     />
-                    <p className="text-[10px] text-muted-foreground">Opcional: departamento o sección de trabajo</p>
+                    <p className="text-[10px] text-muted-foreground">Indica el departamento o sección donde trabaja el usuario</p>
                   </div>
 
                   {/* Estado activo */}
@@ -8450,6 +8468,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
               disabled={
                 !formNombre.trim() ||
                 !formEmail.trim() ||
+                (!editingUserId && !canCreateUsers) ||
                 (!editingUserId && !formPassword.trim()) ||
                 (formRole === "productor" && formProductores.length > 0 && !formProductorId) ||
                 (formModulosActivos.size === 0 && formRoleModulos.length > 0)
@@ -8538,13 +8557,13 @@ const Configuracion = () => {
   // "campos" is an alias for "formularios" used by the "Editar campos del formulario" button
   const rawTab         = searchParams.get("tab") ?? "";
   const actionParam    = (searchParams.get("action") ?? "").toLowerCase();
+  const { currentClienteName, role } = useRole();
   const initialTab     = rawTab === "campos" ? "formularios" : validTabs.includes(rawTab) ? rawTab : "cultivos";
   const autoOpenFormCreate = actionParam === "create-form" || actionParam === "crear-formulario";
-  const autoOpenUserCreate = actionParam === "add-user" || actionParam === "create-user" || actionParam === "agregar-usuario";
+  const autoOpenUserCreate = (actionParam === "add-user" || actionParam === "create-user" || actionParam === "agregar-usuario") && role === "super_admin";
   const highlightDefId = searchParams.get("def") ?? undefined;
   const [activeTab, setActiveTab] = useState(initialTab);
   const { hasPendingChanges: hasPending, setHasPendingChanges: setHasPending } = useConfig();
-  const { currentClienteName } = useRole();
 
   return (
     <MainLayout>
