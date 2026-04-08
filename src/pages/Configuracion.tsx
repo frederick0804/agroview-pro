@@ -1383,6 +1383,13 @@ function TabFormularios({
             const blockDeactivate     = latest.estado === "activo"
                                         && otherLiveVersions.length === 0
                                         && defDatos.length > 0;
+            // Eliminación dura: solo permitida para borradores vacíos (sin campos ni datos).
+            const canHardDelete       = latest.estado === "borrador"
+                                        && campos.length === 0
+                                        && defDatos.length === 0;
+            const hardDeleteBlockReason = canHardDelete
+              ? undefined
+              : "Solo se puede eliminar un borrador sin campos ni datos registrados.";
             const isExpAcceso         = expandedAcceso.has(rootId);
             const accesoLabel         = NIVEL_ACCESS_OPTIONS.find(n => n.value === latest.nivel_minimo)?.label ?? "Todos";
             const rolesExcluidosCount = (latest.roles_excluidos ?? []).length;
@@ -1637,9 +1644,21 @@ function TabFormularios({
                         {latest.estado === "borrador" && (
                           <>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => setConfirmDelId(latest.id)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                            <DropdownMenuItem
+                              disabled={!canHardDelete}
+                              onClick={() => {
+                                if (!canHardDelete) return;
+                                setConfirmDelId(latest.id);
+                              }}
+                              className={cn(
+                                canHardDelete
+                                  ? "text-destructive focus:text-destructive focus:bg-destructive/10"
+                                  : "text-muted-foreground cursor-not-allowed focus:text-muted-foreground",
+                              )}
+                              title={hardDeleteBlockReason}
+                            >
                               <Trash2 className="w-3.5 h-3.5 mr-2" />
-                              Eliminar definición
+                              {canHardDelete ? "Eliminar definición" : "Eliminar definición (bloqueado)"}
                             </DropdownMenuItem>
                           </>
                         )}
@@ -3775,17 +3794,32 @@ function TabFormularios({
         const defToDelete = definiciones.find(d => d.id === confirmDelId);
         const camposCount = parametros.filter(p => p.definicion_id === confirmDelId).length;
         const datosCount  = datos.filter(d => d.definicion_id === confirmDelId).length;
+        const canDeleteDef = Boolean(defToDelete)
+          && defToDelete?.estado === "borrador"
+          && camposCount === 0
+          && datosCount === 0;
         return (
           <Dialog open onOpenChange={() => setConfirmDelId(null)}>
             <DialogContent className="max-w-sm">
               <DialogHeader>
-                <DialogTitle className="flex items-center gap-2 text-destructive">
-                  <Trash2 className="w-4 h-4" />
-                  Eliminar definición
+                <DialogTitle className={cn(
+                  "flex items-center gap-2",
+                  canDeleteDef ? "text-destructive" : "text-amber-600",
+                )}>
+                  {canDeleteDef ? <Trash2 className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
+                  {canDeleteDef ? "Eliminar definición" : "Eliminación bloqueada"}
                 </DialogTitle>
                 <DialogDescription className="pt-1">
-                  Esta acción es <strong>irreversible</strong>. Se eliminará la definición junto con todos sus campos configurados
-                  {datosCount > 0 ? ` y ${datosCount} registro${datosCount !== 1 ? "s" : ""} de datos` : ""}.
+                  {canDeleteDef ? (
+                    <>
+                      Esta acción es <strong>irreversible</strong>. Se eliminará la definición.
+                    </>
+                  ) : (
+                    <>
+                      Este formulario no se puede eliminar. Solo se permite eliminar versiones en <strong>borrador</strong>
+                      sin campos configurados y sin registros de datos.
+                    </>
+                  )}
                 </DialogDescription>
               </DialogHeader>
               <div className="my-1 px-3 py-2.5 rounded-lg bg-muted/50 border border-border space-y-0.5">
@@ -3797,19 +3831,21 @@ function TabFormularios({
               </div>
               <DialogFooter className="gap-2 sm:gap-0">
                 <Button variant="outline" onClick={() => setConfirmDelId(null)}>
-                  Cancelar
+                  {canDeleteDef ? "Cancelar" : "Cerrar"}
                 </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    const idx = definiciones.findIndex(d => d.id === confirmDelId);
-                    if (idx !== -1) delDef(idx);
-                    setConfirmDelId(null);
-                  }}
-                >
-                  <Trash2 className="w-4 h-4 mr-1.5" />
-                  Eliminar
-                </Button>
+                {canDeleteDef && (
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      const idx = definiciones.findIndex(d => d.id === confirmDelId);
+                      if (idx !== -1) delDef(idx);
+                      setConfirmDelId(null);
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4 mr-1.5" />
+                    Eliminar
+                  </Button>
+                )}
               </DialogFooter>
             </DialogContent>
           </Dialog>
