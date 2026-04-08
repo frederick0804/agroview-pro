@@ -528,7 +528,11 @@ export function EditableTable<T extends { id: string | number }>({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const filterRef = useRef<HTMLDivElement>(null);
   const filterBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const [filterPortalPos, setFilterPortalPos] = useState<{ top?: number; bottom?: number; left: number }>({ left: 0 });
+  const [filterPortalPos, setFilterPortalPos] = useState<{ top: number; left: number; maxHeight: number }>({
+    top: 8,
+    left: 8,
+    maxHeight: 420,
+  });
   const [calendarViewMonth, setCalendarViewMonth] = useState<Date>(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -536,22 +540,50 @@ export function EditableTable<T extends { id: string | number }>({
   const newRowRef = useRef<HTMLTableRowElement>(null);
   const prevDataLen = useRef(data.length);
 
-  // Calculate portal position when a filter opens — flips up if not enough space below
-  const openFilterAt = useCallback((colKey: string) => {
+  // Calculate portal position when a filter opens.
+  // Keeps popup inside viewport and flips above when needed.
+  const positionFilterPortal = useCallback((colKey: string) => {
     const btn = filterBtnRefs.current[colKey];
-    if (btn) {
-      const r = btn.getBoundingClientRect();
-      const POPUP_HEIGHT = 380; // calendar is ~340px; number range is ~90px — use max
-      const spaceBelow = window.innerHeight - r.bottom - 8;
-      if (spaceBelow < POPUP_HEIGHT) {
-        // Open upward
-        setFilterPortalPos({ bottom: window.innerHeight - r.top + 4, left: r.left });
-      } else {
-        setFilterPortalPos({ top: r.bottom + 4, left: r.left });
-      }
-    }
+    if (!btn) return;
+
+    const col = columns.find(c => String(c.key) === colKey);
+    const ft = col?.filterType ?? "dropdown";
+    const isDateRange = ft === "range" && col?.type === "date";
+    const estWidth = isDateRange ? 360 : 280;
+    const estHeight = isDateRange ? 560 : 260;
+    const pad = 8;
+
+    const r = btn.getBoundingClientRect();
+    const minLeft = pad;
+    const maxLeft = Math.max(minLeft, window.innerWidth - estWidth - pad);
+    const left = Math.max(minLeft, Math.min(r.left, maxLeft));
+
+    const spaceBelow = window.innerHeight - r.bottom - pad;
+    const spaceAbove = r.top - pad;
+    const openUp = spaceBelow < estHeight && spaceAbove > spaceBelow;
+    const rawTop = openUp ? r.top - estHeight - 4 : r.bottom + 4;
+    const top = Math.max(pad, Math.min(rawTop, window.innerHeight - pad - 120));
+    const maxHeight = Math.max(160, window.innerHeight - top - pad);
+
+    setFilterPortalPos({ top, left, maxHeight });
+  }, [columns]);
+
+  const openFilterAt = useCallback((colKey: string) => {
+    positionFilterPortal(colKey);
     setOpenFilter(colKey);
-  }, []);
+  }, [positionFilterPortal]);
+
+  // Keep popup correctly placed when viewport changes while it is open.
+  useEffect(() => {
+    if (!openFilter) return;
+    const update = () => positionFilterPortal(openFilter);
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [openFilter, positionFilterPortal]);
 
   // Close filter dropdown on outside click
   useEffect(() => {
@@ -979,10 +1011,8 @@ export function EditableTable<T extends { id: string | number }>({
             ref={filterRef}
             style={{
               position: "fixed",
-              ...(filterPortalPos.bottom !== undefined
-                ? { bottom: filterPortalPos.bottom }
-                : { top: filterPortalPos.top }),
-              left: Math.min(filterPortalPos.left, window.innerWidth - 300),
+              top: filterPortalPos.top,
+              left: filterPortalPos.left,
               zIndex: 9999,
             }}
           >
@@ -1033,7 +1063,10 @@ export function EditableTable<T extends { id: string | number }>({
               const yearEnd = currentYear;
               const yearOptions = Array.from({ length: yearEnd - yearStart + 1 }, (_, idx) => yearStart + idx);
               return (
-                <div className="bg-popover border border-border rounded-lg shadow-xl p-3 space-y-2">
+                <div
+                  className="bg-popover border border-border rounded-lg shadow-xl p-3 space-y-2 w-[360px] max-w-[calc(100vw-16px)] overflow-y-auto"
+                  style={{ maxHeight: filterPortalPos.maxHeight }}
+                >
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Filtrar por rango de fechas</p>
                   {/* Resumen del rango seleccionado */}
                   <div className="flex items-center gap-1.5 text-xs bg-muted/50 rounded-md px-2 py-1.5">
