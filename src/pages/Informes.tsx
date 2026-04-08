@@ -6135,7 +6135,7 @@ const Informes = () => {
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {canCreate && previewInforme.builderConfig && (
+                {canEditInformeTemplate(previewInforme) && previewInforme.builderConfig && (
                   <Button
                     size="sm"
                     variant="outline"
