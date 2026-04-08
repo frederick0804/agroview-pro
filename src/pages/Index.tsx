@@ -1149,7 +1149,7 @@ const Index = () => {
       },
       {
         id: "qa-sa-create-form",
-        label: "Nuevo formulario maestro",
+        label: "Nuevo formulario",
         icon: <ClipboardList className="w-4 h-4" />,
         modulo: "configuracion",
         accion: "configurar",

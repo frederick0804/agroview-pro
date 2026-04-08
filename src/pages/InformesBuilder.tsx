@@ -2119,7 +2119,7 @@ function FuenteSelector({ fuentesSeleccionadas, onFuenteToggle }: FuenteSelector
 // --------- CamposCalculadosEditor - define cross-module calculated fields ------------------------------------
 
 const OP_OPTIONS: Array<{ value: CampoCalculado["operacion"]; label: string; symbol: string }> = [
-  { value: "/",   label: "Ratio (A ÷ B)",        symbol: "÷" },
+  { value: "/",   label: "División (A ÷ B)",        symbol: "÷" },
   { value: "+",   label: "Suma (A + B)",          symbol: "+" },
   { value: "-",   label: "Diferencia (A − B)",    symbol: "−" },
   { value: "*",   label: "Producto (A × B)",      symbol: "×" },
