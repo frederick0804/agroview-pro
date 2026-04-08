@@ -126,6 +126,24 @@ function getDefaultColor(nivelIdx: number) {
   return COLOR_PALETTE[nivelIdx % COLOR_PALETTE.length].value;
 }
 
+const MAP_GRID_SIZE = 8000;
+const MIN_BLOQUE_WIDTH = 200;
+const MIN_BLOQUE_HEIGHT = 150;
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (max < min) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
+function clampBloqueToGrid(x: number, y: number, width: number, height: number) {
+  const maxX = Math.max(0, MAP_GRID_SIZE - width);
+  const maxY = Math.max(0, MAP_GRID_SIZE - height);
+  return {
+    x: clampNumber(Math.round(x), 0, maxX),
+    y: clampNumber(Math.round(y), 0, maxY),
+  };
+}
+
 // ─── Componente Principal ─────────────────────────────────────────────────────
 
 export function CampoMapaEditor({
@@ -171,6 +189,8 @@ export function CampoMapaEditor({
     startY: number;
     origX: number;
     origY: number;
+    width: number;
+    height: number;
   } | null>(null);
   const [resizing, setResizing] = useState<{
     id: string;
@@ -178,6 +198,8 @@ export function CampoMapaEditor({
     startY: number;
     origW: number;
     origH: number;
+    origX: number;
+    origY: number;
   } | null>(null);
 
   const nivelesActivos = useMemo(
@@ -214,14 +236,22 @@ export function CampoMapaEditor({
   const addBloque = useCallback(() => {
     const count = layout.length;
     const primerNivelLabel = getNivelLabel(estructura, 0);
+    const defaultWidth = 360;
+    const defaultHeight = 240;
+    const nextPos = clampBloqueToGrid(
+      24 - pan.x / scale + (count % 3) * 390,
+      24 - pan.y / scale + Math.floor(count / 3) * 280,
+      defaultWidth,
+      defaultHeight,
+    );
     const newBloque: BloqueLayout = {
       id: generateId(),
       nombre: `${primerNivelLabel} ${count + 1}`,
       nivelIdx: 0,
-      x: Math.max(0, 24 - pan.x / scale + (count % 3) * 390),
-      y: Math.max(0, 24 - pan.y / scale + Math.floor(count / 3) * 280),
-      width: 360,
-      height: 240,
+      x: nextPos.x,
+      y: nextPos.y,
+      width: defaultWidth,
+      height: defaultHeight,
       color: getDefaultColor(0),
       opacity: opacidadGlobal,
       hijos: [],
@@ -576,17 +606,27 @@ export function CampoMapaEditor({
       if (dragging) {
         const dx = (e.clientX - dragging.startX) / scale;
         const dy = (e.clientY - dragging.startY) / scale;
+        const nextPos = clampBloqueToGrid(
+          dragging.origX + dx,
+          dragging.origY + dy,
+          dragging.width,
+          dragging.height,
+        );
         updateBloqueRecursivo(dragging.id, {
-          x: Math.round(dragging.origX + dx),
-          y: Math.round(dragging.origY + dy),
+          x: nextPos.x,
+          y: nextPos.y,
         });
       }
       if (resizing) {
         const dx = (e.clientX - resizing.startX) / scale;
         const dy = (e.clientY - resizing.startY) / scale;
+        const maxWidth = Math.max(MIN_BLOQUE_WIDTH, MAP_GRID_SIZE - resizing.origX);
+        const maxHeight = Math.max(MIN_BLOQUE_HEIGHT, MAP_GRID_SIZE - resizing.origY);
+        const nextWidth = clampNumber(Math.round(resizing.origW + dx), MIN_BLOQUE_WIDTH, maxWidth);
+        const nextHeight = clampNumber(Math.round(resizing.origH + dy), MIN_BLOQUE_HEIGHT, maxHeight);
         updateBloqueRecursivo(resizing.id, {
-          width: Math.max(200, Math.round(resizing.origW + dx)),
-          height: Math.max(150, Math.round(resizing.origH + dy)),
+          width: nextWidth,
+          height: nextHeight,
         });
       }
     };
@@ -1551,8 +1591,8 @@ export function CampoMapaEditor({
               <div
                 className="map-bg absolute pointer-events-none"
                 style={{
-                  width: 8000,
-                  height: 8000,
+                  width: MAP_GRID_SIZE,
+                  height: MAP_GRID_SIZE,
                   left: pan.x,
                   top: pan.y,
                   transform: `scale(${scale})`,
@@ -1614,6 +1654,8 @@ export function CampoMapaEditor({
                           startY: e.clientY,
                           origX: bloque.x,
                           origY: bloque.y,
+                          width: bloque.width,
+                          height: bloque.height,
                         });
                       }}
                     >
@@ -1719,6 +1761,8 @@ export function CampoMapaEditor({
                               startY: e.clientY,
                               origW: bloque.width,
                               origH: bloque.height,
+                              origX: bloque.x,
+                              origY: bloque.y,
                             });
                           }}
                         >

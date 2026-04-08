@@ -132,7 +132,11 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     if (!currentClienteId) {
       list = allDefiniciones;
     } else if (currentProductorId) {
-      list = allDefiniciones.filter(d => d.productor_id === currentProductorId);
+      // Productor: ver formularios base del cliente + formularios exclusivos del productor.
+      list = allDefiniciones.filter(d =>
+        d.cliente_id === currentClienteId &&
+        (!d.productor_id || d.productor_id === currentProductorId)
+      );
     } else {
       list = allDefiniciones.filter(d => d.cliente_id === currentClienteId && !d.productor_id);
     }

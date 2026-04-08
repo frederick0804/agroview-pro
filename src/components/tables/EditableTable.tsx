@@ -4,6 +4,9 @@ import { cn } from "@/lib/utils";
 import { Check, X, Trash2, Plus, Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertTriangle, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import type { DateRange } from "react-day-picker";
+import { es } from "date-fns/locale";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter,
@@ -477,6 +480,29 @@ function EditableCell({
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
+const MONTH_LABELS_ES = Array.from({ length: 12 }, (_, idx) =>
+  new Date(2000, idx, 1).toLocaleDateString("es-ES", { month: "long" }),
+);
+
+const parseIsoDate = (iso?: string): Date | undefined => {
+  if (!iso) return undefined;
+  const parsed = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+};
+
+const getTodayStart = (): Date => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+};
+
+const toLocalIsoDate = (date: Date): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
 export function EditableTable<T extends { id: string | number }>({
   data,
   columns,
@@ -502,16 +528,27 @@ export function EditableTable<T extends { id: string | number }>({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const filterRef = useRef<HTMLDivElement>(null);
   const filterBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const [filterPortalPos, setFilterPortalPos] = useState({ top: 0, left: 0 });
+  const [filterPortalPos, setFilterPortalPos] = useState<{ top?: number; bottom?: number; left: number }>({ left: 0 });
+  const [calendarViewMonth, setCalendarViewMonth] = useState<Date>(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const newRowRef = useRef<HTMLTableRowElement>(null);
   const prevDataLen = useRef(data.length);
 
-  // Calculate portal position when a filter opens
+  // Calculate portal position when a filter opens — flips up if not enough space below
   const openFilterAt = useCallback((colKey: string) => {
     const btn = filterBtnRefs.current[colKey];
     if (btn) {
       const r = btn.getBoundingClientRect();
-      setFilterPortalPos({ top: r.bottom + 4, left: r.left });
+      const POPUP_HEIGHT = 380; // calendar is ~340px; number range is ~90px — use max
+      const spaceBelow = window.innerHeight - r.bottom - 8;
+      if (spaceBelow < POPUP_HEIGHT) {
+        // Open upward
+        setFilterPortalPos({ bottom: window.innerHeight - r.top + 4, left: r.left });
+      } else {
+        setFilterPortalPos({ top: r.bottom + 4, left: r.left });
+      }
     }
     setOpenFilter(colKey);
   }, []);
@@ -530,6 +567,17 @@ export function EditableTable<T extends { id: string | number }>({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [openFilter]);
+
+  useEffect(() => {
+    if (!openFilter) return;
+    const col = columns.find(c => String(c.key) === openFilter);
+    if (!col || col.type !== "date" || (col.filterType ?? "dropdown") !== "range") return;
+    const range = rangeFilters[openFilter];
+    const today = getTodayStart();
+    const anchorDateRaw = parseIsoDate(range?.min) ?? parseIsoDate(range?.max);
+    const anchorDate = anchorDateRaw && anchorDateRaw > today ? today : (anchorDateRaw ?? today);
+    setCalendarViewMonth(new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1));
+  }, [columns, openFilter, rangeFilters]);
 
   // Filterable columns
   const filterableCols = columns.filter(c => c.filterable);
@@ -575,6 +623,7 @@ export function EditableTable<T extends { id: string | number }>({
 
   const filteredData = (() => {
     let result = data;
+    const todayIso = toLocalIsoDate(getTodayStart());
     // Apply column filters (dropdown + search types)
     for (const [key, filterVal] of Object.entries(columnFilters)) {
       if (!filterVal) continue;
@@ -594,11 +643,22 @@ export function EditableTable<T extends { id: string | number }>({
     for (const [key, range] of Object.entries(rangeFilters)) {
       const { min, max } = range;
       if (!min && !max) continue;
+      const col = columns.find(c => String(c.key) === key);
+      const isDate = col?.type === "date";
       result = result.filter(row => {
-        const val = parseFloat(String(row[key as keyof T] ?? ""));
-        if (isNaN(val)) return true;
-        if (min && val < parseFloat(min)) return false;
-        if (max && val > parseFloat(max)) return false;
+        const raw = String(row[key as keyof T] ?? "");
+        if (!raw) return true;
+        if (isDate) {
+          const safeMin = min ? (min > todayIso ? todayIso : min) : "";
+          const safeMax = max ? (max > todayIso ? todayIso : max) : "";
+          if (safeMin && raw < safeMin) return false;
+          if (safeMax && raw > safeMax) return false;
+        } else {
+          const val = parseFloat(raw);
+          if (isNaN(val)) return true;
+          if (min && val < parseFloat(min)) return false;
+          if (max && val > parseFloat(max)) return false;
+        }
         return true;
       });
     }
@@ -919,8 +979,10 @@ export function EditableTable<T extends { id: string | number }>({
             ref={filterRef}
             style={{
               position: "fixed",
-              top: filterPortalPos.top,
-              left: filterPortalPos.left,
+              ...(filterPortalPos.bottom !== undefined
+                ? { bottom: filterPortalPos.bottom }
+                : { top: filterPortalPos.top }),
+              left: Math.min(filterPortalPos.left, window.innerWidth - 300),
               zIndex: 9999,
             }}
           >
@@ -951,7 +1013,121 @@ export function EditableTable<T extends { id: string | number }>({
               </div>
             )}
 
-            {ft === "range" && (
+            {ft === "range" && col.type === "date" && (() => {
+              const today = getTodayStart();
+              const rawFromDate = parseIsoDate(rangeState.min);
+              const rawToDate = parseIsoDate(rangeState.max);
+              const fromDate = rawFromDate && rawFromDate > today ? today : rawFromDate;
+              const toDate = rawToDate && rawToDate > today ? today : rawToDate;
+              const selected: DateRange = { from: fromDate, to: toDate };
+              const fmt = (d?: Date) =>
+                d ? d.toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+              const currentYear = today.getFullYear();
+              const currentMonth = today.getMonth();
+              const selectedYear = calendarViewMonth.getFullYear();
+              const maxMonthIndex = selectedYear >= currentYear ? currentMonth : 11;
+              const monthOptions = MONTH_LABELS_ES
+                .map((label, monthIdx) => ({ label, monthIdx }))
+                .filter(({ monthIdx }) => monthIdx <= maxMonthIndex);
+              const yearStart = Math.min(calendarViewMonth.getFullYear() - 15, currentYear - 10);
+              const yearEnd = currentYear;
+              const yearOptions = Array.from({ length: yearEnd - yearStart + 1 }, (_, idx) => yearStart + idx);
+              return (
+                <div className="bg-popover border border-border rounded-lg shadow-xl p-3 space-y-2">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Filtrar por rango de fechas</p>
+                  {/* Resumen del rango seleccionado */}
+                  <div className="flex items-center gap-1.5 text-xs bg-muted/50 rounded-md px-2 py-1.5">
+                    <span className="text-muted-foreground">Desde</span>
+                    <span className="font-medium">{fmt(fromDate)}</span>
+                    <span className="text-muted-foreground">hasta</span>
+                    <span className="font-medium">{fmt(toDate)}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Mes</label>
+                      <select
+                        className="w-full h-8 text-xs rounded-md border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                        value={calendarViewMonth.getMonth()}
+                        onChange={(e) => {
+                          const nextMonth = Number(e.target.value);
+                          setCalendarViewMonth(prev => {
+                            const allowedMonth = prev.getFullYear() >= currentYear
+                              ? Math.min(nextMonth, currentMonth)
+                              : nextMonth;
+                            return new Date(prev.getFullYear(), allowedMonth, 1);
+                          });
+                        }}
+                      >
+                        {monthOptions.map(({ label, monthIdx }) => (
+                          <option key={label} value={monthIdx}>
+                            {label.charAt(0).toUpperCase() + label.slice(1)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Año</label>
+                      <select
+                        className="w-full h-8 text-xs rounded-md border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                        value={calendarViewMonth.getFullYear()}
+                        onChange={(e) => {
+                          const nextYear = Number(e.target.value);
+                          setCalendarViewMonth(prev => {
+                            const allowedMonth = nextYear >= currentYear
+                              ? Math.min(prev.getMonth(), currentMonth)
+                              : prev.getMonth();
+                            return new Date(nextYear, allowedMonth, 1);
+                          });
+                        }}
+                      >
+                        {yearOptions.map((year) => (
+                          <option key={year} value={year}>
+                            {year}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <Calendar
+                    mode="range"
+                    selected={selected}
+                    month={calendarViewMonth}
+                    onMonthChange={(nextMonth) => {
+                      const monthStart = new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 1);
+                      const todayMonthStart = new Date(currentYear, currentMonth, 1);
+                      setCalendarViewMonth(monthStart > todayMonthStart ? todayMonthStart : monthStart);
+                    }}
+                    onSelect={(range: DateRange | undefined) => {
+                      const toISO = (d?: Date) => {
+                        if (!d) return "";
+                        const day = d > today ? today : d;
+                        return toLocalIsoDate(day);
+                      };
+                      setRangeFilters(prev => ({
+                        ...prev,
+                        [colKey]: { min: toISO(range?.from), max: toISO(range?.to) },
+                      }));
+                      setPage(1);
+                    }}
+                    numberOfMonths={1}
+                    locale={es}
+                    disabled={{ after: today }}
+                    toDate={today}
+                    className="rounded-md"
+                  />
+                  {hasActiveRange && (
+                    <button
+                      onClick={() => { setRangeFilters(prev => { const n = { ...prev }; delete n[colKey]; return n; }); setOpenFilter(null); }}
+                      className="w-full text-[10px] text-destructive hover:text-destructive/80 text-center pt-1"
+                    >
+                      Quitar filtro
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
+            {ft === "range" && col.type !== "date" && (
               <div className="bg-popover border border-border rounded-lg shadow-xl w-52 p-3 space-y-2">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Filtrar por rango</p>
                 <div className="flex items-center gap-2">

@@ -19,7 +19,7 @@ import {
   Leaf, FlaskConical, Factory, ShoppingCart, TrendingUp,
   Users, Tractor, Scissors, Package, Sprout,
   ShieldCheck, Eye, Sparkles, LayoutDashboard, ArrowRight,
-  Settings, FileText, ClipboardList,
+  Settings, FileText, ClipboardList, Plus,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -39,6 +39,29 @@ type QuickActionDef = {
 };
 type Activity = { id: string; description: string; timestamp: string; type: "info" | "success" | "warning" };
 type Metric   = { title: string; value: string; change?: number; changeLabel?: string; variant?: "default" | "success" | "warning" | "info" };
+type ResumenMetric = Metric & { icon: React.ReactNode };
+type ModuleSummaryHighlight = { label: string; value: string };
+type ModuleSummary = {
+  key: string;
+  label: string;
+  color: string;
+  latest: number;
+  previous: number;
+  change: number;
+  warnings: number;
+  highlights: ModuleSummaryHighlight[];
+};
+type ResumenData = {
+  metrics: ResumenMetric[];
+  productionTitle: string;
+  productionData: { month: string; value: number }[];
+  statusTitle: string;
+  statusData: { name: string; value: number; color: string }[];
+  barTitle: string;
+  barData: { week: string; ventas: number; metas: number }[];
+  activities: Activity[];
+  moduleSummaries?: ModuleSummary[];
+};
 
 // ─── Area lookup (kept for AreaManagerDashboard / SupervisorDashboard) ────────
 const AREA_LABELS: Record<string, string> = {
@@ -336,6 +359,168 @@ const globalActivities: Activity[] = [
   { id: "4", description: "Análisis de suelo completado — Lote B-1",        timestamp: "Ayer",         type: "success" },
 ];
 
+const GLOBAL_RESUMEN_DATA: ResumenData = {
+  metrics: [
+    { title: "Producción Total", value: "1,234 kg", change: 12.5, changeLabel: "vs mes anterior", icon: <Factory className="w-5 h-5" /> },
+    { title: "Ventas del Mes", value: "$89,500", change: 8.2, changeLabel: "vs mes anterior", variant: "success", icon: <TrendingUp className="w-5 h-5" /> },
+    { title: "Cultivos Activos", value: "24", change: -2, changeLabel: "cosechados", icon: <Leaf className="w-5 h-5" /> },
+    { title: "Empleados Activos", value: "86", variant: "info", icon: <Users className="w-5 h-5" /> },
+  ],
+  productionTitle: "Producción Mensual",
+  productionData: globalProductionData,
+  statusTitle: "Estado de Cultivos",
+  statusData: globalStatusData,
+  barTitle: "Ventas Semanales vs Metas",
+  barData: globalSalesData,
+  activities: globalActivities,
+};
+
+const moduleLabelByKey: Record<string, string> = {
+  ...AREA_LABELS,
+  "post-cosecha": "Poscosecha",
+  "recursos-humanos": "Rec. Humanos",
+};
+
+const moduleColorByKey: Record<string, string> = Object.fromEntries(
+  MODULE_TABS
+    .filter((tab) => tab.key !== "resumen")
+    .map((tab) => [tab.key, tab.color]),
+) as Record<string, string>;
+
+const normalizeProducerModuleKey = (moduleKey: string): string => {
+  if (moduleKey === "cosecha") return "cultivo";
+  if (moduleKey === "produccion") return "post-cosecha";
+  return moduleKey;
+};
+
+const buildProducerResumenData = (moduleKeys: string[]): ResumenData => {
+  const uniqueKeys = Array.from(new Set(moduleKeys)).filter((k) => Boolean(MODULE_DATA[k]));
+  const selected = uniqueKeys.map((key) => ({
+    key,
+    label: moduleLabelByKey[key] ?? key,
+    color: moduleColorByKey[key] ?? "hsl(142, 45%, 28%)",
+    data: MODULE_DATA[key],
+  }));
+
+  if (selected.length === 0) {
+    return {
+      metrics: [
+        { title: "Módulos propios", value: "0", icon: <LayoutDashboard className="w-5 h-5" /> },
+        { title: "Actividad último mes", value: "0", icon: <TrendingUp className="w-5 h-5" /> },
+        { title: "Módulo líder", value: "—", icon: <ClipboardList className="w-5 h-5" /> },
+        { title: "Alertas recientes", value: "0", variant: "success", icon: <Sparkles className="w-5 h-5" /> },
+      ],
+      productionTitle: "Actividad total mensual (módulos propios)",
+      productionData: [],
+      statusTitle: "",
+      statusData: [],
+      barTitle: "Actividad por módulo (mes actual vs anterior)",
+      barData: [],
+      activities: [],
+      moduleSummaries: [],
+    };
+  }
+
+  const monthCount = Math.max(...selected.map(({ data }) => data.trendData.length));
+  const monthlyTotals = Array.from({ length: monthCount }, (_, idx) => {
+    const points = selected
+      .map(({ data }) => data.trendData[idx])
+      .filter((p): p is { month: string; value: number } => Boolean(p));
+    const month = points[0]?.month ?? `P${idx + 1}`;
+    const total = points.reduce((sum, p) => sum + p.value, 0);
+    return { month, value: Number(total.toFixed(1)) };
+  });
+
+  const moduleSummaries: ModuleSummary[] = selected
+    .map(({ key, label, color, data }) => {
+      const latest = data.trendData[data.trendData.length - 1]?.value ?? 0;
+      const previous = data.trendData[data.trendData.length - 2]?.value ?? latest;
+      const change = previous > 0
+        ? Number((((latest - previous) / previous) * 100).toFixed(1))
+        : 0;
+      const warnings = data.activities.filter((a) => a.type === "warning").length;
+      const highlights = data.metrics.slice(0, 3).map((m) => ({
+        label: m.title,
+        value: String(m.value),
+      }));
+
+      return {
+        key,
+        label,
+        color,
+        latest: Number(latest.toFixed(1)),
+        previous: Number(previous.toFixed(1)),
+        change,
+        warnings,
+        highlights,
+      };
+    })
+    .sort((a, b) => b.latest - a.latest);
+
+  const latestTotal = moduleSummaries.reduce((sum, m) => sum + m.latest, 0);
+  const previousTotal = moduleSummaries.reduce((sum, m) => sum + m.previous, 0);
+  const monthlyChange = previousTotal > 0
+    ? Number((((latestTotal - previousTotal) / previousTotal) * 100).toFixed(1))
+    : 0;
+
+  const topModule = moduleSummaries[0];
+  const topModuleShare = topModule && latestTotal > 0
+    ? Number(((topModule.latest / latestTotal) * 100).toFixed(1))
+    : 0;
+
+  const barData = moduleSummaries.map(({ label, latest, previous }) => {
+    return {
+      week: label,
+      ventas: Number(latest.toFixed(1)),
+      metas: Number(previous.toFixed(1)),
+    };
+  });
+
+  const allActivities = selected.flatMap(({ key, label, data }) =>
+    data.activities.map((a) => ({
+      ...a,
+      id: `${key}-${a.id}`,
+      description: `${label}: ${a.description}`,
+    }))
+  );
+
+  const warnings = allActivities.filter((a) => a.type === "warning").length;
+
+  return {
+    metrics: [
+      { title: "Módulos propios", value: String(selected.length), icon: <LayoutDashboard className="w-5 h-5" /> },
+      {
+        title: "Actividad último mes",
+        value: latestTotal.toLocaleString("es-EC", { maximumFractionDigits: 0 }),
+        change: monthlyChange,
+        changeLabel: "vs mes anterior",
+        variant: monthlyChange >= 0 ? "success" : "warning",
+        icon: <TrendingUp className="w-5 h-5" />,
+      },
+      {
+        title: "Módulo líder",
+        value: topModule ? `${topModule.label} (${topModuleShare.toFixed(1)}%)` : "—",
+        variant: "info",
+        icon: <ClipboardList className="w-5 h-5" />,
+      },
+      {
+        title: "Alertas recientes",
+        value: String(warnings),
+        variant: warnings > 0 ? "warning" : "success",
+        icon: <Sparkles className="w-5 h-5" />,
+      },
+    ],
+    productionTitle: "Actividad total mensual (módulos propios)",
+    productionData: monthlyTotals,
+    statusTitle: "",
+    statusData: [],
+    barTitle: "Actividad por módulo (mes actual vs anterior)",
+    barData,
+    activities: allActivities.slice(0, 8),
+    moduleSummaries,
+  };
+};
+
 // ─── Shared chart styling ─────────────────────────────────────────────────────
 const TT  = { backgroundColor: "white", border: "1px solid hsl(140,15%,85%)", borderRadius: "8px", fontSize: "12px" };
 const AX  = { stroke: "hsl(150, 10%, 45%)" as const, fontSize: 11 };
@@ -487,84 +672,176 @@ function ModuleTabContent({
 }
 
 // ─── Resumen Tab Content ──────────────────────────────────────────────────────
-function ResumenTabContent({ quickActions, sectorHint }: { quickActions: QA[]; sectorHint?: string }) {
+function ResumenTabContent({
+  quickActions,
+  sectorHint,
+  resumenData,
+}: {
+  quickActions: QA[];
+  sectorHint?: string;
+  resumenData: ResumenData;
+}) {
+  const moduleSummaries = resumenData.moduleSummaries ?? [];
+  const showModuleResumen = moduleSummaries.length > 0;
+
   return (
     <div className="space-y-5">
       <WeatherChatWidget sectorHint={sectorHint} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard title="Producción Total"  value="1,234 kg" change={12.5} changeLabel="vs mes anterior" icon={<Factory className="w-5 h-5" />} />
-        <MetricCard title="Ventas del Mes"    value="$89,500"  change={8.2}  changeLabel="vs mes anterior" icon={<TrendingUp className="w-5 h-5" />} variant="success" />
-        <MetricCard title="Cultivos Activos"  value="24"       change={-2}   changeLabel="cosechados"      icon={<Leaf className="w-5 h-5" />} />
-        <MetricCard title="Empleados Activos" value="86"                                                   icon={<Users className="w-5 h-5" />} variant="info" />
+        {resumenData.metrics.map((metric, idx) => (
+          <MetricCard
+            key={`${metric.title}-${idx}`}
+            title={metric.title}
+            value={metric.value}
+            change={metric.change}
+            changeLabel={metric.changeLabel}
+            icon={metric.icon}
+            variant={metric.variant}
+          />
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Producción Mensual</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={globalProductionData}>
-              <defs>
-                <linearGradient id="gProd" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="hsl(142, 45%, 28%)" stopOpacity={0.28} />
-                  <stop offset="95%" stopColor="hsl(142, 45%, 28%)" stopOpacity={0}    />
-                </linearGradient>
-              </defs>
-              <CartesianGrid {...GRD} />
-              <XAxis dataKey="month" {...AX} />
-              <YAxis {...AX} />
-              <Tooltip contentStyle={TT} />
-              <Area type="monotone" dataKey="value" stroke="hsl(142, 45%, 28%)" strokeWidth={2} fillOpacity={1} fill="url(#gProd)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="bg-card rounded-xl border border-border p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Estado de Cultivos</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={globalStatusData} cx="50%" cy="44%" innerRadius={50} outerRadius={76} paddingAngle={4} dataKey="value">
-                {globalStatusData.map((e, i) => <Cell key={i} fill={e.color} />)}
-              </Pie>
-              <Legend verticalAlign="bottom" height={36} formatter={(v) => <span className="text-[11px] text-foreground">{v}</span>} />
-              <Tooltip contentStyle={TT} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+      {showModuleResumen ? (
+        <>
+          <div className="bg-card rounded-xl border border-border p-5 space-y-4">
+            <h3 className="text-sm font-semibold text-foreground">Resumen por módulo</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {moduleSummaries.map((module) => (
+                <div key={module.key} className="rounded-lg border border-border/70 p-3 bg-muted/20">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold" style={{ color: module.color }}>{module.label}</p>
+                    <span className={cn(
+                      "text-[10px] font-medium px-2 py-0.5 rounded-full",
+                      module.warnings > 0
+                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                        : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+                    )}>
+                      {module.warnings > 0 ? `${module.warnings} alerta${module.warnings > 1 ? "s" : ""}` : "Sin alertas"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Mes actual: <span className="font-semibold text-foreground">{module.latest.toLocaleString("es-EC", { maximumFractionDigits: 1 })}</span>
+                    {" · "}
+                    Mes anterior: <span className="font-semibold text-foreground">{module.previous.toLocaleString("es-EC", { maximumFractionDigits: 1 })}</span>
+                  </p>
+                  <p className={cn(
+                    "text-xs font-medium mt-1",
+                    module.change >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
+                  )}>
+                    {module.change >= 0 ? "+" : ""}{module.change.toFixed(1)}% vs mes anterior
+                  </p>
+                  <div className="mt-2 space-y-1 border-t border-border/60 pt-2">
+                    {module.highlights.map((item) => (
+                      <div key={`${module.key}-${item.label}`} className="flex items-center justify-between text-[11px] gap-2">
+                        <span className="text-muted-foreground truncate">{item.label}</span>
+                        <span className="font-medium text-foreground shrink-0">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Ventas Semanales vs Metas</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={globalSalesData}>
-              <CartesianGrid {...GRD} />
-              <XAxis dataKey="week" {...AX} />
-              <YAxis {...AX} />
-              <Tooltip contentStyle={TT} />
-              <Legend />
-              <Bar dataKey="ventas" fill="hsl(142, 45%, 28%)" radius={[4,4,0,0]} />
-              <Bar dataKey="metas"  fill="hsl(45, 85%, 55%)"  radius={[4,4,0,0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="space-y-4">
-          {quickActions.length > 0 && <QuickActions actions={quickActions} />}
-          <RoleNotifications maxItems={4} />
-          <RecentActivity activities={globalActivities} />
-        </div>
-      </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
+              <h3 className="text-sm font-semibold text-foreground mb-4">{resumenData.barTitle}</h3>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={resumenData.barData}>
+                  <CartesianGrid {...GRD} />
+                  <XAxis dataKey="week" {...AX} />
+                  <YAxis {...AX} />
+                  <Tooltip contentStyle={TT} />
+                  <Legend />
+                  <Bar dataKey="ventas" name="Mes actual" fill="hsl(142, 45%, 28%)" radius={[4,4,0,0]} />
+                  <Bar dataKey="metas" name="Mes anterior" fill="hsl(45, 85%, 55%)" radius={[4,4,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="space-y-4">
+              {quickActions.length > 0 && <QuickActions actions={quickActions} />}
+              <RoleNotifications maxItems={4} />
+              <RecentActivity activities={resumenData.activities} />
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
+              <h3 className="text-sm font-semibold text-foreground mb-4">{resumenData.productionTitle}</h3>
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={resumenData.productionData}>
+                  <defs>
+                    <linearGradient id="gProd" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="hsl(142, 45%, 28%)" stopOpacity={0.28} />
+                      <stop offset="95%" stopColor="hsl(142, 45%, 28%)" stopOpacity={0}    />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid {...GRD} />
+                  <XAxis dataKey="month" {...AX} />
+                  <YAxis {...AX} />
+                  <Tooltip contentStyle={TT} />
+                  <Area type="monotone" dataKey="value" stroke="hsl(142, 45%, 28%)" strokeWidth={2} fillOpacity={1} fill="url(#gProd)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="bg-card rounded-xl border border-border p-5">
+              <h3 className="text-sm font-semibold text-foreground mb-4">{resumenData.statusTitle}</h3>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={resumenData.statusData} layout="vertical" margin={{ top: 4, right: 12, bottom: 4, left: 12 }}>
+                  <CartesianGrid {...GRD} horizontal={false} />
+                  <XAxis type="number" {...AX} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                  <YAxis type="category" dataKey="name" width={100} {...AX} />
+                  <Tooltip
+                    contentStyle={TT}
+                    formatter={(value) => [`${Number(value).toFixed(1)}%`, "Participación"]}
+                  />
+                  <Bar dataKey="value" name="Participación" radius={[0, 4, 4, 0]}>
+                    {resumenData.statusData.map((e, i) => <Cell key={`${e.name}-${i}`} fill={e.color} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
+              <h3 className="text-sm font-semibold text-foreground mb-4">{resumenData.barTitle}</h3>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={resumenData.barData}>
+                  <CartesianGrid {...GRD} />
+                  <XAxis dataKey="week" {...AX} />
+                  <YAxis {...AX} />
+                  <Tooltip contentStyle={TT} />
+                  <Legend />
+                  <Bar dataKey="ventas" name="Mes actual" fill="hsl(142, 45%, 28%)" radius={[4,4,0,0]} />
+                  <Bar dataKey="metas" name="Mes anterior" fill="hsl(45, 85%, 55%)"  radius={[4,4,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="space-y-4">
+              {quickActions.length > 0 && <QuickActions actions={quickActions} />}
+              <RoleNotifications maxItems={4} />
+              <RecentActivity activities={resumenData.activities} />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
 // ─── Tabbed Dashboard (super_admin, cliente_admin, productor) ─────────────────
-function TabbedDashboard({ title, description, banner, quickActions, sectorHint, tabs }: {
+function TabbedDashboard({ title, description, banner, quickActions, sectorHint, tabs, resumenData }: {
   title: string;
   description: string;
   banner?: React.ReactNode;
   quickActions: QA[];
   sectorHint?: string;
   tabs?: typeof MODULE_TABS;
+  resumenData?: ResumenData;
 }) {
   const availableTabs = tabs?.length ? tabs : MODULE_TABS;
   const [activeTab, setActiveTab] = useState(availableTabs[0]?.key ?? "resumen");
@@ -582,7 +859,7 @@ function TabbedDashboard({ title, description, banner, quickActions, sectorHint,
       {banner}
       <ModuleTabBar active={activeTab} onChange={setActiveTab} tabs={availableTabs} />
       {activeTab === "resumen"
-        ? <ResumenTabContent quickActions={quickActions} sectorHint={sectorHint} />
+        ? <ResumenTabContent quickActions={quickActions} sectorHint={sectorHint} resumenData={resumenData ?? GLOBAL_RESUMEN_DATA} />
         : <ModuleTabContent moduleKey={activeTab} navigate={navigate} tabs={availableTabs} />
       }
     </>
@@ -851,11 +1128,20 @@ const Index = () => {
     .map(group => group.label)
     .join(", ");
 
+  const producerOwnedDashboardModules = new Set<string>(
+    PRODUCER_DASHBOARD_MODULES
+      .filter(group => producerDashboardModules.has(group.key))
+      .flatMap(group => group.modules)
+      .map(normalizeProducerModuleKey)
+  );
+
+  const producerResumenData = buildProducerResumenData(Array.from(producerOwnedDashboardModules));
+
   const quickActionsByRole: Record<UserRole, QuickActionDef[]> = {
     super_admin: [
       {
         id: "qa-sa-add-user",
-        label: "Alta de usuario global",
+        label: "Añadir usuario",
         icon: <Users className="w-4 h-4" />,
         modulo: "configuracion",
         accion: "configurar",
@@ -871,7 +1157,7 @@ const Index = () => {
       },
       {
         id: "qa-sa-create-report-template",
-        label: "Nueva plantilla global",
+        label: "Nueva plantilla de informe",
         icon: <FileText className="w-4 h-4" />,
         modulo: "informes",
         accion: "configurar",
@@ -896,16 +1182,16 @@ const Index = () => {
     ],
     cliente_admin: [
       {
-        id: "qa-ca-add-user",
-        label: "Alta de usuario de empresa",
-        icon: <Users className="w-4 h-4" />,
+        id: "qa-ca-manage-user-permissions",
+        label: "Gestionar permisos de usuarios",
+        icon: <ShieldCheck className="w-4 h-4" />,
         modulo: "configuracion",
-        accion: "configurar",
-        getPath: () => "/configuracion?tab=usuarios&action=add-user",
+        accion: "ver",
+        getPath: () => "/configuracion?tab=usuarios",
       },
       {
         id: "qa-ca-create-form",
-        label: "Nuevo formulario operativo",
+        label: "Crear formulario",
         icon: <ClipboardList className="w-4 h-4" />,
         modulo: "configuracion",
         accion: "configurar",
@@ -938,44 +1224,44 @@ const Index = () => {
     ],
     productor: [
       {
-        id: "qa-prod-create-form",
-        label: "Nuevo formulario de campo",
-        icon: <ClipboardList className="w-4 h-4" />,
-        modulo: "configuracion",
-        accion: "configurar",
-        getPath: () => "/configuracion?tab=formularios&action=create-form",
+        id: "qa-prod-new-record-cultivo",
+        label: "Nuevo registro de cultivo",
+        icon: <Plus className="w-4 h-4" />,
+        modulo: "cultivo",
+        accion: "crear",
+        getPath: () => "/cultivo?action=create",
       },
       {
-        id: "qa-prod-create-report-template",
-        label: "Nueva plantilla operativa",
-        icon: <FileText className="w-4 h-4" />,
-        modulo: "informes",
-        accion: "configurar",
-        getPath: () => "/informes?action=create-template",
-      },
-      {
-        id: "qa-prod-config-cultivos",
-        label: "Ajustar cultivos",
-        icon: <Settings className="w-4 h-4" />,
-        modulo: "configuracion",
-        accion: "configurar",
-        getPath: () => "/configuracion?tab=cultivos",
+        id: "qa-prod-go-cultivo",
+        label: "Ver módulo de cultivo",
+        icon: <Leaf className="w-4 h-4" />,
+        modulo: "cultivo",
+        accion: "ver",
+        getPath: () => "/cultivo",
       },
       {
         id: "qa-prod-run-reports",
-        label: "Generar informes de mi operación",
+        label: "Generar informes",
         icon: <TrendingUp className="w-4 h-4" />,
         modulo: "informes",
         accion: "ver",
         getPath: () => "/informes",
       },
       {
-        id: "qa-prod-go-cultivo",
-        label: "Abrir módulo de cultivo",
-        icon: <Leaf className="w-4 h-4" />,
-        modulo: "cultivo",
-        accion: "ver",
-        getPath: () => "/cultivo",
+        id: "qa-prod-config",
+        label: "Ir a Configuración",
+        icon: <Settings className="w-4 h-4" />,
+        modulo: "configuracion",
+        accion: "configurar",
+        getPath: () => "/configuracion",
+      },
+      {
+        id: "qa-prod-create-form",
+        label: "Crear formulario",
+        icon: <ClipboardList className="w-4 h-4" />,
+        modulo: "configuracion",
+        accion: "configurar",
+        getPath: () => "/configuracion?tab=formularios&action=create-form",
       },
     ],
     jefe_area: [
@@ -1004,14 +1290,6 @@ const Index = () => {
         getPath: ({ area: areaKey }) => (areaKey ? (AREA_PATHS[areaKey] ?? null) : null),
       },
       {
-        id: "qa-ja-area-dashboard",
-        label: "Abrir operación del área",
-        icon: <LayoutDashboard className="w-4 h-4" />,
-        modulo: "dashboard",
-        accion: "ver",
-        getPath: () => "/",
-      },
-      {
         id: "qa-ja-area-reports-center",
         label: "Centro de informes",
         icon: <FileText className="w-4 h-4" />,
@@ -1025,7 +1303,12 @@ const Index = () => {
   };
 
   const quickActions: QA[] = (quickActionsByRole[role] ?? [])
-    .filter(a => hasPermission(a.modulo, a.accion))
+    .filter((a) => {
+      if (!hasPermission(a.modulo, a.accion)) return false;
+      if (role !== "productor") return true;
+      if (a.modulo === "configuracion" || a.modulo === "dashboard") return true;
+      return producerOwnedDashboardModules.has(a.modulo as string);
+    })
     .map((a) => ({
       id: a.id,
       label: a.label,
@@ -1037,9 +1320,13 @@ const Index = () => {
     }))
     .slice(0, 5);
 
-  const dashboardTabsByPermission = DASHBOARD_TABS.filter(tab =>
-    tab.key === "resumen" || tab.permissionModules.some(mod => hasPermission(mod, "ver")),
-  );
+  const dashboardTabsByPermission = role === "productor"
+    ? DASHBOARD_TABS.filter(tab =>
+        tab.key === "resumen" || tab.permissionModules.some(mod => producerOwnedDashboardModules.has(mod as string)),
+      )
+    : DASHBOARD_TABS.filter(tab =>
+        tab.key === "resumen" || tab.permissionModules.some(mod => hasPermission(mod, "ver")),
+      );
 
   return (
     <MainLayout>
@@ -1068,6 +1355,7 @@ const Index = () => {
           quickActions={quickActions}
           sectorHint={roleSectorHint}
           tabs={dashboardTabsByPermission}
+          resumenData={producerResumenData}
         />
       ) : role === "jefe_area" && area ? (
         <AreaManagerDashboard area={area} areaLabel={areaLabel} areaColor={areaColor} quickActions={quickActions} />

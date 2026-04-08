@@ -4,6 +4,7 @@ import { EditableTable, Column } from "@/components/tables/EditableTable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
@@ -270,6 +271,7 @@ function DynamicDefTable({
   const [duplicateRepeatCount, setDuplicateRepeatCount] = useState(1);
   const [selectedDuplicateIds, setSelectedDuplicateIds] = useState<string[]>([]);
   const [pendingRequiredDatoIds, setPendingRequiredDatoIds] = useState<string[]>([]);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   const paramsSignature = params.map(p => p.id).join("|");
 
@@ -390,9 +392,74 @@ function DynamicDefTable({
 
     const rowsToUse = applyRows.length > 0 ? applyRows : sourceRows;
     const groupedField = param.relacion_agrupar_por ?? "";
+    const relationOperation = param.relacion_origen_operacion ?? "valores_unicos";
+    const relationSpecificValue = String(param.relacion_origen_valor_especifico ?? "").trim();
+    const campoValorMeta = parametros.find(
+      (p) => p.definicion_id === param.relacion_def_id && p.nombre === campoValor,
+    );
+    const campoValorEsNumero = campoValorMeta?.tipo_dato === "Número";
+    const relationOperationNormalized = campoValorEsNumero
+      ? (["suma", "promedio", "maximo", "minimo", "valores_unicos"].includes(relationOperation)
+          ? relationOperation
+          : "suma")
+      : (["valores_unicos", "valor_especifico"].includes(relationOperation)
+          ? relationOperation
+          : "valores_unicos");
+
+    if (campoValorEsNumero && ["suma", "promedio", "maximo", "minimo"].includes(relationOperationNormalized)) {
+      const op = relationOperationNormalized as "suma" | "promedio" | "maximo" | "minimo";
+
+      if (groupedField) {
+        const groups = new Map<string, number[]>();
+        rowsToUse.forEach((row) => {
+          const parsed = parseValores(row.valores);
+          const groupKey = String(parsed[groupedField] ?? "(sin grupo)");
+          const n = Number(parsed[campoValor]);
+          if (!Number.isFinite(n)) return;
+          const current = groups.get(groupKey) ?? [];
+          current.push(n);
+          groups.set(groupKey, current);
+        });
+
+        return [...groups.entries()]
+          .map(([group, values]) => {
+            const agg = aggregateNumbers(values, op);
+            if (agg === null) return null;
+            const rounded = Math.round(agg * 100) / 100;
+            const val = Number.isInteger(rounded) ? String(rounded) : String(rounded);
+            return { value: val, label: val, group };
+          })
+          .filter((opt): opt is { value: string; label: string; group?: string } => !!opt)
+          .sort((a, b) => (a.group ?? "").localeCompare(b.group ?? "", "es"));
+      }
+
+      const values = rowsToUse
+        .map((row) => {
+          const parsed = parseValores(row.valores);
+          const n = Number(parsed[campoValor]);
+          return Number.isFinite(n) ? n : null;
+        })
+        .filter((n): n is number => n !== null);
+
+      const agg = aggregateNumbers(values, op);
+      if (agg === null) return [];
+      const rounded = Math.round(agg * 100) / 100;
+      const val = Number.isInteger(rounded) ? String(rounded) : String(rounded);
+      return [{ value: val, label: val }];
+    }
+
+    const rowsForNonNumeric = !campoValorEsNumero && relationOperationNormalized === "valor_especifico"
+      ? (relationSpecificValue
+          ? rowsToUse.filter((row) => {
+              const parsed = parseValores(row.valores);
+              return normalizeForMatch(parsed[campoValor]) === normalizeForMatch(relationSpecificValue);
+            })
+          : [])
+      : rowsToUse;
+
     const dedupe = new Set<string>();
 
-    const out = rowsToUse.map((row) => {
+    const out = rowsForNonNumeric.map((row) => {
       const parsed = parseValores(row.valores);
       const labelRaw = parsed[campoLabel] ?? row.referencia ?? row.id;
       const valueRaw = parsed[campoValor] ?? labelRaw;
@@ -586,7 +653,7 @@ function DynamicDefTable({
           } as Column<DynRow>,
         ]
       : []),
-    { key: "fecha", header: "Fecha", width: "110px", type: "date", editable: canEdit || canCreate, required: true },
+    { key: "fecha", header: "Fecha", width: "110px", type: "date", editable: canEdit || canCreate, required: true, filterable: true, filterType: "range" },
     ...params
       .filter(p => p.visible !== false)
       .map(p => {
@@ -623,6 +690,11 @@ function DynamicDefTable({
               label: opt.group ? `${opt.group} · ${opt.label}` : opt.label,
             })),
           ];
+        }
+        // Campos fecha: filtro por rango de fechas por defecto
+        if (p.tipo_dato === "Fecha") {
+          col.filterable = true;
+          col.filterType = "range";
         }
         if (p.filtrable_rango) {
           col.filterable = true;
@@ -691,6 +763,15 @@ function DynamicDefTable({
       delDato(dato.id);
       }
     : undefined;
+
+  const handleBulkDelete = () => {
+    selectedDuplicateIds.forEach(id => {
+      removePendingRequiredDatoId(id);
+      delDato(id);
+    });
+    setSelectedDuplicateIds([]);
+    setShowBulkDeleteConfirm(false);
+  };
 
   const handleAdd = canAddRecord
     ? () => {
@@ -1306,7 +1387,7 @@ function DynamicDefTable({
         </div>
       )}
 
-      {canDuplicateRows && rows.length > 0 && selectedRowsCount > 0 && (
+      {(canDuplicateRows || canDelete) && rows.length > 0 && selectedRowsCount > 0 && (
         <div className="rounded-lg border border-violet-200 bg-violet-50/60 px-3 py-2.5">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-2 flex-wrap">
@@ -1314,7 +1395,7 @@ function DynamicDefTable({
                 {selectedRowsCount} seleccionada{selectedRowsCount !== 1 ? "s" : ""}
               </Badge>
               <p className="text-xs text-violet-800/80">
-                Selecciona una o varias filas con el botón de check y duplica total o parcial desde aquí.
+                Acciones en lote sobre las filas seleccionadas.
               </p>
             </div>
 
@@ -1338,47 +1419,65 @@ function DynamicDefTable({
                 onClick={clearDuplicateSelection}
                 disabled={selectedRowsCount === 0 || duplicateActionsBlocked}
               >
-                Limpiar selección
+                Limpiar
               </Button>
 
-              <Button
-                type="button"
-                size="sm"
-                className="text-xs gap-1.5"
-                onClick={() => handleDuplicateAll(selectedDuplicateIds)}
-                disabled={selectedRowsCount === 0 || duplicateActionsBlocked}
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Duplicar total ({selectedRowsCount})
-              </Button>
-
-              <DropdownMenu
-                open={isBulkDupMenuOpen}
-                onOpenChange={(open) => {
-                  if (open) {
-                    if (selectedRowsCount === 0 || duplicateActionsBlocked) return;
-                    prepareDuplicateSelection(selectedDuplicateIds);
-                    setDuplicateMenuOpenId(BULK_DUPLICATE_MENU_ID);
-                  } else if (isBulkDupMenuOpen) {
-                    resetDuplicateState();
-                  }
-                }}
-              >
-                <DropdownMenuTrigger asChild>
+              {canDuplicateRows && (
+                <>
                   <Button
                     type="button"
-                    variant="outline"
                     size="sm"
                     className="text-xs gap-1.5"
+                    onClick={() => handleDuplicateAll(selectedDuplicateIds)}
                     disabled={selectedRowsCount === 0 || duplicateActionsBlocked}
                   >
-                    <SlidersHorizontal className="w-3.5 h-3.5" />
-                    Duplicar parcial
+                    <Copy className="w-3.5 h-3.5" />
+                    Duplicar ({selectedRowsCount})
                   </Button>
-                </DropdownMenuTrigger>
 
-                {renderDuplicatePartialMenu("Duplicación parcial en lote")}
-              </DropdownMenu>
+                  <DropdownMenu
+                    open={isBulkDupMenuOpen}
+                    onOpenChange={(open) => {
+                      if (open) {
+                        if (selectedRowsCount === 0 || duplicateActionsBlocked) return;
+                        prepareDuplicateSelection(selectedDuplicateIds);
+                        setDuplicateMenuOpenId(BULK_DUPLICATE_MENU_ID);
+                      } else if (isBulkDupMenuOpen) {
+                        resetDuplicateState();
+                      }
+                    }}
+                  >
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="text-xs gap-1.5"
+                        disabled={selectedRowsCount === 0 || duplicateActionsBlocked}
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                        Duplicar parcial
+                      </Button>
+                    </DropdownMenuTrigger>
+
+                    {renderDuplicatePartialMenu("Duplicación parcial en lote")}
+                  </DropdownMenu>
+                </>
+              )}
+
+              {canDelete && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  className="text-xs gap-1.5"
+                  onClick={() => setShowBulkDeleteConfirm(true)}
+                  disabled={selectedRowsCount === 0}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Eliminar ({selectedRowsCount})
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -1477,6 +1576,27 @@ function DynamicDefTable({
           }}
         />
       )}
+
+      {/* ── Confirmación eliminación en lote ─────────────────────────────────── */}
+      <AlertDialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar {selectedRowsCount} fila{selectedRowsCount !== 1 ? "s" : ""}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminarán permanentemente <strong>{selectedRowsCount} registro{selectedRowsCount !== 1 ? "s" : ""}</strong> seleccionado{selectedRowsCount !== 1 ? "s" : ""}. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={handleBulkDelete}
+            >
+              Sí, eliminar {selectedRowsCount}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={showCreateModal}
