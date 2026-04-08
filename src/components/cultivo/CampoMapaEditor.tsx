@@ -144,6 +144,26 @@ function clampBloqueToGrid(x: number, y: number, width: number, height: number) 
   };
 }
 
+function clampPanToGridBounds(
+  pan: { x: number; y: number },
+  containerWidth: number,
+  containerHeight: number,
+  scale: number,
+) {
+  const scaledGridWidth = MAP_GRID_SIZE * scale;
+  const scaledGridHeight = MAP_GRID_SIZE * scale;
+
+  const x = scaledGridWidth <= containerWidth
+    ? (containerWidth - scaledGridWidth) / 2
+    : clampNumber(pan.x, containerWidth - scaledGridWidth, 0);
+
+  const y = scaledGridHeight <= containerHeight
+    ? (containerHeight - scaledGridHeight) / 2
+    : clampNumber(pan.y, containerHeight - scaledGridHeight, 0);
+
+  return { x, y };
+}
+
 // ─── Componente Principal ─────────────────────────────────────────────────────
 
 export function CampoMapaEditor({
@@ -201,6 +221,16 @@ export function CampoMapaEditor({
     origX: number;
     origY: number;
   } | null>(null);
+
+  const clampPanToGrid = useCallback(
+    (nextPan: { x: number; y: number }, targetScale: number) => {
+      const container = containerRef.current;
+      if (!container) return nextPan;
+      const rect = container.getBoundingClientRect();
+      return clampPanToGridBounds(nextPan, rect.width, rect.height, targetScale);
+    },
+    []
+  );
 
   const nivelesActivos = useMemo(
     () => estructura.filter((n) => n.activo),
@@ -513,11 +543,12 @@ export function CampoMapaEditor({
     const offsetY = (rect.height - fittedHeight) / 2;
 
     setScale(nextScale);
-    setPan({
+    const fittedPan = {
       x: offsetX - bounds.minX * nextScale,
       y: offsetY - bounds.minY * nextScale,
-    });
-  }, [layout]);
+    };
+    setPan(clampPanToGrid(fittedPan, nextScale));
+  }, [layout, clampPanToGrid]);
 
   // ── Zoom ────────────────────────────────────────────────────────────────────
   const zoomIn = () => setScale((s) => Math.min(s * 1.2, 3));
@@ -555,14 +586,14 @@ export function CampoMapaEditor({
       setPan((prevPan) => {
         const worldX = (cursorX - prevPan.x) / prevScale;
         const worldY = (cursorY - prevPan.y) / prevScale;
-        return {
+        return clampPanToGrid({
           x: cursorX - worldX * nextScale,
           y: cursorY - worldY * nextScale,
-        };
+        }, nextScale);
       });
       return nextScale;
     });
-  }, [layout.length]);
+  }, [layout.length, clampPanToGrid]);
 
   // Listener nativo no pasivo para cancelar el zoom de la página con Ctrl+rueda.
   useEffect(() => {
@@ -601,7 +632,7 @@ export function CampoMapaEditor({
       if (isPanning) {
         const dx = e.clientX - panStart.x;
         const dy = e.clientY - panStart.y;
-        setPan({ x: panStart.panX + dx, y: panStart.panY + dy });
+        setPan(clampPanToGrid({ x: panStart.panX + dx, y: panStart.panY + dy }, scale));
       }
       if (dragging) {
         const dx = (e.clientX - dragging.startX) / scale;
@@ -643,7 +674,15 @@ export function CampoMapaEditor({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragging, resizing, isPanning, panStart, scale, updateBloqueRecursivo]);
+  }, [dragging, resizing, isPanning, panStart, scale, updateBloqueRecursivo, clampPanToGrid]);
+
+  useEffect(() => {
+    setPan((prev) => {
+      const clamped = clampPanToGrid(prev, scale);
+      if (clamped.x === prev.x && clamped.y === prev.y) return prev;
+      return clamped;
+    });
+  }, [scale, clampPanToGrid]);
 
   // ── Renderizar hijos con mejor distribución visual ──────────────────────────
   const renderHijosVisuales = (
