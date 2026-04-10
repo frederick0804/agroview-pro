@@ -805,7 +805,7 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
             <section className="space-y-4">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
-                  <Hash className="w-3.5 h-3.5 text-primary" /> Campo calculado
+                  <Hash className="w-3.5 h-3.5 text-primary" /> Valor automático (cálculo u origen)
                 </h4>
                 <Switch
                   checked={esCalculado}
@@ -819,6 +819,9 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                   className="scale-75"
                 />
               </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed -mt-2">
+                Activa esta opción cuando el valor no se ingresa manualmente y se completa desde operaciones o desde otros campos.
+              </p>
 
               {esCalculado && (
                 <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
