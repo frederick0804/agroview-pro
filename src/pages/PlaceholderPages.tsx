@@ -261,6 +261,7 @@ function DynamicDefTable({
   const [formFecha, setFormFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [formValues, setFormValues] = useState<Record<string, string>>(() => buildEmptyFormValues());
   const [formError, setFormError] = useState<string | null>(null);
+  const [tableError, setTableError] = useState<string | null>(null);
   const [editingDatoId, setEditingDatoId] = useState<string | null>(null);
   const [transientEditDatoId, setTransientEditDatoId] = useState<string | null>(null);
   const BULK_DUPLICATE_MENU_ID = "__bulk_duplicate__";
@@ -279,6 +280,7 @@ function DynamicDefTable({
     setFormFecha(new Date().toISOString().slice(0, 10));
     setFormValues(buildEmptyFormValues());
     setFormError(null);
+    setTableError(null);
     setEditingDatoId(null);
     setTransientEditDatoId(null);
     setDuplicateMenuOpenId(null);
@@ -347,6 +349,55 @@ function DynamicDefTable({
     : {};
 
   const normalizeForMatch = (value: unknown) => String(value ?? "").trim().toLowerCase();
+
+  const getParamLabel = (param: ModParam) => param.etiqueta_personalizada || param.nombre.replace(/_/g, " ");
+
+  const normalizeUniqueValue = (param: ModParam, rawValue: unknown) => {
+    const raw = String(rawValue ?? "").trim();
+    if (!raw) return "";
+
+    if (param.tipo_dato === "Texto") {
+      return raw.toLocaleLowerCase("es");
+    }
+
+    if (param.tipo_dato === "Número") {
+      const n = Number(raw);
+      return Number.isFinite(n) ? String(n) : raw;
+    }
+
+    return raw;
+  };
+
+  const findUniqueConstraintError = (
+    scopedParams: ModParam[],
+    scopedRows: ModDato[],
+    candidateValues: Record<string, string>,
+    options?: { excludeDatoId?: string; onlyFieldName?: string },
+  ) => {
+    const uniqueParams = scopedParams.filter((p) => {
+      if (!p.validaciones_adicionales?.unico) return false;
+      if (!options?.onlyFieldName) return true;
+      return p.nombre === options.onlyFieldName;
+    });
+
+    for (const param of uniqueParams) {
+      const candidateRaw = candidateValues[param.nombre];
+      const candidateNormalized = normalizeUniqueValue(param, candidateRaw);
+      if (!candidateNormalized) continue;
+
+      const alreadyExists = scopedRows.some((row) => {
+        if (options?.excludeDatoId && row.id === options.excludeDatoId) return false;
+        const rowValues = parseValores(row.valores);
+        return normalizeUniqueValue(param, rowValues[param.nombre]) === candidateNormalized;
+      });
+
+      if (alreadyExists) {
+        return `El campo "${getParamLabel(param)}" está configurado como valor único y no permite repetir "${String(candidateRaw ?? "").trim()}".`;
+      }
+    }
+
+    return null;
+  };
 
   const aggregateNumbers = (values: number[], tipo: "suma" | "promedio" | "maximo" | "minimo") => {
     if (values.length === 0) return null;
@@ -733,6 +784,7 @@ function DynamicDefTable({
   const handleUpdate = (rowIndex: number, key: keyof DynRow, value: unknown) => {
     const dato = defDatos[rowIndex];
     if (!dato) return;
+    setTableError(null);
 
     if (key === "fecha") {
       const nextFecha = String(value);
@@ -747,6 +799,14 @@ function DynamicDefTable({
       const vals = parseValores(dato.valores) as Record<string, string>;
       vals[key as string] = String(value);
       const nextVals = applyDerivedValues(vals, params);
+      const uniqueError = findUniqueConstraintError(params, defDatos, nextVals, {
+        excludeDatoId: dato.id,
+        onlyFieldName: String(key),
+      });
+      if (uniqueError) {
+        setTableError(uniqueError);
+        return;
+      }
       const hasMissingRequired = hasMissingRequiredValues(nextVals, dato.fecha);
       updDato(dato.id, { ...dato, valores: JSON.stringify(nextVals) });
 
@@ -944,6 +1004,13 @@ function DynamicDefTable({
     }
 
     const nextVals = applyDerivedValues({ ...formValues }, params);
+    const uniqueError = findUniqueConstraintError(params, defDatos, nextVals, {
+      excludeDatoId: editingDatoId ?? undefined,
+    });
+    if (uniqueError) {
+      setFormError(uniqueError);
+      return;
+    }
 
     if (editingDatoId) {
       const currentDato = defDatos.find(d => d.id === editingDatoId);
@@ -983,6 +1050,7 @@ function DynamicDefTable({
     sourceId: string,
     selectedFields: string[],
     includeFecha: boolean,
+    simulatedRows?: ModDato[],
   ) => {
     if (!canCreate || !canAddRecord) return;
 
@@ -999,6 +1067,12 @@ function DynamicDefTable({
     });
 
     const nextValsWithDerived = applyDerivedValues(nextVals, params);
+    const rowsScope = simulatedRows ?? defDatos;
+    const uniqueError = findUniqueConstraintError(params, rowsScope, nextValsWithDerived);
+    if (uniqueError) {
+      setTableError(uniqueError);
+      return;
+    }
 
     const cultivoForRecord = !def.cultivo_id ? filterCultivoId : undefined;
     const newDato = addDato(defId, cultivoForRecord);
@@ -1011,6 +1085,14 @@ function DynamicDefTable({
       fecha: duplicatedFecha,
       valores: JSON.stringify(nextValsWithDerived),
     });
+
+    if (simulatedRows) {
+      simulatedRows.push({
+        ...newDato,
+        fecha: duplicatedFecha,
+        valores: JSON.stringify(nextValsWithDerived),
+      });
+    }
 
     const missingRequired = params.filter(
       p => p.visible !== false && p.obligatorio && !p.formula && !p.es_calculado && !String(nextValsWithDerived[p.nombre] ?? "").trim(),
@@ -1029,8 +1111,9 @@ function DynamicDefTable({
     if (hasRowPendingRequired) return;
 
     const allFields = duplicableParams.map(p => p.nombre);
+    const simulatedRows: ModDato[] = [...defDatos];
     sourceIds.forEach((sourceId) => {
-      duplicateFromSource(sourceId, allFields, true);
+      duplicateFromSource(sourceId, allFields, true, simulatedRows);
     });
 
     if (sourceIds.length > 1) setSelectedDuplicateIds([]);
@@ -1043,10 +1126,11 @@ function DynamicDefTable({
     if (hasRowPendingRequired) return;
 
     const repeatCount = sanitizeDuplicateRepeatCount(duplicateRepeatCount);
+    const simulatedRows: ModDato[] = [...defDatos];
 
     duplicateSourceIds.forEach((sourceId) => {
       for (let i = 0; i < repeatCount; i += 1) {
-        duplicateFromSource(sourceId, duplicateFields, duplicateIncludeFecha);
+        duplicateFromSource(sourceId, duplicateFields, duplicateIncludeFecha, simulatedRows);
       }
     });
   };
@@ -1054,26 +1138,40 @@ function DynamicDefTable({
   // IA confirm: crea múltiples filas con los valores detectados por IA
   const handleIaConfirm = (rowsData: Record<string, string>[]) => {
     const cultivoForRecord = !def.cultivo_id ? filterCultivoId : undefined;
+    const simulatedRows: ModDato[] = [...defDatos];
 
     // Crear un registro por cada fila detectada
     rowsData.forEach((values) => {
+      const uniqueError = findUniqueConstraintError(params, simulatedRows, values);
+      if (uniqueError) {
+        setTableError(uniqueError);
+        return;
+      }
       // addDato retorna el dato creado con su ID
       const newDato = addDato(defId, cultivoForRecord);
       // Actualizar inmediatamente con los valores IA
       const merged = { ...values };
       updDato(newDato.id, { ...newDato, valores: JSON.stringify(merged) });
+      simulatedRows.push({ ...newDato, valores: JSON.stringify(merged) });
     });
     setShowIaPanel(false);
   };
 
   const handleMlConfirm = (rows: Record<string, string>[]) => {
     const cultivoId = !def.cultivo_id ? filterCultivoId : undefined;
+    const simulatedRows: ModDato[] = [...defDatos];
     rows.forEach(row => {
       const values = row;
+      const uniqueError = findUniqueConstraintError(params, simulatedRows, values);
+      if (uniqueError) {
+        setTableError(uniqueError);
+        return;
+      }
       const fecha = new Date().toISOString().slice(0, 10);
       const newDato = addDato(defId, cultivoId);
       const merged = { ...values };
       updDato(newDato.id, { ...newDato, fecha, valores: JSON.stringify(merged) });
+      simulatedRows.push({ ...newDato, fecha, valores: JSON.stringify(merged) });
     });
     setShowMlPanel(false);
   };
@@ -1339,15 +1437,17 @@ function DynamicDefTable({
             {showMlPanel ? "Ocultar panel ML" : "Analizar con ML"}
           </Button>
         )}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => navigate(`/configuracion?tab=campos&def=${defId}`)}
-          className="text-xs gap-1.5"
-        >
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-          Editar campos del formulario
-        </Button>
+        {hasPermission("configuracion", "configurar") && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate(`/configuracion?tab=campos&def=${defId}`)}
+            className="text-xs gap-1.5"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            Editar campos del formulario
+          </Button>
+        )}
       </div>
 
       {/* Panel lateral de análisis IA */}
@@ -1384,6 +1484,13 @@ function DynamicDefTable({
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
           <AlertCircle className="w-3.5 h-3.5 shrink-0" />
           Primero llena los campos requeridos antes de continuar.
+        </div>
+      )}
+
+      {tableError && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          {tableError}
         </div>
       )}
 
@@ -2319,8 +2426,8 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
         </div>
       ) : (
         <div className="space-y-4">
-          {/* ── Dashboard de módulo — solo para roles no super_admin ─────── */}
-          {role !== "super_admin" && (
+          {/* ── Dashboard de módulo — excluye super_admin y productor ───── */}
+          {role !== "super_admin" && role !== "productor" && (
             <ModuleDashboard
               defs={defs}
               allDatos={datos}

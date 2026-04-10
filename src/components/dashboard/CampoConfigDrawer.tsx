@@ -226,6 +226,9 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
   const handleSave = () => {
     const isIa = fuenteDatos === "ia" || fuenteDatos === "ia_editable";
     const isMl = fuenteDatos === "ml" || fuenteDatos === "ml_editable";
+    const commonFieldNames = new Set(camposComunesRelacion.map((c) => c.nombre));
+    const relacionFiltrosComunesValidos = relacionFiltrosComunes.filter((name) => commonFieldNames.has(name));
+    const relacionAgruparPorValido = commonFieldNames.has(relacionAgruparPor) ? relacionAgruparPor : "";
     onSave(campo.id, {
       etiqueta_personalizada: etiqueta || undefined,
       valor_default: valorDefault || undefined,
@@ -248,11 +251,11 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
       relacion_def_id:      showRelacion && relacionDefId      ? relacionDefId      : null,
       relacion_campo_label: showRelacion && relacionCampoLabel ? relacionCampoLabel : null,
       relacion_campo_valor: showRelacion && relacionCampoValor ? relacionCampoValor : null,
-      relacion_filtros_comunes: showRelacion && relacionDefId && relacionFiltrosComunes.length > 0
-        ? relacionFiltrosComunes
+      relacion_filtros_comunes: showRelacion && relacionDefId && relacionFiltrosComunesValidos.length > 0
+        ? relacionFiltrosComunesValidos
         : null,
-      relacion_agrupar_por: showRelacion && relacionDefId && relacionAgruparPor
-        ? relacionAgruparPor
+      relacion_agrupar_por: showRelacion && relacionDefId && relacionAgruparPorValido
+        ? relacionAgruparPorValido
         : null,
       relacion_origen_operacion: showRelacion && relacionDefId && campoValorEfectivo
         ? relacionOperacionNormalizada
@@ -388,6 +391,25 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
 
               {showTextValidations && (
                 <>
+                  <div className="flex items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2">
+                    <div>
+                      <Label className="text-xs">Valor único</Label>
+                      <p className="text-[10px] text-muted-foreground">
+                        Evita que se repita el mismo valor en este campo dentro del formulario.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={!!validaciones.unico}
+                      onCheckedChange={(checked) => {
+                        setValidaciones((prev) => {
+                          if (checked) return { ...prev, unico: true };
+                          const { unico, ...rest } = prev;
+                          return rest;
+                        });
+                      }}
+                    />
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label className="text-xs">Long. mínima</Label>
@@ -710,21 +732,23 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                 {/* Agrupación visual */}
                 {relacionDefId && (
                   <div className="space-y-1.5">
-                    <Label className="text-xs">Agrupar opciones por (opcional)</Label>
+                    <Label className="text-xs">Agrupar opciones por campo común (opcional)</Label>
                     <select
                       className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                       value={relacionAgruparPor}
                       onChange={(e) => setRelacionAgruparPor(e.target.value)}
+                      disabled={camposComunesRelacion.length === 0}
                     >
                       <option value="">— Sin agrupación —</option>
-                      {camposFuente.map((p) => (
+                      {camposComunesRelacion.map((p) => (
                         <option key={p.id} value={p.nombre}>
                           {p.etiqueta_personalizada || p.nombre.replace(/_/g, " ")}
                         </option>
                       ))}
                     </select>
                     <p className="text-[10px] text-muted-foreground">
-                      En la captura se mostrará un prefijo con el grupo para facilitar la selección.
+                      La agrupación se define con campos que existen en ambos formularios para mantener consistencia
+                      entre el registro actual y el registro vinculado.
                     </p>
                   </div>
                 )}
@@ -801,7 +825,8 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                   <div className="flex items-start gap-2 text-[11px] text-muted-foreground bg-background rounded-md px-2.5 py-2 border">
                     <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-primary" />
                     <span>
-                      El valor se calculará automáticamente desde otros campos/formularios usando el tipo de operación seleccionado.
+                      El valor se calculará automáticamente desde la misma definición o desde otras definiciones,
+                      usando el tipo de operación seleccionado.
                     </span>
                   </div>
 
@@ -821,28 +846,30 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                       }}
                       className="w-full h-8 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
                     >
-                      <option value="suma">Suma (campos externos)</option>
-                      <option value="promedio">Promedio (campos externos)</option>
-                      <option value="maximo">Máximo (campos externos)</option>
-                      <option value="minimo">Mínimo (campos externos)</option>
+                      <option value="suma">Suma (misma u otra definición)</option>
+                      <option value="promedio">Promedio (misma u otra definición)</option>
+                      <option value="maximo">Máximo (misma u otra definición)</option>
+                      <option value="minimo">Mínimo (misma u otra definición)</option>
                       <option value="formula_personalizada">Fórmula avanzada (campos locales)</option>
                     </select>
                     <p className="text-[10px] text-muted-foreground">
                       {calculoTipo === "formula_personalizada"
                         ? "Fórmula con campos del mismo formulario y operadores matemáticos"
-                        : "Operación simple sobre campos de otros formularios"
+                        : "Operación simple sobre campos de la misma definición o de otras definiciones"
                       }
                     </p>
                   </div>
 
-                  {/* Cálculos simples con campos externos */}
+                  {/* Cálculos simples con campos de origen */}
                   {calculoTipo !== "formula_personalizada" && (
                     <div className="space-y-2">
-                      <Label className="text-xs font-semibold">Campos de otros formularios</Label>
+                      <Label className="text-xs font-semibold">Campos de origen (misma u otra definición)</Label>
                       {calculoCampos.map((item, index) => {
                         const defSeleccionada = definiciones.find(d => d.id === item.definicion_id);
                         const camposDeDefinicion = defSeleccionada
-                          ? parametros.filter(p => p.definicion_id === defSeleccionada.id && p.tipo_dato === "Número")
+                          ? parametros
+                            .filter(p => p.definicion_id === defSeleccionada.id && p.tipo_dato === "Número" && !(defSeleccionada.id === campo.definicion_id && p.id === campo.id))
+                            .sort((a, b) => a.orden - b.orden)
                           : [];
                         const camposComunes = getCamposComunesConDef(item.definicion_id);
                         const filtrosComunesActivos = item.filtros_comunes ?? [];
@@ -856,7 +883,7 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                                   onChange={e => {
                                     const nextDefId = e.target.value;
                                     const nextCamposDef = parametros
-                                      .filter((p) => p.definicion_id === nextDefId && p.tipo_dato === "Número")
+                                      .filter((p) => p.definicion_id === nextDefId && p.tipo_dato === "Número" && !(nextDefId === campo.definicion_id && p.id === campo.id))
                                       .sort((a, b) => a.orden - b.orden);
                                     const nextComunes = getCamposComunesConDef(nextDefId);
                                     updateCalculoCampo(index, {
@@ -870,7 +897,9 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                                 >
                                   <option value="">— Seleccionar formulario —</option>
                                   {definiciones.map(d => (
-                                    <option key={d.id} value={d.id}>{d.nombre}</option>
+                                    <option key={d.id} value={d.id}>
+                                      {d.nombre}{d.id === campo.definicion_id ? " (misma definición)" : ""}
+                                    </option>
                                   ))}
                                 </select>
 
@@ -966,18 +995,23 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
 
                       <button
                         onClick={() => {
+                          const defaultDefId = campo.definicion_id;
+                          const nextCamposDef = parametros
+                            .filter((p) => p.definicion_id === defaultDefId && p.tipo_dato === "Número" && p.id !== campo.id)
+                            .sort((a, b) => a.orden - b.orden);
+                          const nextComunes = getCamposComunesConDef(defaultDefId);
                           const nuevos = [...calculoCampos, {
-                            definicion_id: "",
-                            campo_nombre: "",
-                            filtros_comunes: [],
-                            agrupar_por: null,
+                            definicion_id: defaultDefId,
+                            campo_nombre: nextCamposDef[0]?.nombre ?? "",
+                            filtros_comunes: nextComunes.map((c) => c.nombre),
+                            agrupar_por: pickDefaultGroupField(nextComunes) || null,
                           }];
                           setCalculoCampos(nuevos);
                         }}
                         className="w-full h-7 text-xs border border-dashed border-border hover:border-primary/50 rounded flex items-center justify-center gap-1 text-muted-foreground hover:text-primary transition-colors"
                       >
                         <Plus className="w-3 h-3" />
-                        Agregar campo externo
+                        Agregar origen de cálculo
                       </button>
                     </div>
                   )}

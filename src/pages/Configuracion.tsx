@@ -265,7 +265,17 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
 
   const startEdit = (p: Parametro) => {
     setEditingId(p.id);
-    setEditForm({ nombre: p.nombre, codigo: p.codigo ?? "", tipo_dato: p.tipo_dato, unidad_medida: p.unidad_medida ?? "", descripcion: p.descripcion ?? "", obligatorio_default: p.obligatorio_default, relacion_def_id: p.relacion_def_id ?? null, relacion_campo_label: p.relacion_campo_label ?? null, relacion_campo_valor: p.relacion_campo_valor ?? null });
+    setEditForm({
+      nombre: p.nombre,
+      codigo: p.codigo ?? "",
+      tipo_dato: p.tipo_dato,
+      unidad_medida: p.unidad_medida ?? "",
+      descripcion: p.descripcion ?? "",
+      obligatorio_default: p.obligatorio_default,
+      relacion_def_id: p.relacion_def_id ?? null,
+      relacion_campo_label: p.relacion_campo_label ?? null,
+      relacion_campo_valor: p.relacion_campo_valor ?? null,
+    });
   };
 
   const saveEdit = () => {
@@ -293,26 +303,17 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
 
   const saveNew = () => {
     if (!newForm.nombre.trim()) return;
-    addParamLib();
-    // updParamLib on the last added
-    setTimeout(() => {
-      const last = parametrosLib[parametrosLib.length - 1];
-      if (last) {
-        updParamLib(last.id, "nombre",              newForm.nombre.trim());
-        updParamLib(last.id, "codigo",              newForm.codigo.trim().toUpperCase());
-        updParamLib(last.id, "tipo_dato",           newForm.tipo_dato);
-        updParamLib(last.id, "unidad_medida",       newForm.unidad_medida.trim());
-        updParamLib(last.id, "descripcion",         newForm.descripcion.trim());
-        updParamLib(last.id, "obligatorio_default", newForm.obligatorio_default);
-
-        // Campos de relación
-        if (newForm.tipo_dato === "Relación") {
-          updParamLib(last.id, "relacion_def_id",       newForm.relacion_def_id);
-          updParamLib(last.id, "relacion_campo_label",  newForm.relacion_campo_label);
-          updParamLib(last.id, "relacion_campo_valor",  newForm.relacion_campo_valor);
-        }
-      }
-    }, 0);
+    addParamLib({
+      nombre: newForm.nombre.trim(),
+      codigo: newForm.codigo.trim().toUpperCase(),
+      tipo_dato: newForm.tipo_dato,
+      unidad_medida: newForm.unidad_medida.trim(),
+      descripcion: newForm.descripcion.trim(),
+      obligatorio_default: newForm.obligatorio_default,
+      relacion_def_id: newForm.tipo_dato === "Relación" ? newForm.relacion_def_id : null,
+      relacion_campo_label: newForm.tipo_dato === "Relación" ? newForm.relacion_campo_label : null,
+      relacion_campo_valor: newForm.tipo_dato === "Relación" ? newForm.relacion_campo_valor : null,
+    });
     setNewForm(EMPTY_PARAM_FORM);
     setShowAddForm(false);
   };
@@ -8593,7 +8594,7 @@ const Configuracion = () => {
   // "campos" is an alias for "formularios" used by the "Editar campos del formulario" button
   const rawTab         = searchParams.get("tab") ?? "";
   const actionParam    = (searchParams.get("action") ?? "").toLowerCase();
-  const { currentClienteName, role } = useRole();
+  const { currentClienteName, role, hierarchyLevel } = useRole();
   const initialTab     = rawTab === "campos" ? "formularios" : validTabs.includes(rawTab) ? rawTab : "cultivos";
   const autoOpenFormCreate = actionParam === "create-form" || actionParam === "crear-formulario";
   const autoOpenUserCreate = (actionParam === "add-user" || actionParam === "create-user" || actionParam === "agregar-usuario") && role === "super_admin";
@@ -8638,13 +8639,15 @@ const Configuracion = () => {
           >
             <Building2 className="w-4 h-4 text-violet-600 dark:text-violet-400" /> Empresas
           </TabsTrigger>
-          <TabsTrigger
-            value="usuarios"
-            disabled={hasPending && activeTab !== "usuarios"}
-            className="flex items-center gap-2 text-xs sm:text-sm"
-          >
-            <Users2 className="w-4 h-4 text-cyan-600 dark:text-cyan-400" /> Usuarios
-          </TabsTrigger>
+          {hierarchyLevel >= 3 && (
+            <TabsTrigger
+              value="usuarios"
+              disabled={hasPending && activeTab !== "usuarios"}
+              className="flex items-center gap-2 text-xs sm:text-sm"
+            >
+              <Users2 className="w-4 h-4 text-cyan-600 dark:text-cyan-400" /> Usuarios
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {hasPending && (
@@ -8667,9 +8670,11 @@ const Configuracion = () => {
         <TabsContent value="empresas">
           <TabEmpresas />
         </TabsContent>
-        <TabsContent value="usuarios">
-          <TabUsuarios autoOpenCreateModal={autoOpenUserCreate} />
-        </TabsContent>
+        {hierarchyLevel >= 3 && (
+          <TabsContent value="usuarios">
+            <TabUsuarios autoOpenCreateModal={autoOpenUserCreate} />
+          </TabsContent>
+        )}
       </Tabs>
 
     </MainLayout>

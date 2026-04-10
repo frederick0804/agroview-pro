@@ -705,8 +705,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   };
 
   const productorCanAccessModule = (modulo: string): boolean => {
-    // Configuración siempre accesible para productor
-    if (modulo === "configuracion") return true;
+    // Configuración e informes siempre accesibles para productor
+    if (modulo === "configuracion" || modulo === "informes") return true;
 
     const activeDashboardModules = new Set(
       getProductorDashboardModules(currentUser?.productorId)
