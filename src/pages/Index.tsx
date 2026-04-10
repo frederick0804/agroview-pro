@@ -1395,20 +1395,20 @@ const Index = () => {
     ],
     productor: [
       {
-        id: "qa-prod-new-record-cultivo",
-        label: "Nuevo registro de cultivo",
-        icon: <Plus className="w-4 h-4" />,
-        modulo: "cultivo",
-        accion: "crear",
-        getPath: () => "/cultivo?action=create",
-      },
-      {
         id: "qa-prod-go-cultivo",
-        label: "Ver módulo de cultivo",
+        label: "Mis registros de cultivo",
         icon: <Leaf className="w-4 h-4" />,
         modulo: "cultivo",
         accion: "ver",
         getPath: () => "/cultivo",
+      },
+      {
+        id: "qa-prod-new-report",
+        label: "Nuevo informe",
+        icon: <FileText className="w-4 h-4" />,
+        modulo: "informes",
+        accion: "ver",
+        getPath: () => "/informes?action=create-template",
       },
       {
         id: "qa-prod-run-reports",
@@ -1437,36 +1437,36 @@ const Index = () => {
     ],
     jefe_area: [
       {
-        id: "qa-ja-run-reports",
-        label: "Generar informes de mi área",
-        icon: <TrendingUp className="w-4 h-4" />,
-        modulo: "informes",
-        accion: "ver",
-        getPath: () => "/informes",
-      },
-      {
-        id: "qa-ja-view-area-forms",
-        label: "Ver formularios de mi área",
-        icon: <ClipboardList className="w-4 h-4" />,
-        modulo: "dashboard",
-        accion: "ver",
-        getPath: ({ area: areaKey }) => (areaKey ? (AREA_PATHS[areaKey] ?? null) : null),
-      },
-      {
-        id: "qa-ja-area-forms",
-        label: "Ir al módulo de mi área",
+        id: "qa-ja-go-module",
+        label: "Ir a mi módulo",
         icon: <ArrowRight className="w-4 h-4" />,
         modulo: "dashboard",
         accion: "ver",
         getPath: ({ area: areaKey }) => (areaKey ? (AREA_PATHS[areaKey] ?? null) : null),
       },
       {
-        id: "qa-ja-area-reports-center",
-        label: "Centro de informes",
-        icon: <FileText className="w-4 h-4" />,
+        id: "qa-ja-view-reports",
+        label: "Ver informes",
+        icon: <TrendingUp className="w-4 h-4" />,
         modulo: "informes",
         accion: "ver",
         getPath: () => "/informes",
+      },
+      {
+        id: "qa-ja-new-report",
+        label: "Nuevo informe",
+        icon: <FileText className="w-4 h-4" />,
+        modulo: "informes",
+        accion: "ver",
+        getPath: () => "/informes?action=create-template",
+      },
+      {
+        id: "qa-ja-forms-config",
+        label: "Formularios de mi área",
+        icon: <ClipboardList className="w-4 h-4" />,
+        modulo: "configuracion",
+        accion: "configurar",
+        getPath: () => "/configuracion?tab=formularios",
       },
     ],
     supervisor: [],
@@ -1477,7 +1477,7 @@ const Index = () => {
     .filter((a) => {
       if (!hasPermission(a.modulo, a.accion)) return false;
       if (role !== "productor") return true;
-      if (a.modulo === "configuracion" || a.modulo === "dashboard") return true;
+      if (a.modulo === "configuracion" || a.modulo === "dashboard" || a.modulo === "informes") return true;
       return producerOwnedDashboardModules.has(a.modulo as string);
     })
     .map((a) => ({
@@ -1492,9 +1492,7 @@ const Index = () => {
     .slice(0, 5);
 
   const dashboardTabsByPermission = role === "productor"
-    ? DASHBOARD_TABS.filter(tab =>
-        tab.key === "resumen" || tab.permissionModules.some(mod => producerOwnedDashboardModules.has(mod as string)),
-      )
+    ? DASHBOARD_TABS.filter(tab => tab.key === "cultivo")
     : DASHBOARD_TABS.filter(tab =>
         tab.key === "resumen" || tab.permissionModules.some(mod => hasPermission(mod, "ver")),
       );
@@ -1512,21 +1510,19 @@ const Index = () => {
       ) : role === "productor" ? (
         <TabbedDashboard
           title="Mi Dashboard"
-          description="Vista de productor integrado — datos de tu empresa"
+          description="Dashboard operativo de Cultivo para productor"
           banner={
             <div className="flex items-start gap-3 mb-5 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
               <Tractor className="w-4 h-4 mt-0.5 shrink-0" />
               <span>
-                Como <strong>Productor integrado</strong>, visualizas únicamente la información de tu empresa.
-                Los datos de otros productores están aislados. Módulos habilitados para dashboard:
-                <strong> {producerDashboardModulesLabel || "Sin módulos operativos configurados"}</strong>.
+                Como <strong>Productor integrado</strong>, tu dashboard principal es siempre <strong>Cultivo</strong>.
+                Los accesos especiales a otros módulos no cambian esta vista del dashboard.
               </span>
             </div>
           }
           quickActions={quickActions}
           sectorHint={roleSectorHint}
           tabs={dashboardTabsByPermission}
-          resumenData={producerResumenData}
         />
       ) : role === "jefe_area" && area ? (
         <AreaManagerDashboard area={area} areaLabel={areaLabel} areaColor={areaColor} quickActions={quickActions} />

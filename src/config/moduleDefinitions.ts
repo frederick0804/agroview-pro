@@ -41,6 +41,14 @@ export interface Parametro {
   relacion_campo_label?:  string | null;
   /** Nombre del campo que se guarda como valor */
   relacion_campo_valor?:  string | null;
+  /** Campos de la fuente que se usarán para filtrar por coincidencia de nombre en la definición destino */
+  relacion_filtros_comunes?: string[] | null;
+  /** Campo de la fuente para agrupar visualmente opciones en el dropdown */
+  relacion_agrupar_por?: string | null;
+  /** Estrategia de origen para construir opciones desde la fuente vinculada */
+  relacion_origen_operacion?: "valores_unicos" | "valor_especifico" | "suma" | "promedio" | "maximo" | "minimo" | null;
+  /** Valor puntual cuando relacion_origen_operacion = valor_especifico */
+  relacion_origen_valor_especifico?: string | null;
 }
 
 // ─── ModDef — Definicion_registro ─────────────────────────────────────────────
@@ -121,6 +129,7 @@ export interface CampoValidaciones {
   max_length?: number;
   pattern?: string;
   pattern_message?: string;
+  unico?: boolean;
 }
 
 export interface CampoDependencia {

@@ -196,6 +196,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       descripcion: partial?.descripcion ?? "",
       obligatorio_default: partial?.obligatorio_default ?? false,
       activo: true,
+      relacion_def_id: partial?.relacion_def_id ?? null,
+      relacion_campo_label: partial?.relacion_campo_label ?? null,
+      relacion_campo_valor: partial?.relacion_campo_valor ?? null,
+      relacion_filtros_comunes: partial?.relacion_filtros_comunes ?? null,
+      relacion_agrupar_por: partial?.relacion_agrupar_por ?? null,
+      relacion_origen_operacion: partial?.relacion_origen_operacion ?? null,
+      relacion_origen_valor_especifico: partial?.relacion_origen_valor_especifico ?? null,
     };
     setParametrosLib(prev => [...prev, newParam]);
     return newParam;
@@ -358,6 +365,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       tipo_dato: libParam?.tipo_dato ?? ("Texto" as TipoDato),
       obligatorio: libParam?.obligatorio_default ?? false,
       orden: count + 1,
+      relacion_def_id: libParam?.tipo_dato === "Relación" ? (libParam.relacion_def_id ?? null) : null,
+      relacion_campo_label: libParam?.tipo_dato === "Relación" ? (libParam.relacion_campo_label ?? null) : null,
+      relacion_campo_valor: libParam?.tipo_dato === "Relación" ? (libParam.relacion_campo_valor ?? null) : null,
+      relacion_filtros_comunes: libParam?.tipo_dato === "Relación" ? (libParam.relacion_filtros_comunes ?? null) : null,
+      relacion_agrupar_por: libParam?.tipo_dato === "Relación" ? (libParam.relacion_agrupar_por ?? null) : null,
+      relacion_origen_operacion: libParam?.tipo_dato === "Relación" ? (libParam.relacion_origen_operacion ?? null) : null,
+      relacion_origen_valor_especifico: libParam?.tipo_dato === "Relación" ? (libParam.relacion_origen_valor_especifico ?? null) : null,
     }]);
   };
 

@@ -5017,9 +5017,8 @@ const Informes = () => {
     if (isAreaRestricted && !hasGlobalInformesAccess) {
       base = base.filter((i) => allowedCategorias.includes(i.categoria) || i.categoria === "general");
     }
-    if (isSupervisorOrLector) {
-      base = base.filter((i) => canAccessInforme(i));
-    }
+    // Ocultar siempre los informes sin acceso — no mostrar como "Restringido"
+    base = base.filter((i) => canAccessInforme(i));
     const result: Record<string, number> = {
       all: base.length,
       favoritos: base.filter((i) => i.es_favorito).length,
@@ -5029,7 +5028,7 @@ const Informes = () => {
       result[cat] = base.filter((i) => normalizeCategoria(i.categoria) === cat).length;
     });
     return result;
-  }, [informes, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, isSupervisorOrLector, canAccessInforme]);
+  }, [informes, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, canAccessInforme]);
 
   // Filtered list (plantillas)
   const filtered = useMemo(() => {
@@ -5040,10 +5039,8 @@ const Informes = () => {
       list = list.filter((i) => allowedCategorias.includes(i.categoria) || i.categoria === "general");
     }
 
-    // Supervisor y lector solo ven informes que realmente pueden abrir/generar.
-    if (isSupervisorOrLector) {
-      list = list.filter((i) => canAccessInforme(i));
-    }
+    // Ocultar siempre los informes sin acceso — no mostrar como "Restringido"
+    list = list.filter((i) => canAccessInforme(i));
 
     if (activeNav === "favoritos") list = list.filter((i) => i.es_favorito);
     else if (activeNav === "programados") list = list.filter((i) => i.es_programado);
@@ -5062,7 +5059,7 @@ const Informes = () => {
     if (filterEstado !== "all") list = list.filter((i) => i.estado === filterEstado);
 
     return list;
-  }, [informes, activeNav, search, filterTipo, filterEstado, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, isSupervisorOrLector, canAccessInforme]);
+  }, [informes, activeNav, search, filterTipo, filterEstado, isAreaRestricted, hasGlobalInformesAccess, allowedCategorias, canAccessInforme]);
 
   const toggleFavorite = (id: string) => {
     setInformes((prev) =>
