@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { MainLayout }  from "@/components/layout/MainLayout";
@@ -29,6 +29,7 @@ import {
   ChevronDown, RotateCcw, Power, XCircle, LayoutList, ArrowLeftRight, Lock, CheckSquare, Square, ListFilter, Zap,
   Ruler, Scale, Network, ChevronRight, ArrowUp, ArrowDown, Map as MapIcon, Tag,
   Hash, ToggleLeft, Image as ImageIcon, Link2, UserX, UserCheck, SlidersHorizontal,
+  LayoutDashboard,
 } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { useTheme, DEFAULT_THEME } from "@/contexts/ThemeContext";
@@ -48,6 +49,8 @@ import {
 import { VersionDiffDialog } from "@/components/dashboard/VersionDiffDialog";
 import { CampoConfigDrawer } from "@/components/dashboard/CampoConfigDrawer";
 import { CampoMapaEditor } from "@/components/cultivo/CampoMapaEditor";
+import { DashboardBuilderContent } from "./DashboardBuilder";
+import { TabInventario }            from "./ConfigInventario";
 import {
   Shield, ShieldCheck, Sprout as SproutIcon, Briefcase, Eye,
   BookOpen as BookOpenAlt, Mail, Calendar,
@@ -166,7 +169,8 @@ const TIPO_META: Record<string, { icon: React.ElementType; color: string; bg: st
   "Lista":   { icon: List,        color: "text-orange-700 dark:text-orange-400",bg: "bg-orange-100 dark:bg-orange-900/30" },
   "Foto":    { icon: ImageIcon,   color: "text-pink-700 dark:text-pink-400",    bg: "bg-pink-100 dark:bg-pink-900/30" },
   "Archivo": { icon: FileText,    color: "text-slate-700 dark:text-slate-400",  bg: "bg-slate-100 dark:bg-slate-900/30" },
-  "Relación":{ icon: Link2,       color: "text-cyan-700 dark:text-cyan-400",    bg: "bg-cyan-100 dark:bg-cyan-900/30" },
+  "Relación":     { icon: Link2,      color: "text-cyan-700 dark:text-cyan-400",    bg: "bg-cyan-100 dark:bg-cyan-900/30" },
+  "TablaInsumos": { icon: LayoutList, color: "text-violet-700 dark:text-violet-400", bg: "bg-violet-100 dark:bg-violet-900/30" },
 };
 
 const EMPTY_PARAM_FORM = {
@@ -176,9 +180,10 @@ const EMPTY_PARAM_FORM = {
   unidad_medida: "",
   descripcion: "",
   obligatorio_default: false,
-  relacion_def_id: null as string | null,
+  relacion_def_id:      null as string | null,
   relacion_campo_label: null as string | null,
   relacion_campo_valor: null as string | null,
+  tabla_insumos_area:   null as string | null,
 };
 
 const NEW_DEF_TEMPLATES = [
@@ -251,7 +256,7 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
   const [newForm,      setNewForm]      = useState<typeof EMPTY_PARAM_FORM>(EMPTY_PARAM_FORM);
   const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
 
-  const tipos = ["Todos", "Texto", "Número", "Fecha", "Sí/No", "Lista", "Relación", "Foto", "Archivo"];
+  const tipos = ["Todos", "Texto", "Número", "Fecha", "Sí/No", "Lista", "Relación", "Foto", "Archivo", "TablaInsumos"];
 
   const filtered = useMemo(() => parametrosLib.filter(p => {
     const matchSearch = !libSearch ||
@@ -310,9 +315,10 @@ function TabBiblioteca({ onPendingChange }: { onPendingChange?: (v: boolean) => 
       unidad_medida: newForm.unidad_medida.trim(),
       descripcion: newForm.descripcion.trim(),
       obligatorio_default: newForm.obligatorio_default,
-      relacion_def_id: newForm.tipo_dato === "Relación" ? newForm.relacion_def_id : null,
-      relacion_campo_label: newForm.tipo_dato === "Relación" ? newForm.relacion_campo_label : null,
-      relacion_campo_valor: newForm.tipo_dato === "Relación" ? newForm.relacion_campo_valor : null,
+      relacion_def_id:      newForm.tipo_dato === "Relación"     ? newForm.relacion_def_id      : null,
+      relacion_campo_label: newForm.tipo_dato === "Relación"     ? newForm.relacion_campo_label : null,
+      relacion_campo_valor: newForm.tipo_dato === "Relación"     ? newForm.relacion_campo_valor : null,
+      tabla_insumos_area:   newForm.tipo_dato === "TablaInsumos" ? newForm.tabla_insumos_area   : null,
     });
     setNewForm(EMPTY_PARAM_FORM);
     setShowAddForm(false);
@@ -579,8 +585,8 @@ function LibParamForm({
           onChange={e => onChange({ ...form, tipo_dato: e.target.value as TipoDato, relacion_def_id: null, relacion_campo_label: null, relacion_campo_valor: null })}
           className="w-full h-8 text-sm px-2 rounded-md border border-border bg-background focus:border-primary/50 focus:outline-none"
         >
-          {["Texto", "Número", "Fecha", "Sí/No", "Lista", "Relación", "Foto", "Archivo"].map(t => (
-            <option key={t} value={t}>{t}</option>
+          {["Texto", "Número", "Fecha", "Sí/No", "Lista", "Relación", "Foto", "Archivo", "TablaInsumos"].map(t => (
+            <option key={t} value={t}>{t === "TablaInsumos" ? "Tabla de insumos (inventario)" : t}</option>
           ))}
         </select>
       </div>
@@ -601,6 +607,36 @@ function LibParamForm({
             <Link2 className="w-3.5 h-3.5 mt-0.5 shrink-0" />
             La fuente de datos, filtros y agrupación de campos tipo Relación se configuran al agregar el campo en el formulario, desde Configuración avanzada del campo.
           </p>
+        </div>
+      )}
+
+      {/* Configuración de TablaInsumos — filtro por área */}
+      {form.tipo_dato === "TablaInsumos" && (
+        <div className="sm:col-span-2 space-y-2 rounded-md border border-violet-200 bg-violet-50/60 p-2.5 dark:border-violet-800/40 dark:bg-violet-900/10">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-violet-700 dark:text-violet-300">
+            <Zap className="h-3.5 w-3.5" />
+            Tabla de insumos — filtro por área
+          </p>
+          <p className="text-[11px] text-violet-600 dark:text-violet-400">
+            Filtra los productos del inventario que aparecen en el desplegable. Deja en blanco para mostrar todos.
+          </p>
+          <select
+            value={form.tabla_insumos_area ?? ""}
+            onChange={e => onChange({ ...form, tabla_insumos_area: e.target.value || null })}
+            className="h-8 w-full rounded-md border border-violet-300 bg-white px-2 text-xs focus:border-violet-500 focus:outline-none dark:border-violet-700 dark:bg-violet-950/30"
+          >
+            <option value="">Todos los productos (sin filtro)</option>
+            <option value="laboratorio">Laboratorio</option>
+            <option value="vivero">Vivero</option>
+            <option value="cultivo">Cultivo</option>
+            <option value="post-cosecha">Post-cosecha</option>
+            <option value="comercial">Comercial</option>
+          </select>
+          {form.tabla_insumos_area && (
+            <p className="text-[11px] text-violet-700 dark:text-violet-400">
+              El operario solo verá productos del área <strong>{form.tabla_insumos_area}</strong>.
+            </p>
+          )}
         </div>
       )}
 
@@ -2391,7 +2427,7 @@ function TabFormularios({
                   </div>
 
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    {["Todos", "Texto", "Número", "Fecha", "Sí/No", "Lista", "Relación"].map(t => {
+                    {["Todos", "Texto", "Número", "Fecha", "Sí/No", "Lista", "Relación", "TablaInsumos"].map(t => {
                       const meta = TIPO_META[t];
                       const TIcon = meta?.icon;
                       const isActive = newDefCampoTypeFilter === t;
@@ -4173,7 +4209,7 @@ function TabFormularios({
 
           {/* Filtros por tipo */}
           <div className="flex items-center gap-1.5 flex-wrap -mt-1">
-            {["Todos", "Texto", "Número", "Fecha", "Sí/No", "Lista", "Relación"].map(t => {
+            {["Todos", "Texto", "Número", "Fecha", "Sí/No", "Lista", "Relación", "TablaInsumos"].map(t => {
               const meta = TIPO_META[t];
               const TIcon = meta?.icon;
               const isActive = campoTypeFilter === t;
@@ -8590,7 +8626,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
 
 const Configuracion = () => {
   const [searchParams] = useSearchParams();
-  const validTabs      = ["cultivos", "formularios", "usuarios"];
+  const validTabs      = ["cultivos", "formularios", "empresas", "usuarios", "dashboard"];
   // "campos" is an alias for "formularios" used by the "Editar campos del formulario" button
   const rawTab         = searchParams.get("tab") ?? "";
   const actionParam    = (searchParams.get("action") ?? "").toLowerCase();
@@ -8648,6 +8684,24 @@ const Configuracion = () => {
               <Users2 className="w-4 h-4 text-cyan-600 dark:text-cyan-400" /> Usuarios
             </TabsTrigger>
           )}
+          {hierarchyLevel >= 3 && (
+            <TabsTrigger
+              value="inventario"
+              disabled={hasPending && activeTab !== "inventario"}
+              className="flex items-center gap-2 text-xs sm:text-sm"
+            >
+              <Zap className="w-4 h-4 text-amber-500 dark:text-amber-400" /> Inventario
+            </TabsTrigger>
+          )}
+          {hierarchyLevel >= 5 && (
+            <TabsTrigger
+              value="dashboard"
+              disabled={hasPending && activeTab !== "dashboard"}
+              className="flex items-center gap-2 text-xs sm:text-sm"
+            >
+              <LayoutDashboard className="w-4 h-4 text-violet-500 dark:text-violet-400" /> Dashboard
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {hasPending && (
@@ -8673,6 +8727,16 @@ const Configuracion = () => {
         {hierarchyLevel >= 3 && (
           <TabsContent value="usuarios">
             <TabUsuarios autoOpenCreateModal={autoOpenUserCreate} />
+          </TabsContent>
+        )}
+        {hierarchyLevel >= 3 && (
+          <TabsContent value="inventario">
+            <TabInventario />
+          </TabsContent>
+        )}
+        {hierarchyLevel >= 5 && (
+          <TabsContent value="dashboard">
+            <DashboardBuilderContent />
           </TabsContent>
         )}
       </Tabs>

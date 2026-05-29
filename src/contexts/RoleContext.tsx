@@ -321,7 +321,7 @@ export const ACTIONS_BY_ROLE: Record<UserRole, ActionPermission[]> = {
 const _ALL_MODULE_KEYS = [
   "dashboard", "laboratorio", "vivero", "cultivo", "cosecha",
   "post-cosecha", "produccion", "recursos-humanos", "comercial",
-  "informes", "gestion-usuarios", "configuracion",
+  "inventario", "informes", "gestion-usuarios", "configuracion",
 ] as const;
 
 type ModuleKey = (typeof _ALL_MODULE_KEYS)[number];
@@ -725,7 +725,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   // productor → access only modules configured in dashboard profile.
   const canAccessModule = (modulo: string): boolean => {
     // Dashboard no está habilitado para supervisor ni lector.
-    if (modulo === "dashboard") return role !== "supervisor" && role !== "lector";
+    if (modulo === "dashboard")   return role !== "supervisor" && role !== "lector";
+    if (modulo === "inventario")  return ROLE_LEVELS[role] >= 2; // supervisor+
     // super_admin → todo
     if (role === "super_admin") return true;
     // cliente_admin → todo de su empresa

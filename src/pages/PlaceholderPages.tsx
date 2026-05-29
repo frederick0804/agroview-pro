@@ -13,9 +13,13 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useRole } from "@/contexts/RoleContext";
 import { useConfig } from "@/contexts/ConfigContext";
+import { useInventario, getStockStatus, getStockPct, type InvMovimientoTipo } from "@/contexts/InventarioContext";
+import { ModalMovimiento }    from "@/components/dashboard/ModalMovimiento";
+import { TablaInsumosField } from "@/components/forms/TablaInsumosField";
 import {
   Settings, Download, Upload, SlidersHorizontal, Leaf, Sparkles, Brain,
   BarChart3, ChevronDown, ChevronUp, Calendar, Plus, Eye, Clock, CheckCircle2, AlertCircle, X, Trash2, Pencil, Copy,
+  Package, AlertTriangle,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
@@ -222,6 +226,7 @@ function DynamicDefTable({
 }) {
   const { hasPermission } = useRole();
   const { definiciones, parametros, datos, addDato, updDato, delDato, setHasPendingChanges } = useConfig();
+  const { simularTrigger } = useInventario();
   const navigate = useNavigate();
   const [showIaPanel, setShowIaPanel] = useState(false);
   const [showMlPanel, setShowMlPanel] = useState(false);
@@ -995,9 +1000,17 @@ function DynamicDefTable({
       return;
     }
 
-    const missingRequired = params.filter(
-      p => p.visible !== false && p.obligatorio && !p.formula && !p.es_calculado && !String(formValues[p.nombre] ?? "").trim(),
-    );
+    const missingRequired = params.filter(p => {
+      if (p.visible === false || !p.obligatorio || p.formula || p.es_calculado) return false;
+      // TablaInsumos: debe tener al menos una fila con producto y cantidad > 0
+      if (p.tipo_dato === "TablaInsumos") {
+        try {
+          const rows = JSON.parse(String(formValues[p.nombre] ?? "[]"));
+          return !Array.isArray(rows) || rows.filter((r: { catalogo_id: string; cantidad: number }) => r.catalogo_id && r.cantidad > 0).length === 0;
+        } catch { return true; }
+      }
+      return !String(formValues[p.nombre] ?? "").trim();
+    });
     if (missingRequired.length > 0) {
       setFormError("Completa los campos obligatorios antes de guardar.");
       return;
@@ -1040,6 +1053,9 @@ function DynamicDefTable({
       valores: JSON.stringify(nextVals),
     });
     removePendingRequiredDatoId(newDato.id);
+
+    // ── Trigger automático de inventario ─────────────────────────────────────
+    if (def?.nombre) simularTrigger(def.nombre, nextVals as Record<string, unknown>);
 
     setTransientEditDatoId(null);
     setShowCreateModal(false);
@@ -1238,6 +1254,10 @@ function DynamicDefTable({
     const nextEventoVals = applyDerivedValues({ ...newEventoForm }, activeEventoParams, selectedEventoRegistroValues);
     const newDato = addDato(activeEventoTab, cultivoId, selectedEventoRegistro);
     updDato(newDato.id, { ...newDato, valores: JSON.stringify(nextEventoVals) });
+
+    // ── Trigger automático de inventario ─────────────────────────────────────
+    const eventoDef = definiciones.find(d => d.id === activeEventoTab);
+    if (eventoDef?.nombre) simularTrigger(eventoDef.nombre, nextEventoVals as Record<string, unknown>);
 
     setSheetView("list");
     setNewEventoForm({});
@@ -1804,6 +1824,13 @@ function DynamicDefTable({
                           ))}
                         </SelectContent>
                       </Select>
+                    ) : param.tipo_dato === "TablaInsumos" ? (
+                      <TablaInsumosField
+                        value={value}
+                        onChange={(v) => handleFieldChange(param.nombre, v)}
+                        disabled={disabled}
+                        areaFilter={param.tabla_insumos_area}
+                      />
                     ) : (
                       <Input
                         type={param.tipo_dato === "Número" ? "number" : param.tipo_dato === "Fecha" ? "date" : "text"}
@@ -2140,6 +2167,13 @@ function DynamicDefTable({
                           ))}
                         </SelectContent>
                       </Select>
+                    )}
+                    {!isDerived && param.tipo_dato === "TablaInsumos" && (
+                      <TablaInsumosField
+                        value={value}
+                        onChange={(v) => updateNewEventoField(param.nombre, v)}
+                        areaFilter={param.tabla_insumos_area}
+                      />
                     )}
                     {!isDerived && param.tipo_dato === "Relación" && (
                       <Select
@@ -2536,7 +2570,144 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
           )}
         </div>
       )}
+      <InventarioDelModulo moduloKey={moduloKey} />
     </MainLayout>
+  );
+}
+
+// ─── Inventario del módulo (sección colapsable) ───────────────────────────────
+
+// Tipo de movimiento por defecto según módulo (todos usan 'salida' — aplican insumos/empaque)
+const MODULO_TIPO_DEFAULT: Record<string, InvMovimientoTipo> = {
+  cultivo:        "salida",
+  "post-cosecha": "salida",
+  vivero:         "salida",
+  laboratorio:    "salida",
+};
+
+function InventarioDelModulo({ moduloKey }: { moduloKey: string }) {
+  const { getProductosByModulo } = useInventario();
+  const { hierarchyLevel }       = useRole();
+  const navigate                 = useNavigate();
+  const [expanded, setExpanded]  = useState(false);
+  const [modalId,  setModalId]   = useState<string | null>(null);
+  const [modalTipo, setModalTipo] = useState<InvMovimientoTipo>("salida");
+  const [modalOpen, setModalOpen] = useState(false);
+
+  if (hierarchyLevel < 2) return null;
+
+  const productos = getProductosByModulo(moduloKey);
+  if (productos.length === 0) return null;
+
+  const alertas   = productos.filter(p => getStockStatus(p) !== "ok");
+  const tipoDefecto = MODULO_TIPO_DEFAULT[moduloKey] ?? "salida";
+
+  function openModal(id: string) {
+    setModalId(id);
+    setModalTipo(tipoDefecto);
+    setModalOpen(true);
+  }
+
+  return (
+    <div className="mt-6 overflow-hidden rounded-xl border border-border bg-card">
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-muted/30 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Package className="h-4 w-4 text-amber-500" />
+          <span className="text-sm font-semibold">Inventario del módulo</span>
+          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+            {productos.length} producto{productos.length !== 1 ? "s" : ""}
+          </span>
+          {alertas.length > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+              <AlertTriangle className="h-3 w-3" />
+              {alertas.length} alerta{alertas.length !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+        {expanded
+          ? <ChevronUp   className="h-4 w-4 text-muted-foreground" />
+          : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border p-4 space-y-3">
+          <div className="overflow-auto rounded-lg border border-border">
+            <table className="w-full min-w-[460px] text-xs">
+              <thead>
+                <tr className="border-b border-border bg-muted/40">
+                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Producto</th>
+                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Stock</th>
+                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Estado</th>
+                  <th className="px-3 py-2 font-semibold text-muted-foreground w-28">Nivel</th>
+                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productos.map(p => {
+                  const status = getStockStatus(p);
+                  const pct    = getStockPct(p);
+                  const barColor = status === "critico" ? "bg-red-500" : status === "bajo" ? "bg-amber-500" : "bg-green-500";
+                  const badgeCls = status === "critico"
+                    ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                    : status === "bajo"
+                    ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
+                    : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
+                  return (
+                    <tr key={p.id} className="border-b border-border/50 last:border-0">
+                      <td className="px-3 py-2 font-medium">{p.nombre}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {p.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })} {p.unidad_medida}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium", badgeCls)}>
+                          {status === "ok" ? "OK" : status === "bajo" ? "Bajo" : "Crítico"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                          <div className={cn("h-full rounded-full", barColor)} style={{ width: `${pct}%` }} />
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openModal(p.id); }}
+                          className={cn(
+                            "inline-flex h-6 w-6 items-center justify-center rounded-full text-white transition-colors",
+                            tipoDefecto === "salida"
+                              ? "bg-red-500 hover:bg-red-600"
+                              : "bg-green-600 hover:bg-green-700",
+                          )}
+                          title={`Registrar ${tipoDefecto}`}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Button
+            size="sm" variant="outline"
+            className="h-7 gap-1.5 text-xs"
+            onClick={() => navigate(`/inventario?modulo=${encodeURIComponent(moduloKey)}`)}
+          >
+            <Package className="h-3.5 w-3.5" /> Ver inventario completo
+          </Button>
+        </div>
+      )}
+
+      <ModalMovimiento
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        productoId={modalId}
+        tipoInicial={modalTipo}
+      />
+    </div>
   );
 }
 

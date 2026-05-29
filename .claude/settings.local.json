@@ -130,7 +130,30 @@
       "Bash(Remove-Item \"C:\\\\Users\\\\Frederick\\\\Documents\\\\blue-data\\\\BlueData_Front\\\\src\\\\features\\\\settings\\\\stores\\\\slices\\\\formsSlice.ts\" -ErrorAction Stop)",
       "Bash(Write-Output \"Deleted\")",
       "Bash(mkdir -p \"C:\\\\Users\\\\Frederick\\\\Documents\\\\blue-data\\\\BlueData_Front\\\\src\\\\features\\\\crops\\\\ui\\\\__tests__\")",
-      "Bash(mkdir -p \"C:\\\\Users\\\\Frederick\\\\Documents\\\\blue-data\\\\BlueData_Front\\\\src\\\\layouts\\\\__tests__\")"
+      "Bash(mkdir -p \"C:\\\\Users\\\\Frederick\\\\Documents\\\\blue-data\\\\BlueData_Front\\\\src\\\\layouts\\\\__tests__\")",
+      "Bash(cmd /c \"cd /d C:\\\\Users\\\\Frederick\\\\Documents\\\\blue-data\\\\BlueData_Front && node node_modules/typescript/bin/tsc -b --noEmit 2>&1\")",
+      "Bash(node node_modules/typescript/bin/tsc -b --noEmit)",
+      "Bash(find \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src\" -maxdepth 4 -type d | sort)",
+      "Bash(cat \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/vite.config.ts\")",
+      "Bash(findstr /i \"PASS FAIL ✓ ✗ × Error timeout\")",
+      "Bash(find /mnt/c/Users/Frederick/Documents/blue-data/BlueData_Front/src/features/settings -type f | sort)",
+      "Bash(dir \"C:\\\\Users\\\\Frederick\\\\Documents\\\\blue-data\\\\BlueData_Front\\\\src\\\\features\")",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Frederick\\\\Documents\\\\blue-data\\\\BlueData_Front\\\\src\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(node -e \"require\\('@dnd-kit/utilities'\\)\")",
+      "Bash(del \"C:\\\\Users\\\\Frederick\\\\Documents\\\\blue-data\\\\BlueData_Front\\\\src\\\\features\\\\settings\\\\stores\\\\slices\\\\companiesSlice.ts\")",
+      "Bash(del \"C:\\\\Users\\\\Frederick\\\\Documents\\\\blue-data\\\\BlueData_Front\\\\src\\\\features\\\\settings\\\\stores\\\\slices\\\\cropsSlice.ts\")",
+      "Bash(del \"C:\\\\Users\\\\Frederick\\\\Documents\\\\blue-data\\\\BlueData_Front\\\\src\\\\features\\\\settings\\\\stores\\\\slices\\\\usersSlice.ts\")",
+      "Bash(del \"C:\\\\Users\\\\Frederick\\\\Documents\\\\blue-data\\\\BlueData_Front\\\\src\\\\features\\\\settings\\\\stores\\\\settingsStore.utils.ts\")",
+      "Bash(del \"C:\\\\Users\\\\Frederick\\\\Documents\\\\blue-data\\\\BlueData_Front\\\\src\\\\features\\\\settings\\\\stores\\\\settingsStore.types.ts\")",
+      "Bash(rm \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src/features/settings/stores/slices/companiesSlice.ts\" \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src/features/settings/stores/slices/cropsSlice.ts\" \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src/features/settings/stores/slices/usersSlice.ts\" \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src/features/settings/stores/settingsStore.utils.ts\" \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src/features/settings/stores/settingsStore.types.ts\" && echo DONE)",
+      "Bash(del \"src\\\\shared\\\\services\\\\apiClient.test.ts\" \"src\\\\shared\\\\utils\\\\authGuards.test.ts\" \"src\\\\shared\\\\utils\\\\getErrorMessage.test.ts\" \"src\\\\features\\\\settings\\\\stores\\\\__tests__\\\\settingsStore.test.ts\")",
+      "Bash(rm \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src/shared/services/apiClient.test.ts\" \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src/shared/utils/authGuards.test.ts\" \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src/shared/utils/getErrorMessage.test.ts\" \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src/features/settings/stores/__tests__/settingsStore.test.ts\")",
+      "Bash(node -e ' *)",
+      "Bash(ls /mnt/c/Users/Frederick/Documents/blue-data/BlueData_Front/src/routes/)",
+      "Bash(rm \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src/features/comercial/stores/__tests__/comercialStore.test.ts\")",
+      "Bash(rm \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src/features/comercial/ui/__tests__/ComercialPage.test.tsx\")",
+      "Bash(rm -rf \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src/features/comercial\" && echo \"eliminado\" && ls \"C:/Users/Frederick/Documents/blue-data/BlueData_Front/src/features/\")"
     ]
   }
 }

@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { useInventario, getStockStatus } from "@/contexts/InventarioContext";
+import { useConfig } from "@/contexts/ConfigContext";
+import type { CampoOpcion } from "@/config/moduleDefinitions";
 import { useNavigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -581,8 +584,40 @@ function ModuleTabContent({
   const data = MODULE_DATA[moduleKey];
   const gid  = `mg-${moduleKey}`;
 
+  // Widgets configured for this specific module tab
+  const allSaved     = useSavedWidgets();
+  const moduleWidgets = allSaved.filter((w) => w.dashboardTab === moduleKey);
+
   if (!data || !tab) return null;
 
+  // If the user has custom widgets for this module → show ONLY those (no hardcoded charts)
+  if (moduleWidgets.length > 0) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-foreground">
+            <tab.Icon className="w-4 h-4 inline-block mr-1.5 opacity-70" />
+            {tab.label}
+          </p>
+          <a
+            href="/configuracion?tab=dashboard"
+            className="text-[10px] text-muted-foreground/60 hover:text-foreground transition-colors inline-flex items-center gap-1"
+          >
+            <Settings className="w-3 h-3" /> Editar dashboard
+          </a>
+        </div>
+        <div className="grid grid-cols-4 gap-4 auto-rows-auto">
+          {moduleWidgets.map((w) => (
+            <div key={w.id} style={{ height: `${(w.rows ?? 1) * 180}px` }} className={cn("min-w-0", W_COL_SPAN[w.size ?? 2])}>
+              <MiniWidgetPreview w={w} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // No custom widgets → show hardcoded charts
   return (
     <div className="space-y-5">
       {/* KPI row */}
@@ -760,6 +795,275 @@ function RightRailCarousel({ slides }: { slides: RightRailSlide[] }) {
   );
 }
 
+// ─── Saved Widgets (Dashboard Builder) ───────────────────────────────────────
+const DASHBOARD_STORAGE_KEY = "agro_dashboard_builder_layout";
+type SavedWidgetType = "kpi" | "serie" | "distribucion";
+type DateRangeKey    = "7d" | "30d" | "90d" | "ytd";
+type AggregationType = "sum" | "avg" | "count" | "min" | "max";
+type SavedWidget = {
+  id: string; title: string; type: SavedWidgetType; moduloId: string;
+  definicionId: string; campoId: string; dateRange: string; aggregation: string;
+  dashboardTab?: string; size?: 1 | 2 | 3 | 4; rows?: 1 | 2 | 3; color?: string;
+};
+
+// Etiquetas de eje X según rango de fecha (espejo de DashboardBuilder)
+const IDX_MONTHS_ES = ["Ene","Feb","Mar","Abr","May","Jun",
+                       "Jul","Ago","Sep","Oct","Nov","Dic"] as const;
+const IDX_DAYS_ES   = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"] as const;
+
+function buildIdxTrendLabels(dateRange: DateRangeKey): string[] {
+  const now = new Date();
+  if (dateRange === "7d") {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() - (6 - i));
+      return IDX_DAYS_ES[d.getDay()];
+    });
+  }
+  if (dateRange === "30d") return Array.from({ length: 5 }, (_, i) => `Sem ${i + 1}`);
+  if (dateRange === "90d") {
+    return Array.from({ length: 3 }, (_, i) => {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() - (2 - i));
+      return IDX_MONTHS_ES[d.getMonth()];
+    });
+  }
+  return Array.from({ length: now.getMonth() + 1 }, (_, i) => IDX_MONTHS_ES[i]);
+}
+
+const IDX_AGG_LABELS: Record<AggregationType, string> = {
+  sum: "Suma", avg: "Promedio", count: "Conteo", min: "Mínimo", max: "Máximo",
+};
+
+const W_COL_SPAN = { 1: "col-span-1", 2: "col-span-2", 3: "col-span-3", 4: "col-span-4" } as const;
+
+function stableW(seed: string, min: number, max: number) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(31, h) + seed.charCodeAt(i);
+  return min + (Math.abs(h) % (max - min));
+}
+
+const MINI_TT = {
+  backgroundColor: "white",
+  border: "1px solid hsl(142,15%,88%)",
+  borderRadius: "8px",
+  fontSize: "11px",
+  padding: "4px 8px",
+};
+
+function fakeTrend(seed: string, dateRange: DateRangeKey = "30d") {
+  // Genera etiquetas de eje X reales según el rango configurado
+  return buildIdxTrendLabels(dateRange).map((month, i) => ({
+    month,
+    value: stableW(`${seed}-t${i}`, 40, 240),
+  }));
+}
+
+function fakeComp(seed: string, opciones?: CampoOpcion[] | null) {
+  const COLORS = ["hsl(142,70%,45%)", "hsl(38,92%,50%)", "hsl(0,72%,51%)", "hsl(213,70%,50%)"];
+  // Si el campo tiene opciones (tipo Lista) → usarlas como segmentos del donut
+  const cats = opciones?.length
+    ? opciones.slice(0, 4).map((o) => o.label)
+    : ["Categoría A", "Categoría B", "Categoría C"];
+  return cats.map((name, i) => ({
+    name,
+    value: stableW(`${seed}-c${i}`, 15, 55),
+    color: COLORS[i % COLORS.length],
+  }));
+}
+
+function MiniWidgetPreview({ w }: { w: SavedWidget }) {
+  // Resolvemos el campo configurado para obtener su label y opciones reales
+  const { parametros } = useConfig();
+  const campo = parametros.find((p) => p.id === w.campoId) ?? null;
+  const campoLabel   = campo ? (campo.etiqueta_personalizada?.trim() || campo.nombre) : "";
+  const campoOpciones = campo?.opciones ?? null;
+  const dateRange    = (w.dateRange ?? "30d") as DateRangeKey;
+  const aggLabel     = IDX_AGG_LABELS[w.aggregation as AggregationType] ?? w.aggregation;
+
+  const seed     = `${w.id}-${w.definicionId}-${w.campoId}`;
+  const modData  = MODULE_DATA[w.moduloId];
+  const tabInfo  = DASHBOARD_TABS.find((t) => t.key === w.moduloId);
+  const modColor = w.color ?? tabInfo?.color ?? "hsl(142,45%,28%)";
+  const modLabel = tabInfo?.label ?? w.moduloId;
+  const gradId   = `mg-${w.id.replace(/[^a-z0-9]/gi, "").slice(0, 16)}`;
+  const rows     = w.rows ?? 1;
+  const metricName = campoLabel || "Valor";
+
+  // Usar datos del módulo si existen, o generar mock con fechas y opciones reales
+  const trendData  = modData?.trendData ?? fakeTrend(seed, dateRange);
+  const compData   = modData?.compData  ?? fakeComp(seed, campoOpciones);
+  const latest     = trendData[trendData.length - 1]?.value ?? 0;
+  const prev       = trendData[trendData.length - 2]?.value ?? latest;
+  const trendPct   = prev > 0 ? Math.round(((latest - prev) / prev) * 100) : 0;
+  const compTotal  = compData.reduce((s, d) => s + d.value, 0) || 1;
+  // Scale chart height with rows (mirrors DashboardBuilder logic)
+  const kpiChartH  = 52  + (rows - 1) * 68;
+  const mainChartH = 88  + (rows - 1) * 110;
+  const donutSize  = Math.min(mainChartH, 88 + (rows - 1) * 60);
+
+  const badge = (
+    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
+      {modLabel}
+    </span>
+  );
+
+  if (w.type === "kpi") return (
+    <div className="rounded-xl border border-border bg-card p-4 space-y-1.5 h-full">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs text-muted-foreground truncate leading-tight">{w.title}</p>
+        {badge}
+      </div>
+      <p className="text-2xl font-bold text-foreground">
+        {latest.toLocaleString("es-EC", { maximumFractionDigits: 1 })}
+      </p>
+      <p className={cn("text-xs font-medium", trendPct >= 0 ? "text-emerald-600" : "text-rose-500")}>
+        {trendPct >= 0 ? `+${trendPct}%` : `${trendPct}%`} vs periodo anterior
+      </p>
+      <ResponsiveContainer width="100%" height={kpiChartH}>
+        <AreaChart data={trendData} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+          <defs>
+            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%"  stopColor={modColor} stopOpacity={0.25} />
+              <stop offset="95%" stopColor={modColor} stopOpacity={0}    />
+            </linearGradient>
+          </defs>
+          <Area type="monotone" dataKey="value" stroke={modColor} strokeWidth={1.5}
+            fill={`url(#${gradId})`} dot={false} />
+          {/* Tooltip con nombre del campo configurado */}
+          <Tooltip contentStyle={MINI_TT} formatter={(v) => [v, metricName]} />
+        </AreaChart>
+      </ResponsiveContainer>
+      {/* Subtítulo: nombre del campo + tipo de agregación en español */}
+      <p className="text-[10px] text-muted-foreground">
+        {campoLabel ? `${campoLabel} · ` : ""}{aggLabel}
+      </p>
+    </div>
+  );
+
+  if (w.type === "serie") return (
+    <div className="rounded-xl border border-border bg-card p-4 space-y-2 h-full">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs text-muted-foreground truncate">{w.title}</p>
+        {badge}
+      </div>
+      <ResponsiveContainer width="100%" height={mainChartH}>
+        <BarChart data={trendData} margin={{ top: 4, right: 0, bottom: 0, left: 0 }} barCategoryGap="28%">
+          {/* Eje X con etiquetas reales según dateRange */}
+          <XAxis dataKey="month" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} />
+          <Bar dataKey="value" fill={modColor} radius={[3, 3, 0, 0]} opacity={0.85} />
+          <Tooltip contentStyle={MINI_TT} formatter={(v) => [v, metricName]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+
+  // distribución → donut + leyenda con nombres reales del campo
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 space-y-2 h-full">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs text-muted-foreground truncate">{w.title}</p>
+        {badge}
+      </div>
+      <div className="flex items-center gap-3">
+        <ResponsiveContainer width={donutSize} height={donutSize}>
+          <PieChart>
+            <Pie data={compData} dataKey="value"
+              innerRadius={Math.round(donutSize * 0.27)} outerRadius={Math.round(donutSize * 0.45)}
+              paddingAngle={3} strokeWidth={0}>
+              {compData.map((d, i) => <Cell key={i} fill={d.color} />)}
+            </Pie>
+            <Tooltip contentStyle={MINI_TT} formatter={(v, name) => [v, name]} />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="flex flex-col gap-1.5 text-[10px] text-muted-foreground">
+          {compData.map((d, i) => (
+            <span key={i} className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+              {d.name}: {Math.round((d.value / compTotal) * 100)}%
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// useSavedWidgets — reads the dashboard builder layout from localStorage once on mount
+function useSavedWidgets(): SavedWidget[] {
+  const [widgets, setWidgets] = useState<SavedWidget[]>([]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DASHBOARD_STORAGE_KEY);
+      if (raw) setWidgets(JSON.parse(raw) as SavedWidget[]);
+    } catch { /* ignore */ }
+  }, []);
+  return widgets;
+}
+
+// SavedWidgetsDashboard — widget canvas + right-rail carousel side by side
+function SavedWidgetsDashboard({
+  widgets,
+  quickActions,
+}: {
+  widgets: SavedWidget[];
+  quickActions: QA[];
+}) {
+  const carouselSlides: RightRailSlide[] = [
+    {
+      id: "widgets-acciones",
+      label: "Acciones rápidas",
+      content: <QuickActions actions={quickActions} className="h-full overflow-y-auto" />,
+    },
+    {
+      id: "widgets-notificaciones",
+      label: "Notificaciones",
+      content: <RoleNotifications maxItems={4} className="h-full overflow-y-auto" />,
+    },
+  ];
+
+  return (
+    <div className="flex gap-5 items-start">
+
+      {/* ── Left: header + widget grid ────────────────────────────────────── */}
+      <div className="flex-1 min-w-0 space-y-4">
+
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-foreground">
+              Mi dashboard — {widgets.length} widget{widgets.length !== 1 ? "s" : ""} configurado{widgets.length !== 1 ? "s" : ""}
+            </p>
+            <p className="text-xs text-muted-foreground">Datos actualizados basados en los módulos seleccionados.</p>
+          </div>
+          <a
+            href="/configuracion?tab=dashboard"
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background text-xs font-medium hover:bg-muted transition-colors"
+          >
+            <Settings className="w-3.5 h-3.5" /> Editar widgets
+          </a>
+        </div>
+
+        {/* Widget grid — 4-column base, each widget spans its configured size + explicit row height */}
+        <div className="grid grid-cols-4 gap-4 auto-rows-auto">
+          {widgets.map((w) => (
+            <div key={w.id} style={{ height: `${(w.rows ?? 1) * 180}px` }} className={cn("min-w-0", W_COL_SPAN[w.size ?? 2])}>
+              <MiniWidgetPreview w={w} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Right: carousel — always visible, never below ─────────────────── */}
+      {quickActions.length > 0 && (
+        <div className="shrink-0 w-72">
+          <RightRailCarousel slides={carouselSlides} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Resumen Tab Content ──────────────────────────────────────────────────────
 function ResumenTabContent({
   quickActions,
@@ -770,12 +1074,53 @@ function ResumenTabContent({
   sectorHint?: string;
   resumenData: ResumenData;
 }) {
+  const allWidgets    = useSavedWidgets();
+  // Resumen widgets: those explicitly assigned to "resumen" or with no tab (backward compat)
+  const resumenWidgets = allWidgets.filter((w) => !w.dashboardTab || w.dashboardTab === "resumen");
+  const hasAny         = allWidgets.length > 0;
+
+  // If user has configured resumen-specific widgets → show those
+  if (resumenWidgets.length > 0) {
+    return (
+      <div className="space-y-5">
+        <WeatherChatWidget sectorHint={sectorHint} />
+        <SavedWidgetsDashboard widgets={resumenWidgets} quickActions={quickActions} />
+      </div>
+    );
+  }
+
+  // If user has ANY widgets (but none for resumen) → show prompt instead of legacy
+  if (hasAny) {
+    return (
+      <div className="space-y-5">
+        <WeatherChatWidget sectorHint={sectorHint} />
+        <div className="rounded-2xl border-2 border-dashed border-border/50 bg-muted/10 py-16 flex flex-col items-center gap-4 text-center">
+          <LayoutDashboard className="w-10 h-10 text-muted-foreground/30" />
+          <div>
+            <p className="text-sm font-semibold text-foreground">Sin widgets para el Dashboard general</p>
+            <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto leading-relaxed">
+              Tienes widgets configurados en otras pestañas. Para verlos aquí, asígnalos a "Dashboard general" en la configuración.
+            </p>
+          </div>
+          <a
+            href="/configuracion?tab=dashboard"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+          >
+            <Settings className="w-3.5 h-3.5" /> Configurar Dashboard general
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // ── No widgets at all → show legacy hardcoded dashboard ──
   const moduleSummaries = resumenData.moduleSummaries ?? [];
   const showModuleResumen = moduleSummaries.length > 0;
 
   return (
     <div className="space-y-5">
       <WeatherChatWidget sectorHint={sectorHint} />
+      <InventarioAlertaWidget />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {resumenData.metrics.map((metric, idx) => (
@@ -958,6 +1303,21 @@ function ResumenTabContent({
           </div>
         </>
       )}
+      {/* Empty-state prompt — only shown when no widgets are configured */}
+      <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 p-5 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold text-foreground">Dashboard personalizado</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Aún no hay widgets configurados. Crea widgets desde tus formularios activos y reemplaza esta vista.
+          </p>
+        </div>
+        <a
+          href="/configuracion?tab=dashboard"
+          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+        >
+          <Settings className="w-3.5 h-3.5" /> Configurar
+        </a>
+      </div>
     </div>
   );
 }
@@ -1270,6 +1630,64 @@ function ReaderDashboard({ area, areaLabel, areaColor }: {
         </div>
       </div>
     </>
+  );
+}
+
+// ─── Inventory alert widget ───────────────────────────────────────────────────
+function InventarioAlertaWidget() {
+  const { getAlertas } = useInventario();
+  const navigate = useNavigate();
+  const alertas = getAlertas()
+    .sort((a, b) => {
+      const sa = getStockStatus(a), sb = getStockStatus(b);
+      const order = { critico: 0, bajo: 1, ok: 2 };
+      return order[sa] - order[sb];
+    })
+    .slice(0, 3);
+
+  if (alertas.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-800/40 dark:bg-amber-900/10">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-400">
+          <Package className="h-4 w-4" />
+          Stock bajo mínimo
+          <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold dark:bg-amber-800/60">
+            {getAlertas().length}
+          </span>
+        </div>
+        <button
+          onClick={() => navigate("/inventario")}
+          className="text-xs text-amber-700 underline-offset-2 hover:underline dark:text-amber-400"
+        >
+          Ver inventario →
+        </button>
+      </div>
+      <div className="space-y-1.5">
+        {alertas.map(p => {
+          const status = getStockStatus(p);
+          return (
+            <div key={p.id} className="flex items-center justify-between rounded-lg bg-background/70 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium">{p.nombre}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {p.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })} / {p.cantidad_minima.toLocaleString("es-CL")} {p.unidad_medida}
+                </p>
+              </div>
+              <span className={cn(
+                "ml-2 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                status === "critico"
+                  ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+              )}>
+                {status === "critico" ? "Crítico" : "Bajo"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
