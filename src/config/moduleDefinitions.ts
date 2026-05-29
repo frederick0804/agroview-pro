@@ -18,7 +18,9 @@ export type TipoConfig =
   | "trazabilidad"
   | "inventario"
   | "personalizado";
-export type TipoDato   = "Texto" | "Número" | "Fecha" | "Sí/No" | "Lista" | "Foto" | "Archivo" | "Relación";
+export type TipoDato   = "Texto" | "Número" | "Fecha" | "Sí/No" | "Lista" | "Foto" | "Archivo" | "Relación" | "TablaInsumos";
+/** Fila de una TablaInsumos — se serializa como JSON en ModDato.valores */
+export interface TablaInsumosRow { catalogo_id: string; cantidad: number; }
 export type EstadoDef  = "activo" | "borrador" | "archivado";
 
 // ─── Parametro — Biblioteca Global ────────────────────────────────────────────
@@ -218,6 +220,9 @@ export interface ModParam {
   }[];
   /** Fórmula personalizada (solo si calculo_tipo = "formula_personalizada") */
   calculo_formula?:          string;
+  // ── Tipo "TablaInsumos" ──────────────────────────────────────────────────────
+  /** Filtra los productos del inventario por área (modulo_id). Si está vacío, muestra todos. */
+  tabla_insumos_area?:       string | null;
 }
 
 // ─── ModDato — Datos_registro ─────────────────────────────────────────────────
@@ -508,6 +513,25 @@ export const DEFINICIONES: ModDef[] = [
     cliente_id: 1,
     updated_at: "2025-03-05T08:00:00Z", updated_by: "Admin",
   },
+  // ── Formularios vinculados a inventario (TablaInsumos) ──────────────────────
+  {
+    id: "inv-fit-1", tipo: "fitosanitario",
+    nombre: "APLICACION_FITOSANITARIA",
+    descripcion: "Registro de aplicaciones fitosanitarias — puede mezclar varios productos",
+    version: "1.0", modulo: "cultivo", estado: "activo",
+    nivel_minimo: 2, roles_excluidos: [],
+    cliente_id: 1,
+    updated_at: "2026-01-10T08:00:00Z", updated_by: "Admin",
+  },
+  {
+    id: "inv-pack-1", tipo: "cosecha_registro",
+    nombre: "PACKING_LIST",
+    descripcion: "Registro de packing — insumos de empaque utilizados por lote",
+    version: "1.0", modulo: "post-cosecha", estado: "activo",
+    nivel_minimo: 2, roles_excluidos: [],
+    cliente_id: 1,
+    updated_at: "2026-01-10T08:00:00Z", updated_by: "Admin",
+  },
 ];
 
 // ─── Parámetros (Campos_configurados) ─────────────────────────────────────────
@@ -565,6 +589,18 @@ export const PARAMETROS: ModParam[] = [
   { id: "e3-1", definicion_id: "evt-3", parametro_id: "p-21", nombre: "tipo_prueba",    tipo_dato: "Lista",  obligatorio: true,  orden: 1 },
   { id: "e3-2", definicion_id: "evt-3", parametro_id: "p-23", nombre: "resultado",      tipo_dato: "Texto",  obligatorio: true,  orden: 2 },
   { id: "e3-3", definicion_id: "evt-3", parametro_id: "p-30", nombre: "observaciones",  tipo_dato: "Texto",  obligatorio: false, orden: 3 },
+  // ── inv-fit-1: Aplicación Fitosanitaria ─────────────────────────────────────
+  { id: "invf-1", definicion_id: "inv-fit-1", parametro_id: "p-04", nombre: "bloque",              tipo_dato: "Texto",         obligatorio: true,  orden: 1, etiqueta_personalizada: "Bloque / Sector" },
+  { id: "invf-2", definicion_id: "inv-fit-1", parametro_id: "p-18", nombre: "fecha_aplicacion",    tipo_dato: "Fecha",         obligatorio: true,  orden: 2, etiqueta_personalizada: "Fecha de aplicación" },
+  { id: "invf-3", definicion_id: "inv-fit-1", parametro_id: "p-30", nombre: "responsable",         tipo_dato: "Texto",         obligatorio: true,  orden: 3, etiqueta_personalizada: "Responsable" },
+  { id: "invf-4", definicion_id: "inv-fit-1", parametro_id: "p-03", nombre: "area_tratada_ha",     tipo_dato: "Número",        obligatorio: false, orden: 4, etiqueta_personalizada: "Área tratada (ha)" },
+  { id: "invf-5", definicion_id: "inv-fit-1", parametro_id: "p-30", nombre: "productos_aplicados", tipo_dato: "TablaInsumos",  obligatorio: true,  orden: 5, etiqueta_personalizada: "Productos aplicados",       tabla_insumos_area: "cultivo" },
+  { id: "invf-6", definicion_id: "inv-fit-1", parametro_id: "p-30", nombre: "observaciones",       tipo_dato: "Texto",         obligatorio: false, orden: 6, etiqueta_personalizada: "Observaciones" },
+  // ── inv-pack-1: Packing List ─────────────────────────────────────────────────
+  { id: "invp-1", definicion_id: "inv-pack-1", parametro_id: "p-01", nombre: "lote",               tipo_dato: "Texto",         obligatorio: true,  orden: 1, etiqueta_personalizada: "Número de lote" },
+  { id: "invp-2", definicion_id: "inv-pack-1", parametro_id: "p-18", nombre: "fecha_packing",      tipo_dato: "Fecha",         obligatorio: true,  orden: 2, etiqueta_personalizada: "Fecha de packing" },
+  { id: "invp-3", definicion_id: "inv-pack-1", parametro_id: "p-03", nombre: "kilos_procesados",   tipo_dato: "Número",        obligatorio: true,  orden: 3, etiqueta_personalizada: "Kilos procesados" },
+  { id: "invp-4", definicion_id: "inv-pack-1", parametro_id: "p-30", nombre: "insumos_usados",     tipo_dato: "TablaInsumos",  obligatorio: true,  orden: 4, etiqueta_personalizada: "Insumos de empaque usados", tabla_insumos_area: "post-cosecha" },
 ];
 
 // ─── Datos demo ───────────────────────────────────────────────────────────────

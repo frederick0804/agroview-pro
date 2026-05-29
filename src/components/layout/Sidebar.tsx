@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
+  LayoutGrid,
   FlaskConical,
   Sprout,
   Leaf,
@@ -18,6 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
 import { useConfig } from "@/contexts/ConfigContext";
+import { useInventario } from "@/contexts/InventarioContext";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -40,6 +42,7 @@ const navItems: NavItem[] = [
   { label: "Post-cosecha",        icon: Package,         path: "/post-cosecha",     modulo: "post-cosecha",      iconColor: "text-orange-400" },
   { label: "Recursos Humanos",    icon: Users,           path: "/recursos-humanos", modulo: "recursos-humanos",  iconColor: "text-cyan-400" },
   { label: "Comercial",           icon: ShoppingCart,    path: "/comercial",        modulo: "comercial",         iconColor: "text-pink-400" },
+  { label: "Inventario",           icon: Package,         path: "/inventario",       modulo: "inventario",        iconColor: "text-amber-400" },
   { label: "Informes",            icon: BarChart2,       path: "/informes",         modulo: "informes",          iconColor: "text-indigo-400" },
 ];
 
@@ -61,6 +64,8 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const navigate = useNavigate();
   const { role, roleName, currentUser, logout, hasPermission, currentClienteName } = useRole();
   const { hasPendingChanges } = useConfig();
+  const { getAlertas } = useInventario();
+  const invAlertCount = getAlertas().length;
 
   const isActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
@@ -125,7 +130,12 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
             onClick={e => { if (hasPendingChanges) e.preventDefault(); }}
           >
             <item.icon className={cn("w-5 h-5 shrink-0", item.iconColor)} />
-            {!collapsed && <span className="truncate">{item.label}</span>}
+            {!collapsed && <span className="truncate flex-1">{item.label}</span>}
+            {!collapsed && item.path === "/inventario" && invAlertCount > 0 && (
+              <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-semibold leading-none inline-flex items-center justify-center">
+                {invAlertCount > 9 ? "9+" : invAlertCount}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

@@ -6,11 +6,14 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { RoleProvider, useRole } from "@/contexts/RoleContext";
 import { ConfigProvider } from "@/contexts/ConfigContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { InventarioProvider } from "@/contexts/InventarioContext";
+import Inventario from "./pages/Inventario";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import Configuracion from "./pages/Configuracion";
 import Informes from "./pages/Informes";
+import DashboardBuilder from "./pages/DashboardBuilder";
 import {
   Laboratorio,
   Vivero,
@@ -47,6 +50,7 @@ const App = () => {
       <TooltipProvider>
         <RoleProvider>
           <ConfigProvider>
+          <InventarioProvider>
           <Toaster />
           <Sonner />
           <BrowserRouter>
@@ -64,11 +68,14 @@ const App = () => {
               <Route path="/comercial" element={<ProtectedRoute><ModuleGuard modulo="comercial"><Comercial /></ModuleGuard></ProtectedRoute>} />
               <Route path="/informes" element={<ProtectedRoute><ModuleGuard modulo="informes"><Informes /></ModuleGuard></ProtectedRoute>} />
               <Route path="/configuracion" element={<ProtectedRoute><ModuleGuard modulo="configuracion"><Configuracion /></ModuleGuard></ProtectedRoute>} />
+              <Route path="/dashboard-builder" element={<Navigate to="/configuracion?tab=dashboard" replace />} />
               <Route path="/perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
+              <Route path="/inventario" element={<ProtectedRoute><ModuleGuard modulo="inventario"><Inventario /></ModuleGuard></ProtectedRoute>} />
               <Route path="/gestion-usuarios" element={<Navigate to="/configuracion?tab=usuarios" replace />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
+          </InventarioProvider>
           </ConfigProvider>
         </RoleProvider>
       </TooltipProvider>
