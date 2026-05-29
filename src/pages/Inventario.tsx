@@ -343,6 +343,9 @@ function FilterPanel({
         </div>
       </div>
 
+      {/* Reglas — compacto en sidebar */}
+      <ReglasBanner variant="sidebar" />
+
       {/* Alert mini-list */}
       {alertas.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-800/40 dark:bg-amber-900/10">
@@ -374,73 +377,64 @@ function FilterPanel({
           </div>
         </div>
       )}
-      {/* Reglas activas */}
-      <ReglasWidget />
     </aside>
   );
 }
 
-// ─── Reglas widget (panel lateral) ───────────────────────────────────────────
+// ─── Reglas banner (barra horizontal en el área de contenido) ────────────────
 
-function ReglasWidget() {
+/** Banner compacto — se usa en el sidebar Y como barra en el contenido */
+function ReglasBanner({ variant = "sidebar" }: { variant?: "sidebar" | "bar" }) {
   const navigate = useNavigate();
   const { formularioMapas } = useInventario();
-  const activas  = formularioMapas.filter(r => r.activo);
-  const [open, setOpen] = useState(false);
+  const activas = formularioMapas.filter(r => r.activo);
 
-  const TIPO_DOT: Record<InvMovimientoTipo, string> = {
-    entrada: "bg-green-500", salida: "bg-red-500", ajuste: "bg-amber-500",
-  };
-
-  return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
+  if (variant === "sidebar") {
+    return (
       <button
-        onClick={() => setOpen(v => !v)}
-        className="flex w-full items-center justify-between px-3 py-2.5 hover:bg-muted/30 transition-colors text-left"
+        onClick={() => navigate("/configuracion?tab=inventario")}
+        className="flex w-full items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-left transition-colors hover:bg-amber-100/60 dark:border-amber-800/40 dark:bg-amber-900/10 dark:hover:bg-amber-900/20"
       >
-        <div className="flex items-center gap-2">
-          <Zap className="h-3.5 w-3.5 text-amber-500" />
-          <span className="text-xs font-semibold">Reglas activas</span>
-          <span className={cn(
-            "rounded-full px-1.5 py-0 text-[10px] font-semibold",
-            activas.length > 0 ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-muted text-muted-foreground",
-          )}>
+        <Zap className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+            Movimientos automáticos
+          </p>
+          <p className="text-[10px] text-amber-700/70 dark:text-amber-400/70">
+            {activas.length === 0
+              ? "Sin reglas — haz clic para configurar"
+              : `${activas.length} regla${activas.length !== 1 ? "s" : ""} activa${activas.length !== 1 ? "s" : ""} · Gestionar →`}
+          </p>
+        </div>
+        {activas.length > 0 && (
+          <span className="shrink-0 rounded-full bg-amber-200 px-1.5 py-0 text-[10px] font-bold text-amber-800 dark:bg-amber-800/60 dark:text-amber-300">
             {activas.length}
           </span>
-        </div>
-        <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", open && "rotate-90")} />
+        )}
       </button>
+    );
+  }
 
-      {open && (
-        <div className="border-t border-border px-3 pb-3 pt-2 space-y-2">
-          {activas.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground">Sin reglas configuradas.</p>
-          ) : (
-            activas.map(r => (
-              <div key={r.id} className="flex items-center gap-2">
-                <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", TIPO_DOT[r.tipo_movimiento])} />
-                <span className="text-[11px] truncate text-muted-foreground" title={r.tabla_origen}>
-                  {r.tabla_origen}
-                </span>
-                <span className={cn(
-                  "ml-auto shrink-0 rounded px-1 py-0 text-[10px] font-medium",
-                  r.tipo_movimiento === "entrada" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
-                  r.tipo_movimiento === "salida"  ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
-                                                    "bg-amber-100 text-amber-700",
-                )}>
-                  {r.tipo_movimiento}
-                </span>
-              </div>
-            ))
-          )}
-          <button
-            onClick={() => navigate("/configuracion?tab=inventario")}
-            className="mt-1 flex w-full items-center gap-1 text-[11px] text-primary hover:underline"
-          >
-            <Settings2 className="h-3 w-3" /> Configurar reglas
-          </button>
-        </div>
-      )}
+  // variant === "bar" (barra horizontal en contenido)
+  const TIPO_COLORS: Record<InvMovimientoTipo, string> = {
+    entrada: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+    salida:  "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+    ajuste:  "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/50 px-3 py-2 dark:border-amber-800/40 dark:bg-amber-900/10">
+      <Zap className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+      <span className="text-xs font-semibold text-amber-800 dark:text-amber-300">Movimientos automáticos</span>
+      <span className="text-[11px] text-amber-700/60 dark:text-amber-400/60">— el stock se actualiza al guardar formularios</span>
+      {activas.map(r => (
+        <span key={r.id} className="inline-flex items-center gap-1 rounded-full border border-border bg-background/80 px-2 py-0.5 text-[11px]">
+          <span className={cn("rounded px-1 py-0 text-[10px] font-medium", TIPO_COLORS[r.tipo_movimiento])}>{r.tipo_movimiento}</span>
+          <span className="max-w-[110px] truncate text-muted-foreground" title={r.tabla_origen}>{r.tabla_origen}</span>
+        </span>
+      ))}
+      <button onClick={() => navigate("/configuracion?tab=inventario")} className="ml-auto flex items-center gap-1 text-[11px] font-medium text-amber-700 hover:underline dark:text-amber-400">
+        <Settings2 className="h-3 w-3" /> Gestionar
+      </button>
     </div>
   );
 }
@@ -919,6 +913,9 @@ export default function Inventario() {
               </button>
             </div>
           </div>
+
+          {/* Banner de reglas automáticas — barra en contenido */}
+          <ReglasBanner variant="bar" />
 
           {/* Results count */}
           <p className="text-xs text-muted-foreground">

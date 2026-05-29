@@ -8626,7 +8626,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
 
 const Configuracion = () => {
   const [searchParams] = useSearchParams();
-  const validTabs      = ["cultivos", "formularios", "empresas", "usuarios", "dashboard"];
+  const validTabs      = ["cultivos", "formularios", "empresas", "usuarios", "inventario", "dashboard"];
   // "campos" is an alias for "formularios" used by the "Editar campos del formulario" button
   const rawTab         = searchParams.get("tab") ?? "";
   const actionParam    = (searchParams.get("action") ?? "").toLowerCase();
