@@ -443,9 +443,10 @@ function ReglaDialog({
   );
 }
 
+
 // ─── TabInventario ────────────────────────────────────────────────────────────
 
-export function TabInventario() {
+function ReglasSection() {
   const { formularioMapas, toggleRegla, eliminarRegla, catalogos } = useInventario();
   const { definiciones } = useConfig();
 
@@ -457,17 +458,8 @@ export function TabInventario() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="flex items-center gap-2 text-base font-semibold">
-            <Zap className="h-4 w-4 text-amber-500" />
-            Reglas de movimiento automático
-          </h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Al guardar un registro, estas reglas ajustan el stock del producto vinculado automáticamente.
-          </p>
-        </div>
+      {/* Action button */}
+      <div className="flex justify-end">
         <Button size="sm" className="gap-1.5" onClick={openCreate}>
           <Plus className="h-4 w-4" /> Nueva regla
         </Button>
@@ -574,6 +566,26 @@ export function TabInventario() {
       </div>
 
       <ReglaDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editingRegla} />
+    </div>
+  );
+}
+
+// ─── TabInventario ─────────────────────────────────────────────────────────────
+
+export function TabInventario() {
+  return (
+    <div className="space-y-2">
+      <div className="mb-5 space-y-1">
+        <h2 className="flex items-center gap-2 text-base font-semibold">
+          <Zap className="h-4 w-4 text-amber-500" />
+          Reglas de movimiento automático
+        </h2>
+        <p className="max-w-2xl text-xs text-muted-foreground">
+          Conectan un formulario del sistema con el inventario. Al guardar un registro,
+          el stock del producto vinculado se actualiza automáticamente — sin intervención del operario.
+        </p>
+      </div>
+      <ReglasSection />
     </div>
   );
 }

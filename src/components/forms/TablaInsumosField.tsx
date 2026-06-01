@@ -1,20 +1,18 @@
 /**
  * TablaInsumosField
  *
- * Campo especial para formularios dinámicos.
- * Permite al operario agregar múltiples productos del inventario con su cantidad.
- * El valor se serializa como JSON: [{ catalogo_id, cantidad }]
+ * Permite agregar múltiples productos del inventario con su cantidad.
+ * Valor serializado: [{ catalogo_id, cantidad }]
  */
 
 import { useMemo } from "react";
-import { Plus, X, Package } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input  } from "@/components/ui/input";
+import { Plus, X, Package, AlertCircle, ChevronDown } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useInventario } from "@/contexts/InventarioContext";
+import { useInventario, getStockStatus } from "@/contexts/InventarioContext";
 import type { TablaInsumosRow } from "@/config/moduleDefinitions";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -24,9 +22,7 @@ function parseRows(raw: string): (TablaInsumosRow & { _uid: string })[] {
     const parsed: TablaInsumosRow[] = JSON.parse(raw || "[]");
     if (!Array.isArray(parsed)) return [];
     return parsed.map((r, i) => ({ ...r, _uid: String(i) }));
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 function serializeRows(rows: (TablaInsumosRow & { _uid: string })[]): string {
@@ -35,64 +31,50 @@ function serializeRows(rows: (TablaInsumosRow & { _uid: string })[]): string {
   );
 }
 
-// ─── Props ────────────────────────────────────────────────────────────────────
-
-interface TablaInsumosFieldProps {
-  value:      string;
-  onChange:   (v: string) => void;
-  disabled?:  boolean;
-  areaFilter?: string | null; // filtra inventario por modulo_id
-}
-
-// ─── Component ────────────────────────────────────────────────────────────────
-
 const AREA_LABELS: Record<string, string> = {
   laboratorio: "Laboratorio", vivero: "Vivero", cultivo: "Cultivo",
   "post-cosecha": "Post-cosecha", comercial: "Comercial",
 };
 
+// ─── Props ────────────────────────────────────────────────────────────────────
+
+interface TablaInsumosFieldProps {
+  value:       string;
+  onChange:    (v: string) => void;
+  disabled?:   boolean;
+  areaFilter?: string | null;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export function TablaInsumosField({ value, onChange, disabled, areaFilter }: TablaInsumosFieldProps) {
   const { catalogos } = useInventario();
   const activeCatalogos = useMemo(
-    () => catalogos.filter(c => c.activo && (!areaFilter || c.modulo_id === areaFilter)),
+    () => catalogos.filter(c => c.activo && (!areaFilter || c.modulo_ids.includes(areaFilter))),
     [catalogos, areaFilter],
   );
-
   const rows = useMemo(() => parseRows(value), [value]);
 
-  const update = (newRows: (TablaInsumosRow & { _uid: string })[]) => {
-    onChange(serializeRows(newRows));
-  };
-
-  const addRow = () => {
-    const uid = String(Date.now());
-    update([...rows, { _uid: uid, catalogo_id: "", cantidad: 0 }]);
-  };
-
-  const removeRow = (uid: string) => {
-    update(rows.filter(r => r._uid !== uid));
-  };
-
-  const setRowField = (uid: string, key: "catalogo_id" | "cantidad", val: string | number) => {
+  const update = (newRows: (TablaInsumosRow & { _uid: string })[]) => onChange(serializeRows(newRows));
+  const addRow    = () => update([...rows, { _uid: String(Date.now()), catalogo_id: "", cantidad: 0 }]);
+  const removeRow = (uid: string) => update(rows.filter(r => r._uid !== uid));
+  const setField  = (uid: string, key: "catalogo_id" | "cantidad", val: string | number) =>
     update(rows.map(r => r._uid === uid ? { ...r, [key]: val } : r));
-  };
 
+  // ── Read-only mode ──────────────────────────────────────────────────────────
   if (disabled) {
-    // Read-only: mostrar resumen
-    const validRows = rows.filter(r => r.catalogo_id && r.cantidad > 0);
-    if (validRows.length === 0) {
-      return <span className="text-xs text-muted-foreground italic">Sin productos</span>;
-    }
+    const valid = rows.filter(r => r.catalogo_id && r.cantidad > 0);
+    if (valid.length === 0) return <span className="text-xs text-muted-foreground italic">Sin productos</span>;
     return (
-      <div className="space-y-1">
-        {validRows.map((r, i) => {
-          const prod = activeCatalogos.find(c => c.id === r.catalogo_id);
+      <div className="space-y-1.5">
+        {valid.map((r, i) => {
+          const p = activeCatalogos.find(c => c.id === r.catalogo_id);
           return (
             <div key={i} className="flex items-center gap-2 text-xs">
-              <Package className="h-3 w-3 text-muted-foreground shrink-0" />
-              <span className="font-medium">{prod?.nombre ?? r.catalogo_id}</span>
+              <Package className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span className="font-medium">{p?.nombre ?? r.catalogo_id}</span>
               <span className="text-muted-foreground">
-                {r.cantidad.toLocaleString("es-CL", { maximumFractionDigits: 2 })} {prod?.unidad_medida ?? ""}
+                {r.cantidad.toLocaleString("es-CL", { maximumFractionDigits: 2 })} {p?.unidad_medida ?? ""}
               </span>
             </div>
           );
@@ -101,126 +83,160 @@ export function TablaInsumosField({ value, onChange, disabled, areaFilter }: Tab
     );
   }
 
+  // ── Edit mode ───────────────────────────────────────────────────────────────
+  const hasOverstock = rows.some(r => {
+    const p = activeCatalogos.find(c => c.id === r.catalogo_id);
+    return p && Number(r.cantidad) > p.cantidad_actual;
+  });
+
   return (
-    <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-3">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-            Productos a aplicar
-          </p>
-          {areaFilter && (
-            <span className="rounded-full border border-border bg-background px-2 py-0 text-[10px] text-muted-foreground">
-              Área: {AREA_LABELS[areaFilter] ?? areaFilter}
-            </span>
-          )}
-        </div>
-        <p className="text-[10px] text-muted-foreground">
-          {rows.filter(r => r.catalogo_id && r.cantidad > 0).length} producto{rows.filter(r => r.catalogo_id && r.cantidad > 0).length !== 1 ? "s" : ""} agregado{rows.filter(r => r.catalogo_id && r.cantidad > 0).length !== 1 ? "s" : ""}
+    <div className="space-y-3">
+      {/* Área badge */}
+      {areaFilter && (
+        <p className="text-[11px] text-muted-foreground">
+          Mostrando productos de <span className="font-medium">{AREA_LABELS[areaFilter] ?? areaFilter}</span>
         </p>
-      </div>
+      )}
 
-      {/* Rows */}
+      {/* Product rows */}
       {rows.length > 0 && (
-        <div className="overflow-hidden rounded-lg border border-border bg-background">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-border bg-muted/40">
-                <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Producto</th>
-                <th className="px-3 py-2 text-right font-semibold text-muted-foreground w-28">Cantidad</th>
-                <th className="px-2 py-2 text-left font-semibold text-muted-foreground w-16">Und</th>
-                <th className="w-8 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(row => {
-                const prod = activeCatalogos.find(c => c.id === row.catalogo_id);
-                return (
-                  <tr key={row._uid} className="border-b border-border/50 last:border-0">
-                    <td className="px-2 py-1.5">
-                      <Select
-                        value={row.catalogo_id}
-                        onValueChange={v => setRowField(row._uid, "catalogo_id", v)}
-                      >
-                        <SelectTrigger className="h-8 text-xs">
-                          <SelectValue placeholder="Seleccionar insumo…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {activeCatalogos.map(c => (
-                            <SelectItem key={c.id} value={c.id}>
-                              <span className="flex items-center gap-2">
-                                <Package className="h-3 w-3 text-muted-foreground" />
-                                {c.nombre}
-                                <span className="text-[10px] text-muted-foreground">
-                                  — {c.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })} {c.unidad_medida} disponibles
-                                </span>
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={row.cantidad || ""}
-                        onChange={e => setRowField(row._uid, "cantidad", e.target.value)}
-                        placeholder="0"
-                        className={cn(
-                          "h-8 text-right text-xs",
-                          prod && row.cantidad > prod.cantidad_actual
-                            ? "border-red-400 bg-red-50 dark:bg-red-900/10"
-                            : "",
-                        )}
-                      />
-                    </td>
-                    <td className="px-2 py-1.5 text-muted-foreground">
-                      {prod?.unidad_medida ?? "—"}
-                    </td>
-                    <td className="pr-2 py-1.5 text-right">
-                      <button
-                        type="button"
-                        onClick={() => removeRow(row._uid)}
-                        className="text-muted-foreground hover:text-destructive transition-colors"
-                        title="Eliminar fila"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {/* Stock warnings */}
-          {rows.some(r => {
-            const p = activeCatalogos.find(c => c.id === r.catalogo_id);
-            return p && r.cantidad > p.cantidad_actual;
-          }) && (
-            <div className="border-t border-red-200 bg-red-50/60 px-3 py-1.5 text-[11px] text-red-700 dark:bg-red-900/10 dark:text-red-400">
-              ⚠ Una o más cantidades superan el stock disponible.
-            </div>
-          )}
+        <div className="space-y-2">
+          {rows.map((row, idx) => {
+            const prod = activeCatalogos.find(c => c.id === row.catalogo_id);
+            const overStock = prod && Number(row.cantidad) > prod.cantidad_actual;
+            const stockStatus = prod ? getStockStatus(prod) : null;
+
+            return (
+              <div
+                key={row._uid}
+                className={cn(
+                  "rounded-xl border bg-card p-3 transition-colors",
+                  overStock ? "border-red-300 dark:border-red-800/60" : "border-border",
+                )}
+              >
+                {/* Row number + delete */}
+                <div className="mb-2.5 flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-muted-foreground">
+                    Producto {idx + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeRow(row._uid)}
+                    className="rounded p-0.5 text-muted-foreground hover:text-destructive transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                {/* Product selector */}
+                <Select
+                  value={row.catalogo_id}
+                  onValueChange={v => setField(row._uid, "catalogo_id", v)}
+                >
+                  <SelectTrigger className="h-10 w-full">
+                    <SelectValue placeholder="Seleccionar producto…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {activeCatalogos.length === 0 && (
+                      <SelectItem value="__none" disabled>Sin productos en esta área</SelectItem>
+                    )}
+                    {activeCatalogos.map(c => {
+                      const st = getStockStatus(c);
+                      return (
+                        <SelectItem key={c.id} value={c.id}>
+                          <span className="flex items-center gap-2">
+                            <span className={cn(
+                              "h-1.5 w-1.5 shrink-0 rounded-full",
+                              st === "ok" ? "bg-green-500" : st === "bajo" ? "bg-amber-500" : "bg-red-500",
+                            )} />
+                            <span>{c.nombre}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {c.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })} {c.unidad_medida}
+                            </span>
+                          </span>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+
+                {/* Stock info (after product selected) */}
+                {prod && (
+                  <p className={cn(
+                    "mt-1.5 text-[11px]",
+                    stockStatus === "bajo" || stockStatus === "critico"
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-muted-foreground",
+                  )}>
+                    {stockStatus !== "ok" && <AlertCircle className="mr-1 inline h-3 w-3" />}
+                    Disponible: {prod.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })} {prod.unidad_medida}
+                    {stockStatus === "bajo" && " — Stock bajo"}
+                    {stockStatus === "critico" && " — Stock crítico"}
+                  </p>
+                )}
+
+                {/* Quantity */}
+                <div className="mt-2.5 flex items-center gap-2">
+                  <div className="flex-1">
+                    <label className="mb-1 block text-[11px] text-muted-foreground">Cantidad</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={row.cantidad || ""}
+                      onChange={e => setField(row._uid, "cantidad", e.target.value)}
+                      onKeyDown={e => { if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault(); }}
+                      placeholder="0"
+                      className={cn(
+                        "h-10",
+                        overStock ? "border-red-400 bg-red-50 dark:bg-red-900/10" : "",
+                      )}
+                    />
+                  </div>
+                  {prod && (
+                    <div className="mt-5 shrink-0">
+                      <span className="text-sm text-muted-foreground">{prod.unidad_medida}</span>
+                    </div>
+                  )}
+                </div>
+
+                {overStock && (
+                  <p className="mt-1.5 text-[11px] text-red-600 dark:text-red-400">
+                    ⚠ Supera el stock disponible
+                  </p>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
+      {/* Empty state */}
       {rows.length === 0 && (
-        <p className="py-3 text-center text-[11px] text-muted-foreground">
-          Haz clic en "+ Agregar producto" para comenzar.
-        </p>
+        <div className="rounded-xl border border-dashed border-border bg-muted/20 py-8 text-center">
+          <Package className="mx-auto mb-2 h-8 w-8 text-muted-foreground/30" />
+          <p className="text-sm text-muted-foreground">Sin productos agregados</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground/60">
+            Haz clic en el botón de abajo para comenzar
+          </p>
+        </div>
       )}
 
-      <Button
+      {/* Add button */}
+      <button
         type="button"
-        variant="outline"
-        size="sm"
-        className="h-8 gap-1.5 text-xs"
         onClick={addRow}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 bg-primary/5 py-2.5 text-sm font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10"
       >
-        <Plus className="h-3.5 w-3.5" /> Agregar producto
-      </Button>
+        <Plus className="h-4 w-4" />
+        Agregar producto
+      </button>
+
+      {hasOverstock && (
+        <p className="text-[11px] text-red-600 dark:text-red-400">
+          ⚠ Una o más cantidades superan el stock disponible.
+        </p>
+      )}
     </div>
   );
 }
