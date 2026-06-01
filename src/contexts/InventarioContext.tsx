@@ -18,11 +18,20 @@ export type InvMovimientoSubtipo =
   | "compra" | "uso_produccion" | "aplicacion_campo"
   | "merma"  | "devolucion"     | "conteo_fisico";
 
+/** Campo personalizado con su valor — específico por producto */
+export interface InvCampoConValor {
+  nombre:      string;        // snake_case key interno
+  etiqueta:    string;        // label visible
+  tipo:        InvCampoTipo;
+  valor:       string;        // valor del campo para este producto
+  opciones?:   string[];      // solo tipo Lista
+}
+
 export interface InvCatalogo {
   id: string;
   cliente_id: string;
   productor_id: string;
-  modulo_id: string;
+  modulo_ids: string[];
   codigo: string;
   nombre: string;
   categoria: string;
@@ -33,7 +42,7 @@ export interface InvCatalogo {
   precio_unitario: number;
   ubicacion_fisica?: string;
   proveedor_id?: string;
-  datos_extra: Record<string, unknown>;
+  campos_extra: InvCampoConValor[]; // campos propios de ESTE producto
   activo: boolean;
   created_at: string;
   updated_at: string;
@@ -57,6 +66,10 @@ export interface InvMovimiento {
   usuario_id: string;
   created_at: string;
 }
+
+// ─── Tipo para campos personalizados por producto ─────────────────────────────
+
+export type InvCampoTipo = "Texto" | "Número" | "Fecha" | "Lista" | "Sí/No";
 
 export interface InvFormularioMapa {
   id: string;
@@ -90,67 +103,86 @@ export function getStockPct(p: InvCatalogo): number {
 const DEMO_CATALOGOS: InvCatalogo[] = [
   {
     id: "INV-001", cliente_id: "1", productor_id: "1",
-    modulo_id: "post-cosecha", codigo: "EMP-CLAM-125",
+    modulo_ids: ["post-cosecha"], codigo: "EMP-CLAM-125",
     nombre: "Clamshell 125g", categoria: "Empaque",
     cantidad_actual: 8700, cantidad_minima: 2000, cantidad_maxima: 20000,
     unidad_medida: "unidades", precio_unitario: 0.05,
     ubicacion_fisica: "Bodega B, Estante 3", proveedor_id: "PackMaster Ltda.",
-    datos_extra: {}, activo: true,
+    campos_extra: [], activo: true,
     created_at: "2026-01-01T08:00:00Z", updated_at: "2026-05-24T10:00:00Z",
   },
   {
     id: "INV-002", cliente_id: "1", productor_id: "1",
-    modulo_id: "post-cosecha", codigo: "EMP-CAJA-EXP",
+    modulo_ids: ["post-cosecha"], codigo: "EMP-CAJA-EXP",
     nombre: "Cajas exportación", categoria: "Empaque",
     cantidad_actual: 320,    // BAJO (min: 500)
     cantidad_minima: 500, cantidad_maxima: 5000,
     unidad_medida: "unidades", precio_unitario: 1.50,
     ubicacion_fisica: "Bodega B, Estante 1", proveedor_id: "PackMaster Ltda.",
-    datos_extra: {}, activo: true,
+    campos_extra: [], activo: true,
     created_at: "2026-01-01T08:00:00Z", updated_at: "2026-05-25T10:00:00Z",
   },
   {
     id: "INV-003", cliente_id: "1", productor_id: "1",
-    modulo_id: "cultivo", codigo: "FIT-AZOX-1L",
+    modulo_ids: ["cultivo"], codigo: "FIT-AZOX-1L",
     nombre: "Azoxystrobin 1L", categoria: "Fungicidas",
     cantidad_actual: 66.5, cantidad_minima: 10, cantidad_maxima: 100,
     unidad_medida: "litros", precio_unitario: 45.00,
     ubicacion_fisica: "Bodega A, Sector Fitosanitarios", proveedor_id: "AgroquímPro S.A.",
-    datos_extra: { numero_lote: "AZ-2026-05", vencimiento: "2027-12-31" },
+    campos_extra: [
+      { nombre: "numero_lote",       etiqueta: "Nº de lote",     tipo: "Texto", valor: "AZ-2026-05" },
+      { nombre: "vencimiento",       etiqueta: "Vencimiento",    tipo: "Fecha", valor: "2027-12-31" },
+      { nombre: "concentracion",     etiqueta: "Concentración (g/L)", tipo: "Número", valor: "250" },
+      { nombre: "modo_accion",       etiqueta: "Modo de acción", tipo: "Lista",
+        opciones: ["Sistémico","Contacto","Translaminar","Preventivo"], valor: "Sistémico" },
+    ],
     activo: true,
     created_at: "2026-01-15T08:00:00Z", updated_at: "2026-05-17T09:00:00Z",
   },
   {
     id: "INV-004", cliente_id: "1", productor_id: "1",
-    modulo_id: "cultivo", codigo: "FER-NPK-20KG",
+    modulo_ids: ["cultivo", "vivero"], codigo: "FER-NPK-20KG",
     nombre: "Fertilizante NPK 20-20-20", categoria: "Fertilizantes",
     cantidad_actual: 45, cantidad_minima: 20, cantidad_maxima: 200,
     unidad_medida: "kg", precio_unitario: 1.20,
     ubicacion_fisica: "Bodega A, Sector Fertilizantes", proveedor_id: "NutriAgro Chile",
-    datos_extra: { grado: "20-20-20", presentacion: "sacos 50kg" },
+    campos_extra: [
+      { nombre: "grado",        etiqueta: "Grado NPK",    tipo: "Texto", valor: "20-20-20" },
+      { nombre: "presentacion", etiqueta: "Presentación", tipo: "Lista",
+        opciones: ["Saco 25 kg","Saco 50 kg","Granel","Líquido"], valor: "Saco 50 kg" },
+    ],
     activo: true,
     created_at: "2026-01-15T08:00:00Z", updated_at: "2026-05-21T11:00:00Z",
   },
   {
     id: "INV-005", cliente_id: "1", productor_id: "2",
-    modulo_id: "vivero", codigo: "SUS-COCO-FIB",
+    modulo_ids: ["vivero"], codigo: "SUS-COCO-FIB",
     nombre: "Sustrato fibra de coco", categoria: "Sustratos",
-    cantidad_actual: 180,   // BAJO (min: 200)
+    cantidad_actual: 180,
     cantidad_minima: 200, cantidad_maxima: 1000,
     unidad_medida: "kg", precio_unitario: 0.80,
     ubicacion_fisica: "Vivero Central, Zona Sustratos", proveedor_id: "CocoTec Ltda.",
-    datos_extra: { humedad_max: "50%", ph: "5.5-6.5" },
+    campos_extra: [
+      { nombre: "humedad_max",   etiqueta: "Humedad máx.",  tipo: "Texto",  valor: "50%" },
+      { nombre: "ph",            etiqueta: "pH",            tipo: "Número", valor: "5.5-6.5" },
+      { nombre: "granulometria", etiqueta: "Granulometría", tipo: "Lista",
+        opciones: ["Fino","Medio","Grueso"], valor: "Medio" },
+    ],
     activo: true,
     created_at: "2026-02-01T08:00:00Z", updated_at: "2026-05-19T14:00:00Z",
   },
   {
     id: "INV-006", cliente_id: "1", productor_id: "1",
-    modulo_id: "laboratorio", codigo: "REA-MS-1L",
+    modulo_ids: ["laboratorio"], codigo: "REA-MS-1L",
     nombre: "Medio MS estéril 1L", categoria: "Reactivos",
     cantidad_actual: 12, cantidad_minima: 5, cantidad_maxima: 50,
     unidad_medida: "litros", precio_unitario: 89.00,
     ubicacion_fisica: "Laboratorio, Refrigerador 1", proveedor_id: "BioScience Ltda.",
-    datos_extra: { temperatura_almacen: "4°C", numero_lote: "MS-26-04" },
+    campos_extra: [
+      { nombre: "temperatura_almacen", etiqueta: "Temp. almacenamiento", tipo: "Texto",  valor: "4°C" },
+      { nombre: "numero_lote",         etiqueta: "Nº de lote",           tipo: "Texto",  valor: "MS-26-04" },
+      { nombre: "vencimiento",         etiqueta: "Vencimiento",          tipo: "Fecha",  valor: "2027-06-30" },
+    ],
     activo: true,
     created_at: "2026-02-15T08:00:00Z", updated_at: "2026-05-15T16:00:00Z",
   },
@@ -346,12 +378,18 @@ interface InventarioContextValue {
   editarRegla:    (id: string, cambios: Partial<Omit<InvFormularioMapa, "id">>) => void;
   toggleRegla:    (id: string) => void;
   eliminarRegla:  (id: string) => void;
+  proveedores:             string[];
+  agregarProveedor:        (nombre: string) => void;
   getProductosByModulo:    (moduloId: string) => InvCatalogo[];
   getAllProductos:          () => InvCatalogo[];
   getMovimientosByProducto:(catalogoId: string) => InvMovimiento[];
   getAlertas:              () => InvCatalogo[];
   getStockCritico:         () => InvCatalogo[];
   simularTrigger:          (tablaNombre: string, datos: Record<string, unknown>) => void;
+  /** Preview de qué se revertiría al borrar un registro */
+  previewReversion:        (tablaNombre: string, datos: Record<string, unknown>) => Array<{ nombre: string; cantidad: number; tipoOriginal: InvMovimientoTipo }>;
+  /** Crea movimientos inversos al borrar un registro */
+  revertirMovimientos:     (tablaNombre: string, datos: Record<string, unknown>) => void;
 }
 
 const InventarioContext = createContext<InventarioContextValue | null>(null);
@@ -361,9 +399,17 @@ const InventarioContext = createContext<InventarioContextValue | null>(null);
 export function InventarioProvider({ children }: { children: ReactNode }) {
   const { role, currentUser } = useRole();
 
-  const [catalogos,     setCatalogos]     = useState<InvCatalogo[]>(DEMO_CATALOGOS);
-  const [movimientos,   setMovimientos]   = useState<InvMovimiento[]>(DEMO_MOVIMIENTOS);
+  const [catalogos,       setCatalogos]       = useState<InvCatalogo[]>(DEMO_CATALOGOS);
+  const [movimientos,     setMovimientos]     = useState<InvMovimiento[]>(DEMO_MOVIMIENTOS);
   const [formularioMapas, setFormularioMapas] = useState<InvFormularioMapa[]>(DEMO_FORMULARIO_MAPAS);
+
+  // Lista de proveedores conocidos (se llena desde los productos + nuevos que agrega el admin)
+  const proveedoresIniciales = [...new Set(DEMO_CATALOGOS.map(c => c.proveedor_id).filter(Boolean) as string[])];
+  const [proveedores, setProveedores] = useState<string[]>(proveedoresIniciales);
+
+  const agregarProveedor = useCallback((nombre: string) => {
+    setProveedores(prev => prev.includes(nombre) ? prev : [...prev, nombre].sort());
+  }, []);
 
   // ── Scope ──────────────────────────────────────────────────────────────────
   const clienteIdStr   = currentUser?.clienteId   ? String(currentUser.clienteId)   : null;
@@ -448,7 +494,7 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const getProductosByModulo = useCallback((moduloId: string) =>
-    catalogos.filter(p => p.activo && p.modulo_id === moduloId && scopeFilter(p)),
+    catalogos.filter(p => p.activo && p.modulo_ids.includes(moduloId) && scopeFilter(p)),
   [catalogos, scopeFilter]);
 
   const getAllProductos = useCallback(() =>
@@ -485,6 +531,105 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
   const eliminarRegla = useCallback((id: string) => {
     setFormularioMapas(prev => prev.filter(r => r.id !== id));
   }, []);
+
+
+  // ── Helpers compartidos entre simularTrigger y revertirMovimientos ───────
+  const parseTablaInsumos = (raw: unknown): Array<{ catalogo_id: string; cantidad: number }> | null => {
+    try {
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (Array.isArray(parsed) && parsed.length > 0 && "catalogo_id" in parsed[0]) return parsed;
+    } catch { /* not a table */ }
+    return null;
+  };
+
+  /** Devuelve un preview de qué movimientos se crearían/revertirían */
+  const previewReversion = useCallback((
+    tablaNombre: string,
+    datos: Record<string, unknown>,
+  ): Array<{ nombre: string; cantidad: number; tipoOriginal: InvMovimientoTipo }> => {
+    const filtroCliente = role === "super_admin" ? null : clienteIdStr;
+    const mapas = formularioMapas.filter(m =>
+      m.activo &&
+      m.tabla_origen === tablaNombre &&
+      (filtroCliente === null || m.cliente_id === filtroCliente)
+    );
+    const resultado: Array<{ nombre: string; cantidad: number; tipoOriginal: InvMovimientoTipo }> = [];
+    for (const mapa of mapas) {
+      const rawValor = datos[mapa.campo_jsonb_cantidad];
+      const tablaRows = parseTablaInsumos(rawValor);
+      if (tablaRows) {
+        for (const row of tablaRows) {
+          const cant = Number(row.cantidad);
+          if (!row.catalogo_id || isNaN(cant) || cant <= 0) continue;
+          const prod = catalogos.find(c => c.id === row.catalogo_id);
+          resultado.push({ nombre: prod?.nombre ?? row.catalogo_id, cantidad: cant, tipoOriginal: mapa.tipo_movimiento });
+        }
+      } else {
+        const cid = mapa.catalogo_id;
+        if (!cid) continue;
+        let cant: number;
+        if (mapa.formula_cantidad) {
+          const expr = mapa.formula_cantidad.replace(/\b([a-zA-Z_]\w*)\b/g, (m) => {
+            const v = datos[m]; return v !== undefined ? String(v) : m;
+          });
+          try { cant = Number(new Function(`"use strict"; return (${expr})`)()) } catch { continue; }
+        } else {
+          cant = parseFloat(String(datos[mapa.campo_jsonb_cantidad] ?? 0));
+        }
+        if (isNaN(cant) || cant <= 0) continue;
+        const prod = catalogos.find(c => c.id === cid);
+        resultado.push({ nombre: prod?.nombre ?? cid, cantidad: cant, tipoOriginal: mapa.tipo_movimiento });
+      }
+    }
+    return resultado;
+  }, [formularioMapas, catalogos, role, clienteIdStr]);
+
+  /** Crea movimientos inversos — se llama cuando el operario borra un registro */
+  const revertirMovimientos = useCallback((
+    tablaNombre: string,
+    datos: Record<string, unknown>,
+  ) => {
+    const invertir = (t: InvMovimientoTipo): InvMovimientoTipo =>
+      t === "entrada" ? "salida" : t === "salida" ? "entrada" : "ajuste";
+
+    const filtroCliente = role === "super_admin" ? null : clienteIdStr;
+    const mapas = formularioMapas.filter(m =>
+      m.activo &&
+      m.tabla_origen === tablaNombre &&
+      (filtroCliente === null || m.cliente_id === filtroCliente)
+    );
+    for (const mapa of mapas) {
+      const rawValor = datos[mapa.campo_jsonb_cantidad];
+      const tablaRows = parseTablaInsumos(rawValor);
+      if (tablaRows) {
+        for (const row of tablaRows) {
+          const cant = Number(row.cantidad);
+          if (!row.catalogo_id || isNaN(cant) || cant <= 0) continue;
+          registrarMovimiento(row.catalogo_id, invertir(mapa.tipo_movimiento), "devolucion", cant, {
+            registro_origen_tipo: tablaNombre,
+            observaciones: `Reversión automática — registro eliminado de ${tablaNombre}`,
+          });
+        }
+      } else {
+        const cid = mapa.catalogo_id;
+        if (!cid) continue;
+        let cant: number;
+        if (mapa.formula_cantidad) {
+          const expr = mapa.formula_cantidad.replace(/\b([a-zA-Z_]\w*)\b/g, (m) => {
+            const v = datos[m]; return v !== undefined ? String(v) : m;
+          });
+          try { cant = Number(new Function(`"use strict"; return (${expr})`)()) } catch { continue; }
+        } else {
+          cant = parseFloat(String(datos[mapa.campo_jsonb_cantidad] ?? 0));
+        }
+        if (isNaN(cant) || cant <= 0) continue;
+        registrarMovimiento(cid, invertir(mapa.tipo_movimiento), "devolucion", cant, {
+          registro_origen_tipo: tablaNombre,
+          observaciones: `Reversión automática — registro eliminado de ${tablaNombre}`,
+        });
+      }
+    }
+  }, [formularioMapas, registrarMovimiento, role, clienteIdStr]);
 
   const simularTrigger = useCallback((
     tablaNombre: string,
@@ -555,16 +700,20 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<InventarioContextValue>(() => ({
     catalogos, movimientos, formularioMapas,
+    proveedores, agregarProveedor,
     agregarProducto, editarProducto, desactivarProducto, registrarMovimiento,
     agregarRegla, editarRegla, toggleRegla, eliminarRegla,
     getProductosByModulo, getAllProductos, getMovimientosByProducto,
     getAlertas, getStockCritico, simularTrigger,
+    previewReversion, revertirMovimientos,
   }), [
     catalogos, movimientos, formularioMapas,
+    proveedores, agregarProveedor,
     agregarProducto, editarProducto, desactivarProducto, registrarMovimiento,
     agregarRegla, editarRegla, toggleRegla, eliminarRegla,
     getProductosByModulo, getAllProductos, getMovimientosByProducto,
     getAlertas, getStockCritico, simularTrigger,
+    previewReversion, revertirMovimientos,
   ]);
 
   return <InventarioContext.Provider value={value}>{children}</InventarioContext.Provider>;

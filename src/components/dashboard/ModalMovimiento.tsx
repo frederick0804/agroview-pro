@@ -210,6 +210,7 @@ export function ModalMovimiento({
               placeholder={tipo === "ajuste" ? String(stockActual) : "0"}
               value={cantidadStr}
               onChange={e => { setCantidadStr(e.target.value); setError(""); }}
+              onKeyDown={e => { if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault(); }}
               className="h-9"
             />
             <p className="text-[11px] text-muted-foreground">
@@ -233,6 +234,7 @@ export function ModalMovimiento({
                 placeholder={String(producto.precio_unitario)}
                 value={precioStr}
                 onChange={e => setPrecioStr(e.target.value)}
+                onKeyDown={e => { if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault(); }}
                 className="h-9"
               />
             </div>

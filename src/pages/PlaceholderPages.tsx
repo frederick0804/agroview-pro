@@ -226,7 +226,7 @@ function DynamicDefTable({
 }) {
   const { hasPermission } = useRole();
   const { definiciones, parametros, datos, addDato, updDato, delDato, setHasPendingChanges } = useConfig();
-  const { simularTrigger } = useInventario();
+  const { simularTrigger, formularioMapas, previewReversion, revertirMovimientos } = useInventario();
   const navigate = useNavigate();
   const [showIaPanel, setShowIaPanel] = useState(false);
   const [showMlPanel, setShowMlPanel] = useState(false);
@@ -262,7 +262,23 @@ function DynamicDefTable({
     return next;
   };
 
+  // Mini-modal enfocado solo en el campo TablaInsumos de una fila específica
+  const [tablaInsumosEdit, setTablaInsumosEdit] = useState<{
+    datoId: string;
+    paramNombre: string;
+    paramLabel: string;
+    areaFilter?: string | null;
+    currentValue: string;
+  } | null>(null);
+
   const [showCreateModal, setShowCreateModal] = useState(false);
+
+  // Estado para el diálogo de confirmación con reversión de inventario
+  const [deleteInventoryConfirm, setDeleteInventoryConfirm] = useState<{
+    datoId:   string;
+    preview:  Array<{ nombre: string; cantidad: number; tipoOriginal: string }>;
+    valores:  Record<string, unknown>;
+  } | null>(null);
   const [formFecha, setFormFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [formValues, setFormValues] = useState<Record<string, string>>(() => buildEmptyFormValues());
   const [formError, setFormError] = useState<string | null>(null);
@@ -763,6 +779,55 @@ function DynamicDefTable({
         if (p.ordenable) {
           col.sortable = true;
         }
+        // ── TablaInsumos: celda compacta con conteo + botón para editar ──────────
+        if (p.tipo_dato === "TablaInsumos") {
+          col.editable = false;
+          col.width    = "180px";
+          col.render   = (_value, row) => {
+            const raw = String(row[p.nombre] ?? "[]");
+            let count = 0;
+            let names: string[] = [];
+            try {
+              const parsed: { catalogo_id: string; cantidad: number }[] = JSON.parse(raw);
+              const validos = parsed.filter(r => r.catalogo_id && r.cantidad > 0);
+              count = validos.length;
+              names = validos.map(r => r.catalogo_id).slice(0, 2);
+            } catch { /* empty */ }
+
+            const dato = defDatos.find(d => String(d.id) === String(row.id));
+            return (
+              <button
+                type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  if (!dato) return;
+                  const currentVal = String(parseValores(dato.valores)[p.nombre] ?? "[]");
+                  setTablaInsumosEdit({
+                    datoId: dato.id,
+                    paramNombre: p.nombre,
+                    paramLabel: p.etiqueta_personalizada || p.nombre.replace(/_/g, " "),
+                    areaFilter: p.tabla_insumos_area,
+                    currentValue: currentVal,
+                  });
+                }}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors hover:opacity-80",
+                  count === 0
+                    ? "border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary"
+                    : "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400",
+                )}
+                title={count === 0 ? "Clic para agregar productos" : `${count} producto${count !== 1 ? "s" : ""} — clic para editar`}
+              >
+                {count === 0 ? (
+                  <><Plus className="h-3 w-3" /> Agregar productos</>
+                ) : (
+                  <><Package className="h-3 w-3" /> {count} producto{count !== 1 ? "s" : ""}</>
+                )}
+              </button>
+            );
+          };
+        }
+
         if (isDerived) {
           col.header = hasFormula ? `${col.header} ƒ` : `${col.header} Σ`;
           col.render = (_value, row) => {
@@ -823,9 +888,21 @@ function DynamicDefTable({
   const handleDelete = canDelete
     ? (rowIndex: number) => {
         const dato = defDatos[rowIndex];
-      if (!dato) return;
-      removePendingRequiredDatoId(dato.id);
-      delDato(dato.id);
+        if (!dato) return;
+        // Verificar si hay reglas de inventario para este formulario
+        const reglas = formularioMapas.filter(r => r.activo && r.tabla_origen === def?.nombre);
+        if (reglas.length > 0 && def?.nombre) {
+          const valores = parseValores(dato.valores);
+          const preview = previewReversion(def.nombre, valores as Record<string, unknown>);
+          if (preview.length > 0) {
+            // Hay movimientos de inventario asociados → pedir confirmación
+            setDeleteInventoryConfirm({ datoId: dato.id, preview, valores: valores as Record<string, unknown> });
+            return;
+          }
+        }
+        // Sin inventario involucrado → borrar directamente
+        removePendingRequiredDatoId(dato.id);
+        delDato(dato.id);
       }
     : undefined;
 
@@ -887,6 +964,13 @@ function DynamicDefTable({
     setEditingDatoId(null);
     setShowCreateModal(true);
   };
+
+  // En modo tabla: "Agregar fila" siempre agrega inline (como Excel).
+  // El campo TablaInsumos se edita en la celda de la tabla vía el botón de la fila.
+  const hasTablaInsumos = params.some(p => p.tipo_dato === "TablaInsumos");
+  const effectiveHandleAdd = handleAdd;
+  // Si hay reglas activas para este formulario → mostrar panel lateral de stock
+  const hasInvRules = formularioMapas.some(r => r.activo && r.tabla_origen === def?.nombre);
 
   const openEditModal = (
     datoId: string,
@@ -1402,6 +1486,9 @@ function DynamicDefTable({
   );
 
   return (
+    <div className={cn(
+      hasInvRules ? "grid grid-cols-1 gap-4 xl:grid-cols-[1fr_260px] items-start" : "",
+    )}>
     <div className="space-y-3">
       {/* Botón editar campos de esta definición */}
       <div className="flex items-center justify-end gap-2">
@@ -1420,7 +1507,7 @@ function DynamicDefTable({
             className="text-xs gap-1.5"
           >
             <Plus className="w-3.5 h-3.5" />
-            Crear
+            Nuevo registro
           </Button>
         )}
         {hasIaFields && canCreate && canAddRecord && (
@@ -1617,7 +1704,7 @@ function DynamicDefTable({
           columns={columns}
           onUpdate={handleUpdate}
           onDelete={handleDelete}
-          onAdd={handleAdd}
+          onAdd={effectiveHandleAdd}
           onPendingChange={handleTablePendingChange}
           pendingRowIds={pendingRequiredDatoIds}
           rowActions={(row) => {
@@ -2323,6 +2410,142 @@ function DynamicDefTable({
           })()}
         </SheetContent>
       </Sheet>
+
+      {/* ── Diálogo: confirmar borrado con opción de revertir stock ───────── */}
+      {deleteInventoryConfirm && (
+        <Dialog open={true} onOpenChange={() => setDeleteInventoryConfirm(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+                Esta fila generó movimientos en el inventario
+              </DialogTitle>
+              <DialogDescription>
+                Al guardar este registro, el sistema ajustó automáticamente el stock.
+                ¿Qué deseas hacer al eliminar?
+              </DialogDescription>
+            </DialogHeader>
+
+            {/* Preview de productos afectados */}
+            <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                Productos afectados
+              </p>
+              {deleteInventoryConfirm.preview.map((item, i) => (
+                <div key={i} className="flex items-center justify-between text-sm">
+                  <span className="font-medium">{item.nombre}</span>
+                  <div className="flex items-center gap-2">
+                    <span className={cn(
+                      "text-xs",
+                      item.tipoOriginal === "salida" ? "text-red-600" : "text-green-600",
+                    )}>
+                      {item.tipoOriginal === "salida" ? "−" : "+"}{item.cantidad.toLocaleString("es-CL", { maximumFractionDigits: 2 })}
+                    </span>
+                    <span className="text-muted-foreground">→</span>
+                    <span className={cn(
+                      "text-xs font-semibold",
+                      item.tipoOriginal === "salida" ? "text-green-600" : "text-red-600",
+                    )}>
+                      {item.tipoOriginal === "salida" ? "+" : "−"}{item.cantidad.toLocaleString("es-CL", { maximumFractionDigits: 2 })} (reversión)
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <DialogFooter className="flex-col gap-2 sm:flex-col">
+              {/* Opción A — Revertir stock */}
+              <Button
+                className="w-full gap-2 bg-green-600 text-white hover:bg-green-700"
+                onClick={() => {
+                  if (!def?.nombre) return;
+                  revertirMovimientos(def.nombre, deleteInventoryConfirm.valores);
+                  removePendingRequiredDatoId(deleteInventoryConfirm.datoId);
+                  delDato(deleteInventoryConfirm.datoId);
+                  setDeleteInventoryConfirm(null);
+                }}
+              >
+                ↩ Revertir el stock y eliminar registro
+              </Button>
+              {/* Opción B — Solo eliminar */}
+              <Button
+                variant="outline"
+                className="w-full gap-2"
+                onClick={() => {
+                  removePendingRequiredDatoId(deleteInventoryConfirm.datoId);
+                  delDato(deleteInventoryConfirm.datoId);
+                  setDeleteInventoryConfirm(null);
+                }}
+              >
+                Solo eliminar el registro (mantener stock)
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={() => setDeleteInventoryConfirm(null)}
+              >
+                Cancelar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* ── Mini-modal enfocado: solo el campo TablaInsumos ────────────────── */}
+      {tablaInsumosEdit && (() => {
+        const { datoId, paramNombre, paramLabel, areaFilter, currentValue } = tablaInsumosEdit;
+        const dato = defDatos.find(d => d.id === datoId);
+        const [draft, setDraft] = [currentValue, (v: string) => setTablaInsumosEdit(prev => prev ? { ...prev, currentValue: v } : null)];
+
+        const handleConfirm = () => {
+          if (!dato) { setTablaInsumosEdit(null); return; }
+          const nextVals = { ...parseValores(dato.valores), [paramNombre]: draft };
+          updDato(dato.id, { ...dato, valores: JSON.stringify(nextVals) });
+          // Disparar movimientos automáticos de inventario
+          if (def?.nombre) simularTrigger(def.nombre, nextVals as Record<string, unknown>);
+          setTablaInsumosEdit(null);
+        };
+
+        return (
+          <Dialog open={true} onOpenChange={open => { if (!open) setTablaInsumosEdit(null); }}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader className="pb-0">
+                <DialogTitle className="flex items-center gap-2 text-base">
+                  <Package className="h-5 w-5 text-amber-500" />
+                  {paramLabel}
+                </DialogTitle>
+                <p className="text-sm text-muted-foreground">
+                  Agrega los productos utilizados en esta operación.
+                  El stock se descontará automáticamente al guardar.
+                </p>
+              </DialogHeader>
+
+              <div className="mt-2 max-h-[60vh] overflow-y-auto pr-1">
+                <TablaInsumosField
+                  value={draft}
+                  onChange={setDraft}
+                  areaFilter={areaFilter}
+                />
+              </div>
+
+              <DialogFooter className="mt-4 gap-2 border-t border-border pt-4">
+                <Button variant="outline" onClick={() => setTablaInsumosEdit(null)}>
+                  Cancelar
+                </Button>
+                <Button onClick={handleConfirm} className="gap-1.5">
+                  <Package className="h-4 w-4" /> Guardar productos
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
+    </div>
+
+    {/* ── Panel lateral de stock (solo si hay reglas vinculadas) ── */}
+    {hasInvRules && (
+      <InventarioDelFormulario defNombre={def?.nombre ?? ""} moduloKey={moduloKey} />
+    )}
     </div>
   );
 }
@@ -2570,7 +2793,6 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
           )}
         </div>
       )}
-      <InventarioDelModulo moduloKey={moduloKey} />
     </MainLayout>
   );
 }
@@ -2585,128 +2807,92 @@ const MODULO_TIPO_DEFAULT: Record<string, InvMovimientoTipo> = {
   laboratorio:    "salida",
 };
 
-function InventarioDelModulo({ moduloKey }: { moduloKey: string }) {
-  const { getProductosByModulo } = useInventario();
-  const { hierarchyLevel }       = useRole();
-  const navigate                 = useNavigate();
-  const [expanded, setExpanded]  = useState(false);
-  const [modalId,  setModalId]   = useState<string | null>(null);
-  const [modalTipo, setModalTipo] = useState<InvMovimientoTipo>("salida");
-  const [modalOpen, setModalOpen] = useState(false);
+/**
+ * Panel lateral de stock — se muestra a la derecha de la tabla del formulario.
+ * Solo lectura, siempre expandido, sticky en pantallas grandes.
+ */
+function InventarioDelFormulario({ defNombre, moduloKey }: { defNombre: string; moduloKey: string }) {
+  const { formularioMapas, getProductosByModulo } = useInventario();
+  const { hierarchyLevel } = useRole();
+  const navigate           = useNavigate();
 
   if (hierarchyLevel < 2) return null;
+
+  const reglasDeEsteForm = formularioMapas.filter(r => r.activo && r.tabla_origen === defNombre);
+  if (reglasDeEsteForm.length === 0) return null;
 
   const productos = getProductosByModulo(moduloKey);
   if (productos.length === 0) return null;
 
-  const alertas   = productos.filter(p => getStockStatus(p) !== "ok");
-  const tipoDefecto = MODULO_TIPO_DEFAULT[moduloKey] ?? "salida";
-
-  function openModal(id: string) {
-    setModalId(id);
-    setModalTipo(tipoDefecto);
-    setModalOpen(true);
-  }
+  const alertas = productos.filter(p => getStockStatus(p) !== "ok");
 
   return (
-    <div className="mt-6 overflow-hidden rounded-xl border border-border bg-card">
-      <button
-        onClick={() => setExpanded(v => !v)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-muted/30 transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <Package className="h-4 w-4 text-amber-500" />
-          <span className="text-sm font-semibold">Inventario del módulo</span>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-            {productos.length} producto{productos.length !== 1 ? "s" : ""}
+    <div className="xl:sticky xl:top-4 overflow-hidden rounded-xl border border-amber-200 bg-amber-50/30 dark:border-amber-800/40 dark:bg-amber-900/10">
+      {/* Header */}
+      <div className="flex items-center gap-2 border-b border-amber-200/60 px-4 py-3 dark:border-amber-800/40">
+        <Package className="h-4 w-4 shrink-0 text-amber-500" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Stock disponible</p>
+          <p className="text-[10px] text-amber-700/60 dark:text-amber-400/60 leading-tight">
+            Se descuenta al guardar
+          </p>
+        </div>
+        {alertas.length > 0 && (
+          <span className="inline-flex items-center gap-0.5 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400 shrink-0">
+            <AlertTriangle className="h-2.5 w-2.5" /> {alertas.length}
           </span>
-          {alertas.length > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-              <AlertTriangle className="h-3 w-3" />
-              {alertas.length} alerta{alertas.length !== 1 ? "s" : ""}
-            </span>
-          )}
-        </div>
-        {expanded
-          ? <ChevronUp   className="h-4 w-4 text-muted-foreground" />
-          : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-      </button>
+        )}
+      </div>
 
-      {expanded && (
-        <div className="border-t border-border p-4 space-y-3">
-          <div className="overflow-auto rounded-lg border border-border">
-            <table className="w-full min-w-[460px] text-xs">
-              <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Producto</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Stock</th>
-                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Estado</th>
-                  <th className="px-3 py-2 font-semibold text-muted-foreground w-28">Nivel</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {productos.map(p => {
-                  const status = getStockStatus(p);
-                  const pct    = getStockPct(p);
-                  const barColor = status === "critico" ? "bg-red-500" : status === "bajo" ? "bg-amber-500" : "bg-green-500";
-                  const badgeCls = status === "critico"
-                    ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
-                    : status === "bajo"
-                    ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
-                    : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
-                  return (
-                    <tr key={p.id} className="border-b border-border/50 last:border-0">
-                      <td className="px-3 py-2 font-medium">{p.nombre}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {p.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })} {p.unidad_medida}
-                      </td>
-                      <td className="px-3 py-2">
-                        <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium", badgeCls)}>
-                          {status === "ok" ? "OK" : status === "bajo" ? "Bajo" : "Crítico"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                          <div className={cn("h-full rounded-full", barColor)} style={{ width: `${pct}%` }} />
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); openModal(p.id); }}
-                          className={cn(
-                            "inline-flex h-6 w-6 items-center justify-center rounded-full text-white transition-colors",
-                            tipoDefecto === "salida"
-                              ? "bg-red-500 hover:bg-red-600"
-                              : "bg-green-600 hover:bg-green-700",
-                          )}
-                          title={`Registrar ${tipoDefecto}`}
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <Button
-            size="sm" variant="outline"
-            className="h-7 gap-1.5 text-xs"
-            onClick={() => navigate(`/inventario?modulo=${encodeURIComponent(moduloKey)}`)}
-          >
-            <Package className="h-3.5 w-3.5" /> Ver inventario completo
-          </Button>
-        </div>
-      )}
+      {/* Lista de productos — compacta */}
+      <div className="divide-y divide-amber-200/40 dark:divide-amber-800/30">
+        {productos.map(p => {
+          const status   = getStockStatus(p);
+          const pct      = getStockPct(p);
+          const barColor = status === "critico" ? "bg-red-500" : status === "bajo" ? "bg-amber-500" : "bg-green-500";
+          const badgeCls = status === "critico"
+            ? "text-red-600 dark:text-red-400"
+            : status === "bajo"
+            ? "text-amber-600 dark:text-amber-400"
+            : "text-green-600 dark:text-green-400";
+          return (
+            <div key={p.id} className="px-4 py-3 space-y-1.5">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs font-medium leading-tight">{p.nombre}</p>
+                <span className={cn("text-[10px] font-semibold shrink-0", badgeCls)}>
+                  {status === "ok" ? "OK" : status === "bajo" ? "Bajo" : "Crítico"}
+                </span>
+              </div>
+              {/* Barra de nivel */}
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div className={cn("h-full rounded-full transition-all", barColor)} style={{ width: `${pct}%` }} />
+              </div>
+              <p className="text-[11px] tabular-nums text-muted-foreground">
+                <span className="font-semibold text-foreground">
+                  {p.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })}
+                </span>
+                {" "}{p.unidad_medida}
+                <span className="ml-2 opacity-60">/ {p.cantidad_maxima.toLocaleString("es-CL")} máx.</span>
+              </p>
+              {status !== "ok" && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                  mín. {p.cantidad_minima.toLocaleString("es-CL")} {p.unidad_medida}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
 
-      <ModalMovimiento
-        open={modalOpen}
-        onOpenChange={setModalOpen}
-        productoId={modalId}
-        tipoInicial={modalTipo}
-      />
+      {/* Footer */}
+      <div className="border-t border-amber-200/60 px-4 py-2.5 dark:border-amber-800/40">
+        <button
+          className="text-[11px] text-amber-700 hover:underline dark:text-amber-400"
+          onClick={() => navigate(`/inventario?modulo=${encodeURIComponent(moduloKey)}`)}
+        >
+          Ver historial de movimientos →
+        </button>
+      </div>
     </div>
   );
 }

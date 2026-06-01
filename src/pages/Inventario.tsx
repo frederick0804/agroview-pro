@@ -11,7 +11,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { MainLayout }  from "@/components/layout/MainLayout";
 import { PageHeader }  from "@/components/layout/PageHeader";
 import { MetricCard }  from "@/components/dashboard/MetricCard";
-import { ModalMovimiento } from "@/components/dashboard/ModalMovimiento";
+import { ModalMovimiento }   from "@/components/dashboard/ModalMovimiento";
+import { ProveedorCombobox } from "@/components/ui/proveedor-combobox";
 import { Button }  from "@/components/ui/button";
 import { Input }   from "@/components/ui/input";
 import { Label }   from "@/components/ui/label";
@@ -32,6 +33,7 @@ import { cn } from "@/lib/utils";
 import {
   useInventario, getStockStatus, getStockPct,
   type InvCatalogo, type InvMovimientoTipo, type InvMovimiento,
+  type InvCampoConValor, type InvCampoTipo,
 } from "@/contexts/InventarioContext";
 import { useRole } from "@/contexts/RoleContext";
 import {
@@ -40,6 +42,7 @@ import {
   Plus, Pencil, Power, LayoutList, LayoutGrid,
   FlaskConical, Sprout, Leaf, PackageOpen, ShoppingCart,
   ExternalLink, Info, ChevronRight, X, Zap, Settings2,
+  History, Filter,
 } from "lucide-react";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -115,6 +118,25 @@ function ModuloBadge({ moduloId, size = "sm" }: { moduloId: string; size?: "sm" 
     )}>
       <span className={iconCls}>{MODULE_ICONS[moduloId]}</span>
       {MODULE_LABELS[moduloId] ?? moduloId}
+    </span>
+  );
+}
+
+/** Renderiza badges para un producto con múltiples áreas */
+function ModuloBadges({ ids, size = "sm" }: { ids: string[]; size?: "sm" | "xs" }) {
+  const visible = ids.slice(0, 2);
+  const extra   = ids.length - visible.length;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {visible.map(id => <ModuloBadge key={id} moduloId={id} size={size} />)}
+      {extra > 0 && (
+        <span className={cn(
+          "rounded-full border border-border bg-muted font-medium text-muted-foreground",
+          size === "xs" ? "px-1.5 py-0 text-[10px]" : "px-2 py-0.5 text-[11px]",
+        )}>
+          +{extra}
+        </span>
+      )}
     </span>
   );
 }
@@ -198,7 +220,7 @@ function ProductCard({
           </p>
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
-          <ModuloBadge moduloId={p.modulo_id} size="xs" />
+          <ModuloBadges ids={p.modulo_ids} size="xs" />
           <StockBadge status={status} />
         </div>
       </div>
@@ -266,7 +288,7 @@ function FilterPanel({
 
   const moduloCount = useMemo(() => {
     const counts: Record<string, number> = {};
-    allProductos.forEach(p => { counts[p.modulo_id] = (counts[p.modulo_id] ?? 0) + 1; });
+    allProductos.forEach(p => { p.modulo_ids.forEach(m => { counts[m] = (counts[m] ?? 0) + 1; }); });
     return counts;
   }, [allProductos]);
 
@@ -463,7 +485,7 @@ function DetalleSheet({
                   <SheetTitle className="text-lg">{p.nombre}</SheetTitle>
                   <SheetDescription className="flex items-center gap-2 mt-1 flex-wrap">
                     <span className="font-mono text-xs">{p.codigo}</span>
-                    <ModuloBadge moduloId={p.modulo_id} />
+                    <ModuloBadges ids={p.modulo_ids} />
                     <span className="rounded-full border border-border bg-muted px-2 py-0 text-[11px] text-muted-foreground">{p.categoria}</span>
                     <StockBadge status={getStockStatus(p)} />
                   </SheetDescription>
@@ -551,6 +573,23 @@ function DetalleSheet({
                   </Button>
                 </div>
 
+                {/* Ficha técnica — campos propios del producto */}
+                {(p.campos_extra ?? []).filter(c => c.valor).length > 0 && (
+                  <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+                    <p className="text-xs font-semibold text-primary flex items-center gap-2">
+                      <Package className="h-4 w-4" /> Ficha técnica
+                    </p>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
+                      {(p.campos_extra ?? []).filter(c => c.valor).map(c => (
+                        <div key={c.nombre}>
+                          <p className="text-[10px] text-muted-foreground">{c.etiqueta}</p>
+                          <p className="text-sm font-medium">{c.valor}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Movements */}
                 <div>
                   <p className="mb-3 text-sm font-semibold">Historial de movimientos</p>
@@ -603,62 +642,125 @@ function DetalleSheet({
   );
 }
 
+// ─── Helper: bloquea teclas inválidas en inputs numéricos (-, +, e, E) ────────
+const blockInvalidNumKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault();
+};
+
 // ─── Producto Dialog (CRUD) ───────────────────────────────────────────────────
 
 interface ProductoFormState {
-  nombre: string; codigo: string; modulo_id: string; categoria: string;
+  nombre: string; codigo: string; modulo_ids: string[]; categoria: string;
   cantidad_actual: string; cantidad_minima: string; cantidad_maxima: string;
   unidad_medida: string; precio_unitario: string;
   ubicacion_fisica: string; proveedor_id: string;
+  campos_extra: InvCampoConValor[]; // campos propios de este producto
 }
 const EMPTY_FORM: ProductoFormState = {
-  nombre: "", codigo: "", modulo_id: "", categoria: "", cantidad_actual: "",
+  nombre: "", codigo: "", modulo_ids: [], categoria: "", cantidad_actual: "",
   cantidad_minima: "", cantidad_maxima: "", unidad_medida: "unidades", precio_unitario: "",
-  ubicacion_fisica: "", proveedor_id: "",
+  ubicacion_fisica: "", proveedor_id: "", campos_extra: [],
 };
 function toFormState(p: InvCatalogo): ProductoFormState {
   return {
-    nombre: p.nombre, codigo: p.codigo, modulo_id: p.modulo_id, categoria: p.categoria,
+    nombre: p.nombre, codigo: p.codigo, modulo_ids: p.modulo_ids ?? [], categoria: p.categoria,
     cantidad_actual: String(p.cantidad_actual), cantidad_minima: String(p.cantidad_minima),
     cantidad_maxima: String(p.cantidad_maxima), unidad_medida: p.unidad_medida,
     precio_unitario: String(p.precio_unitario),
     ubicacion_fisica: p.ubicacion_fisica ?? "", proveedor_id: p.proveedor_id ?? "",
+    campos_extra: p.campos_extra ?? [],
   };
 }
 
+// Tipos para el editor de campos
+const TIPO_OPTIONS_CAMPO: InvCampoTipo[] = ["Texto", "Número", "Fecha", "Lista", "Sí/No"];
+function toNombreCampo(etiqueta: string): string {
+  return etiqueta.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "campo";
+}
+
 function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpenChange: (v: boolean) => void; editing: InvCatalogo | null }) {
-  const { agregarProducto, editarProducto } = useInventario();
+  const { agregarProducto, editarProducto, proveedores, agregarProveedor } = useInventario();
   const { currentUser } = useRole();
-  const [form, setForm] = useState<ProductoFormState>(EMPTY_FORM);
-  const [err,  setErr]  = useState("");
+  const [form, setForm]           = useState<ProductoFormState>(EMPTY_FORM);
+  const [err,  setErr]            = useState("");
+  const [paso, setPaso]           = useState(1);
+  const [opcionInputs, setOpcionInputs] = useState<Record<number, string>>({});
   const set = (k: keyof ProductoFormState) => (v: string) => setForm(p => ({ ...p, [k]: v }));
 
+  // Campos extra CRUD
+  const addCampo = () => setForm(p => ({
+    ...p,
+    campos_extra: [...p.campos_extra, { nombre: `campo_${p.campos_extra.length + 1}`, etiqueta: "", tipo: "Texto", valor: "", opciones: [] }],
+  }));
+  const removeCampo = (idx: number) => setForm(p => ({ ...p, campos_extra: p.campos_extra.filter((_, i) => i !== idx) }));
+  const updateCampo = (idx: number, key: keyof InvCampoConValor, val: unknown) =>
+    setForm(p => ({
+      ...p,
+      campos_extra: p.campos_extra.map((c, i) => {
+        if (i !== idx) return c;
+        const updated = { ...c, [key]: val } as InvCampoConValor;
+        if (key === "etiqueta") updated.nombre = toNombreCampo(String(val));
+        if (key === "tipo" && val !== "Lista") updated.opciones = [];
+        return updated;
+      }),
+    }));
+  const addOpcion = (idx: number) => {
+    const opt = (opcionInputs[idx] ?? "").trim();
+    if (!opt) return;
+    updateCampo(idx, "opciones", [...(form.campos_extra[idx]?.opciones ?? []), opt]);
+    setOpcionInputs(p => ({ ...p, [idx]: "" }));
+  };
+  const removeOpcion = (idx: number, opt: string) =>
+    updateCampo(idx, "opciones", (form.campos_extra[idx]?.opciones ?? []).filter(o => o !== opt));
+
+
   useMemo(() => {
-    if (open) { setForm(editing ? toFormState(editing) : EMPTY_FORM); setErr(""); }
+    if (open) { setForm(editing ? toFormState(editing) : EMPTY_FORM); setErr(""); setPaso(1); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing?.id]);
 
+  const validarPaso1 = (): boolean => {
+    if (!form.nombre.trim() || !form.codigo.trim() || form.modulo_ids.length === 0) {
+      setErr("Nombre, código y al menos un área son obligatorios.");
+      return false;
+    }
+    setErr("");
+    return true;
+  };
+
+  const irAlPaso2 = () => { if (validarPaso1()) setPaso(2); };
+
+  const toggleArea = (area: string) => {
+    setForm(prev => ({
+      ...prev,
+      modulo_ids: prev.modulo_ids.includes(area)
+        ? prev.modulo_ids.filter(a => a !== area)
+        : [...prev.modulo_ids, area],
+    }));
+  };
+
   const handleSave = () => {
-    if (!form.nombre.trim() || !form.codigo.trim() || !form.modulo_id) { setErr("Nombre, código y área de uso son obligatorios."); return; }
+    if (!form.nombre.trim() || !form.codigo.trim() || form.modulo_ids.length === 0) { setErr("Nombre, código y al menos un área de uso son obligatorios."); return; }
     const cantMin = parseFloat(form.cantidad_minima), cantMax = parseFloat(form.cantidad_maxima), cantAct = parseFloat(form.cantidad_actual);
     if (isNaN(cantMin) || isNaN(cantMax) || (!editing && isNaN(cantAct))) { setErr("Ingresa cantidades numéricas válidas."); return; }
     const clienteId = currentUser?.clienteId ? String(currentUser.clienteId) : "1";
     const productorId = currentUser?.productorId ? String(currentUser.productorId) : "1";
     if (editing) {
       editarProducto(editing.id, {
-        nombre: form.nombre, codigo: form.codigo, modulo_id: form.modulo_id,
+        nombre: form.nombre, codigo: form.codigo, modulo_ids: form.modulo_ids,
         categoria: form.categoria, cantidad_minima: cantMin, cantidad_maxima: cantMax,
         unidad_medida: form.unidad_medida, precio_unitario: parseFloat(form.precio_unitario) || 0,
         ubicacion_fisica: form.ubicacion_fisica || undefined, proveedor_id: form.proveedor_id || undefined,
+        campos_extra: form.campos_extra,
       });
     } else {
       agregarProducto({
-        cliente_id: clienteId, productor_id: productorId, modulo_id: form.modulo_id,
+        cliente_id: clienteId, productor_id: productorId, modulo_ids: form.modulo_ids,
         codigo: form.codigo, nombre: form.nombre, categoria: form.categoria,
         cantidad_actual: cantAct, cantidad_minima: cantMin, cantidad_maxima: cantMax,
         unidad_medida: form.unidad_medida, precio_unitario: parseFloat(form.precio_unitario) || 0,
         ubicacion_fisica: form.ubicacion_fisica || undefined, proveedor_id: form.proveedor_id || undefined,
-        datos_extra: {}, activo: true,
+        campos_extra: form.campos_extra, activo: true,
       });
     }
     onOpenChange(false);
@@ -666,34 +768,268 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader><DialogTitle>{editing ? "Editar producto" : "Nuevo producto"}</DialogTitle></DialogHeader>
-        <div className="grid gap-3 py-2 sm:grid-cols-2">
-          <div className="space-y-1 sm:col-span-2"><Label className="text-xs">Nombre *</Label><Input value={form.nombre} onChange={e => set("nombre")(e.target.value)} className="h-9" /></div>
-          <div className="space-y-1"><Label className="text-xs">Código *</Label><Input value={form.codigo} onChange={e => set("codigo")(e.target.value)} className="h-9" /></div>
-          <div className="space-y-1">
-            <Label className="text-xs">¿Dónde se usa este insumo? *</Label>
-            <Select value={form.modulo_id} onValueChange={set("modulo_id")}>
-              <SelectTrigger className="h-9"><SelectValue placeholder="Seleccionar área…" /></SelectTrigger>
-              <SelectContent>{MODULOS_OPCIONES.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-            </Select>
-            <p className="text-[10px] text-muted-foreground">
-              El área donde se consume o almacena este producto
-            </p>
+      <DialogContent className="flex max-h-[90vh] w-full flex-col sm:max-w-2xl">
+        {/* ── Header con stepper ── */}
+        <DialogHeader className="shrink-0 pb-0">
+          <DialogTitle>{editing ? "Editar producto" : "Nuevo producto"}</DialogTitle>
+          {/* Stepper */}
+          <div className="mt-3 flex items-center gap-2">
+            {[
+              { n: 1, label: "Configuración base" },
+              { n: 2, label: "Campos personalizados" },
+            ].map((s, i) => (
+              <div key={s.n} className="flex items-center gap-2">
+                {i > 0 && <div className={cn("h-px flex-1 min-w-[2rem]", paso >= s.n ? "bg-primary" : "bg-border")} />}
+                <button
+                  type="button"
+                  onClick={() => { if (s.n === 2 && paso === 1) validarPaso1() && setPaso(2); else if (s.n === 1) setPaso(1); }}
+                  className="flex items-center gap-1.5"
+                >
+                  <span className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold transition-colors",
+                    paso === s.n ? "bg-primary text-primary-foreground"
+                    : paso > s.n ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground",
+                  )}>
+                    {s.n}
+                  </span>
+                  <span className={cn("text-xs", paso === s.n ? "font-semibold text-foreground" : "text-muted-foreground")}>
+                    {s.label}
+                  </span>
+                </button>
+              </div>
+            ))}
           </div>
-          <div className="space-y-1"><Label className="text-xs">Categoría</Label><Input value={form.categoria} onChange={e => set("categoria")(e.target.value)} className="h-9" /></div>
-          <div className="space-y-1"><Label className="text-xs">Unidad de medida</Label><Input value={form.unidad_medida} onChange={e => set("unidad_medida")(e.target.value)} className="h-9" /></div>
-          {!editing && <div className="space-y-1"><Label className="text-xs">Cantidad inicial</Label><Input type="number" value={form.cantidad_actual} onChange={e => set("cantidad_actual")(e.target.value)} className="h-9" /></div>}
-          <div className="space-y-1"><Label className="text-xs">Cantidad mínima</Label><Input type="number" value={form.cantidad_minima} onChange={e => set("cantidad_minima")(e.target.value)} className="h-9" /></div>
-          <div className="space-y-1"><Label className="text-xs">Cantidad máxima</Label><Input type="number" value={form.cantidad_maxima} onChange={e => set("cantidad_maxima")(e.target.value)} className="h-9" /></div>
-          <div className="space-y-1"><Label className="text-xs">Precio unitario</Label><Input type="number" value={form.precio_unitario} onChange={e => set("precio_unitario")(e.target.value)} className="h-9" /></div>
-          <div className="space-y-1 sm:col-span-2"><Label className="text-xs">Ubicación física</Label><Input value={form.ubicacion_fisica} onChange={e => set("ubicacion_fisica")(e.target.value)} className="h-9" /></div>
-          <div className="space-y-1 sm:col-span-2"><Label className="text-xs">Proveedor</Label><Input value={form.proveedor_id} onChange={e => set("proveedor_id")(e.target.value)} className="h-9" /></div>
+        </DialogHeader>
+
+        {/* ── Contenido scrollable ── */}
+        <div className="flex-1 overflow-y-auto py-4 pr-1">
+
+          {/* PASO 1 — Configuración base */}
+          {paso === 1 && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1 sm:col-span-2">
+                <Label className="text-xs">Nombre *</Label>
+                <Input value={form.nombre} onChange={e => set("nombre")(e.target.value)} className="h-9" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Código *</Label>
+                <Input value={form.codigo} onChange={e => set("codigo")(e.target.value)} className="h-9" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Categoría</Label>
+                <Input value={form.categoria} onChange={e => set("categoria")(e.target.value)} placeholder="ej: Fungicidas" className="h-9" />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label className="text-xs">¿Dónde se usa? * <span className="font-normal text-muted-foreground">(una o más áreas)</span></Label>
+                <div className="flex flex-wrap gap-2">
+                  {MODULOS_OPCIONES.map(m => {
+                    const selected = form.modulo_ids.includes(m.value);
+                    const iconCls  = MODULE_ICON_CLS[m.value] ?? "text-sky-400";
+                    return (
+                      <button key={m.value} type="button" onClick={() => toggleArea(m.value)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                          selected ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                        )}>
+                        <span className={selected ? "text-primary" : iconCls}>{MODULE_ICONS[m.value]}</span>
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {form.modulo_ids.length === 0 && <p className="text-[11px] text-muted-foreground">Selecciona al menos un área</p>}
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Unidad de medida</Label>
+                <Input value={form.unidad_medida} onChange={e => set("unidad_medida")(e.target.value)} className="h-9" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Precio unitario</Label>
+                <Input type="number" min="0" step="0.01"
+                  value={form.precio_unitario}
+                  onChange={e => set("precio_unitario")(e.target.value)}
+                  onKeyDown={blockInvalidNumKey}
+                  className="h-9" />
+              </div>
+              {!editing && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Cantidad inicial</Label>
+                  <Input type="number" min="0" step="any"
+                    value={form.cantidad_actual}
+                    onChange={e => set("cantidad_actual")(e.target.value)}
+                    onKeyDown={blockInvalidNumKey}
+                    className="h-9" />
+                </div>
+              )}
+              <div className="space-y-1">
+                <Label className="text-xs">Cantidad mínima</Label>
+                <Input type="number" min="0" step="any"
+                  value={form.cantidad_minima}
+                  onChange={e => set("cantidad_minima")(e.target.value)}
+                  onKeyDown={blockInvalidNumKey}
+                  className="h-9" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Cantidad máxima</Label>
+                <Input type="number" min="0" step="any"
+                  value={form.cantidad_maxima}
+                  onChange={e => set("cantidad_maxima")(e.target.value)}
+                  onKeyDown={blockInvalidNumKey}
+                  className="h-9" />
+              </div>
+              <div className="space-y-1 sm:col-span-2">
+                <Label className="text-xs">Ubicación física</Label>
+                <Input value={form.ubicacion_fisica} onChange={e => set("ubicacion_fisica")(e.target.value)} className="h-9" />
+              </div>
+              <div className="space-y-1 sm:col-span-2">
+                <Label className="text-xs">Proveedor</Label>
+                <ProveedorCombobox
+                  value={form.proveedor_id}
+                  onChange={v => setForm(p => ({ ...p, proveedor_id: v }))}
+                  options={proveedores}
+                  onAdd={nombre => { agregarProveedor(nombre); setForm(p => ({ ...p, proveedor_id: nombre })); }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* PASO 2 — Campos personalizados */}
+          {paso === 2 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold">Campos de este producto</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Define los campos específicos — lote, vencimiento, pH, etc. Cada producto tiene los suyos.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={addCampo}>
+                    <Plus className="h-3.5 w-3.5" /> Agregar campo
+                  </Button>
+                </div>
+              </div>
+
+              {form.campos_extra.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border py-10 text-center">
+                  <p className="text-sm text-muted-foreground">Sin campos personalizados</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Haz clic en «+ Agregar campo» para comenzar.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {form.campos_extra.map((c, idx) => (
+                    <div key={idx} className="rounded-xl border border-border bg-card p-4 space-y-3">
+                      <div className="grid grid-cols-[1fr_140px_auto] items-end gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">Etiqueta (nombre visible)</Label>
+                          <Input value={c.etiqueta} onChange={e => updateCampo(idx, "etiqueta", e.target.value)}
+                            placeholder="ej: Nº de lote" className="h-9" />
+                          {c.nombre && <p className="font-mono text-[9px] text-muted-foreground">key: {c.nombre}</p>}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">Tipo de dato</Label>
+                          <Select value={c.tipo} onValueChange={v => updateCampo(idx, "tipo", v as InvCampoTipo)}>
+                            <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {TIPO_OPTIONS_CAMPO.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <button type="button" onClick={() => removeCampo(idx)}
+                          className="pb-0.5 text-muted-foreground hover:text-destructive">
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      {/* Opciones de Lista */}
+                      {c.tipo === "Lista" && (
+                        <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">
+                          <Label className="text-[10px] text-muted-foreground">Opciones del desplegable</Label>
+                          {(c.opciones ?? []).length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {(c.opciones ?? []).map(o => (
+                                <span key={o} className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-[11px]">
+                                  {o}
+                                  <button type="button" onClick={() => removeOpcion(idx, o)}>
+                                    <X className="h-2.5 w-2.5" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <Input value={opcionInputs[idx] ?? ""}
+                              onChange={e => setOpcionInputs(p => ({ ...p, [idx]: e.target.value }))}
+                              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addOpcion(idx); } }}
+                              placeholder="Nueva opción… (Enter para agregar)"
+                              className="h-8 text-xs flex-1" />
+                            <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => addOpcion(idx)}>
+                              + Agregar
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Valor actual */}
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Valor actual</Label>
+                        {c.tipo === "Sí/No" ? (
+                          <Select value={c.valor} onValueChange={v => updateCampo(idx, "valor", v)}>
+                            <SelectTrigger className="h-9"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Sí">Sí</SelectItem>
+                              <SelectItem value="No">No</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : c.tipo === "Lista" ? (
+                          <Select value={c.valor} onValueChange={v => updateCampo(idx, "valor", v)}>
+                            <SelectTrigger className="h-9"><SelectValue placeholder="Seleccionar opción…" /></SelectTrigger>
+                            <SelectContent>
+                              {(c.opciones ?? []).map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            type={c.tipo === "Número" ? "number" : c.tipo === "Fecha" ? "date" : "text"}
+                            min={c.tipo === "Número" ? "0" : undefined}
+                            onKeyDown={c.tipo === "Número" ? blockInvalidNumKey : undefined}
+                            value={c.valor}
+                            onChange={e => updateCampo(idx, "valor", e.target.value)}
+                            className="h-9" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {err && <p className="mt-3 text-sm text-destructive">{err}</p>}
         </div>
-        {err && <p className="text-sm text-destructive">{err}</p>}
-        <DialogFooter className="gap-2">
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button size="sm" onClick={handleSave}>{editing ? "Guardar" : "Crear producto"}</Button>
+
+        {/* ── Footer ── */}
+        <DialogFooter className="shrink-0 gap-2 border-t border-border pt-4">
+          {paso === 1 ? (
+            <>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+              <Button onClick={irAlPaso2} className="gap-1.5">
+                Siguiente <ChevronRight className="h-4 w-4" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => setPaso(1)} className="gap-1.5">
+                <ChevronRight className="h-4 w-4 rotate-180" /> Anterior
+              </Button>
+              <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
+              <Button onClick={handleSave} className="gap-1.5">
+                {editing ? "Guardar cambios" : "Crear producto"}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -714,7 +1050,7 @@ function CatalogoSheet({ open, onClose }: { open: boolean; onClose: () => void }
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return catalogos.filter(p => {
-      if (filterModulo !== "all" && p.modulo_id !== filterModulo) return false;
+      if (filterModulo !== "all" && !p.modulo_ids.includes(filterModulo)) return false;
       if (q && !p.nombre.toLowerCase().includes(q) && !p.codigo.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -765,7 +1101,7 @@ function CatalogoSheet({ open, onClose }: { open: boolean; onClose: () => void }
                     <p className="font-medium text-sm">{p.nombre}</p>
                     <p className="font-mono text-[10px] text-muted-foreground">{p.codigo}</p>
                   </td>
-                  <td className="px-3 py-2"><ModuloBadge moduloId={p.modulo_id} size="xs" /></td>
+                  <td className="px-3 py-2"><ModuloBadges ids={p.modulo_ids} size="xs" /></td>
                   <td className="px-3 py-2 text-right text-sm font-semibold">
                     {fmtNum(p.cantidad_actual, 1)} <span className="text-xs font-normal text-muted-foreground">{p.unidad_medida}</span>
                   </td>
@@ -799,6 +1135,199 @@ function CatalogoSheet({ open, onClose }: { open: boolean; onClose: () => void }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+// ─── Vista: Historial de movimientos ─────────────────────────────────────────
+
+const MOV_PAGE = 20;
+
+function MovimientosView({ onOpenDetail }: { onOpenDetail: (id: string) => void }) {
+  const { movimientos, catalogos } = useInventario();
+
+  const [search,      setSearch]      = useState("");
+  const [filterTipo,  setFilterTipo]  = useState("all");
+  const [filterProd,  setFilterProd]  = useState("all");
+  const [filterOrigen,setFilterOrigen]= useState("all"); // "auto" | "manual" | "all"
+  const [page,        setPage]        = useState(1);
+
+  const productoOpts = useMemo(() =>
+    catalogos.filter(c => c.activo).sort((a, b) => a.nombre.localeCompare(b.nombre)),
+  [catalogos]);
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return [...movimientos]
+      .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.created_at.localeCompare(a.created_at))
+      .filter(m => {
+        if (filterTipo  !== "all" && m.tipo   !== filterTipo)   return false;
+        if (filterProd  !== "all" && m.catalogo_id !== filterProd) return false;
+        if (filterOrigen === "auto"   && !m.registro_origen_tipo)  return false;
+        if (filterOrigen === "manual" && !!m.registro_origen_tipo) return false;
+        if (q) {
+          const prod = catalogos.find(c => c.id === m.catalogo_id);
+          const match = prod?.nombre.toLowerCase().includes(q) ||
+                        m.registro_origen_tipo?.toLowerCase().includes(q) ||
+                        m.observaciones?.toLowerCase().includes(q);
+          if (!match) return false;
+        }
+        return true;
+      });
+  }, [movimientos, catalogos, filterTipo, filterProd, filterOrigen, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / MOV_PAGE));
+  const paginados  = filtered.slice((page - 1) * MOV_PAGE, page * MOV_PAGE);
+
+  const TIPO_COLORS: Record<string, string> = {
+    entrada: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+    salida:  "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+    ajuste:  "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+    devolucion: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-400",
+  };
+  const TIPO_ICON: Record<string, React.ReactNode> = {
+    entrada: <ArrowDown className="h-3 w-3" />,
+    salida:  <ArrowUp   className="h-3 w-3" />,
+    ajuste:  <SlidersHorizontal className="h-3 w-3" />,
+  };
+
+  return (
+    <div className="space-y-4 min-w-0">
+      {/* Filtros */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          placeholder="Buscar producto, formulario, notas…"
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1); }}
+          className="h-9 flex-1 min-w-48"
+        />
+        <Select value={filterProd} onValueChange={v => { setFilterProd(v); setPage(1); }}>
+          <SelectTrigger className="h-9 w-48 bg-background"><SelectValue placeholder="Todos los productos" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los productos</SelectItem>
+            {productoOpts.map(p => <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filterTipo} onValueChange={v => { setFilterTipo(v); setPage(1); }}>
+          <SelectTrigger className="h-9 w-36 bg-background"><SelectValue placeholder="Tipo" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los tipos</SelectItem>
+            <SelectItem value="entrada">Entrada</SelectItem>
+            <SelectItem value="salida">Salida</SelectItem>
+            <SelectItem value="ajuste">Ajuste</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={filterOrigen} onValueChange={v => { setFilterOrigen(v); setPage(1); }}>
+          <SelectTrigger className="h-9 w-36 bg-background"><SelectValue placeholder="Origen" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            <SelectItem value="auto">Automáticos</SelectItem>
+            <SelectItem value="manual">Manuales</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="ml-auto text-xs text-muted-foreground shrink-0">
+          {filtered.length} movimiento{filtered.length !== 1 ? "s" : ""}
+        </p>
+      </div>
+
+      {/* Tabla */}
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="overflow-auto">
+          <table className="w-full min-w-[700px] text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/40">
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Fecha</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Producto</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Tipo</th>
+                <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Cantidad</th>
+                <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Stock resultante</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Subtipo</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Origen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginados.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-14 text-center text-sm text-muted-foreground">
+                    <History className="mx-auto mb-2 h-8 w-8 opacity-20" />
+                    Sin movimientos que coincidan con los filtros
+                  </td>
+                </tr>
+              )}
+              {paginados.map(m => {
+                const prod  = catalogos.find(c => c.id === m.catalogo_id);
+                const delta = m.cantidad_nueva - m.cantidad_anterior;
+                const esEntrada = m.tipo === "entrada" || (m.tipo === "ajuste" && delta > 0);
+                const esSalida  = m.tipo === "salida"  || (m.tipo === "ajuste" && delta < 0);
+                const isAuto    = !!m.registro_origen_tipo;
+
+                return (
+                  <tr
+                    key={m.id}
+                    className="cursor-pointer border-b border-border/50 last:border-0 hover:bg-muted/20"
+                    onClick={() => prod && onOpenDetail(prod.id)}
+                  >
+                    <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{m.fecha}</td>
+                    <td className="px-3 py-2.5">
+                      <p className="font-medium text-sm">{prod?.nombre ?? m.catalogo_id}</p>
+                      <p className="text-[10px] text-muted-foreground">{prod?.codigo ?? ""}</p>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className={cn(
+                        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                        TIPO_COLORS[m.tipo] ?? "bg-muted text-muted-foreground",
+                      )}>
+                        {TIPO_ICON[m.tipo]}{m.tipo}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">
+                      <span className={cn(
+                        "font-semibold",
+                        esEntrada ? "text-green-600" : esSalida ? "text-red-600" : "text-muted-foreground",
+                      )}>
+                        {esEntrada ? "+" : esSalida ? "−" : ""}
+                        {fmtNum(m.tipo === "ajuste" ? Math.abs(delta) : m.cantidad, 1)}
+                      </span>
+                      <span className="ml-1 text-[10px] text-muted-foreground">{prod?.unidad_medida ?? ""}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">
+                      {fmtNum(m.cantidad_nueva, 1)}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs capitalize text-muted-foreground">
+                      {m.subtipo.replace(/_/g, " ")}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {isAuto ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[10px] font-medium">
+                          <Zap className="h-2.5 w-2.5 text-amber-500" />
+                          {m.registro_origen_tipo}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground">
+                          {m.observaciones ? m.observaciones.substring(0, 30) + (m.observaciones.length > 30 ? "…" : "") : "Manual"}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Paginación */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
+            <span>{filtered.length} movimientos — pág. {page}/{totalPages}</span>
+            <div className="flex gap-1">
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={page === 1} onClick={() => setPage(p => p - 1)}>‹</Button>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>›</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Página principal ─────────────────────────────────────────────────────────
+
 export default function Inventario() {
   const { hierarchyLevel }   = useRole();
   const { getAllProductos, movimientos, getAlertas } = useInventario();
@@ -806,7 +1335,10 @@ export default function Inventario() {
 
   const moduloParam = searchParams.get("modulo") ?? "all";
 
-  // ── Filters ───────────────────────────────────────────────────────────────
+  // ── Tab principal ─────────────────────────────────────────────────────────
+  const [mainTab, setMainTab] = useState<"stock" | "movimientos">("stock");
+
+  // ── Filters (stock tab) ───────────────────────────────────────────────────
   const [search,       setSearch]       = useState("");
   const [filterModulo, setFilterModulo] = useState(moduloParam);
   const [filterEstado, setFilterEstado] = useState("all");
@@ -844,7 +1376,7 @@ export default function Inventario() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return allProductos.filter(p => {
-      if (filterModulo !== "all" && p.modulo_id !== filterModulo) return false;
+      if (filterModulo !== "all" && !p.modulo_ids.includes(filterModulo)) return false;
       if (filterEstado === "ok"      && getStockStatus(p) !== "ok")      return false;
       if (filterEstado === "bajo"    && getStockStatus(p) !== "bajo")    return false;
       if (filterEstado === "critico" && getStockStatus(p) !== "critico") return false;
@@ -867,6 +1399,32 @@ export default function Inventario() {
         }
       />
 
+      {/* Tab switcher */}
+      <div className="mb-6 flex gap-1 rounded-xl border border-border bg-muted p-1 w-fit">
+        {([
+          { id: "stock",       label: "Stock",       icon: <Package   className="h-4 w-4" /> },
+          { id: "movimientos", label: "Movimientos",  icon: <History   className="h-4 w-4" /> },
+        ] as const).map(t => (
+          <button
+            key={t.id}
+            onClick={() => setMainTab(t.id)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+              mainTab === t.id
+                ? "bg-background shadow text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {t.icon} {t.label}
+            {t.id === "movimientos" && movsMes > 0 && (
+              <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0 text-[10px] font-bold text-primary">
+                {movsMes}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
       {/* Metrics */}
       <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-4">
         <MetricCard title="Productos activos"   value={allProductos.length} icon={<Package     className="w-5 h-5" />} />
@@ -875,7 +1433,13 @@ export default function Inventario() {
         <MetricCard title="Movimientos del mes" value={movsMes}             icon={<TrendingUp   className="w-5 h-5" />} variant="success" />
       </div>
 
-      {/* Main 2-column layout */}
+      {/* Historial de movimientos */}
+      {mainTab === "movimientos" && (
+        <MovimientosView onOpenDetail={id => { openDetail(id); }} />
+      )}
+
+      {/* Stock — Main 2-column layout */}
+      {mainTab === "stock" && (
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
 
         {/* Filter panel */}
@@ -975,7 +1539,7 @@ export default function Inventario() {
                             <p className="font-medium">{p.nombre}</p>
                             <p className="font-mono text-[10px] text-muted-foreground">{p.codigo}</p>
                           </td>
-                          <td className="px-3 py-2.5"><ModuloBadge moduloId={p.modulo_id} size="xs" /></td>
+                          <td className="px-3 py-2.5"><ModuloBadges ids={p.modulo_ids} size="xs" /></td>
                           <td className="px-3 py-2.5 text-right">
                             <span className="font-semibold">{fmtNum(p.cantidad_actual, 1)}</span>
                             <span className="ml-1 text-xs text-muted-foreground">{p.unidad_medida}</span>
@@ -1001,6 +1565,7 @@ export default function Inventario() {
           )}
         </div>
       </div>
+      )}
 
       {/* Sheets + modals */}
       <DetalleSheet productId={selectedId} open={detalleOpen} onClose={() => setDetalleOpen(false)} onMovimiento={openMovimiento} />
