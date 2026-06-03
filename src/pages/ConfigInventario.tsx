@@ -24,6 +24,11 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
   SelectGroup, SelectLabel,
 } from "@/components/ui/select";
@@ -103,6 +108,15 @@ function ReglaDialog({
   const { agregarRegla, editarRegla, catalogos } = useInventario();
   const { definiciones, parametros }             = useConfig();
 
+  // Solo formularios que tienen al menos un campo TablaInsumos
+  // — son los únicos que tienen sentido vincular al inventario
+  const defsConInsumos = useMemo(
+    () => definiciones.filter(d =>
+      parametros.some(p => p.definicion_id === d.id && p.tipo_dato === "TablaInsumos")
+    ),
+    [definiciones, parametros],
+  );
+
   const [form, setForm] = useState<ReglaForm>(EMPTY_FORM);
   const [err,  setErr]  = useState("");
 
@@ -135,13 +149,16 @@ function ReglaDialog({
       : [],
   [parametros, form.def_id]);
 
-  const numericParams = defParams.filter(p => p.tipo_dato === "Número");
-  const otherParams   = defParams.filter(p => p.tipo_dato !== "Número");
+  // Solo campos TablaInsumos — los únicos con sentido para reglas de inventario
+  const tablaInsumosParams = defParams.filter(p => p.tipo_dato === "TablaInsumos");
 
   // ── Handlers ────────────────────────────────────────────────────────────────
   const handleDefChange = (defId: string) => {
     const def = definiciones.find(d => d.id === defId);
-    setForm(p => ({ ...p, def_id: defId, tabla_origen: def?.nombre ?? "", campo_cantidad: "" }));
+    // Auto-seleccionar el campo TablaInsumos si solo hay uno
+    const tiParams = parametros.filter(p => p.definicion_id === defId && p.tipo_dato === "TablaInsumos");
+    const autoCampo = tiParams.length === 1 ? tiParams[0].nombre : "";
+    setForm(p => ({ ...p, def_id: defId, tabla_origen: def?.nombre ?? "", campo_cantidad: autoCampo, formula_cantidad: "" }));
     setErr("");
   };
 
@@ -206,13 +223,15 @@ function ReglaDialog({
             </Label>
             <Select value={form.def_id} onValueChange={handleDefChange}>
               <SelectTrigger className="h-9">
-                <SelectValue placeholder="Seleccionar formulario…" />
+                <SelectValue placeholder="Seleccionar formulario con insumos…" />
               </SelectTrigger>
               <SelectContent>
-                {definiciones.length === 0 ? (
-                  <SelectItem value="__none" disabled>No hay formularios configurados todavía</SelectItem>
+                {defsConInsumos.length === 0 ? (
+                  <SelectItem value="__none" disabled>
+                    Sin formularios con campo "Tabla de insumos"
+                  </SelectItem>
                 ) : (
-                  definiciones.map(d => (
+                  defsConInsumos.map(d => (
                     <SelectItem key={d.id} value={d.id}>
                       <span className="flex items-center gap-2">
                         <span>{d.nombre}</span>
@@ -223,6 +242,12 @@ function ReglaDialog({
                 )}
               </SelectContent>
             </Select>
+            {defsConInsumos.length === 0 && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                ⚠ Solo aparecen formularios que tienen un campo tipo "Tabla de insumos".
+                Ve a <strong>Configuración → Formularios</strong> y agrega ese campo al formulario que consuma insumos.
+              </p>
+            )}
             {selectedDef && (
               <p className="text-[11px] text-muted-foreground">
                 Módulo: <strong className="capitalize">{selectedDef.modulo}</strong>
@@ -283,82 +308,50 @@ function ReglaDialog({
               ¿Cómo se calcula la cantidad a mover?
             </Label>
 
-            {form.def_id && defParams.length > 0 ? (
-              <div className="space-y-2">
-                {/* Campo del formulario */}
-                <div className="space-y-1">
-                  <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                    <Hash className="h-3 w-3" /> Usar campo del formulario:
+            {!form.def_id ? (
+              <p className="text-[11px] text-muted-foreground rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2">
+                Selecciona un formulario en el paso 1 para ver sus campos de insumos.
+              </p>
+            ) : tablaInsumosParams.length === 0 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-400">
+                Este formulario no tiene campos de tipo "Tabla de insumos". Ve a{" "}
+                <strong>Configuración → Formularios</strong> y agrega uno.
+              </div>
+            ) : tablaInsumosParams.length === 1 ? (
+              <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50/60 px-3 py-2.5 dark:border-green-800/40 dark:bg-green-900/10">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
+                <div>
+                  <p className="text-xs font-medium text-green-800 dark:text-green-300">
+                    Campo detectado automáticamente:
+                    <span className="ml-1 font-mono">{tablaInsumosParams[0].etiqueta_personalizada ?? tablaInsumosParams[0].nombre}</span>
                   </p>
-                  <Select value={form.campo_cantidad} onValueChange={v => setForm(p => ({ ...p, campo_cantidad: v, formula_cantidad: "" }))}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="Seleccionar campo numérico…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {numericParams.length > 0 && (
-                        <SelectGroup>
-                          <SelectLabel className="text-[10px]">Campos numéricos (recomendados)</SelectLabel>
-                          {numericParams.map(p => (
-                            <SelectItem key={p.nombre} value={p.nombre}>
-                              <span className="flex items-center gap-2">
-                                {paramLabel(p)}
-                                <span className={cn("rounded px-1 py-0 text-[10px] font-medium", TIPO_DATO_BADGE["Número"])}>
-                                  Número
-                                </span>
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      )}
-                      {otherParams.length > 0 && (
-                        <SelectGroup>
-                          <SelectLabel className="text-[10px]">Otros campos</SelectLabel>
-                          {otherParams.map(p => (
-                            <SelectItem key={p.nombre} value={p.nombre}>
-                              <span className="flex items-center gap-2">
-                                {paramLabel(p)}
-                                <span className={cn("rounded px-1 py-0 text-[10px] font-medium", TIPO_DATO_BADGE[p.tipo_dato] ?? "bg-muted text-muted-foreground")}>
-                                  {p.tipo_dato}
-                                </span>
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Divisor */}
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <div className="flex-1 border-t border-dashed border-border" />
-                  <span>o usar fórmula</span>
-                  <div className="flex-1 border-t border-dashed border-border" />
-                </div>
-
-                {/* Fórmula */}
-                <div className="space-y-1">
-                  <Input
-                    value={form.formula_cantidad}
-                    onChange={e => setForm(p => ({ ...p, formula_cantidad: e.target.value, campo_cantidad: e.target.value ? "" : p.campo_cantidad }))}
-                    placeholder="ej: cajas * 12  ó  kilos * 0.95"
-                    className="h-9 font-mono text-xs"
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    Usa los nombres de los campos como variables. Ej: <code className="font-mono bg-muted px-1 rounded">pallets * 500</code>
+                  <p className="text-[10px] text-green-700/70 dark:text-green-400/70">
+                    Los productos y cantidades se leerán de cada fila de la tabla al guardar
                   </p>
                 </div>
               </div>
             ) : (
+              // Múltiples campos TablaInsumos → selector
               <div className="space-y-1.5">
-                <Input
-                  value={form.formula_cantidad || form.campo_cantidad}
-                  onChange={e => setForm(p => ({ ...p, formula_cantidad: e.target.value, campo_cantidad: e.target.value }))}
-                  placeholder="Nombre del campo de cantidad (ej: dosis)"
-                  className="h-9 font-mono text-xs"
-                />
+                <Select value={form.campo_cantidad} onValueChange={v => setForm(p => ({ ...p, campo_cantidad: v, formula_cantidad: "" }))}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Seleccionar campo de insumos…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tablaInsumosParams.map(p => (
+                      <SelectItem key={p.nombre} value={p.nombre}>
+                        <span className="flex items-center gap-2">
+                          {paramLabel(p)}
+                          <span className={cn("rounded px-1 py-0 text-[10px] font-medium", TIPO_DATO_BADGE["TablaInsumos"] ?? "bg-violet-100 text-violet-700")}>
+                            Tabla de insumos
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {!form.def_id && (
-                  <p className="text-[11px] text-muted-foreground">Selecciona un formulario primero para ver sus campos disponibles.</p>
+                  <p className="text-[11px] text-muted-foreground">Selecciona un formulario primero.</p>
                 )}
               </div>
             )}
@@ -450,8 +443,10 @@ function ReglasSection() {
   const { formularioMapas, toggleRegla, eliminarRegla, catalogos } = useInventario();
   const { definiciones } = useConfig();
 
-  const [dialogOpen,   setDialogOpen]   = useState(false);
-  const [editingRegla, setEditingRegla] = useState<InvFormularioMapa | null>(null);
+  const [dialogOpen,    setDialogOpen]    = useState(false);
+  const [editingRegla,  setEditingRegla]  = useState<InvFormularioMapa | null>(null);
+  const [toggleTarget,  setToggleTarget]  = useState<InvFormularioMapa | null>(null);
+  const [deleteTarget,  setDeleteTarget]  = useState<InvFormularioMapa | null>(null);
 
   function openCreate() { setEditingRegla(null); setDialogOpen(true); }
   function openEdit(r: InvFormularioMapa) { setEditingRegla(r); setDialogOpen(true); }
@@ -541,10 +536,10 @@ function ReglasSection() {
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Editar" onClick={() => openEdit(r)}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          <Button size="sm" variant="ghost" className={cn("h-7 w-7 p-0", r.activo ? "text-muted-foreground" : "text-green-600")} title={r.activo ? "Desactivar" : "Activar"} onClick={() => toggleRegla(r.id)}>
+                          <Button size="sm" variant="ghost" className={cn("h-7 w-7 p-0", r.activo ? "text-muted-foreground" : "text-green-600")} title={r.activo ? "Desactivar regla" : "Activar regla"} onClick={() => setToggleTarget(r)}>
                             <Power className="h-3.5 w-3.5" />
                           </Button>
-                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" title="Eliminar" onClick={() => eliminarRegla(r.id)}>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" title="Eliminar regla" onClick={() => setDeleteTarget(r)}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
@@ -566,6 +561,58 @@ function ReglasSection() {
       </div>
 
       <ReglaDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editingRegla} />
+
+      {/* ── Confirmar activar / desactivar ── */}
+      <AlertDialog open={toggleTarget !== null} onOpenChange={() => setToggleTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {toggleTarget?.activo ? "¿Desactivar esta regla?" : "¿Activar esta regla?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {toggleTarget?.activo
+                ? <>La regla <strong>{toggleTarget.tabla_origen}</strong> quedará inactiva y dejará de disparar movimientos de inventario al guardar registros.</>
+                : <>La regla <strong>{toggleTarget?.tabla_origen}</strong> se activará y comenzará a disparar movimientos de inventario automáticamente al guardar registros.</>
+              }
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className={toggleTarget?.activo
+                ? "bg-amber-500 text-white hover:bg-amber-600"
+                : "bg-green-600 text-white hover:bg-green-700"}
+              onClick={() => { if (toggleTarget) { toggleRegla(toggleTarget.id); setToggleTarget(null); } }}
+            >
+              {toggleTarget?.activo ? "Desactivar" : "Activar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Confirmar eliminar ── */}
+      <AlertDialog open={deleteTarget !== null} onOpenChange={() => setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar esta regla?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará la regla que conecta <strong>{deleteTarget?.tabla_origen}</strong> con el inventario.
+              Los registros ya guardados no se verán afectados, pero a partir de ahora guardar ese formulario
+              <strong> no actualizará el stock automáticamente</strong>.
+              Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (deleteTarget) { eliminarRegla(deleteTarget.id); setDeleteTarget(null); } }}
+            >
+              Eliminar regla
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

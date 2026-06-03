@@ -128,7 +128,8 @@ export function TablaInsumosField({ value, onChange, disabled, areaFilter }: Tab
                   </button>
                 </div>
 
-                {/* Product selector */}
+                {/* Product selector — excluye productos ya seleccionados en otras filas */}
+                {/* disponibles se calcula inline para no contaminar el scope del map */}
                 <Select
                   value={row.catalogo_id}
                   onValueChange={v => setField(row._uid, "catalogo_id", v)}
@@ -137,26 +138,39 @@ export function TablaInsumosField({ value, onChange, disabled, areaFilter }: Tab
                     <SelectValue placeholder="Seleccionar producto…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {activeCatalogos.length === 0 && (
-                      <SelectItem value="__none" disabled>Sin productos en esta área</SelectItem>
-                    )}
-                    {activeCatalogos.map(c => {
-                      const st = getStockStatus(c);
-                      return (
-                        <SelectItem key={c.id} value={c.id}>
-                          <span className="flex items-center gap-2">
-                            <span className={cn(
-                              "h-1.5 w-1.5 shrink-0 rounded-full",
-                              st === "ok" ? "bg-green-500" : st === "bajo" ? "bg-amber-500" : "bg-red-500",
-                            )} />
-                            <span>{c.nombre}</span>
-                            <span className="text-[10px] text-muted-foreground">
-                              {c.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })} {c.unidad_medida}
+                    {activeCatalogos
+                      .filter(c => {
+                        // Muestra el producto si: es el seleccionado en esta fila
+                        // O si no está seleccionado en ninguna otra fila
+                        if (c.id === row.catalogo_id) return true;
+                        return !rows.some(r => r._uid !== row._uid && r.catalogo_id === c.id);
+                      })
+                      .map(c => {
+                        const st = getStockStatus(c);
+                        return (
+                          <SelectItem key={c.id} value={c.id}>
+                            <span className="flex items-center gap-2">
+                              <span className={cn(
+                                "h-1.5 w-1.5 shrink-0 rounded-full",
+                                st === "ok" ? "bg-green-500" : st === "bajo" ? "bg-amber-500" : "bg-red-500",
+                              )} />
+                              <span>{c.nombre}</span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {c.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })} {c.unidad_medida}
+                              </span>
                             </span>
-                          </span>
-                        </SelectItem>
-                      );
-                    })}
+                          </SelectItem>
+                        );
+                      })
+                    }
+                    {activeCatalogos.filter(c =>
+                      c.id === row.catalogo_id ||
+                      !rows.some(r => r._uid !== row._uid && r.catalogo_id === c.id)
+                    ).length === 0 && (
+                      <SelectItem value="__none" disabled>
+                        Todos los productos ya fueron agregados
+                      </SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
 
@@ -222,15 +236,29 @@ export function TablaInsumosField({ value, onChange, disabled, areaFilter }: Tab
         </div>
       )}
 
-      {/* Add button */}
-      <button
-        type="button"
-        onClick={addRow}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 bg-primary/5 py-2.5 text-sm font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10"
-      >
-        <Plus className="h-4 w-4" />
-        Agregar producto
-      </button>
+      {/* Add button — deshabilitado si todos los productos ya están en la lista */}
+      {(() => {
+        const usados   = new Set(rows.filter(r => r.catalogo_id).map(r => r.catalogo_id));
+        const quedan   = activeCatalogos.filter(c => !usados.has(c.id));
+        const disabled = quedan.length === 0;
+        return (
+          <button
+            type="button"
+            onClick={addRow}
+            disabled={disabled}
+            title={disabled ? "Ya agregaste todos los productos disponibles" : undefined}
+            className={cn(
+              "flex w-full items-center justify-center gap-2 rounded-xl border border-dashed py-2.5 text-sm font-medium transition-colors",
+              disabled
+                ? "border-border bg-muted/20 text-muted-foreground cursor-not-allowed opacity-60"
+                : "border-primary/40 bg-primary/5 text-primary hover:border-primary hover:bg-primary/10",
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            {disabled ? "Todos los productos agregados" : "Agregar producto"}
+          </button>
+        );
+      })()}
 
       {hasOverstock && (
         <p className="text-[11px] text-red-600 dark:text-red-400">

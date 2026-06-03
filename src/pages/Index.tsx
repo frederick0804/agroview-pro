@@ -1,4 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, createContext, useContext } from "react";
+
+// Contexto para compartir el modo edición sin prop drilling
+const DashboardEditCtx = createContext<{
+  editMode: boolean;
+  editTab:  string;   // qué tab se está editando ("resumen" | "cultivo" | etc.)
+  exitEdit: () => void;
+}>({ editMode: false, editTab: "resumen", exitEdit: () => {} });
 import { useInventario, getStockStatus } from "@/contexts/InventarioContext";
 import { useConfig } from "@/contexts/ConfigContext";
 import type { CampoOpcion } from "@/config/moduleDefinitions";
@@ -29,6 +36,11 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend,
 } from "recharts";
+import { DashboardBuilderContent } from "./DashboardBuilder";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type QA = { id: string; label: string; icon: React.ReactNode; onClick: () => void };
@@ -584,14 +596,16 @@ function ModuleTabContent({
   const data = MODULE_DATA[moduleKey];
   const gid  = `mg-${moduleKey}`;
 
+  const { editMode, editTab, exitEdit } = useContext(DashboardEditCtx);
+
   // Widgets configured for this specific module tab
   const allSaved     = useSavedWidgets();
   const moduleWidgets = allSaved.filter((w) => w.dashboardTab === moduleKey);
 
   if (!data || !tab) return null;
 
-  // If the user has custom widgets for this module → show ONLY those (no hardcoded charts)
-  if (moduleWidgets.length > 0) {
+  // ── Modo edición inline para este módulo ─────────────────────────────────
+  if (editMode && editTab === moduleKey && moduleWidgets.length > 0) {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-2">
@@ -599,13 +613,37 @@ function ModuleTabContent({
             <tab.Icon className="w-4 h-4 inline-block mr-1.5 opacity-70" />
             {tab.label}
           </p>
+          <button
+            onClick={exitEdit}
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
+          >
+            ✓ Salir del modo edición
+          </button>
+        </div>
+        <DashboardBuilderContent inlineMode defaultTab={moduleKey as DashboardTab} onAfterSave={exitEdit} />
+      </div>
+    );
+  }
+
+  // If the user has custom widgets for this module → show ONLY those (no hardcoded charts)
+  if (moduleWidgets.length > 0) {
+    return (
+      <div className="flex gap-5 items-start">
+      {/* Izquierda — header + widgets */}
+      <div className="flex-1 min-w-0 space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-foreground">
+            <tab.Icon className="w-4 h-4 inline-block mr-1.5 opacity-70" />
+            {tab.label}
+          </p>
           <a
-            href="/configuracion?tab=dashboard"
+            onClick={() => window.dispatchEvent(new CustomEvent<string>("open-dashboard-editor", { detail: moduleKey }))}
             className="text-[10px] text-muted-foreground/60 hover:text-foreground transition-colors inline-flex items-center gap-1"
           >
-            <Settings className="w-3 h-3" /> Editar dashboard
+            <Settings className="w-3 h-3" /> Editar disposición
           </a>
         </div>
+        {/* Grid de widgets izquierda */}
         <div className="grid grid-cols-4 gap-4 auto-rows-auto">
           {moduleWidgets.map((w) => (
             <div key={w.id} style={{ height: `${(w.rows ?? 1) * 180}px` }} className={cn("min-w-0", W_COL_SPAN[w.size ?? 2])}>
@@ -614,95 +652,99 @@ function ModuleTabContent({
           ))}
         </div>
       </div>
-    );
-  }
 
-  // No custom widgets → show hardcoded charts
-  return (
-    <div className="space-y-5">
-      {/* KPI row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {data.metrics.map((m, i) => (
-          <MetricCard
-            key={i}
-            title={m.title}
-            value={m.value}
-            change={m.change}
-            changeLabel={m.changeLabel}
-            icon={<tab.Icon className="w-5 h-5" />}
-            variant={m.variant}
-          />
-        ))}
-      </div>
-
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
-        {/* Trend area chart */}
-        <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">{data.trendLabel}</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={data.trendData}>
-              <defs>
-                <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={tab.color} stopOpacity={0.28} />
-                  <stop offset="95%" stopColor={tab.color} stopOpacity={0}    />
-                </linearGradient>
-              </defs>
-              <CartesianGrid {...GRD} />
-              <XAxis dataKey="month" {...AX} />
-              <YAxis {...AX} />
-              <Tooltip contentStyle={TT} />
-              <Area type="monotone" dataKey="value" stroke={tab.color} strokeWidth={2} fillOpacity={1} fill={`url(#${gid})`} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Composition pie */}
-        <div className="bg-card rounded-xl border border-border p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">{data.compLabel}</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={data.compData} cx="50%" cy="44%" innerRadius={50} outerRadius={76} paddingAngle={4} dataKey="value">
-                {data.compData.map((e, i) => <Cell key={i} fill={e.color} />)}
-              </Pie>
-              <Legend verticalAlign="bottom" height={36} formatter={(v) => <span className="text-[11px] text-foreground">{v}</span>} />
-              <Tooltip contentStyle={TT} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Activity + Go-to-module */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
-        <div className="lg:col-span-2">
-          <RecentActivity activities={data.activities} title={`Actividad reciente — ${tab.label}`} />
-        </div>
-        <div className="space-y-4">
-          <div className="bg-card rounded-xl border border-border p-5 flex flex-col items-center justify-center gap-4 text-center min-h-[160px]">
+      {/* Panel derecho — mismo que Resumen: ir al módulo + notificaciones */}
+      <div className="shrink-0 w-72 space-y-4">
+        {tab.path && (
+          <div className="bg-card rounded-xl border border-border p-4 flex flex-col items-center gap-3 text-center">
             <div
-              className="w-12 h-12 rounded-2xl flex items-center justify-center"
+              className="w-10 h-10 rounded-xl flex items-center justify-center"
               style={{ backgroundColor: `color-mix(in srgb, ${tab.color} 14%, transparent)` }}
             >
-              <tab.Icon className="w-6 h-6" style={{ color: tab.color }} />
+              <tab.Icon className="w-5 h-5" style={{ color: tab.color }} />
             </div>
-            <div className="space-y-0.5">
+            <div>
               <p className="text-sm font-semibold text-foreground">Módulo {tab.label}</p>
               <p className="text-xs text-muted-foreground">Ver y gestionar registros</p>
             </div>
-            {tab.path && (
-              <Button
-                size="sm"
-                onClick={() => navigate(tab.path!)}
-                className="gap-1.5 text-white"
-                style={{ backgroundColor: tab.color }}
-              >
-                Abrir módulo
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Button>
-            )}
+            <Button
+              size="sm"
+              onClick={() => navigate(tab.path!)}
+              className="gap-1.5 text-white w-full"
+              style={{ backgroundColor: tab.color }}
+            >
+              Abrir módulo <ArrowRight className="w-3.5 h-3.5" />
+            </Button>
           </div>
-          <RoleNotifications maxItems={3} />
+        )}
+        <RoleNotifications maxItems={4} />
+      </div>
+    </div>
+    );
+  }
+
+  // Sin widgets configurados → estado vacío + acceso directo al módulo + notificaciones
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+      {/* Panel vacío — invita a configurar widgets */}
+      <div className="lg:col-span-2 rounded-2xl border-2 border-dashed border-border/50 bg-muted/10 py-16 flex flex-col items-center justify-center gap-4 text-center">
+        <div
+          className="w-14 h-14 rounded-2xl flex items-center justify-center"
+          style={{ backgroundColor: `color-mix(in srgb, ${tab.color} 12%, transparent)` }}
+        >
+          <tab.Icon className="w-7 h-7" style={{ color: tab.color }} />
         </div>
+        <div>
+          <p className="text-sm font-semibold text-foreground">Sin widgets para {tab.label}</p>
+          <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto leading-relaxed">
+            Agrega widgets en <strong>Configuración → Dashboard</strong> para visualizar datos de este módulo aquí.
+          </p>
+        </div>
+        <div className="flex gap-2 mt-1">
+          <a
+            onClick={() => window.dispatchEvent(new CustomEvent("open-dashboard-editor", { detail: moduleKey }))}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background text-xs font-medium hover:bg-muted transition-colors cursor-pointer"
+          >
+            <Settings className="w-3.5 h-3.5" /> Configurar widgets
+          </a>
+          {tab.path && (
+            <Button
+              size="sm"
+              onClick={() => navigate(tab.path!)}
+              className="gap-1.5 text-white"
+              style={{ backgroundColor: tab.color }}
+            >
+              Abrir módulo <ArrowRight className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Derecha: ir al módulo + notificaciones */}
+      <div className="space-y-4">
+        {tab.path && (
+          <div className="bg-card rounded-xl border border-border p-5 flex flex-col items-center justify-center gap-3 text-center">
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center"
+              style={{ backgroundColor: `color-mix(in srgb, ${tab.color} 14%, transparent)` }}
+            >
+              <tab.Icon className="w-5 h-5" style={{ color: tab.color }} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Módulo {tab.label}</p>
+              <p className="text-xs text-muted-foreground">Ver y gestionar registros</p>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => navigate(tab.path!)}
+              className="gap-1.5 text-white w-full"
+              style={{ backgroundColor: tab.color }}
+            >
+              Abrir módulo <ArrowRight className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        )}
+        <RoleNotifications maxItems={4} />
       </div>
     </div>
   );
@@ -989,15 +1031,24 @@ function MiniWidgetPreview({ w }: { w: SavedWidget }) {
   );
 }
 
-// useSavedWidgets — reads the dashboard builder layout from localStorage once on mount
+// useSavedWidgets — reactivo: se actualiza cuando DashboardBuilder guarda
 function useSavedWidgets(): SavedWidget[] {
-  const [widgets, setWidgets] = useState<SavedWidget[]>([]);
-  useEffect(() => {
+  const read = (): SavedWidget[] => {
     try {
       const raw = localStorage.getItem(DASHBOARD_STORAGE_KEY);
-      if (raw) setWidgets(JSON.parse(raw) as SavedWidget[]);
+      if (raw) return JSON.parse(raw) as SavedWidget[];
     } catch { /* ignore */ }
+    return [];
+  };
+
+  const [widgets, setWidgets] = useState<SavedWidget[]>(read);
+
+  useEffect(() => {
+    const handler = () => setWidgets(read());
+    window.addEventListener("dashboard-widgets-saved", handler);
+    return () => window.removeEventListener("dashboard-widgets-saved", handler);
   }, []);
+
   return widgets;
 }
 
@@ -1037,10 +1088,10 @@ function SavedWidgetsDashboard({
             <p className="text-xs text-muted-foreground">Datos actualizados basados en los módulos seleccionados.</p>
           </div>
           <a
-            href="/configuracion?tab=dashboard"
+            onClick={() => window.dispatchEvent(new CustomEvent("open-dashboard-editor"))}
             className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background text-xs font-medium hover:bg-muted transition-colors"
           >
-            <Settings className="w-3.5 h-3.5" /> Editar widgets
+            <Settings className="w-3.5 h-3.5" /> Editar disposición
           </a>
         </div>
 
@@ -1074,10 +1125,50 @@ function ResumenTabContent({
   sectorHint?: string;
   resumenData: ResumenData;
 }) {
+  const { editMode, exitEdit } = useContext(DashboardEditCtx);
   const allWidgets    = useSavedWidgets();
-  // Resumen widgets: those explicitly assigned to "resumen" or with no tab (backward compat)
   const resumenWidgets = allWidgets.filter((w) => !w.dashboardTab || w.dashboardTab === "resumen");
   const hasAny         = allWidgets.length > 0;
+
+  // ── Modo edición in-place ─────────────────────────────────────────────────
+  // Mantiene EXACTAMENTE el mismo split layout que el modo normal:
+  //   izquierda (flex-1): canvas editable · derecha (w-72): carousel intacto
+  if (editMode) {
+    const carouselSlides: RightRailSlide[] = [
+      {
+        id: "edit-acciones",
+        label: "Acciones rápidas",
+        content: <QuickActions actions={quickActions} className="h-full overflow-y-auto" />,
+      },
+      {
+        id: "edit-notificaciones",
+        label: "Notificaciones",
+        content: <RoleNotifications maxItems={4} className="h-full overflow-y-auto" />,
+      },
+    ];
+
+    return (
+      <div className="space-y-4">
+        {/* Weather siempre visible */}
+        <WeatherChatWidget sectorHint={sectorHint} />
+
+        {/* Mismo split que SavedWidgetsDashboard */}
+        <div className="flex gap-5 items-start">
+          {/* Izquierda — canvas editable (mismo flex-1 que el grid normal) */}
+          <div className="flex-1 min-w-0">
+            <DashboardBuilderContent inlineMode onAfterSave={exitEdit} />
+          </div>
+
+          {/* Derecha — carousel intacto, mismo w-72 */}
+          {quickActions.length > 0 && (
+            <div className="shrink-0 w-72">
+              <RightRailCarousel slides={carouselSlides} />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   // If user has configured resumen-specific widgets → show those
   if (resumenWidgets.length > 0) {
@@ -1103,7 +1194,7 @@ function ResumenTabContent({
             </p>
           </div>
           <a
-            href="/configuracion?tab=dashboard"
+            onClick={() => window.dispatchEvent(new CustomEvent("open-dashboard-editor"))}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
           >
             <Settings className="w-3.5 h-3.5" /> Configurar Dashboard general
@@ -1312,7 +1403,7 @@ function ResumenTabContent({
           </p>
         </div>
         <a
-          href="/configuracion?tab=dashboard"
+          onClick={() => window.dispatchEvent(new CustomEvent("open-dashboard-editor"))}
           className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
         >
           <Settings className="w-3.5 h-3.5" /> Configurar
@@ -1700,8 +1791,21 @@ const Index = () => {
     currentUser,
     getProductorDashboardModules,
   } = useRole();
-  const navigate = useNavigate();
-  const area      = currentUser?.area_asignada;
+  const navigate   = useNavigate();
+  const area       = currentUser?.area_asignada;
+  const [showEditor, setShowEditor] = useState(false);
+  const [editTab,    setEditTab]    = useState("resumen");
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const tab = (e as CustomEvent<string>).detail || "resumen";
+      setEditTab(tab);
+      setShowEditor(true);
+    };
+    window.addEventListener("open-dashboard-editor", handler);
+    return () => window.removeEventListener("open-dashboard-editor", handler);
+  }, []);
+
   const areaLabel = area ? (AREA_LABELS[area] ?? area) : "";
   const areaColor = area ? (AREA_COLORS[area] ?? "hsl(142, 45%, 28%)") : "hsl(142, 45%, 28%)";
   const roleSectorHint = "Quito, Ecuador";
@@ -1915,7 +2019,10 @@ const Index = () => {
         tab.key === "resumen" || tab.permissionModules.some(mod => hasPermission(mod, "ver")),
       );
 
+  // editMode se propaga via contexto — no se devuelve un return diferente aquí
+
   return (
+    <DashboardEditCtx.Provider value={{ editMode: showEditor, editTab, exitEdit: () => setShowEditor(false) }}>
     <MainLayout>
       {(role === "super_admin" || role === "cliente_admin") ? (
         <TabbedDashboard
@@ -1955,6 +2062,7 @@ const Index = () => {
         />
       )}
     </MainLayout>
+    </DashboardEditCtx.Provider>
   );
 };
 

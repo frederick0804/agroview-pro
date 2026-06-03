@@ -21,7 +21,7 @@ import {
   BarChart3, ChevronDown, ChevronUp, Calendar, Plus, Eye, Clock, CheckCircle2, AlertCircle, X, Trash2, Pencil, Copy,
   Package, AlertTriangle,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { parseValores, type TipoDato, type ModDato, type ModParam, type ModDef, type Cultivo } from "@/config/moduleDefinitions";
@@ -2558,6 +2558,8 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
   const { role, roleName, hierarchyLevel, hasPermission, currentUser } = useRole();
   const { definiciones, cultivos, datos, getUserDefAcceso } = useConfig();
   const navigate = useNavigate();
+  // Soporte para deep-link: ?form=NOMBRE_FORMULARIO abre ese tab directamente
+  const [searchParams] = useSearchParams();
   const canExport = hasPermission(moduloKey, "exportar");
   const userId = currentUser?.id ?? null;
   const [entryMode, setEntryMode] = useState<DataEntryMode>(() => getDataEntryMode(currentUser?.id ?? null));
@@ -2634,12 +2636,20 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
     ? defs
     : defs.filter(d => !d.cultivo_id || d.cultivo_id === filterCultivoId);
 
-  const [activeTab, setActiveTab] = useState<string>(() => filteredDefs[0]?.id ?? "");
+  // Si viene ?form=NOMBRE en la URL, activar ese formulario directamente
+  const formParam = searchParams.get("form");
+  const formParamId = formParam
+    ? (filteredDefs.find(d => d.nombre === formParam)?.id ?? null)
+    : null;
+
+  const [activeTab, setActiveTab] = useState<string>(
+    () => formParamId ?? filteredDefs[0]?.id ?? "",
+  );
 
   // Reset tab al cambiar el cultivo seleccionado
   useEffect(() => {
-    setActiveTab(filteredDefs[0]?.id ?? "");
-  }, [filterCultivoId]); // eslint-disable-line react-hooks/exhaustive-deps
+    setActiveTab(formParamId ?? filteredDefs[0]?.id ?? "");
+  }, [filterCultivoId, formParamId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const currentTab = filteredDefs.some(d => d.id === activeTab)
     ? activeTab
