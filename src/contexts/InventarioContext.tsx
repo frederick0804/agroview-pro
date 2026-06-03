@@ -83,6 +83,33 @@ export interface InvFormularioMapa {
   activo: boolean;
 }
 
+// ─── Vencimiento helpers ──────────────────────────────────────────────────────
+
+export type VencimientoStatus = "vencido" | "critico" | "proximo";
+// vencido = ya expiró · critico = vence en ≤ 30 días · proximo = vence en ≤ 90 días
+
+export interface AlertaVencimiento {
+  producto:         InvCatalogo;
+  fechaVencimiento: string;    // ISO date string
+  diasRestantes:    number;    // negativo si ya venció
+  estado:           VencimientoStatus;
+}
+
+/** Lee el campo de tipo Fecha cuyo nombre contenga "vencim" o "expir" */
+export function getCampoVencimiento(p: InvCatalogo): string | null {
+  const c = (p.campos_extra ?? []).find(f =>
+    f.tipo === "Fecha" &&
+    (f.nombre.toLowerCase().includes("vencim") || f.nombre.toLowerCase().includes("expir")),
+  );
+  return c?.valor ?? null;
+}
+
+export function getVencimientoStatus(diasRestantes: number): VencimientoStatus {
+  if (diasRestantes < 0)  return "vencido";
+  if (diasRestantes <= 30) return "critico";
+  return "proximo";
+}
+
 // ─── Stock helpers (exported for reuse in UI) ─────────────────────────────────
 
 export type StockStatus = "ok" | "bajo" | "critico";
@@ -131,7 +158,7 @@ const DEMO_CATALOGOS: InvCatalogo[] = [
     ubicacion_fisica: "Bodega A, Sector Fitosanitarios", proveedor_id: "AgroquímPro S.A.",
     campos_extra: [
       { nombre: "numero_lote",       etiqueta: "Nº de lote",     tipo: "Texto", valor: "AZ-2026-05" },
-      { nombre: "vencimiento",       etiqueta: "Vencimiento",    tipo: "Fecha", valor: "2027-12-31" },
+      { nombre: "vencimiento",       etiqueta: "Vencimiento",    tipo: "Fecha", valor: "2026-07-15" }, // vence pronto — demo
       { nombre: "concentracion",     etiqueta: "Concentración (g/L)", tipo: "Número", valor: "250" },
       { nombre: "modo_accion",       etiqueta: "Modo de acción", tipo: "Lista",
         opciones: ["Sistémico","Contacto","Translaminar","Preventivo"], valor: "Sistémico" },
@@ -181,7 +208,7 @@ const DEMO_CATALOGOS: InvCatalogo[] = [
     campos_extra: [
       { nombre: "temperatura_almacen", etiqueta: "Temp. almacenamiento", tipo: "Texto",  valor: "4°C" },
       { nombre: "numero_lote",         etiqueta: "Nº de lote",           tipo: "Texto",  valor: "MS-26-04" },
-      { nombre: "vencimiento",         etiqueta: "Vencimiento",          tipo: "Fecha",  valor: "2027-06-30" },
+      { nombre: "vencimiento",         etiqueta: "Vencimiento",          tipo: "Fecha",  valor: "2026-06-10" }, // vence muy pronto — demo
     ],
     activo: true,
     created_at: "2026-02-15T08:00:00Z", updated_at: "2026-05-15T16:00:00Z",
@@ -385,6 +412,7 @@ interface InventarioContextValue {
   getMovimientosByProducto:(catalogoId: string) => InvMovimiento[];
   getAlertas:              () => InvCatalogo[];
   getStockCritico:         () => InvCatalogo[];
+  getAlertasVencimiento:   () => AlertaVencimiento[];
   simularTrigger:          (tablaNombre: string, datos: Record<string, unknown>) => void;
   /** Preview de qué se revertiría al borrar un registro */
   previewReversion:        (tablaNombre: string, datos: Record<string, unknown>) => Array<{ nombre: string; cantidad: number; tipoOriginal: InvMovimientoTipo }>;
@@ -514,6 +542,29 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
   const getStockCritico = useCallback(() =>
     getAllProductos().filter(p => p.cantidad_actual <= p.cantidad_minima * 0.5),
   [getAllProductos]);
+
+  const getAlertasVencimiento = useCallback((): AlertaVencimiento[] => {
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const resultado: AlertaVencimiento[] = [];
+
+    for (const p of getAllProductos()) {
+      const fechaStr = getCampoVencimiento(p);
+      if (!fechaStr) continue;
+      const fechaVenc = new Date(fechaStr);
+      if (isNaN(fechaVenc.getTime())) continue;
+      const diasRestantes = Math.ceil((fechaVenc.getTime() - hoy.getTime()) / 86_400_000);
+      if (diasRestantes <= 90) {
+        resultado.push({
+          producto:         p,
+          fechaVencimiento: fechaStr,
+          diasRestantes,
+          estado:           getVencimientoStatus(diasRestantes),
+        });
+      }
+    }
+    return resultado.sort((a, b) => a.diasRestantes - b.diasRestantes);
+  }, [getAllProductos]);
 
   // ── Reglas CRUD ────────────────────────────────────────────────────────────
   const agregarRegla = useCallback((r: Omit<InvFormularioMapa, "id">) => {
@@ -704,7 +755,7 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     agregarProducto, editarProducto, desactivarProducto, registrarMovimiento,
     agregarRegla, editarRegla, toggleRegla, eliminarRegla,
     getProductosByModulo, getAllProductos, getMovimientosByProducto,
-    getAlertas, getStockCritico, simularTrigger,
+    getAlertas, getStockCritico, getAlertasVencimiento, simularTrigger,
     previewReversion, revertirMovimientos,
   }), [
     catalogos, movimientos, formularioMapas,
@@ -712,7 +763,7 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     agregarProducto, editarProducto, desactivarProducto, registrarMovimiento,
     agregarRegla, editarRegla, toggleRegla, eliminarRegla,
     getProductosByModulo, getAllProductos, getMovimientosByProducto,
-    getAlertas, getStockCritico, simularTrigger,
+    getAlertas, getStockCritico, getAlertasVencimiento, simularTrigger,
     previewReversion, revertirMovimientos,
   ]);
 

@@ -6,7 +6,7 @@
  * Catálogo (CRUD admin) en Sheet separado.
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { MainLayout }  from "@/components/layout/MainLayout";
 import { PageHeader }  from "@/components/layout/PageHeader";
@@ -32,8 +32,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import {
   useInventario, getStockStatus, getStockPct,
+  getCampoVencimiento,
   type InvCatalogo, type InvMovimientoTipo, type InvMovimiento,
-  type InvCampoConValor, type InvCampoTipo,
+  type InvCampoConValor, type InvCampoTipo, type AlertaVencimiento,
 } from "@/contexts/InventarioContext";
 import { useRole } from "@/contexts/RoleContext";
 import {
@@ -42,8 +43,11 @@ import {
   Plus, Pencil, Power, LayoutList, LayoutGrid,
   FlaskConical, Sprout, Leaf, PackageOpen, ShoppingCart,
   ExternalLink, Info, ChevronRight, X, Zap, Settings2,
-  History, Filter,
+  History, Filter, Download, CalendarClock,
+  ClipboardCheck, BookOpen, AlertCircle as AlertCircleIcon,
 } from "lucide-react";
+import { exportToCsv } from "@/lib/exportCsv";
+import { useConfig }   from "@/contexts/ConfigContext";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -143,15 +147,28 @@ function ModuloBadges({ ids, size = "sm" }: { ids: string[]; size?: "sm" | "xs" 
 
 // ─── OrigenCell ───────────────────────────────────────────────────────────────
 
+// Mapa estático módulo → ruta (cubre todos los módulos operativos)
+const MODULO_RUTA: Record<string, string> = {
+  laboratorio:      "/laboratorio",
+  vivero:           "/vivero",
+  cultivo:          "/cultivo",
+  cosecha:          "/cultivo",        // cosecha comparte página con cultivo
+  "post-cosecha":   "/post-cosecha",
+  produccion:       "/post-cosecha",   // producción comparte con post-cosecha
+  "recursos-humanos": "/recursos-humanos",
+  comercial:        "/comercial",
+};
+
 function OrigenCell({ m }: { m: InvMovimiento }) {
-  const navigate = useNavigate();
-  const origen   = m.registro_origen_tipo;
+  const navigate    = useNavigate();
+  const { definiciones } = useConfig();   // ← dinámico desde ConfigContext
+  const origen      = m.registro_origen_tipo;
   if (!origen) return <span className="text-xs text-muted-foreground">{m.observaciones ?? "—"}</span>;
 
-  const MODULO_PATH: Record<string, string> = {
-    APLICACION_FITOSANITARIA: "/cultivo", PACKING_LIST: "/post-cosecha",
-    MOVIMIENTO_BODEGA: "/post-cosecha",
-  };
+  // Buscar el ModDef que tiene ese nombre exacto → obtener su módulo dinámicamente
+  const def        = definiciones.find(d => d.nombre === origen);
+  const moduloRuta = def ? (MODULO_RUTA[def.modulo] ?? null) : null;
+  const destino    = moduloRuta ? `${moduloRuta}?form=${encodeURIComponent(origen)}` : null;
 
   return (
     <Popover>
@@ -160,13 +177,19 @@ function OrigenCell({ m }: { m: InvMovimiento }) {
           <Info className="h-2.5 w-2.5 text-muted-foreground" /> {origen}
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-72 space-y-2 p-3 text-xs" side="left">
+      <PopoverContent className="w-72 space-y-3 p-3 text-xs" side="left">
         <p className="font-semibold text-sm">Origen del movimiento</p>
         <div className="space-y-1">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Formulario</span>
             <span className="font-mono font-medium">{origen}</span>
           </div>
+          {def && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Módulo</span>
+              <span className="capitalize">{def.modulo}</span>
+            </div>
+          )}
           <div className="flex justify-between">
             <span className="text-muted-foreground">Fecha</span>
             <span>{m.created_at.substring(0, 10)}</span>
@@ -177,12 +200,15 @@ function OrigenCell({ m }: { m: InvMovimiento }) {
             </div>
           )}
         </div>
-        {MODULO_PATH[origen] && (
+        {destino && (
           <button
-            onClick={() => navigate(MODULO_PATH[origen]!)}
-            className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+            onClick={() => navigate(destino)}
+            className="flex w-full items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-2 text-[11px] font-medium text-primary hover:bg-primary/10 transition-colors"
           >
-            <ExternalLink className="h-3 w-3" /> Ver módulo de origen
+            <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              Ir al formulario <strong>{origen}</strong>
+            </span>
           </button>
         )}
       </PopoverContent>
@@ -193,11 +219,12 @@ function OrigenCell({ m }: { m: InvMovimiento }) {
 // ─── ProductCard ──────────────────────────────────────────────────────────────
 
 function ProductCard({
-  p, onSelect, onMovimiento,
+  p, onSelect, onMovimiento, onKardex,
 }: {
   p: InvCatalogo;
   onSelect: (id: string) => void;
   onMovimiento: (id: string, tipo: InvMovimientoTipo) => void;
+  onKardex: (id: string) => void;
 }) {
   const status = getStockStatus(p);
   const pct    = getStockPct(p);
@@ -263,6 +290,13 @@ function ProductCard({
         >
           Detalle <ChevronRight className="h-3 w-3" />
         </button>
+        <button
+          className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+          onClick={() => onKardex(p.id)}
+          title="Balance de stock"
+        >
+          <BookOpen className="h-3 w-3" />
+        </button>
       </div>
     </div>
   );
@@ -283,8 +317,10 @@ function FilterPanel({
   setFilterEstado: (v: string) => void;
   onReponer: (id: string) => void;
 }) {
-  const allProductos = useInventario().getAllProductos();
-  const alertas = allProductos.filter(p => getStockStatus(p) !== "ok");
+  const { getAllProductos, getAlertasVencimiento } = useInventario();
+  const allProductos    = getAllProductos();
+  const alertas         = allProductos.filter(p => getStockStatus(p) !== "ok");
+  const alertasVenc     = getAlertasVencimiento();
 
   const moduloCount = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -399,7 +435,86 @@ function FilterPanel({
           </div>
         </div>
       )}
+
+      {/* Alertas de vencimiento */}
+      {alertasVenc.length > 0 && (
+        <VencimientoPanel alertas={alertasVenc} />
+      )}
     </aside>
+  );
+}
+
+// ─── VencimientoPanel ─────────────────────────────────────────────────────────
+
+function VencimientoPanel({ alertas }: { alertas: AlertaVencimiento[] }) {
+  const navigate = useNavigate();
+  const [collapsed, setCollapsed] = useState(false);
+
+  const vencidos  = alertas.filter(a => a.estado === "vencido");
+  const criticos  = alertas.filter(a => a.estado === "critico");
+
+  const ESTADO_CLS: Record<string, string> = {
+    vencido: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+    critico: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
+    proximo: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
+  };
+  const ESTADO_LABEL: Record<string, string> = {
+    vencido: "Vencido",
+    critico: "Vence pronto",
+    proximo: "Por vencer",
+  };
+
+  function diasLabel(d: number): string {
+    if (d < 0)  return `Venció hace ${Math.abs(d)} día${Math.abs(d) !== 1 ? "s" : ""}`;
+    if (d === 0) return "Vence hoy";
+    return `Vence en ${d} día${d !== 1 ? "s" : ""}`;
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-red-200 bg-red-50/40 dark:border-red-800/40 dark:bg-red-900/10">
+      <button
+        onClick={() => setCollapsed(v => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-red-100/40 dark:hover:bg-red-900/20 transition-colors"
+      >
+        <CalendarClock className="h-3.5 w-3.5 shrink-0 text-red-500" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-red-800 dark:text-red-300">
+            Vencimientos
+          </p>
+          <p className="text-[10px] text-red-700/70 dark:text-red-400/70">
+            {vencidos.length > 0 && `${vencidos.length} vencido${vencidos.length !== 1 ? "s" : ""}`}
+            {vencidos.length > 0 && criticos.length > 0 && " · "}
+            {criticos.length > 0 && `${criticos.length} crítico${criticos.length !== 1 ? "s" : ""}`}
+          </p>
+        </div>
+        <span className="shrink-0 rounded-full bg-red-200 px-1.5 py-0 text-[10px] font-bold text-red-800 dark:bg-red-800/60 dark:text-red-300">
+          {alertas.length}
+        </span>
+      </button>
+
+      {!collapsed && (
+        <div className="divide-y divide-red-200/40 dark:divide-red-800/30 border-t border-red-200/60 dark:border-red-800/40">
+          {alertas.map(a => (
+            <div
+              key={a.producto.id}
+              className="cursor-pointer px-3 py-2.5 hover:bg-red-100/30 dark:hover:bg-red-900/20"
+              onClick={() => navigate(`/inventario`)}
+            >
+              <div className="flex items-start justify-between gap-1">
+                <p className="text-xs font-medium leading-tight truncate">{a.producto.nombre}</p>
+                <span className={cn("shrink-0 rounded-full px-1.5 py-0 text-[10px] font-medium", ESTADO_CLS[a.estado])}>
+                  {ESTADO_LABEL[a.estado]}
+                </span>
+              </div>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                {diasLabel(a.diasRestantes)}
+                {" · "}{new Date(a.fechaVencimiento).toLocaleDateString("es-CL")}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -464,12 +579,13 @@ function ReglasBanner({ variant = "sidebar" }: { variant?: "sidebar" | "bar" }) 
 // ─── Detalle Sheet ────────────────────────────────────────────────────────────
 
 function DetalleSheet({
-  productId, open, onClose, onMovimiento,
+  productId, open, onClose, onMovimiento, onKardex,
 }: {
   productId: string | null;
   open: boolean;
   onClose: () => void;
   onMovimiento: (id: string, tipo: InvMovimientoTipo) => void;
+  onKardex: (id: string) => void;
 }) {
   const { catalogos, getMovimientosByProducto } = useInventario();
   const p = productId ? catalogos.find(x => x.id === productId) : null;
@@ -570,6 +686,9 @@ function DetalleSheet({
                   </Button>
                   <Button size="sm" variant="outline" className="gap-1.5 border-amber-500 text-amber-700 hover:bg-amber-50 dark:text-amber-400" onClick={() => onMovimiento(p.id, "ajuste")}>
                     <SlidersHorizontal className="h-4 w-4" /> Ajuste
+                  </Button>
+                  <Button size="sm" variant="outline" className="gap-1.5 ml-auto" onClick={() => onKardex(p.id)}>
+                    <BookOpen className="h-4 w-4" /> Balance de stock
                   </Button>
                 </div>
 
@@ -1036,100 +1155,133 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
   );
 }
 
-// ─── Catálogo Sheet (admin) ───────────────────────────────────────────────────
+// ─── Catálogo inline (tab propio) ────────────────────────────────────────────
 
-function CatalogoSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+function CatalogoInline({ canAdmin, onKardex }: { canAdmin: boolean; onKardex: (id: string) => void }) {
   const { catalogos, desactivarProducto } = useInventario();
   const [search,       setSearch]       = useState("");
   const [filterModulo, setFilterModulo] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
   const [editingProd,  setEditingProd]  = useState<InvCatalogo | null>(null);
   const [dialogOpen,   setDialogOpen]   = useState(false);
   const [page,         setPage]         = useState(1);
-  const PAGE = 10;
+  const PAGE = 15;
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return catalogos.filter(p => {
       if (filterModulo !== "all" && !p.modulo_ids.includes(filterModulo)) return false;
+      if (filterStatus === "activo" && !p.activo) return false;
+      if (filterStatus === "inactivo" && p.activo) return false;
       if (q && !p.nombre.toLowerCase().includes(q) && !p.codigo.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [catalogos, search, filterModulo]);
+  }, [catalogos, search, filterModulo, filterStatus]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE));
   const paginated  = filtered.slice((page - 1) * PAGE, page * PAGE);
 
   return (
-    <Sheet open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <SheetContent className="w-full sm:max-w-3xl p-0 flex flex-col" side="right">
-        <SheetHeader className="px-5 pt-5 pb-3 border-b border-border">
-          <div className="flex items-center justify-between">
-            <SheetTitle>Catálogo de productos</SheetTitle>
-            <Button size="sm" className="gap-1.5" onClick={() => { setEditingProd(null); setDialogOpen(true); }}>
-              <Plus className="h-4 w-4" /> Nuevo producto
-            </Button>
-          </div>
-          <SheetDescription>Gestiona el catálogo completo de productos de inventario.</SheetDescription>
-        </SheetHeader>
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          placeholder="Buscar por nombre o código..."
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1); }}
+          className="h-9 flex-1 min-w-48"
+        />
+        <Select value={filterModulo} onValueChange={v => { setFilterModulo(v); setPage(1); }}>
+          <SelectTrigger className="h-9 w-44 bg-background"><SelectValue placeholder="Área" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los módulos</SelectItem>
+            {MODULOS_OPCIONES.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filterStatus} onValueChange={v => { setFilterStatus(v); setPage(1); }}>
+          <SelectTrigger className="h-9 w-36 bg-background"><SelectValue placeholder="Estado" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            <SelectItem value="activo">Activos</SelectItem>
+            <SelectItem value="inactivo">Inactivos</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">{filtered.length} productos</p>
+        {canAdmin && (
+          <Button size="sm" className="gap-1.5 ml-auto" onClick={() => { setEditingProd(null); setDialogOpen(true); }}>
+            <Plus className="h-4 w-4" /> Nuevo producto
+          </Button>
+        )}
+      </div>
 
-        <div className="flex gap-2 px-5 pt-3">
-          <Input placeholder="Buscar por nombre o código..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="h-9 flex-1" />
-          <Select value={filterModulo} onValueChange={v => { setFilterModulo(v); setPage(1); }}>
-            <SelectTrigger className="h-9 w-44 bg-background"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos los módulos</SelectItem>
-              {MODULOS_OPCIONES.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <ScrollArea className="flex-1 px-5 pt-3">
-          <table className="w-full min-w-[500px] text-sm">
+      {/* Tabla */}
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="overflow-auto">
+          <table className="w-full min-w-[600px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Nombre</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Área</th>
-                <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">Stock</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Estado</th>
-                <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">Acciones</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Nombre</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Área</th>
+                <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Stock</th>
+                <th className="hidden px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground sm:table-cell">Precio</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Estado</th>
+                <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Acciones</th>
               </tr>
             </thead>
             <tbody>
+              {paginated.length === 0 && (
+                <tr><td colSpan={6} className="py-10 text-center text-sm text-muted-foreground">Sin productos</td></tr>
+              )}
               {paginated.map(p => (
                 <tr key={p.id} className={cn("border-b border-border/50 last:border-0 hover:bg-muted/20", !p.activo && "opacity-40")}>
-                  <td className="px-3 py-2">
-                    <p className="font-medium text-sm">{p.nombre}</p>
+                  <td className="px-4 py-2.5">
+                    <p className="font-medium">{p.nombre}</p>
                     <p className="font-mono text-[10px] text-muted-foreground">{p.codigo}</p>
                   </td>
-                  <td className="px-3 py-2"><ModuloBadges ids={p.modulo_ids} size="xs" /></td>
-                  <td className="px-3 py-2 text-right text-sm font-semibold">
-                    {fmtNum(p.cantidad_actual, 1)} <span className="text-xs font-normal text-muted-foreground">{p.unidad_medida}</span>
+                  <td className="px-3 py-2.5"><ModuloBadges ids={p.modulo_ids} size="xs" /></td>
+                  <td className="px-3 py-2.5 text-right">
+                    <span className="font-semibold">{fmtNum(p.cantidad_actual, 1)}</span>
+                    <span className="ml-1 text-xs text-muted-foreground">{p.unidad_medida}</span>
                   </td>
-                  <td className="px-3 py-2"><StockBadge status={getStockStatus(p)} /></td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="hidden px-3 py-2.5 text-right text-xs text-muted-foreground sm:table-cell">
+                    {fmtCurrency(p.precio_unitario)}
+                  </td>
+                  <td className="px-3 py-2.5"><StockBadge status={getStockStatus(p)} /></td>
+                  <td className="px-3 py-2.5 text-right">
                     <div className="inline-flex gap-1">
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingProd(p); setDialogOpen(true); }}><Pencil className="h-3.5 w-3.5" /></Button>
-                      <Button size="sm" variant="ghost" className={cn("h-7 w-7 p-0", p.activo ? "text-muted-foreground" : "text-green-600")} onClick={() => desactivarProducto(p.id)}><Power className="h-3.5 w-3.5" /></Button>
+                      {canAdmin && (
+                        <>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Editar" onClick={() => { setEditingProd(p); setDialogOpen(true); }}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="sm" variant="ghost" className={cn("h-7 w-7 p-0", p.activo ? "text-muted-foreground" : "text-green-600")} title={p.activo ? "Desactivar" : "Activar"} onClick={() => desactivarProducto(p.id)}>
+                            <Power className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-primary" title="Balance de stock" onClick={() => onKardex(p.id)}>
+                        <BookOpen className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between py-3 text-xs text-muted-foreground">
-              <span>{filtered.length} productos — pág. {page}/{totalPages}</span>
-              <div className="flex gap-1">
-                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={page === 1} onClick={() => setPage(p => p - 1)}>‹</Button>
-                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>›</Button>
-              </div>
+        </div>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
+            <span>{filtered.length} productos — pág. {page}/{totalPages}</span>
+            <div className="flex gap-1">
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={page === 1} onClick={() => setPage(p => p - 1)}>‹</Button>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>›</Button>
             </div>
-          )}
-        </ScrollArea>
+          </div>
+        )}
+      </div>
 
-        <ProductoDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editingProd} />
-      </SheetContent>
-    </Sheet>
+      <ProductoDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editingProd} />
+    </div>
   );
 }
 
@@ -1139,14 +1291,19 @@ function CatalogoSheet({ open, onClose }: { open: boolean; onClose: () => void }
 
 const MOV_PAGE = 20;
 
-function MovimientosView({ onOpenDetail }: { onOpenDetail: (id: string) => void }) {
+function MovimientosView({ onOpenDetail, onKardex }: { onOpenDetail: (id: string) => void; onKardex: (id: string) => void }) {
   const { movimientos, catalogos } = useInventario();
+  const fecha = new Date().toLocaleDateString("es-CL").replace(/\//g, "-");
 
   const [search,      setSearch]      = useState("");
   const [filterTipo,  setFilterTipo]  = useState("all");
   const [filterProd,  setFilterProd]  = useState("all");
-  const [filterOrigen,setFilterOrigen]= useState("all"); // "auto" | "manual" | "all"
+  const [filterOrigen,setFilterOrigen]= useState("all");
   const [page,        setPage]        = useState(1);
+  const [expandedId,  setExpandedId]  = useState<string | null>(null);
+
+  const toggleExpand = (id: string) =>
+    setExpandedId(prev => (prev === id ? null : id));
 
   const productoOpts = useMemo(() =>
     catalogos.filter(c => c.activo).sort((a, b) => a.nombre.localeCompare(b.nombre)),
@@ -1174,6 +1331,51 @@ function MovimientosView({ onOpenDetail }: { onOpenDetail: (id: string) => void 
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / MOV_PAGE));
   const paginados  = filtered.slice((page - 1) * MOV_PAGE, page * MOV_PAGE);
+
+  // ── Grupos de movimientos (estructura pre-calculada) ─────────────────────
+  // Cada grupo es un array de movimientos con la misma operación (mismo origen+fecha).
+  // Manuales o únicos tienen su propia clave. Se usan <tbody> por grupo para evitar
+  // problemas de reconciliación React al expandir filas con fragments.
+
+  const GROUP_BORDERS = [
+    "border-l-violet-400", "border-l-sky-400", "border-l-teal-400",
+    "border-l-orange-400", "border-l-pink-400", "border-l-indigo-400",
+  ];
+  const GROUP_BG = [
+    "bg-violet-50/40 dark:bg-violet-900/10",
+    "bg-sky-50/40 dark:bg-sky-900/10",
+    "bg-teal-50/40 dark:bg-teal-900/10",
+    "bg-orange-50/40 dark:bg-orange-900/10",
+    "bg-pink-50/40 dark:bg-pink-900/10",
+    "bg-indigo-50/40 dark:bg-indigo-900/10",
+  ];
+
+  type MovGroup = {
+    key:        string;
+    isMulti:    boolean;  // >=2 movimientos automáticos
+    colorIdx:   number;
+    movements:  typeof paginados;
+  };
+
+  const groups = useMemo((): MovGroup[] => {
+    const keyOf = (m: typeof paginados[0]) =>
+      m.registro_origen_tipo ? `${m.registro_origen_tipo}|${m.fecha}` : `manual|${m.id}`;
+
+    const order: string[] = [];
+    const map   = new Map<string, typeof paginados>();
+    paginados.forEach(m => {
+      const k = keyOf(m);
+      if (!map.has(k)) { order.push(k); map.set(k, []); }
+      map.get(k)!.push(m);
+    });
+
+    let colorIdx = 0;
+    return order.map(k => {
+      const movements = map.get(k)!;
+      const isMulti   = !k.startsWith("manual|") && movements.length >= 2;
+      return { key: k, isMulti, colorIdx: isMulti ? colorIdx++ % GROUP_BORDERS.length : 0, movements };
+    });
+  }, [paginados]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const TIPO_COLORS: Record<string, string> = {
     entrada: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
@@ -1221,9 +1423,54 @@ function MovimientosView({ onOpenDetail }: { onOpenDetail: (id: string) => void 
             <SelectItem value="manual">Manuales</SelectItem>
           </SelectContent>
         </Select>
-        <p className="ml-auto text-xs text-muted-foreground shrink-0">
-          {filtered.length} movimiento{filtered.length !== 1 ? "s" : ""}
-        </p>
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          <p className="text-xs text-muted-foreground">
+            {filtered.length} movimiento{filtered.length !== 1 ? "s" : ""}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => {
+              exportToCsv(
+                filtered.map(m => {
+                  const prod = catalogos.find(c => c.id === m.catalogo_id);
+                  const delta = m.cantidad_nueva - m.cantidad_anterior;
+                  return {
+                    fecha:             m.fecha,
+                    producto:          prod?.nombre ?? m.catalogo_id,
+                    codigo:            prod?.codigo ?? "",
+                    tipo:              m.tipo,
+                    subtipo:           m.subtipo.replace(/_/g, " "),
+                    cantidad:          m.tipo === "ajuste" ? Math.abs(delta) : m.cantidad,
+                    stock_anterior:    m.cantidad_anterior,
+                    stock_resultante:  m.cantidad_nueva,
+                    unidad:            prod?.unidad_medida ?? "",
+                    origen:            m.registro_origen_tipo ?? "Manual",
+                    observaciones:     m.observaciones ?? "",
+                  };
+                }),
+                [
+                  { key: "fecha",           label: "Fecha" },
+                  { key: "producto",        label: "Producto" },
+                  { key: "codigo",          label: "Código" },
+                  { key: "tipo",            label: "Tipo" },
+                  { key: "subtipo",         label: "Subtipo" },
+                  { key: "cantidad",        label: "Cantidad" },
+                  { key: "stock_anterior",  label: "Stock anterior" },
+                  { key: "stock_resultante",label: "Stock resultante" },
+                  { key: "unidad",          label: "Unidad" },
+                  { key: "origen",          label: "Origen" },
+                  { key: "observaciones",   label: "Observaciones" },
+                ],
+                `movimientos${filterTipo !== "all" ? `-${filterTipo}` : ""}${filterOrigen !== "all" ? `-${filterOrigen}` : ""}-${fecha}.csv`,
+              );
+            }}
+          >
+            <Download className="h-3.5 w-3.5" />
+            Exportar ({filtered.length})
+          </Button>
+        </div>
       </div>
 
       {/* Tabla */}
@@ -1241,6 +1488,7 @@ function MovimientosView({ onOpenDetail }: { onOpenDetail: (id: string) => void 
                 <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Origen</th>
               </tr>
             </thead>
+            {/* Empty state */}
             <tbody>
               {paginados.length === 0 && (
                 <tr>
@@ -1250,64 +1498,185 @@ function MovimientosView({ onOpenDetail }: { onOpenDetail: (id: string) => void 
                   </td>
                 </tr>
               )}
-              {paginados.map(m => {
-                const prod  = catalogos.find(c => c.id === m.catalogo_id);
-                const delta = m.cantidad_nueva - m.cantidad_anterior;
+            </tbody>
+
+            {/* Un <tbody> por grupo — evita bugs de reconciliación React */}
+            {groups.map(group => (
+              <tbody key={group.key}>
+                {/* Cabecera de grupo (solo si 2+ automáticos) */}
+                {group.isMulti && (
+                  <tr>
+                    <td colSpan={7} className="px-4 pt-3 pb-1">
+                      <div className="flex items-center gap-2">
+                        <div className={cn("h-2 w-2 rounded-full",
+                          GROUP_BORDERS[group.colorIdx].replace("border-l-", "bg-"))} />
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          {group.movements[0].registro_origen_tipo}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">·</span>
+                        <span className="text-[10px] text-muted-foreground">{group.movements[0].fecha}</span>
+                        <span className="rounded-full bg-muted px-1.5 py-0 text-[10px] text-muted-foreground">
+                          {group.movements.length} productos en esta operación
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {group.movements.map((m, mIdx) => {
+                const prod      = catalogos.find(c => c.id === m.catalogo_id);
+                const delta     = m.cantidad_nueva - m.cantidad_anterior;
                 const esEntrada = m.tipo === "entrada" || (m.tipo === "ajuste" && delta > 0);
                 const esSalida  = m.tipo === "salida"  || (m.tipo === "ajuste" && delta < 0);
                 const isAuto    = !!m.registro_origen_tipo;
+                const isExpanded = expandedId === m.id;
+                const isLast     = mIdx === group.movements.length - 1;
 
                 return (
-                  <tr
-                    key={m.id}
-                    className="cursor-pointer border-b border-border/50 last:border-0 hover:bg-muted/20"
-                    onClick={() => prod && onOpenDetail(prod.id)}
-                  >
-                    <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{m.fecha}</td>
-                    <td className="px-3 py-2.5">
-                      <p className="font-medium text-sm">{prod?.nombre ?? m.catalogo_id}</p>
-                      <p className="text-[10px] text-muted-foreground">{prod?.codigo ?? ""}</p>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <span className={cn(
-                        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                        TIPO_COLORS[m.tipo] ?? "bg-muted text-muted-foreground",
-                      )}>
-                        {TIPO_ICON[m.tipo]}{m.tipo}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      <span className={cn(
-                        "font-semibold",
-                        esEntrada ? "text-green-600" : esSalida ? "text-red-600" : "text-muted-foreground",
-                      )}>
-                        {esEntrada ? "+" : esSalida ? "−" : ""}
-                        {fmtNum(m.tipo === "ajuste" ? Math.abs(delta) : m.cantidad, 1)}
-                      </span>
-                      <span className="ml-1 text-[10px] text-muted-foreground">{prod?.unidad_medida ?? ""}</span>
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">
-                      {fmtNum(m.cantidad_nueva, 1)}
-                    </td>
-                    <td className="px-3 py-2.5 text-xs capitalize text-muted-foreground">
-                      {m.subtipo.replace(/_/g, " ")}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {isAuto ? (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[10px] font-medium">
-                          <Zap className="h-2.5 w-2.5 text-amber-500" />
-                          {m.registro_origen_tipo}
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground">
-                          {m.observaciones ? m.observaciones.substring(0, 30) + (m.observaciones.length > 30 ? "…" : "") : "Manual"}
-                        </span>
+                  <Fragment key={m.id}>
+                    {/* ── Fila principal ── */}
+                    <tr
+                      className={cn(
+                        "cursor-pointer transition-colors select-none",
+                        isLast && group.isMulti ? "border-b-2 border-border" : "border-b border-border/40",
+                        group.isMulti
+                          ? cn("border-l-4", GROUP_BORDERS[group.colorIdx],
+                              isExpanded ? "bg-muted/50" : cn(GROUP_BG[group.colorIdx], "hover:brightness-95"))
+                          : isExpanded
+                          ? "bg-muted/40 border-border border-b"
+                          : "hover:bg-muted/20 border-b border-border/50",
                       )}
-                    </td>
-                  </tr>
+                      onClick={() => toggleExpand(m.id)}
+                    >
+                      {/* Indicador expand */}
+                      <td className="pl-3 pr-1 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <ChevronRight className={cn(
+                            "h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform",
+                            isExpanded && "rotate-90 text-primary",
+                          )} />
+                          <span className="font-mono text-xs text-muted-foreground">{m.fecha}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <p className="font-medium text-sm">{prod?.nombre ?? m.catalogo_id}</p>
+                        <p className="text-[10px] text-muted-foreground">{prod?.codigo ?? ""}</p>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className={cn(
+                          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                          TIPO_COLORS[m.tipo] ?? "bg-muted text-muted-foreground",
+                        )}>
+                          {TIPO_ICON[m.tipo]}{m.tipo}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        <span className={cn(
+                          "font-semibold",
+                          esEntrada ? "text-green-600" : esSalida ? "text-red-600" : "text-muted-foreground",
+                        )}>
+                          {esEntrada ? "+" : esSalida ? "−" : ""}
+                          {fmtNum(m.tipo === "ajuste" ? Math.abs(delta) : m.cantidad, 1)}
+                        </span>
+                        <span className="ml-1 text-[10px] text-muted-foreground">{prod?.unidad_medida ?? ""}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">
+                        {fmtNum(m.cantidad_nueva, 1)}
+                      </td>
+                      <td className="px-3 py-2.5 text-xs capitalize text-muted-foreground">
+                        {m.subtipo.replace(/_/g, " ")}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {isAuto ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[10px] font-medium">
+                            <Zap className="h-2.5 w-2.5 text-amber-500" />
+                            {m.registro_origen_tipo}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground">
+                            {m.observaciones ? m.observaciones.substring(0, 28) + (m.observaciones.length > 28 ? "…" : "") : "Manual"}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+
+                    {/* ── Fila expandida — detalle completo del movimiento ── */}
+                    {isExpanded && (
+                      <tr className={cn("border-b border-border bg-muted/20",
+                        group.isMulti ? cn("border-l-4", GROUP_BORDERS[group.colorIdx]) : "")}>
+                        <td colSpan={7} className="px-6 py-4">
+                          <div className="flex flex-wrap items-start justify-between gap-4">
+                            {/* Datos del movimiento */}
+                            <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-xs sm:grid-cols-4">
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Stock anterior</p>
+                                <p className="mt-0.5 font-mono text-sm font-semibold">
+                                  {fmtNum(m.cantidad_anterior, 1)}
+                                  <span className="ml-1 text-[10px] font-normal text-muted-foreground">{prod?.unidad_medida}</span>
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Stock nuevo</p>
+                                <p className={cn("mt-0.5 font-mono text-sm font-semibold",
+                                  esEntrada ? "text-green-600" : esSalida ? "text-red-600" : "")}>
+                                  {fmtNum(m.cantidad_nueva, 1)}
+                                  <span className="ml-1 text-[10px] font-normal text-muted-foreground">{prod?.unidad_medida}</span>
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Subtipo</p>
+                                <p className="mt-0.5 capitalize">{m.subtipo.replace(/_/g, " ")}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Registrado</p>
+                                <p className="mt-0.5">{m.fecha}</p>
+                              </div>
+                              {m.registro_origen_tipo && (
+                                <div className="col-span-2">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Origen</p>
+                                  <p className="mt-0.5 flex items-center gap-1">
+                                    <Zap className="h-3 w-3 text-amber-500" />
+                                    {m.registro_origen_tipo}
+                                    <span className="text-muted-foreground">(automático)</span>
+                                  </p>
+                                </div>
+                              )}
+                              {m.observaciones && (
+                                <div className="col-span-2 sm:col-span-4">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Observaciones</p>
+                                  <p className="mt-0.5 text-muted-foreground">{m.observaciones}</p>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Botones de acción — separados del click de fila */}
+                            {prod && (
+                              <div className="flex shrink-0 flex-col gap-2">
+                                <button
+                                  onClick={e => { e.stopPropagation(); onOpenDetail(prod.id); }}
+                                  className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-muted transition-colors"
+                                >
+                                  <Package className="h-3.5 w-3.5 text-muted-foreground" />
+                                  Ver ficha del producto
+                                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                                </button>
+                                <button
+                                  onClick={e => { e.stopPropagation(); onKardex(prod.id); }}
+                                  className="flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+                                >
+                                  <BookOpen className="h-3.5 w-3.5" />
+                                  Balance de stock
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
-              })}
-            </tbody>
+                })}
+              </tbody>
+            ))}
           </table>
         </div>
 
@@ -1326,31 +1695,382 @@ function MovimientosView({ onOpenDetail }: { onOpenDetail: (id: string) => void 
   );
 }
 
+// ─── Conteo Físico / Ajuste masivo ───────────────────────────────────────────
+
+function ConteoFisicoView({ onDone }: { onDone: () => void }) {
+  const { getAllProductos, registrarMovimiento } = useInventario();
+  const productos = getAllProductos();
+
+  const [conteos, setConteos]     = useState<Record<string, string>>({});
+  const [search,  setSearch]      = useState("");
+  const [soloDif, setSoloDif]     = useState(false);
+  const [loading, setLoading]     = useState(false);
+  const fecha = new Date().toLocaleDateString("es-CL");
+
+  const setConteo = (id: string, v: string) =>
+    setConteos(prev => ({ ...prev, [id]: v }));
+
+  const getDif = (p: typeof productos[0]) => {
+    const conteo = parseFloat(conteos[p.id] ?? "");
+    if (isNaN(conteo)) return null;
+    return conteo - p.cantidad_actual;
+  };
+
+  const filtrados = productos.filter(p => {
+    const q = search.toLowerCase();
+    if (q && !p.nombre.toLowerCase().includes(q) && !p.codigo.toLowerCase().includes(q)) return false;
+    if (soloDif) {
+      const d = getDif(p);
+      return d !== null && d !== 0;
+    }
+    return true;
+  });
+
+  const conDiferencias = productos.filter(p => {
+    const d = getDif(p);
+    return d !== null && d !== 0;
+  });
+
+  const confirmar = () => {
+    setLoading(true);
+    conDiferencias.forEach(p => {
+      const conteo = parseFloat(conteos[p.id] ?? "");
+      if (!isNaN(conteo)) {
+        registrarMovimiento(p.id, "ajuste", "conteo_fisico", conteo, {
+          observaciones: `Conteo físico — ${fecha}`,
+        });
+      }
+    });
+    setLoading(false);
+    onDone();
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex-1 min-w-64">
+          <Input
+            placeholder="Buscar producto o código…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="h-9"
+          />
+        </div>
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={soloDif}
+            onChange={e => setSoloDif(e.target.checked)}
+            className="h-4 w-4 accent-primary"
+          />
+          Solo con diferencias
+        </label>
+        {conDiferencias.length > 0 && (
+          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+            {conDiferencias.length} diferencia{conDiferencias.length !== 1 ? "s" : ""}
+          </span>
+        )}
+        <p className="ml-auto text-xs text-muted-foreground">{fecha}</p>
+      </div>
+
+      {/* Instrucción */}
+      <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2.5 text-xs text-blue-800 dark:border-blue-800/40 dark:bg-blue-900/10 dark:text-blue-300">
+        <AlertCircleIcon className="h-4 w-4 shrink-0 mt-0.5" />
+        <p>
+          Ingresa el stock real contado en bodega para cada producto. Solo se ajustarán los que tengan diferencias.
+          Los campos vacíos se ignoran.
+        </p>
+      </div>
+
+      {/* Tabla spreadsheet */}
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="overflow-auto">
+          <table className="w-full min-w-[600px] text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/40">
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Producto</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Código</th>
+                <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Stock sistema</th>
+                <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground w-40">Conteo físico</th>
+                <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Diferencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtrados.length === 0 && (
+                <tr><td colSpan={5} className="py-10 text-center text-sm text-muted-foreground">Sin productos</td></tr>
+              )}
+              {filtrados.map(p => {
+                const dif = getDif(p);
+                const hasDif = dif !== null && dif !== 0;
+                return (
+                  <tr
+                    key={p.id}
+                    className={cn(
+                      "border-b border-border/50 last:border-0",
+                      hasDif ? (dif! > 0 ? "bg-green-50/40 dark:bg-green-900/10" : "bg-red-50/40 dark:bg-red-900/10") : "",
+                    )}
+                  >
+                    <td className="px-4 py-2">
+                      <p className="font-medium">{p.nombre}</p>
+                      <ModuloBadges ids={p.modulo_ids} size="xs" />
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{p.codigo}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      <span className="font-semibold">{fmtNum(p.cantidad_actual, 1)}</span>
+                      <span className="ml-1 text-xs text-muted-foreground">{p.unidad_medida}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={conteos[p.id] ?? ""}
+                        onChange={e => setConteo(p.id, e.target.value)}
+                        onKeyDown={e => { if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault(); }}
+                        placeholder={fmtNum(p.cantidad_actual, 1)}
+                        className={cn(
+                          "h-8 text-right",
+                          hasDif ? "border-amber-400 bg-amber-50/60 dark:bg-amber-900/10 font-semibold" : "",
+                        )}
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {dif === null ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : dif === 0 ? (
+                        <span className="text-green-600 text-xs">✓ OK</span>
+                      ) : (
+                        <span className={cn("font-semibold tabular-nums text-sm", dif > 0 ? "text-green-600" : "text-red-600")}>
+                          {dif > 0 ? "+" : ""}{fmtNum(dif, 1)}
+                          <span className="ml-1 text-[10px] font-normal text-muted-foreground">{p.unidad_medida}</span>
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between rounded-xl border border-border bg-muted/20 px-4 py-3">
+        <div className="text-xs text-muted-foreground">
+          {conDiferencias.length === 0
+            ? "Sin diferencias — el stock del sistema coincide con el conteo."
+            : <span className="font-medium text-amber-700 dark:text-amber-400">
+                Se ajustarán {conDiferencias.length} producto{conDiferencias.length !== 1 ? "s" : ""}.
+              </span>
+          }
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={onDone}>Cancelar</Button>
+          <Button
+            size="sm"
+            disabled={conDiferencias.length === 0 || loading}
+            onClick={confirmar}
+            className="gap-1.5 bg-primary"
+          >
+            <ClipboardCheck className="h-4 w-4" />
+            Confirmar ajuste ({conDiferencias.length})
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Kardex por producto ──────────────────────────────────────────────────────
+
+function KardexSheet({ productId, onClose }: { productId: string | null; onClose: () => void }) {
+  const { catalogos, getMovimientosByProducto } = useInventario();
+  const p = productId ? catalogos.find(x => x.id === productId) : null;
+
+  return (
+    <Sheet open={productId !== null} onOpenChange={v => { if (!v) onClose(); }}>
+      <SheetContent className="w-full sm:max-w-4xl p-0 flex flex-col" side="right">
+        {!p ? null : (() => {
+          const movs = getMovimientosByProducto(p.id)
+            .slice()
+            .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.created_at.localeCompare(b.created_at));
+
+          const precio = p.precio_unitario;
+
+          // Calcular Kardex con saldo acumulado
+          type KardexRow = {
+            fecha: string; concepto: string;
+            entQ?: number; entP?: number; entTotal?: number;
+            salQ?: number; salP?: number; salTotal?: number;
+            saldoQ: number; saldoP: number; saldoTotal: number;
+          };
+
+          let saldoQ = 0;
+          const rows: KardexRow[] = movs.map(m => {
+            const delta = m.cantidad_nueva - m.cantidad_anterior;
+            const esEntrada = m.tipo === "entrada" || (m.tipo === "ajuste" && delta > 0);
+            const esSalida  = m.tipo === "salida"  || (m.tipo === "ajuste" && delta < 0);
+            const qty = m.tipo === "ajuste" ? Math.abs(delta) : m.cantidad;
+            const p_unit = m.precio_unitario ?? precio;
+            saldoQ = m.cantidad_nueva;
+
+            const concepto = m.registro_origen_tipo
+              ? `${m.registro_origen_tipo} (auto)`
+              : m.observaciones ?? m.subtipo.replace(/_/g, " ");
+
+            return {
+              fecha: m.fecha, concepto,
+              entQ:    esEntrada ? qty    : undefined,
+              entP:    esEntrada ? p_unit : undefined,
+              entTotal:esEntrada ? qty * p_unit : undefined,
+              salQ:    esSalida  ? qty    : undefined,
+              salP:    esSalida  ? p_unit : undefined,
+              salTotal:esSalida  ? qty * p_unit : undefined,
+              saldoQ, saldoP: precio, saldoTotal: saldoQ * precio,
+            };
+          });
+
+          const valorTotal = saldoQ * precio;
+
+          return (
+            <>
+              <SheetHeader className="shrink-0 border-b border-border px-5 pt-5 pb-4">
+                <SheetTitle className="flex items-center gap-2">
+                  <BookOpen className="h-5 w-5 text-primary" />
+                  Balance de stock — {p.nombre}
+                </SheetTitle>
+                <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                  <span className="font-mono">{p.codigo}</span>
+                  <span>{p.categoria}</span>
+                  <span>Precio unitario: <strong>{fmtCurrency(precio)}</strong></span>
+                  <span>Unidad: <strong>{p.unidad_medida}</strong></span>
+                  <span className="ml-auto font-medium text-foreground">
+                    Saldo final: {fmtNum(saldoQ, 1)} {p.unidad_medida} · {fmtCurrency(valorTotal)}
+                  </span>
+                </div>
+              </SheetHeader>
+
+              <ScrollArea className="flex-1">
+                <div className="p-4">
+                  {rows.length === 0 ? (
+                    <p className="py-10 text-center text-sm text-muted-foreground">Sin movimientos registrados</p>
+                  ) : (
+                    <table className="w-full min-w-[700px] text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b-2 border-border bg-muted/40">
+                          <th rowSpan={2} className="border border-border px-3 py-2 text-left font-semibold">Fecha</th>
+                          <th rowSpan={2} className="border border-border px-3 py-2 text-left font-semibold">Concepto</th>
+                          <th colSpan={3} className="border border-border px-3 py-1.5 text-center font-semibold text-green-700 dark:text-green-400 bg-green-50/60 dark:bg-green-900/10">ENTRADAS</th>
+                          <th colSpan={3} className="border border-border px-3 py-1.5 text-center font-semibold text-red-700 dark:text-red-400 bg-red-50/60 dark:bg-red-900/10">SALIDAS</th>
+                          <th colSpan={3} className="border border-border px-3 py-1.5 text-center font-semibold text-blue-700 dark:text-blue-400 bg-blue-50/60 dark:bg-blue-900/10">SALDO</th>
+                        </tr>
+                        <tr className="border-b border-border bg-muted/20">
+                          {["Cant.", "P.Unit.", "Total", "Cant.", "P.Unit.", "Total", "Cant.", "P.Unit.", "Total"].map((h, i) => (
+                            <th key={i} className={cn("border border-border px-2 py-1 text-right font-semibold text-muted-foreground",
+                              i < 3 ? "bg-green-50/40 dark:bg-green-900/10" : i < 6 ? "bg-red-50/40 dark:bg-red-900/10" : "bg-blue-50/40 dark:bg-blue-900/10"
+                            )}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r, i) => (
+                          <tr key={i} className={cn("border-b border-border/50 hover:bg-muted/10", i % 2 === 0 ? "" : "bg-muted/20")}>
+                            <td className="border border-border/30 px-3 py-2 font-mono text-muted-foreground whitespace-nowrap">{r.fecha}</td>
+                            <td className="border border-border/30 px-3 py-2 max-w-[180px] truncate" title={r.concepto}>{r.concepto}</td>
+                            {/* Entradas */}
+                            <td className="border border-border/30 px-2 py-2 text-right text-green-700 dark:text-green-400 bg-green-50/20 dark:bg-green-900/5 tabular-nums">
+                              {r.entQ !== undefined ? fmtNum(r.entQ, 1) : ""}
+                            </td>
+                            <td className="border border-border/30 px-2 py-2 text-right text-green-700 dark:text-green-400 bg-green-50/20 dark:bg-green-900/5 tabular-nums">
+                              {r.entP !== undefined ? fmtCurrency(r.entP) : ""}
+                            </td>
+                            <td className="border border-border/30 px-2 py-2 text-right font-medium text-green-700 dark:text-green-400 bg-green-50/20 dark:bg-green-900/5 tabular-nums">
+                              {r.entTotal !== undefined ? fmtCurrency(r.entTotal) : ""}
+                            </td>
+                            {/* Salidas */}
+                            <td className="border border-border/30 px-2 py-2 text-right text-red-700 dark:text-red-400 bg-red-50/20 dark:bg-red-900/5 tabular-nums">
+                              {r.salQ !== undefined ? fmtNum(r.salQ, 1) : ""}
+                            </td>
+                            <td className="border border-border/30 px-2 py-2 text-right text-red-700 dark:text-red-400 bg-red-50/20 dark:bg-red-900/5 tabular-nums">
+                              {r.salP !== undefined ? fmtCurrency(r.salP) : ""}
+                            </td>
+                            <td className="border border-border/30 px-2 py-2 text-right font-medium text-red-700 dark:text-red-400 bg-red-50/20 dark:bg-red-900/5 tabular-nums">
+                              {r.salTotal !== undefined ? fmtCurrency(r.salTotal) : ""}
+                            </td>
+                            {/* Saldo */}
+                            <td className="border border-border/30 px-2 py-2 text-right font-semibold text-blue-700 dark:text-blue-400 bg-blue-50/20 dark:bg-blue-900/5 tabular-nums">
+                              {fmtNum(r.saldoQ, 1)}
+                            </td>
+                            <td className="border border-border/30 px-2 py-2 text-right text-blue-700 dark:text-blue-400 bg-blue-50/20 dark:bg-blue-900/5 tabular-nums">
+                              {fmtCurrency(r.saldoP)}
+                            </td>
+                            <td className="border border-border/30 px-2 py-2 text-right font-semibold text-blue-700 dark:text-blue-400 bg-blue-50/20 dark:bg-blue-900/5 tabular-nums">
+                              {fmtCurrency(r.saldoTotal)}
+                            </td>
+                          </tr>
+                        ))}
+                        {/* Fila de totales */}
+                        <tr className="border-t-2 border-border bg-muted/40 font-semibold">
+                          <td colSpan={2} className="border border-border px-3 py-2 text-xs uppercase tracking-wide text-muted-foreground">TOTALES</td>
+                          <td className="border border-border px-2 py-2 text-right tabular-nums text-green-700 dark:text-green-400">
+                            {fmtNum(rows.reduce((s, r) => s + (r.entQ ?? 0), 0), 1)}
+                          </td>
+                          <td className="border border-border px-2 py-2 bg-green-50/20 dark:bg-green-900/5" />
+                          <td className="border border-border px-2 py-2 text-right font-semibold tabular-nums text-green-700 dark:text-green-400">
+                            {fmtCurrency(rows.reduce((s, r) => s + (r.entTotal ?? 0), 0))}
+                          </td>
+                          <td className="border border-border px-2 py-2 text-right tabular-nums text-red-700 dark:text-red-400">
+                            {fmtNum(rows.reduce((s, r) => s + (r.salQ ?? 0), 0), 1)}
+                          </td>
+                          <td className="border border-border px-2 py-2 bg-red-50/20 dark:bg-red-900/5" />
+                          <td className="border border-border px-2 py-2 text-right font-semibold tabular-nums text-red-700 dark:text-red-400">
+                            {fmtCurrency(rows.reduce((s, r) => s + (r.salTotal ?? 0), 0))}
+                          </td>
+                          <td className="border border-border px-2 py-2 text-right font-bold tabular-nums text-blue-700 dark:text-blue-400">{fmtNum(saldoQ, 1)}</td>
+                          <td className="border border-border px-2 py-2 bg-blue-50/20 dark:bg-blue-900/5" />
+                          <td className="border border-border px-2 py-2 text-right font-bold tabular-nums text-blue-700 dark:text-blue-400">{fmtCurrency(valorTotal)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </ScrollArea>
+            </>
+          );
+        })()}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function Inventario() {
   const { hierarchyLevel }   = useRole();
-  const { getAllProductos, movimientos, getAlertas } = useInventario();
+  const { getAllProductos, movimientos, getAlertas, getAlertasVencimiento, catalogos, desactivarProducto } = useInventario();
   const [searchParams]       = useSearchParams();
 
   const moduloParam = searchParams.get("modulo") ?? "all";
 
   // ── Tab principal ─────────────────────────────────────────────────────────
-  const [mainTab, setMainTab] = useState<"stock" | "movimientos">("stock");
+  const [mainTab, setMainTab] = useState<"stock" | "movimientos" | "conteo">("stock");
 
   // ── Filters (stock tab) ───────────────────────────────────────────────────
   const [search,       setSearch]       = useState("");
   const [filterModulo, setFilterModulo] = useState(moduloParam);
   const [filterEstado, setFilterEstado] = useState("all");
-  const [viewMode,     setViewMode]     = useState<"grid" | "list">("grid");
+  const [viewMode,     setViewMode]     = useState<"grid" | "list">("list");
 
   // ── Overlays ──────────────────────────────────────────────────────────────
   const [selectedId,    setSelectedId]    = useState<string | null>(null);
   const [detalleOpen,   setDetalleOpen]   = useState(false);
-  const [catalogoOpen,  setCatalogoOpen]  = useState(false);
+  const [prodDialogOpen, setProdDialogOpen] = useState(false);
+  const [editingProd,    setEditingProd]    = useState<InvCatalogo | null>(null);
   const [modalId,       setModalId]       = useState<string | null>(null);
   const [modalTipo,     setModalTipo]     = useState<InvMovimientoTipo>("entrada");
   const [modalOpen,     setModalOpen]     = useState(false);
+  const [kardexId,      setKardexId]      = useState<string | null>(null);
 
   const canAdmin = hierarchyLevel >= 5;
 
@@ -1359,9 +2079,92 @@ export default function Inventario() {
     setModalId(id); setModalTipo(tipo); setModalOpen(true);
   }
 
+  // ── Exportar stock (respeta filtros activos) ──────────────────────────────
+  function exportarStock() {
+    const todos = filtered; // usa los filtros activos del panel lateral
+    const fecha = new Date().toLocaleDateString("es-CL").replace(/\//g, "-");
+    exportToCsv(
+      todos.map(p => ({
+        codigo:           p.codigo,
+        nombre:           p.nombre,
+        categoria:        p.categoria,
+        areas:            p.modulo_ids.join(" / "),
+        stock_actual:     p.cantidad_actual,
+        stock_minimo:     p.cantidad_minima,
+        stock_maximo:     p.cantidad_maxima,
+        unidad:           p.unidad_medida,
+        estado:           getStockStatus(p) === "ok" ? "OK" : getStockStatus(p) === "bajo" ? "Bajo" : "Crítico",
+        precio_unitario:  p.precio_unitario,
+        valor_total:      +(p.cantidad_actual * p.precio_unitario).toFixed(2),
+        proveedor:        p.proveedor_id ?? "",
+        ubicacion:        p.ubicacion_fisica ?? "",
+        // Campos personalizados aplanados
+        ...Object.fromEntries((p.campos_extra ?? []).map(c => [c.nombre, c.valor])),
+      })),
+      [
+        { key: "codigo",          label: "Código" },
+        { key: "nombre",          label: "Nombre" },
+        { key: "categoria",       label: "Categoría" },
+        { key: "areas",           label: "Área(s) de uso" },
+        { key: "stock_actual",    label: "Stock actual" },
+        { key: "stock_minimo",    label: "Stock mínimo" },
+        { key: "stock_maximo",    label: "Stock máximo" },
+        { key: "unidad",          label: "Unidad" },
+        { key: "estado",          label: "Estado" },
+        { key: "precio_unitario", label: "Precio unitario" },
+        { key: "valor_total",     label: "Valor total" },
+        { key: "proveedor",       label: "Proveedor" },
+        { key: "ubicacion",       label: "Ubicación física" },
+      ],
+      `inventario-stock${filterModulo !== "all" ? `-${filterModulo}` : ""}${filterEstado !== "all" ? `-${filterEstado}` : ""}-${fecha}.csv`,
+    );
+  }
+
+  // ── Exportar historial de movimientos ─────────────────────────────────────
+  function exportarMovimientos() {
+    const fecha = new Date().toLocaleDateString("es-CL").replace(/\//g, "-");
+    const sorted = [...movimientos].sort((a, b) => b.fecha.localeCompare(a.fecha));
+    exportToCsv(
+      sorted.map(m => {
+        const prod = catalogos.find(c => c.id === m.catalogo_id);
+        return {
+          fecha:             m.fecha,
+          producto:          prod?.nombre ?? m.catalogo_id,
+          codigo:            prod?.codigo ?? "",
+          tipo:              m.tipo,
+          subtipo:           m.subtipo.replace(/_/g, " "),
+          cantidad:          m.tipo === "ajuste"
+            ? Math.abs(m.cantidad_nueva - m.cantidad_anterior)
+            : m.cantidad,
+          stock_anterior:    m.cantidad_anterior,
+          stock_resultante:  m.cantidad_nueva,
+          unidad:            prod?.unidad_medida ?? "",
+          origen:            m.registro_origen_tipo ?? "Manual",
+          observaciones:     m.observaciones ?? "",
+        };
+      }),
+      [
+        { key: "fecha",           label: "Fecha" },
+        { key: "producto",        label: "Producto" },
+        { key: "codigo",          label: "Código" },
+        { key: "tipo",            label: "Tipo" },
+        { key: "subtipo",         label: "Subtipo" },
+        { key: "cantidad",        label: "Cantidad" },
+        { key: "stock_anterior",  label: "Stock anterior" },
+        { key: "stock_resultante",label: "Stock resultante" },
+        { key: "unidad",          label: "Unidad" },
+        { key: "origen",          label: "Origen" },
+        { key: "observaciones",   label: "Observaciones" },
+      ],
+      `inventario-movimientos-${fecha}.csv`,
+    );
+  }
+
   // ── Derived ───────────────────────────────────────────────────────────────
-  const allProductos = getAllProductos();
-  const alertas      = getAlertas();
+  const allProductos    = getAllProductos();
+  const alertas         = getAlertas();
+  const alertasVenc     = getAlertasVencimiento();
+  const vencCriticos    = alertasVenc.filter(a => a.estado === "vencido" || a.estado === "critico");
 
   const currentMonth = new Date().toISOString().substring(0, 7);
   const movsMes = useMemo(
@@ -1391,11 +2194,21 @@ export default function Inventario() {
         title="Inventario"
         description="Gestión de stock, movimientos y alertas por módulo"
         actions={
-          canAdmin ? (
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setCatalogoOpen(true)}>
-              <Package className="h-4 w-4" /> Gestionar catálogo
-            </Button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            {mainTab === "stock" && (
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={exportarStock}>
+                <Download className="h-4 w-4" />
+                Exportar{filtered.length < getAllProductos().length
+                  ? ` (${filtered.length} de ${getAllProductos().length})`
+                  : " stock"}
+              </Button>
+            )}
+            {canAdmin && mainTab === "stock" && (
+              <Button size="sm" className="gap-1.5" onClick={() => { setEditingProd(null); setProdDialogOpen(true); }}>
+                <Plus className="h-4 w-4" /> Nuevo producto
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -1403,7 +2216,8 @@ export default function Inventario() {
       <div className="mb-6 flex gap-1 rounded-xl border border-border bg-muted p-1 w-fit">
         {([
           { id: "stock",       label: "Stock",       icon: <Package   className="h-4 w-4" /> },
-          { id: "movimientos", label: "Movimientos",  icon: <History   className="h-4 w-4" /> },
+          { id: "movimientos", label: "Movimientos",   icon: <History        className="h-4 w-4" /> },
+          { id: "conteo",      label: "Conteo físico", icon: <ClipboardCheck className="h-4 w-4" /> },
         ] as const).map(t => (
           <button
             key={t.id}
@@ -1426,17 +2240,24 @@ export default function Inventario() {
       </div>
 
       {/* Metrics */}
-      <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <MetricCard title="Productos activos"   value={allProductos.length} icon={<Package     className="w-5 h-5" />} />
-        <MetricCard title="Bajo mínimo"         value={alertas.length}      icon={<AlertTriangle className="w-5 h-5" />} variant={alertas.length > 0 ? "warning" : "default"} />
-        <MetricCard title="Valor total"         value={fmtCurrency(valorTotal)} icon={<DollarSign className="w-5 h-5" />} variant="info" />
-        <MetricCard title="Movimientos del mes" value={movsMes}             icon={<TrendingUp   className="w-5 h-5" />} variant="success" />
+      <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-5">
+        <MetricCard title="Productos activos"   value={allProductos.length}     icon={<Package        className="w-5 h-5" />} />
+        <MetricCard title="Bajo mínimo"         value={alertas.length}          icon={<AlertTriangle  className="w-5 h-5" />} variant={alertas.length > 0 ? "warning" : "default"} />
+        <MetricCard title="Por vencer / vencidos" value={alertasVenc.length}    icon={<CalendarClock  className="w-5 h-5" />} variant={vencCriticos.length > 0 ? "warning" : "default"} />
+        <MetricCard title="Valor total"         value={fmtCurrency(valorTotal)} icon={<DollarSign     className="w-5 h-5" />} variant="info" />
+        <MetricCard title="Movimientos del mes" value={movsMes}                 icon={<TrendingUp     className="w-5 h-5" />} variant="success" />
       </div>
 
       {/* Historial de movimientos */}
       {mainTab === "movimientos" && (
-        <MovimientosView onOpenDetail={id => { openDetail(id); }} />
+        <MovimientosView onOpenDetail={id => { openDetail(id); }} onKardex={id => setKardexId(id)} />
       )}
+
+      {/* Conteo físico / Ajuste masivo */}
+      {mainTab === "conteo" && (
+        <ConteoFisicoView onDone={() => setMainTab("stock")} />
+      )}
+
 
       {/* Stock — Main 2-column layout */}
       {mainTab === "stock" && (
@@ -1506,6 +2327,7 @@ export default function Inventario() {
                   p={p}
                   onSelect={openDetail}
                   onMovimiento={openMovimiento}
+                  onKardex={id => setKardexId(id)}
                 />
               ))}
             </div>
@@ -1549,10 +2371,23 @@ export default function Inventario() {
                           </td>
                           <td className="px-3 py-2.5"><StockBadge status={status} /></td>
                           <td className="px-3 py-2.5 text-right" onClick={e => e.stopPropagation()}>
-                            <div className="inline-flex gap-1">
+                            <div className="inline-flex items-center gap-1">
                               <button className="rounded bg-green-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-green-700" onClick={() => openMovimiento(p.id, "entrada")}>+</button>
                               <button className="rounded bg-red-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-red-700" onClick={() => openMovimiento(p.id, "salida")}>−</button>
-                              <button className="rounded px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => openDetail(p.id)}>↗</button>
+                              <button className="rounded px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => openDetail(p.id)} title="Ver detalle">↗</button>
+                              <button className="rounded p-0.5 text-muted-foreground hover:bg-primary/10 hover:text-primary" onClick={() => setKardexId(p.id)} title="Balance de stock">
+                                <BookOpen className="h-3.5 w-3.5" />
+                              </button>
+                              {canAdmin && (
+                                <>
+                                  <button className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => { setEditingProd(p); setProdDialogOpen(true); }} title="Editar producto">
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button className={cn("rounded p-0.5 hover:bg-muted", p.activo ? "text-muted-foreground" : "text-green-600")} onClick={() => desactivarProducto(p.id)} title={p.activo ? "Desactivar" : "Activar"}>
+                                    <Power className="h-3.5 w-3.5" />
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1568,9 +2403,16 @@ export default function Inventario() {
       )}
 
       {/* Sheets + modals */}
-      <DetalleSheet productId={selectedId} open={detalleOpen} onClose={() => setDetalleOpen(false)} onMovimiento={openMovimiento} />
-      <CatalogoSheet open={catalogoOpen} onClose={() => setCatalogoOpen(false)} />
+      <DetalleSheet
+        productId={selectedId}
+        open={detalleOpen}
+        onClose={() => setDetalleOpen(false)}
+        onMovimiento={openMovimiento}
+        onKardex={id => { setKardexId(id); }}
+      />
+      <KardexSheet productId={kardexId} onClose={() => setKardexId(null)} />
       <ModalMovimiento open={modalOpen} onOpenChange={setModalOpen} productoId={modalId} tipoInicial={modalTipo} />
+      <ProductoDialog open={prodDialogOpen} onOpenChange={setProdDialogOpen} editing={editingProd} />
     </MainLayout>
   );
 }

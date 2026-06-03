@@ -491,7 +491,7 @@ function AddWidgetCard({ onClick }: { onClick: () => void }) {
 
 // ─── DashboardBuilderContent ──────────────────────────────────────────────────
 
-export function DashboardBuilderContent() {
+export function DashboardBuilderContent({ inlineMode = false, defaultTab, onAfterSave }: { inlineMode?: boolean; defaultTab?: DashboardTab; onAfterSave?: () => void }) {
   const { definiciones, parametros, cultivos } = useConfig();
 
   const activeDefs = useMemo(
@@ -507,7 +507,7 @@ export function DashboardBuilderContent() {
   // ── Widget list + persistence ──────────────────────────────────────────────
   const [widgets, setWidgets]   = useState<WidgetConfig[]>([]);
   const [savedAt, setSavedAt]   = useState<string | null>(null);
-  const [layoutTab, setLayoutTab] = useState<DashboardTab>("resumen");
+  const [layoutTab, setLayoutTab] = useState<DashboardTab>(defaultTab ?? "resumen");
 
   useEffect(() => {
     try {
@@ -704,6 +704,9 @@ export function DashboardBuilderContent() {
   const saveLayout = () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(widgets));
     setSavedAt(formatSavedAt(new Date()));
+    window.dispatchEvent(new CustomEvent("dashboard-widgets-saved"));
+    // En modo inline, notificar al padre para salir del modo edición
+    onAfterSave?.();
   };
 
   // Filtered widgets + counts for the tab strip
@@ -724,70 +727,91 @@ export function DashboardBuilderContent() {
   return (
     <div className="space-y-0">
 
-      {/* ── Edit-mode bar ────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-3 px-1 py-2.5 border-b border-amber-200/60 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-800/30 rounded-t-lg mb-4">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-          <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
-            Modo edición — arrastra para reordenar · borde derecho = ancho · borde inferior = alto · lápiz = editar
-          </span>
+      {/* ── Edit-mode bar — se oculta en modo inline ─────────────────────── */}
+      {!inlineMode && (
+        <div className="flex items-center justify-between gap-3 px-1 py-2.5 border-b border-amber-200/60 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-800/30 rounded-t-lg mb-4">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+            <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+              Modo edición — arrastra para reordenar · borde derecho = ancho · borde inferior = alto · lápiz = editar
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => { setEditingId(null); setDraft((p) => ({ ...p, title: "", dashboardTab: layoutTab })); setSheetOpen(true); }}
+              className="gap-1.5 h-7 text-xs"
+            >
+              <Plus className="w-3 h-3" /> Agregar widget
+            </Button>
+            <Button
+              type="button"
+              onClick={saveLayout}
+              disabled={widgets.length === 0}
+              size="sm"
+              className="gap-1.5 h-7 text-xs"
+            >
+              <Save className="w-3 h-3" />
+              Guardar
+              {savedAt && <span className="opacity-60 hidden md:inline">· {savedAt}</span>}
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => { setEditingId(null); setDraft((p) => ({ ...p, title: "", dashboardTab: layoutTab })); setSheetOpen(true); }}
-            className="gap-1.5 h-7 text-xs"
-          >
-            <Plus className="w-3 h-3" /> Agregar widget
-          </Button>
+      )}
+
+      {/* ── En modo inline: solo barra de guardar compacta ──────────────── */}
+      {inlineMode && (
+        <div className="mb-3 flex items-center justify-end gap-2">
           <Button
             type="button"
             onClick={saveLayout}
             disabled={widgets.length === 0}
             size="sm"
-            className="gap-1.5 h-7 text-xs"
+            className="gap-1.5 h-8 text-xs"
           >
             <Save className="w-3 h-3" />
-            Guardar
+            Guardar cambios
             {savedAt && <span className="opacity-60 hidden md:inline">· {savedAt}</span>}
           </Button>
         </div>
-      </div>
+      )}
 
-      {/* ── Dashboard tab strip (mirrors the real dashboard) ─────────────── */}
-      <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-border/50 mb-5">
-        {DASHBOARD_TABS.map(({ value, label, icon: Icon }) => {
-          const count = countByTab[value] ?? 0;
-          return (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setLayoutTab(value)}
-              className={cn(
-                "inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-medium transition-all shrink-0 border-b-2 -mb-px",
-                layoutTab === value
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
-              )}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {label}
-              {count > 0 && (
-                <span className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[9px] font-bold leading-none",
+      {/* ── Dashboard tab strip — se oculta en modo inline ──────────────── */}
+      {!inlineMode && (
+        <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-border/50 mb-5">
+          {DASHBOARD_TABS.map(({ value, label, icon: Icon }) => {
+            const count = countByTab[value] ?? 0;
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setLayoutTab(value)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-medium transition-all shrink-0 border-b-2 -mb-px",
                   layoutTab === value
-                    ? "bg-primary/15 text-primary"
-                    : "bg-muted text-muted-foreground",
-                )}>
-                  {count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
+                )}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {label}
+                {count > 0 && (
+                  <span className={cn(
+                    "rounded-full px-1.5 py-0.5 text-[9px] font-bold leading-none",
+                    layoutTab === value
+                      ? "bg-primary/15 text-primary"
+                      : "bg-muted text-muted-foreground",
+                  )}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── Canvas for the selected tab ───────────────────────────────────── */}
       {widgets.length === 0 ? (
