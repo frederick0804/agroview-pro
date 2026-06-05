@@ -46,7 +46,7 @@ import {
   ExternalLink, Info, ChevronRight, X, Zap, Settings2,
   History, Filter, Download, CalendarClock,
   ClipboardCheck, BookOpen, AlertCircle as AlertCircleIcon,
-  Maximize2, Minimize2, Calendar, ArrowLeftRight, Tag,
+  Maximize2, Minimize2, Calendar, ArrowLeftRight, Tag, MoreHorizontal,
 } from "lucide-react";
 import { exportToCsv } from "@/lib/exportCsv";
 import { useConfig }   from "@/contexts/ConfigContext";
@@ -3674,40 +3674,92 @@ export default function Inventario() {
                               : <StockBadge status={status} />}
                           </td>
                           <td className="px-3 py-2.5 text-right" onClick={e => e.stopPropagation()}>
-                            <div className="inline-flex items-center gap-1">
+                            <div className="inline-flex items-center gap-1.5">
+                              {/* Acciones primarias — siempre visibles */}
                               {!inactivo && (
                                 <>
-                                  <button className="rounded bg-green-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-green-700" onClick={() => openMovimiento(p.id, "entrada")}>+</button>
-                                  <button className="rounded bg-red-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-red-700" onClick={() => openMovimiento(p.id, "salida")}>−</button>
                                   <button
-                                    className="rounded p-0.5 text-muted-foreground hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 transition-colors"
-                                    onClick={() => setTransferirId(p.id)}
-                                    title="Transferir a otra área"
-                                  >
-                                    <ArrowLeftRight className="h-3.5 w-3.5" />
-                                  </button>
-                                  <button className="rounded px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => openDetail(p.id)} title="Ver detalle">↗</button>
-                                  <button className="rounded p-0.5 text-muted-foreground hover:bg-primary/10 hover:text-primary" onClick={() => setKardexId(p.id)} title="Balance de stock">
-                                    <BookOpen className="h-3.5 w-3.5" />
-                                  </button>
+                                    className="h-7 w-7 rounded-lg bg-green-600 text-white hover:bg-green-700 flex items-center justify-center text-sm font-bold transition-colors"
+                                    onClick={() => openMovimiento(p.id, "entrada")}
+                                    title="Registrar entrada"
+                                  >+</button>
+                                  <button
+                                    className="h-7 w-7 rounded-lg bg-red-600 text-white hover:bg-red-700 flex items-center justify-center text-sm font-bold transition-colors"
+                                    onClick={() => openMovimiento(p.id, "salida")}
+                                    title="Registrar salida"
+                                  >−</button>
                                 </>
                               )}
-                              {canAdmin && (
-                                <>
+                              {inactivo && (
+                                <span className="text-[11px] text-muted-foreground italic px-1">Inactivo</span>
+                              )}
+
+                              {/* Separador */}
+                              <span className="h-4 w-px bg-border mx-0.5" />
+
+                              {/* Menú "···" — acciones secundarias */}
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button className="h-7 w-7 rounded-lg border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground flex items-center justify-center transition-colors">
+                                    <MoreHorizontal className="h-3.5 w-3.5" />
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent align="end" className="w-48 p-1">
                                   {!inactivo && (
-                                    <button className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => { setEditingProd(p); setProdDialogOpen(true); }} title="Editar">
-                                      <Pencil className="h-3.5 w-3.5" />
-                                    </button>
+                                    <>
+                                      <button
+                                        onClick={() => openDetail(p.id)}
+                                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-accent transition-colors"
+                                      >
+                                        <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                                        Ver detalle
+                                      </button>
+                                      <button
+                                        onClick={() => setKardexId(p.id)}
+                                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-accent transition-colors"
+                                      >
+                                        <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
+                                        Balance de stock
+                                      </button>
+                                      <button
+                                        onClick={() => setTransferirId(p.id)}
+                                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-accent transition-colors"
+                                      >
+                                        <ArrowLeftRight className="h-3.5 w-3.5 text-muted-foreground" />
+                                        Transferir área
+                                      </button>
+                                    </>
                                   )}
-                                  <button
-                                    className={cn("rounded p-0.5 hover:bg-muted transition-colors", inactivo ? "text-green-600 hover:text-green-700" : "text-muted-foreground hover:text-red-600")}
-                                    onClick={() => setConfirmProd(p)}
-                                    title={inactivo ? "Reactivar producto" : "Desactivar producto"}
-                                  >
-                                    <Power className="h-3.5 w-3.5" />
-                                  </button>
-                                </>
-                              )}
+                                  {canAdmin && (
+                                    <>
+                                      {!inactivo && (
+                                        <>
+                                          <div className="my-1 border-t border-border" />
+                                          <button
+                                            onClick={() => { setEditingProd(p); setProdDialogOpen(true); }}
+                                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-accent transition-colors"
+                                          >
+                                            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                                            Editar producto
+                                          </button>
+                                        </>
+                                      )}
+                                      <button
+                                        onClick={() => setConfirmProd(p)}
+                                        className={cn(
+                                          "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors",
+                                          inactivo
+                                            ? "text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
+                                            : "text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20",
+                                        )}
+                                      >
+                                        <Power className="h-3.5 w-3.5" />
+                                        {inactivo ? "Reactivar" : "Desactivar"}
+                                      </button>
+                                    </>
+                                  )}
+                                </PopoverContent>
+                              </Popover>
                             </div>
                           </td>
                         </tr>
