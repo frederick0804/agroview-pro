@@ -43,11 +43,17 @@ interface TablaInsumosFieldProps {
   onChange:    (v: string) => void;
   disabled?:   boolean;
   areaFilter?: string | null;
+  /**
+   * true = estamos editando productos ya guardados.
+   * Las advertencias de stock son informativas (ámbar) en lugar de bloqueantes (rojo),
+   * porque al guardar se revertirán los movimientos anteriores antes de aplicar los nuevos.
+   */
+  isEditing?:  boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function TablaInsumosField({ value, onChange, disabled, areaFilter }: TablaInsumosFieldProps) {
+export function TablaInsumosField({ value, onChange, disabled, areaFilter, isEditing = false }: TablaInsumosFieldProps) {
   const { catalogos } = useInventario();
   const activeCatalogos = useMemo(
     () => catalogos.filter(c => c.activo && (!areaFilter || c.modulo_ids.includes(areaFilter))),
@@ -88,6 +94,7 @@ export function TablaInsumosField({ value, onChange, disabled, areaFilter }: Tab
     const p = activeCatalogos.find(c => c.id === r.catalogo_id);
     return p && Number(r.cantidad) > p.cantidad_actual;
   });
+  // En modo edición: overstock es solo una advertencia (no bloquea), el stock se restaurará al guardar
 
   return (
     <div className="space-y-3">
@@ -106,13 +113,17 @@ export function TablaInsumosField({ value, onChange, disabled, areaFilter }: Tab
             const overStock = prod && Number(row.cantidad) > prod.cantidad_actual;
             const stockStatus = prod ? getStockStatus(prod) : null;
 
+            // En edición: advertencia ámbar. En creación: error rojo.
+            const overStockCls = overStock
+              ? isEditing
+                ? "border-amber-300 dark:border-amber-800/50"
+                : "border-red-300 dark:border-red-800/60"
+              : "border-border";
+
             return (
               <div
                 key={row._uid}
-                className={cn(
-                  "rounded-xl border bg-card p-3 transition-colors",
-                  overStock ? "border-red-300 dark:border-red-800/60" : "border-border",
-                )}
+                className={cn("rounded-xl border bg-card p-3 transition-colors", overStockCls)}
               >
                 {/* Row number + delete */}
                 <div className="mb-2.5 flex items-center justify-between">
@@ -183,7 +194,7 @@ export function TablaInsumosField({ value, onChange, disabled, areaFilter }: Tab
                       : "text-muted-foreground",
                   )}>
                     {stockStatus !== "ok" && <AlertCircle className="mr-1 inline h-3 w-3" />}
-                    Disponible: {prod.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })} {prod.unidad_medida}
+                    {isEditing ? "Stock actual" : "Disponible"}: {prod.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })} {prod.unidad_medida}
                     {stockStatus === "bajo" && " — Stock bajo"}
                     {stockStatus === "critico" && " — Stock crítico"}
                   </p>
@@ -203,7 +214,11 @@ export function TablaInsumosField({ value, onChange, disabled, areaFilter }: Tab
                       placeholder="0"
                       className={cn(
                         "h-10",
-                        overStock ? "border-red-400 bg-red-50 dark:bg-red-900/10" : "",
+                        overStock
+                          ? isEditing
+                            ? "border-amber-400 bg-amber-50/60 dark:bg-amber-900/10"
+                            : "border-red-400 bg-red-50 dark:bg-red-900/10"
+                          : "",
                       )}
                     />
                   </div>
@@ -215,8 +230,15 @@ export function TablaInsumosField({ value, onChange, disabled, areaFilter }: Tab
                 </div>
 
                 {overStock && (
-                  <p className="mt-1.5 text-[11px] text-red-600 dark:text-red-400">
-                    ⚠ Supera el stock disponible
+                  <p className={cn(
+                    "mt-1.5 text-[11px]",
+                    isEditing
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-red-600 dark:text-red-400",
+                  )}>
+                    {isEditing
+                      ? "ℹ Stock aparece reducido — se restaurará al guardar"
+                      : "⚠ Supera el stock disponible"}
                   </p>
                 )}
               </div>
@@ -260,9 +282,15 @@ export function TablaInsumosField({ value, onChange, disabled, areaFilter }: Tab
         );
       })()}
 
-      {hasOverstock && (
+      {hasOverstock && !isEditing && (
         <p className="text-[11px] text-red-600 dark:text-red-400">
           ⚠ Una o más cantidades superan el stock disponible.
+        </p>
+      )}
+      {hasOverstock && isEditing && (
+        <p className="text-[11px] text-amber-600 dark:text-amber-400">
+          ℹ El stock disponible se muestra después del descuento anterior.
+          Al guardar, ese descuento se revertirá y se aplicará el nuevo.
         </p>
       )}
     </div>

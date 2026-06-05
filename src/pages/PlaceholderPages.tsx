@@ -226,7 +226,7 @@ function DynamicDefTable({
 }) {
   const { hasPermission } = useRole();
   const { definiciones, parametros, datos, addDato, updDato, delDato, setHasPendingChanges } = useConfig();
-  const { simularTrigger, formularioMapas, previewReversion, revertirMovimientos } = useInventario();
+  const { simularTrigger, formularioMapas, previewReversion, revertirMovimientos, ajustarMovimientosTablaInsumos, catalogos: invCatalogos } = useInventario();
   const navigate = useNavigate();
   const [showIaPanel, setShowIaPanel] = useState(false);
   const [showMlPanel, setShowMlPanel] = useState(false);
@@ -262,13 +262,26 @@ function DynamicDefTable({
     return next;
   };
 
+  // Confirmación de delta al editar TablaInsumos
+  const [deltaConfirm, setDeltaConfirm] = useState<{
+    deltas: Array<{
+      catalogoId: string;
+      nombre:     string;
+      unidad:     string;
+      delta:      number;
+      tipo:       "mas_uso" | "menos_uso" | "nuevo" | "eliminado";
+    }>;
+    onConfirm: () => void;
+  } | null>(null);
+
   // Mini-modal enfocado solo en el campo TablaInsumos de una fila específica
   const [tablaInsumosEdit, setTablaInsumosEdit] = useState<{
-    datoId: string;
-    paramNombre: string;
-    paramLabel: string;
-    areaFilter?: string | null;
-    currentValue: string;
+    datoId:        string;
+    paramNombre:   string;
+    paramLabel:    string;
+    areaFilter?:   string | null;
+    currentValue:  string;
+    originalValue: string;   // valor que ya estaba guardado (para detectar modo edición)
   } | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -803,11 +816,12 @@ function DynamicDefTable({
                   if (!dato) return;
                   const currentVal = String(parseValores(dato.valores)[p.nombre] ?? "[]");
                   setTablaInsumosEdit({
-                    datoId: dato.id,
-                    paramNombre: p.nombre,
-                    paramLabel: p.etiqueta_personalizada || p.nombre.replace(/_/g, " "),
-                    areaFilter: p.tabla_insumos_area,
-                    currentValue: currentVal,
+                    datoId:        dato.id,
+                    paramNombre:   p.nombre,
+                    paramLabel:    p.etiqueta_personalizada || p.nombre.replace(/_/g, " "),
+                    areaFilter:    p.tabla_insumos_area,
+                    currentValue:  currentVal,
+                    originalValue: currentVal,   // guardamos el valor previo para detectar edición
                   });
                 }}
                 className={cn(
@@ -1138,8 +1152,12 @@ function DynamicDefTable({
     });
     removePendingRequiredDatoId(newDato.id);
 
-    // ── Trigger automático de inventario ─────────────────────────────────────
-    if (def?.nombre) simularTrigger(def.nombre, nextVals as Record<string, unknown>);
+    // ── Trigger automático de inventario (pasa cultivo_id para trazabilidad) ──
+    if (def?.nombre) simularTrigger(
+      def.nombre,
+      nextVals as Record<string, unknown>,
+      { cultivo_id: cultivoForRecord ?? def.cultivo_id },
+    );
 
     setTransientEditDatoId(null);
     setShowCreateModal(false);
@@ -1341,7 +1359,11 @@ function DynamicDefTable({
 
     // ── Trigger automático de inventario ─────────────────────────────────────
     const eventoDef = definiciones.find(d => d.id === activeEventoTab);
-    if (eventoDef?.nombre) simularTrigger(eventoDef.nombre, nextEventoVals as Record<string, unknown>);
+    if (eventoDef?.nombre) simularTrigger(
+      eventoDef.nombre,
+      nextEventoVals as Record<string, unknown>,
+      { cultivo_id: cultivoId },
+    );
 
     setSheetView("list");
     setNewEventoForm({});
@@ -2493,17 +2515,88 @@ function DynamicDefTable({
 
       {/* ── Mini-modal enfocado: solo el campo TablaInsumos ────────────────── */}
       {tablaInsumosEdit && (() => {
-        const { datoId, paramNombre, paramLabel, areaFilter, currentValue } = tablaInsumosEdit;
+        const { datoId, paramNombre, paramLabel, areaFilter, currentValue, originalValue } = tablaInsumosEdit;
         const dato = defDatos.find(d => d.id === datoId);
-        const [draft, setDraft] = [currentValue, (v: string) => setTablaInsumosEdit(prev => prev ? { ...prev, currentValue: v } : null)];
+        const draft   = currentValue;
+        const setDraft = (v: string) => setTablaInsumosEdit(prev => prev ? { ...prev, currentValue: v } : null);
+
+        // ¿Ya había productos guardados? → modo edición
+        const prevRows = (() => {
+          try { const p = JSON.parse(originalValue ?? "[]"); return Array.isArray(p) ? p : []; }
+          catch { return []; }
+        })();
+        const isEditing = prevRows.length > 0;
+
+        // Parsea JSON de TablaInsumos en array [{catalogo_id, cantidad}]
+        const parseJsonRows = (v: string): Array<{ catalogo_id: string; cantidad: number }> => {
+          try { const p = JSON.parse(v || "[]"); return Array.isArray(p) ? p : []; }
+          catch { return []; }
+        };
 
         const handleConfirm = () => {
           if (!dato) { setTablaInsumosEdit(null); return; }
-          const nextVals = { ...parseValores(dato.valores), [paramNombre]: draft };
-          updDato(dato.id, { ...dato, valores: JSON.stringify(nextVals) });
-          // Disparar movimientos automáticos de inventario
-          if (def?.nombre) simularTrigger(def.nombre, nextVals as Record<string, unknown>);
-          setTablaInsumosEdit(null);
+
+          const prevVals = parseValores(dato.valores);
+          const nextVals = { ...prevVals, [paramNombre]: draft };
+          const ctx      = { cultivo_id: dato.cultivo_id ?? filterCultivoId };
+
+          if (isEditing && def?.nombre) {
+            // Calcular delta para mostrar advertencia
+            const oldRows = parseJsonRows(originalValue);
+            const newRows = parseJsonRows(draft);
+            const allIds  = new Set([
+              ...oldRows.map(r => r.catalogo_id).filter(Boolean),
+              ...newRows.map(r => r.catalogo_id).filter(Boolean),
+            ]);
+
+            const deltas: typeof deltaConfirm extends null ? never : NonNullable<typeof deltaConfirm>["deltas"] = [];
+            for (const cid of allIds) {
+              if (!cid) continue;
+              const oldQty = oldRows.find(r => r.catalogo_id === cid)?.cantidad ?? 0;
+              const newQty = newRows.find(r => r.catalogo_id === cid)?.cantidad ?? 0;
+              const delta  = newQty - oldQty;
+              if (Math.abs(delta) < 0.0001) continue;
+              const prod = invCatalogos.find(c => c.id === cid);
+              deltas.push({
+                catalogoId: cid,
+                nombre:     prod?.nombre ?? cid,
+                unidad:     prod?.unidad_medida ?? "",
+                delta,
+                tipo: oldQty === 0 ? "nuevo"
+                    : newQty === 0 ? "eliminado"
+                    : delta > 0    ? "mas_uso"
+                    :                "menos_uso",
+              });
+            }
+
+            if (deltas.length === 0) {
+              // Sin cambios de stock — solo guardar datos
+              updDato(dato.id, { ...dato, valores: JSON.stringify(nextVals) });
+              setTablaInsumosEdit(null);
+              return;
+            }
+
+            // Mostrar modal de confirmación con el delta
+            setDeltaConfirm({
+              deltas,
+              onConfirm: () => {
+                ajustarMovimientosTablaInsumos(
+                  def.nombre!,
+                  prevVals as Record<string, unknown>,
+                  nextVals as Record<string, unknown>,
+                  ctx,
+                );
+                updDato(dato.id, { ...dato, valores: JSON.stringify(nextVals) });
+                setTablaInsumosEdit(null);
+                setDeltaConfirm(null);
+              },
+            });
+          } else {
+            // MODO CREACIÓN → aplicar todo directamente
+            if (def?.nombre) simularTrigger(def.nombre, nextVals as Record<string, unknown>, ctx);
+            updDato(dato.id, { ...dato, valores: JSON.stringify(nextVals) });
+            setTablaInsumosEdit(null);
+          }
         };
 
         return (
@@ -2512,12 +2605,23 @@ function DynamicDefTable({
               <DialogHeader className="pb-0">
                 <DialogTitle className="flex items-center gap-2 text-base">
                   <Package className="h-5 w-5 text-amber-500" />
-                  {paramLabel}
+                  {isEditing ? `Editar — ${paramLabel}` : paramLabel}
                 </DialogTitle>
-                <p className="text-sm text-muted-foreground">
-                  Agrega los productos utilizados en esta operación.
-                  El stock se descontará automáticamente al guardar.
-                </p>
+                {isEditing ? (
+                  /* Modo edición: banner explicativo */
+                  <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/60 dark:border-amber-800/30 dark:bg-amber-900/10 px-3 py-2.5 text-xs text-amber-800 dark:text-amber-300">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600" />
+                    <p>
+                      Estás <strong>editando</strong> productos ya guardados.
+                      Al confirmar, los movimientos de stock anteriores se <strong>revertirán</strong> y se aplicarán los nuevos valores.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Agrega los productos utilizados en esta operación.
+                    El stock se descontará automáticamente al guardar.
+                  </p>
+                )}
               </DialogHeader>
 
               <div className="mt-2 max-h-[60vh] overflow-y-auto pr-1">
@@ -2525,6 +2629,7 @@ function DynamicDefTable({
                   value={draft}
                   onChange={setDraft}
                   areaFilter={areaFilter}
+                  isEditing={isEditing}
                 />
               </div>
 
@@ -2533,7 +2638,8 @@ function DynamicDefTable({
                   Cancelar
                 </Button>
                 <Button onClick={handleConfirm} className="gap-1.5">
-                  <Package className="h-4 w-4" /> Guardar productos
+                  <Package className="h-4 w-4" />
+                  {isEditing ? "Guardar cambios" : "Guardar productos"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -2541,6 +2647,68 @@ function DynamicDefTable({
         );
       })()}
     </div>
+
+    {/* ── Modal de confirmación de delta (edición de TablaInsumos) ── */}
+    {deltaConfirm && (
+      <Dialog open={true} onOpenChange={v => { if (!v) setDeltaConfirm(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              Confirmar cambios en stock
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3 py-1">
+            <p className="text-sm text-muted-foreground">
+              Al guardar se registrarán los siguientes movimientos de inventario:
+            </p>
+
+            <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-3">
+              {deltaConfirm.deltas.map(d => {
+                const isPos = d.delta > 0;
+                const label =
+                  d.tipo === "nuevo"      ? "Nueva salida"
+                : d.tipo === "eliminado"  ? "Devolución total"
+                : isPos                   ? "Salida adicional"
+                :                           "Devolución parcial";
+                const icon  = isPos ? "↑" : "↓";
+                const cls   = isPos
+                  ? "text-red-600 dark:text-red-400"
+                  : "text-green-600 dark:text-green-400";
+                return (
+                  <div key={d.catalogoId} className="flex items-center gap-3 text-sm">
+                    <span className={cn("text-lg font-bold w-5 text-center shrink-0", cls)}>
+                      {icon}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{d.nombre}</p>
+                      <p className="text-[11px] text-muted-foreground">{label}</p>
+                    </div>
+                    <span className={cn("font-bold tabular-nums shrink-0", cls)}>
+                      {isPos ? "+" : ""}{d.delta.toLocaleString("es-CL", { maximumFractionDigits: 2 })} {d.unidad}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <p className="text-[11px] text-muted-foreground">
+              Solo se registra la diferencia respecto al valor anterior.
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setDeltaConfirm(null)}>
+              Cancelar
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={deltaConfirm.onConfirm}>
+              <Package className="h-4 w-4" /> Confirmar y guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )}
 
     {/* ── Panel lateral de stock (solo si hay reglas vinculadas) ── */}
     {hasInvRules && (
