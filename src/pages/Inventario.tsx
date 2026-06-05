@@ -6,13 +6,14 @@
  * Catálogo (CRUD admin) en Sheet separado.
  */
 
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, useCallback, useEffect, Fragment } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { MainLayout }  from "@/components/layout/MainLayout";
 import { PageHeader }  from "@/components/layout/PageHeader";
 import { MetricCard }  from "@/components/dashboard/MetricCard";
 import { ModalMovimiento }   from "@/components/dashboard/ModalMovimiento";
-import { ProveedorCombobox } from "@/components/ui/proveedor-combobox";
+import { ProveedorCombobox }  from "@/components/ui/proveedor-combobox";
+import { CategoriaCombobox } from "@/components/ui/categoria-combobox";
 import { Button }  from "@/components/ui/button";
 import { Input }   from "@/components/ui/input";
 import { Label }   from "@/components/ui/label";
@@ -41,10 +42,11 @@ import {
   Package, AlertTriangle, DollarSign, TrendingUp,
   ArrowDown, ArrowUp, SlidersHorizontal,
   Plus, Pencil, Power, LayoutList, LayoutGrid,
-  FlaskConical, Sprout, Leaf, PackageOpen, ShoppingCart,
+  FlaskConical, Sprout, Leaf, PackageOpen, ShoppingCart, MapPin,
   ExternalLink, Info, ChevronRight, X, Zap, Settings2,
   History, Filter, Download, CalendarClock,
   ClipboardCheck, BookOpen, AlertCircle as AlertCircleIcon,
+  Maximize2, Minimize2, Calendar, ArrowLeftRight, Tag,
 } from "lucide-react";
 import { exportToCsv } from "@/lib/exportCsv";
 import { useConfig }   from "@/contexts/ConfigContext";
@@ -58,6 +60,13 @@ const MODULE_LABELS: Record<string, string> = {
 const MODULE_ICON_CLS: Record<string, string> = {
   laboratorio: "text-violet-400", vivero: "text-emerald-400",
   cultivo: "text-green-400", "post-cosecha": "text-orange-400", comercial: "text-pink-400",
+};
+const MODULE_BG_CLS: Record<string, string> = {
+  laboratorio: "bg-violet-100/60 dark:bg-violet-900/20",
+  vivero:      "bg-emerald-100/60 dark:bg-emerald-900/20",
+  cultivo:     "bg-green-100/60 dark:bg-green-900/20",
+  "post-cosecha": "bg-orange-100/60 dark:bg-orange-900/20",
+  comercial:   "bg-pink-100/60 dark:bg-pink-900/20",
 };
 const MODULE_ICONS: Record<string, React.ReactNode> = {
   laboratorio: <FlaskConical className="w-3 h-3" />, vivero: <Sprout className="w-3 h-3" />,
@@ -576,6 +585,116 @@ function ReglasBanner({ variant = "sidebar" }: { variant?: "sidebar" | "bar" }) 
   );
 }
 
+// ─── Panel de Lotes (dentro del DetalleSheet) ────────────────────────────────
+
+function diasParaVencer(fechaISO: string): number {
+  const hoy   = new Date(); hoy.setHours(0, 0, 0, 0);
+  const vence = new Date(fechaISO); vence.setHours(0, 0, 0, 0);
+  return Math.round((vence.getTime() - hoy.getTime()) / 86_400_000);
+}
+
+function LotesPanel({ productoId, unidad, onRegistrarEntrada }: {
+  productoId: string;
+  unidad: string;
+  onRegistrarEntrada?: () => void;
+}) {
+  const { getLotesByProducto, editarLote } = useInventario();
+  const lotes = getLotesByProducto(productoId);
+  const lotesOrdenados = [...lotes].sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento));
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold flex items-center gap-1.5">
+          <Tag className="h-4 w-4 text-muted-foreground" />
+          Lotes registrados
+          <span className="text-muted-foreground font-normal">({lotes.filter(l => l.activo).length} activos)</span>
+        </h3>
+      </div>
+
+      {/* Estado vacío */}
+      {lotesOrdenados.length === 0 && (
+        <div className="rounded-xl border border-dashed border-border bg-muted/20 py-6 text-center space-y-2">
+          <Tag className="mx-auto h-8 w-8 text-muted-foreground/30" />
+          <p className="text-sm text-muted-foreground font-medium">Sin lotes registrados</p>
+          <p className="text-xs text-muted-foreground/70 max-w-xs mx-auto leading-relaxed">
+            Los lotes se crean automáticamente cuando registras una <strong>compra</strong>.
+            {onRegistrarEntrada && (
+              <> <button onClick={onRegistrarEntrada} className="text-primary hover:underline">Registrar compra ahora →</button></>
+            )}
+          </p>
+        </div>
+      )}
+
+      {/* Lista de lotes */}
+      {lotesOrdenados.map(lote => {
+        const dias    = diasParaVencer(lote.fecha_vencimiento);
+        const pct     = lote.cantidad_inicial > 0
+          ? Math.min(100, Math.round((lote.cantidad_actual / lote.cantidad_inicial) * 100))
+          : 0;
+        const borderCls = dias < 0  ? "border-red-300 dark:border-red-800/50"
+                        : dias < 30 ? "border-amber-300 dark:border-amber-800/50"
+                        :             "border-border";
+        const barCls    = pct > 50 ? "bg-green-500" : pct > 20 ? "bg-amber-500" : "bg-red-500";
+        const badgeCls  = dias < 0  ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                        : dias < 30 ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                        :             "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+        return (
+          <div
+            key={lote.id}
+            className={cn("rounded-xl border bg-card p-3 space-y-2.5", borderCls, !lote.activo && "opacity-50")}
+          >
+            {/* Cabecera del lote */}
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="font-mono text-xs font-bold">{lote.numero_lote}</p>
+                {lote.certificado_origen && (
+                  <p className="text-[11px] text-muted-foreground truncate">{lote.certificado_origen}</p>
+                )}
+                {lote.proveedor_id && (
+                  <p className="text-[11px] text-muted-foreground truncate">{lote.proveedor_id}</p>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", badgeCls)}>
+                  {dias < 0   ? `Vencido hace ${Math.abs(dias)}d`
+                 : dias === 0 ? "Vence hoy"
+                 :              `Vence ${new Date(lote.fecha_vencimiento).toLocaleDateString("es-CL")}`}
+                </span>
+                <button
+                  onClick={() => editarLote(lote.id, { activo: !lote.activo })}
+                  title={lote.activo ? "Desactivar lote" : "Reactivar lote"}
+                  className="rounded p-0.5 text-muted-foreground hover:bg-muted transition-colors"
+                >
+                  <Power className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+
+            {/* Barra de consumo */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[11px]">
+                <span className="text-muted-foreground">Disponible en este lote</span>
+                <span className="font-semibold tabular-nums">
+                  {fmtNum(lote.cantidad_actual, 1)}
+                  <span className="font-normal text-muted-foreground"> / {fmtNum(lote.cantidad_inicial, 1)} {unidad}</span>
+                </span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                <div className={cn("h-full rounded-full transition-all", barCls)} style={{ width: `${pct}%` }} />
+              </div>
+              <p className="text-[10px] text-muted-foreground text-right">{pct}% restante</p>
+            </div>
+
+            {lote.notas && <p className="text-[11px] text-muted-foreground italic">{lote.notas}</p>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Detalle Sheet ────────────────────────────────────────────────────────────
 
 function DetalleSheet({
@@ -709,23 +828,33 @@ function DetalleSheet({
                   </div>
                 )}
 
+                {/* Panel de Lotes */}
+                <div className="rounded-xl border border-border bg-card p-4">
+                  <LotesPanel
+                    productoId={p.id}
+                    unidad={p.unidad_medida}
+                    onRegistrarEntrada={() => onMovimiento(p.id, "entrada")}
+                  />
+                </div>
+
                 {/* Movements */}
                 <div>
                   <p className="mb-3 text-sm font-semibold">Historial de movimientos</p>
                   <div className="overflow-auto rounded-xl border border-border">
-                    <table className="w-full min-w-[440px] text-xs">
+                    <table className="w-full min-w-[500px] text-xs">
                       <thead>
                         <tr className="border-b border-border bg-muted/40">
                           <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Fecha</th>
                           <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Tipo</th>
                           <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Cantidad</th>
                           <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Resultante</th>
+                          <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Lote</th>
                           <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Origen</th>
                         </tr>
                       </thead>
                       <tbody>
                         {getMovimientosByProducto(p.id).length === 0 && (
-                          <tr><td colSpan={5} className="py-8 text-center text-muted-foreground">Sin movimientos</td></tr>
+                          <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">Sin movimientos</td></tr>
                         )}
                         {getMovimientosByProducto(p.id).map(m => {
                           const delta = m.cantidad_nueva - m.cantidad_anterior;
@@ -744,6 +873,13 @@ function DetalleSheet({
                                 <span className="ml-1 text-[10px] text-muted-foreground">{p.unidad_medida}</span>
                               </td>
                               <td className="px-3 py-2 text-right font-mono">{fmtNum(m.cantidad_nueva, 1)}</td>
+                              <td className="px-3 py-2">
+                                {m.lote_numero
+                                  ? <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[10px] font-mono font-medium">
+                                      <Tag className="h-2.5 w-2.5" />{m.lote_numero}
+                                    </span>
+                                  : <span className="text-muted-foreground">—</span>}
+                              </td>
                               <td className="px-3 py-2"><OrigenCell m={m} /></td>
                             </tr>
                           );
@@ -798,8 +934,15 @@ function toNombreCampo(etiqueta: string): string {
 }
 
 function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpenChange: (v: boolean) => void; editing: InvCatalogo | null }) {
-  const { agregarProducto, editarProducto, proveedores, agregarProveedor } = useInventario();
+  const { agregarProducto, editarProducto, proveedores, agregarProveedor, catalogos } = useInventario();
   const { currentUser } = useRole();
+
+  // Categorías existentes derivadas del catálogo (únicas, ordenadas)
+  const categoriasExistentes = useMemo(() => {
+    const set = new Set<string>();
+    catalogos.forEach(p => { if (p.categoria?.trim()) set.add(p.categoria.trim()); });
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [catalogos]);
   const [form, setForm]           = useState<ProductoFormState>(EMPTY_FORM);
   const [err,  setErr]            = useState("");
   const [paso, setPaso]           = useState(1);
@@ -936,7 +1079,11 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Categoría</Label>
-                <Input value={form.categoria} onChange={e => set("categoria")(e.target.value)} placeholder="ej: Fungicidas" className="h-9" />
+                <CategoriaCombobox
+                  value={form.categoria}
+                  onChange={v => setForm(p => ({ ...p, categoria: v }))}
+                  options={categoriasExistentes}
+                />
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label className="text-xs">¿Dónde se usa? * <span className="font-normal text-muted-foreground">(una o más áreas)</span></Label>
@@ -958,9 +1105,65 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
                 </div>
                 {form.modulo_ids.length === 0 && <p className="text-[11px] text-muted-foreground">Selecciona al menos un área</p>}
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Unidad de medida</Label>
-                <Input value={form.unidad_medida} onChange={e => set("unidad_medida")(e.target.value)} className="h-9" />
+              <div className="space-y-2">
+                <Label className="text-xs">Unidad de medida *</Label>
+
+                {/* Grupos de unidades comunes */}
+                {([
+                  { grupo: "Masa",        units: ["kg", "g", "mg", "lb", "oz", "ton"] },
+                  { grupo: "Volumen",     units: ["L", "mL", "cc", "m³", "fl oz"] },
+                  { grupo: "Longitud",    units: ["m", "cm", "mm", "ft", "in"] },
+                  { grupo: "Superficie",  units: ["m²", "cm²", "ha", "ft²"] },
+                  { grupo: "Contable",    units: ["unidades", "sacos", "cajas", "rollos", "pallets", "docenas"] },
+                ] as const).map(({ grupo, units }) => (
+                  <div key={grupo}>
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                      {grupo}
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {units.map(u => (
+                        <button
+                          key={u}
+                          type="button"
+                          onClick={() => set("unidad_medida")(form.unidad_medida === u ? "" : u)}
+                          className={cn(
+                            "rounded-md border px-2 py-0.5 text-xs font-medium transition-colors",
+                            form.unidad_medida === u
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                          )}
+                        >
+                          {u}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Separador + input libre */}
+                <div className="flex items-center gap-2 pt-1">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-[10px] text-muted-foreground">o escribe cualquier otra</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+                <div className="relative">
+                  <Input
+                    value={form.unidad_medida}
+                    onChange={e => set("unidad_medida")(e.target.value)}
+                    placeholder="ej: cuerda, vara, onza troy, ppm, %…"
+                    className={cn("h-9 text-sm pr-16", form.unidad_medida && "border-primary/60")}
+                  />
+                  {form.unidad_medida && (
+                    <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+                      {form.unidad_medida}
+                    </span>
+                  )}
+                </div>
+                {!form.unidad_medida && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Selecciona una unidad de arriba o escribe la que necesites.
+                  </p>
+                )}
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Precio unitario</Label>
@@ -1164,6 +1367,7 @@ function CatalogoInline({ canAdmin, onKardex }: { canAdmin: boolean; onKardex: (
   const [filterStatus, setFilterStatus] = useState("all");
   const [editingProd,  setEditingProd]  = useState<InvCatalogo | null>(null);
   const [dialogOpen,   setDialogOpen]   = useState(false);
+  const [confirmProd,  setConfirmProd]  = useState<InvCatalogo | null>(null);
   const [page,         setPage]         = useState(1);
   const PAGE = 15;
 
@@ -1233,35 +1437,60 @@ function CatalogoInline({ canAdmin, onKardex }: { canAdmin: boolean; onKardex: (
                 <tr><td colSpan={6} className="py-10 text-center text-sm text-muted-foreground">Sin productos</td></tr>
               )}
               {paginated.map(p => (
-                <tr key={p.id} className={cn("border-b border-border/50 last:border-0 hover:bg-muted/20", !p.activo && "opacity-40")}>
+                <tr key={p.id} className={cn(
+                  "border-b border-border/50 last:border-0 hover:bg-muted/20 transition-colors",
+                  !p.activo && "bg-muted/30",
+                )}>
                   <td className="px-4 py-2.5">
-                    <p className="font-medium">{p.nombre}</p>
-                    <p className="font-mono text-[10px] text-muted-foreground">{p.codigo}</p>
+                    <div className="flex items-center gap-2">
+                      <div>
+                        <p className={cn("font-medium", !p.activo && "text-muted-foreground line-through")}>{p.nombre}</p>
+                        <p className="font-mono text-[10px] text-muted-foreground">{p.codigo}</p>
+                      </div>
+                      {!p.activo && (
+                        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground border border-border">
+                          Inactivo
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2.5"><ModuloBadges ids={p.modulo_ids} size="xs" /></td>
-                  <td className="px-3 py-2.5 text-right">
+                  <td className={cn("px-3 py-2.5 text-right", !p.activo && "opacity-50")}>
                     <span className="font-semibold">{fmtNum(p.cantidad_actual, 1)}</span>
                     <span className="ml-1 text-xs text-muted-foreground">{p.unidad_medida}</span>
                   </td>
-                  <td className="hidden px-3 py-2.5 text-right text-xs text-muted-foreground sm:table-cell">
+                  <td className={cn("hidden px-3 py-2.5 text-right text-xs text-muted-foreground sm:table-cell", !p.activo && "opacity-50")}>
                     {fmtCurrency(p.precio_unitario)}
                   </td>
-                  <td className="px-3 py-2.5"><StockBadge status={getStockStatus(p)} /></td>
+                  <td className="px-3 py-2.5">
+                    {p.activo ? <StockBadge status={getStockStatus(p)} /> : (
+                      <span className="text-[11px] text-muted-foreground">—</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2.5 text-right">
                     <div className="inline-flex gap-1">
                       {canAdmin && (
                         <>
-                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Editar" onClick={() => { setEditingProd(p); setDialogOpen(true); }}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button size="sm" variant="ghost" className={cn("h-7 w-7 p-0", p.activo ? "text-muted-foreground" : "text-green-600")} title={p.activo ? "Desactivar" : "Activar"} onClick={() => desactivarProducto(p.id)}>
+                          {p.activo && (
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Editar" onClick={() => { setEditingProd(p); setDialogOpen(true); }}>
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          <Button
+                            size="sm" variant="ghost"
+                            className={cn("h-7 w-7 p-0", p.activo ? "text-muted-foreground hover:text-red-600" : "text-green-600 hover:text-green-700")}
+                            title={p.activo ? "Desactivar producto" : "Reactivar producto"}
+                            onClick={() => setConfirmProd(p)}
+                          >
                             <Power className="h-3.5 w-3.5" />
                           </Button>
                         </>
                       )}
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-primary" title="Balance de stock" onClick={() => onKardex(p.id)}>
-                        <BookOpen className="h-3.5 w-3.5" />
-                      </Button>
+                      {p.activo && (
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-primary" title="Balance de stock" onClick={() => onKardex(p.id)}>
+                          <BookOpen className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1281,6 +1510,59 @@ function CatalogoInline({ canAdmin, onKardex }: { canAdmin: boolean; onKardex: (
       </div>
 
       <ProductoDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editingProd} />
+
+      {/* ── AlertDialog confirmar activar / desactivar ── */}
+      <Dialog open={!!confirmProd} onOpenChange={v => { if (!v) setConfirmProd(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className={cn(
+              "flex items-center gap-2",
+              confirmProd?.activo ? "text-red-600" : "text-green-600",
+            )}>
+              <Power className="h-4 w-4" />
+              {confirmProd?.activo ? "Desactivar producto" : "Reactivar producto"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="py-2 space-y-3">
+            <div className="rounded-xl border border-border bg-muted/30 px-4 py-3">
+              <p className="font-semibold text-sm">{confirmProd?.nombre}</p>
+              <p className="text-xs text-muted-foreground font-mono mt-0.5">{confirmProd?.codigo}</p>
+            </div>
+
+            {confirmProd?.activo ? (
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Este producto <strong>dejará de aparecer</strong> en formularios, catálogos de selección
+                y reportes de inventario activo. El historial de movimientos se conserva.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Este producto volverá a estar <strong>disponible</strong> en formularios, catálogos
+                y reportes. Su stock actual es{" "}
+                <strong>{fmtNum(confirmProd?.cantidad_actual ?? 0, 1)} {confirmProd?.unidad_medida}</strong>.
+              </p>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setConfirmProd(null)}>
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              variant={confirmProd?.activo ? "destructive" : "default"}
+              className={!confirmProd?.activo ? "bg-green-600 hover:bg-green-700 text-white" : ""}
+              onClick={() => {
+                if (confirmProd) desactivarProducto(confirmProd.id);
+                setConfirmProd(null);
+              }}
+            >
+              <Power className="h-3.5 w-3.5 mr-1.5" />
+              {confirmProd?.activo ? "Sí, desactivar" : "Sí, reactivar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1295,12 +1577,34 @@ function MovimientosView({ onOpenDetail, onKardex }: { onOpenDetail: (id: string
   const { movimientos, catalogos } = useInventario();
   const fecha = new Date().toLocaleDateString("es-CL").replace(/\//g, "-");
 
+  const hoy = new Date().toISOString().substring(0, 10);
+
   const [search,      setSearch]      = useState("");
   const [filterTipo,  setFilterTipo]  = useState("all");
   const [filterProd,  setFilterProd]  = useState("all");
   const [filterOrigen,setFilterOrigen]= useState("all");
+  const [fechaDesde,  setFechaDesde]  = useState(hoy);   // default: hoy
+  const [fechaHasta,  setFechaHasta]  = useState(hoy);   // default: hoy
   const [page,        setPage]        = useState(1);
   const [expandedId,  setExpandedId]  = useState<string | null>(null);
+
+  const hayFiltroFecha = fechaDesde !== "" || fechaHasta !== "";
+
+  const applyPreset = (preset: "hoy" | "semana" | "mes" | "trimestre" | "anio" | "todo") => {
+    const iso = (d: Date) => d.toISOString().substring(0, 10);
+    const now  = new Date();
+    const hasta = iso(now);
+    setPage(1);
+    if (preset === "todo")      { setFechaDesde(""); setFechaHasta(""); return; }
+    if (preset === "hoy")       { setFechaDesde(hoy); setFechaHasta(hoy); return; }
+    if (preset === "semana")    {
+      const d = new Date(now); d.setDate(d.getDate() - 6);
+      setFechaDesde(iso(d)); setFechaHasta(hasta); return;
+    }
+    if (preset === "mes")       { setFechaDesde(iso(new Date(now.getFullYear(), now.getMonth(), 1))); setFechaHasta(hasta); return; }
+    if (preset === "trimestre") { setFechaDesde(iso(new Date(now.getFullYear(), now.getMonth() - 2, 1))); setFechaHasta(hasta); return; }
+    if (preset === "anio")      { setFechaDesde(iso(new Date(now.getFullYear(), 0, 1))); setFechaHasta(hasta); return; }
+  };
 
   const toggleExpand = (id: string) =>
     setExpandedId(prev => (prev === id ? null : id));
@@ -1314,10 +1618,13 @@ function MovimientosView({ onOpenDetail, onKardex }: { onOpenDetail: (id: string
     return [...movimientos]
       .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.created_at.localeCompare(a.created_at))
       .filter(m => {
-        if (filterTipo  !== "all" && m.tipo   !== filterTipo)   return false;
-        if (filterProd  !== "all" && m.catalogo_id !== filterProd) return false;
-        if (filterOrigen === "auto"   && !m.registro_origen_tipo)  return false;
-        if (filterOrigen === "manual" && !!m.registro_origen_tipo) return false;
+        if (fechaDesde && m.fecha < fechaDesde) return false;
+        if (fechaHasta && m.fecha > fechaHasta) return false;
+        if (filterTipo   !== "all" && m.tipo          !== filterTipo)  return false;
+        if (filterProd   !== "all" && m.catalogo_id   !== filterProd)  return false;
+        if (filterOrigen === "auto"          && !m.registro_origen_tipo)                                    return false;
+        if (filterOrigen === "manual"        && (!!m.registro_origen_tipo || m.subtipo === "transferencia")) return false;
+        if (filterOrigen === "transferencia" && m.subtipo !== "transferencia")                               return false;
         if (q) {
           const prod = catalogos.find(c => c.id === m.catalogo_id);
           const match = prod?.nombre.toLowerCase().includes(q) ||
@@ -1327,7 +1634,7 @@ function MovimientosView({ onOpenDetail, onKardex }: { onOpenDetail: (id: string
         }
         return true;
       });
-  }, [movimientos, catalogos, filterTipo, filterProd, filterOrigen, search]);
+  }, [movimientos, catalogos, filterTipo, filterProd, filterOrigen, search, fechaDesde, fechaHasta]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / MOV_PAGE));
   const paginados  = filtered.slice((page - 1) * MOV_PAGE, page * MOV_PAGE);
@@ -1390,8 +1697,82 @@ function MovimientosView({ onOpenDetail, onKardex }: { onOpenDetail: (id: string
   };
 
   return (
-    <div className="space-y-4 min-w-0">
-      {/* Filtros */}
+    <div className="space-y-3 min-w-0">
+
+      {/* ── Filtro de fechas ───────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/30 px-4 py-2.5">
+        <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span className="text-xs font-medium text-muted-foreground">Período:</span>
+
+        {/* Presets */}
+        {([
+          { key: "hoy",       label: "Hoy"         },
+          { key: "semana",    label: "Últimos 7 días" },
+          { key: "mes",       label: "Este mes"    },
+          { key: "trimestre", label: "3 meses"     },
+          { key: "anio",      label: "Este año"    },
+          { key: "todo",      label: "Todo"        },
+        ] as const).map(p => {
+          const isActive =
+            (p.key === "hoy"       && fechaDesde === hoy && fechaHasta === hoy) ||
+            (p.key === "todo"      && !fechaDesde && !fechaHasta);
+          return (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => applyPreset(p.key)}
+              className={cn(
+                "rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                isActive
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground",
+              )}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+
+        {/* Separador */}
+        <span className="h-4 w-px bg-border" />
+
+        {/* Rango manual */}
+        <div className="flex items-center gap-1.5">
+          <label className="text-[11px] text-muted-foreground">Desde</label>
+          <input
+            type="date"
+            value={fechaDesde}
+            onChange={e => { setFechaDesde(e.target.value); setPage(1); }}
+            className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <label className="text-[11px] text-muted-foreground">Hasta</label>
+          <input
+            type="date"
+            value={fechaHasta}
+            onChange={e => { setFechaHasta(e.target.value); setPage(1); }}
+            className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+
+        {/* Limpiar rango (solo si no es preset "hoy") */}
+        {(fechaDesde !== hoy || fechaHasta !== hoy) && hayFiltroFecha && (
+          <button
+            type="button"
+            onClick={() => applyPreset("hoy")}
+            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3 w-3" /> Volver a hoy
+          </button>
+        )}
+
+        <span className="ml-auto text-[11px] text-muted-foreground">
+          {filtered.length} movimiento{filtered.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {/* ── Filtros de tipo / producto / origen ───────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2">
         <Input
           placeholder="Buscar producto, formulario, notas…"
@@ -1421,12 +1802,10 @@ function MovimientosView({ onOpenDetail, onKardex }: { onOpenDetail: (id: string
             <SelectItem value="all">Todos</SelectItem>
             <SelectItem value="auto">Automáticos</SelectItem>
             <SelectItem value="manual">Manuales</SelectItem>
+            <SelectItem value="transferencia">Transferencias</SelectItem>
           </SelectContent>
         </Select>
         <div className="ml-auto flex items-center gap-2 shrink-0">
-          <p className="text-xs text-muted-foreground">
-            {filtered.length} movimiento{filtered.length !== 1 ? "s" : ""}
-          </p>
           <Button
             variant="outline"
             size="sm"
@@ -1562,31 +1941,60 @@ function MovimientosView({ onOpenDetail, onKardex }: { onOpenDetail: (id: string
                         <p className="text-[10px] text-muted-foreground">{prod?.codigo ?? ""}</p>
                       </td>
                       <td className="px-3 py-2.5">
-                        <span className={cn(
-                          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                          TIPO_COLORS[m.tipo] ?? "bg-muted text-muted-foreground",
-                        )}>
-                          {TIPO_ICON[m.tipo]}{m.tipo}
-                        </span>
+                        {m.subtipo === "transferencia" ? (
+                          <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                            <ArrowLeftRight className="w-3 h-3" /> Transferencia
+                          </span>
+                        ) : (
+                          <span className={cn(
+                            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                            TIPO_COLORS[m.tipo] ?? "bg-muted text-muted-foreground",
+                          )}>
+                            {TIPO_ICON[m.tipo]}{m.tipo}
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">
-                        <span className={cn(
-                          "font-semibold",
-                          esEntrada ? "text-green-600" : esSalida ? "text-red-600" : "text-muted-foreground",
-                        )}>
-                          {esEntrada ? "+" : esSalida ? "−" : ""}
-                          {fmtNum(m.tipo === "ajuste" ? Math.abs(delta) : m.cantidad, 1)}
-                        </span>
-                        <span className="ml-1 text-[10px] text-muted-foreground">{prod?.unidad_medida ?? ""}</span>
+                        {m.subtipo === "transferencia" ? (
+                          <span className="text-xs text-blue-700 dark:text-blue-400 font-medium">
+                            {fmtNum(m.cantidad, 1)}
+                            <span className="ml-1 font-normal text-muted-foreground">{prod?.unidad_medida ?? ""}</span>
+                          </span>
+                        ) : (
+                          <>
+                            <span className={cn(
+                              "font-semibold",
+                              esEntrada ? "text-green-600" : esSalida ? "text-red-600" : "text-muted-foreground",
+                            )}>
+                              {esEntrada ? "+" : esSalida ? "−" : ""}
+                              {fmtNum(m.tipo === "ajuste" ? Math.abs(delta) : m.cantidad, 1)}
+                            </span>
+                            <span className="ml-1 text-[10px] text-muted-foreground">{prod?.unidad_medida ?? ""}</span>
+                          </>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">
                         {fmtNum(m.cantidad_nueva, 1)}
                       </td>
-                      <td className="px-3 py-2.5 text-xs capitalize text-muted-foreground">
-                        {m.subtipo.replace(/_/g, " ")}
+                      <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                        <div>{m.subtipo.replace(/_/g, " ")}</div>
+                        {m.bloque_ref && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <MapPin className="h-2.5 w-2.5 text-green-600 shrink-0" />
+                            <span className="text-green-700 dark:text-green-400 font-medium text-[10px]">{m.bloque_ref}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2.5">
-                        {isAuto ? (
+                        {m.subtipo === "transferencia" && m.modulo_origen && m.modulo_destino ? (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] text-blue-700 dark:text-blue-400 font-medium">
+                            <span className={MODULE_ICON_CLS[m.modulo_origen]}>{MODULE_ICONS[m.modulo_origen]}</span>
+                            <span className="text-muted-foreground">{MODULE_LABELS[m.modulo_origen] ?? m.modulo_origen}</span>
+                            <ArrowLeftRight className="h-2.5 w-2.5 text-muted-foreground" />
+                            <span className={MODULE_ICON_CLS[m.modulo_destino]}>{MODULE_ICONS[m.modulo_destino]}</span>
+                            <span className="text-muted-foreground">{MODULE_LABELS[m.modulo_destino] ?? m.modulo_destino}</span>
+                          </span>
+                        ) : isAuto ? (
                           <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[10px] font-medium">
                             <Zap className="h-2.5 w-2.5 text-amber-500" />
                             {m.registro_origen_tipo}
@@ -1646,6 +2054,33 @@ function MovimientosView({ onOpenDetail, onKardex }: { onOpenDetail: (id: string
                                   <p className="mt-0.5 text-muted-foreground">{m.observaciones}</p>
                                 </div>
                               )}
+                              {/* Trazabilidad — lote + ubicación + cultivo */}
+                              {(m.lote_numero || m.bloque_ref || m.cultivo_id) && (
+                                <div className="col-span-2 sm:col-span-4 pt-2 border-t border-border/50">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
+                                    Trazabilidad
+                                  </p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {m.lote_numero && (
+                                      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-1 text-xs font-mono font-medium">
+                                        <Tag className="h-3 w-3 text-muted-foreground" />
+                                        Lote: {m.lote_numero}
+                                      </span>
+                                    )}
+                                    {m.bloque_ref && (
+                                      <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50/60 dark:border-green-800/30 dark:bg-green-900/10 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-400">
+                                        <Leaf className="h-3 w-3" />
+                                        {m.bloque_ref}
+                                      </span>
+                                    )}
+                                    {m.cultivo_id && (
+                                      <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                                        Cultivo ID: {m.cultivo_id}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
                             {/* Botones de acción — separados del click de fila */}
@@ -1695,80 +2130,492 @@ function MovimientosView({ onOpenDetail, onKardex }: { onOpenDetail: (id: string
   );
 }
 
+// ─── Modal Transferencia entre áreas ─────────────────────────────────────────
+
+function TransferenciaModal({
+  productoId,
+  open,
+  onClose,
+}: {
+  productoId: string | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { catalogos, realizarTransferencia } = useInventario();
+  const prod = productoId ? catalogos.find(p => p.id === productoId) : null;
+
+  const [cantidad,      setCantidad]      = useState("");
+  const [moduloOrigen,  setModuloOrigen]  = useState("");
+  const [moduloDestino, setModuloDestino] = useState("");
+  const [observaciones, setObservaciones] = useState("");
+  const [error,         setError]         = useState("");
+
+  // Reset al abrir
+  useEffect(() => {
+    if (open && prod) {
+      setCantidad("");
+      setModuloOrigen(prod.modulo_ids[0] ?? "");
+      setModuloDestino("");
+      setObservaciones("");
+      setError("");
+    }
+  }, [open, prod]);
+
+  if (!prod) return null;
+
+  const qty           = parseFloat(cantidad);
+  const cantidadValida = !isNaN(qty) && qty > 0 && qty <= prod.cantidad_actual;
+  const destinoValido  = moduloDestino && moduloDestino !== moduloOrigen;
+  const puedeConfirmar = cantidadValida && destinoValido;
+
+  // Módulos disponibles como destino (todos menos el origen)
+  const todosModulos = MODULOS_OPCIONES;
+  const modulosDestino = todosModulos.filter(m => m.value !== moduloOrigen);
+  const destinoEsNuevo = moduloDestino && !prod.modulo_ids.includes(moduloDestino);
+
+  const confirmar = () => {
+    if (!puedeConfirmar) { setError("Completa todos los campos correctamente."); return; }
+    const ok = realizarTransferencia(prod.id, qty, moduloOrigen, moduloDestino, observaciones);
+    if (ok) onClose();
+    else setError("No se pudo realizar la transferencia. Verifica el stock disponible.");
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <span className="text-lg">↔</span> Transferencia entre áreas
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Producto */}
+          <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-sm truncate">{prod.nombre}</p>
+              <p className="text-xs text-muted-foreground font-mono">{prod.codigo}</p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-sm font-bold">{fmtNum(prod.cantidad_actual, 1)}</p>
+              <p className="text-[11px] text-muted-foreground">{prod.unidad_medida} disponibles</p>
+            </div>
+          </div>
+
+          {/* Origen → Destino */}
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+            {/* Origen */}
+            <div className="space-y-1">
+              <Label className="text-xs">Desde</Label>
+              <Select value={moduloOrigen} onValueChange={setModuloOrigen}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Área origen" />
+                </SelectTrigger>
+                <SelectContent>
+                  {prod.modulo_ids.map(m => (
+                    <SelectItem key={m} value={m}>
+                      <span className="flex items-center gap-1.5">
+                        <span className={MODULE_ICON_CLS[m]}>{MODULE_ICONS[m]}</span>
+                        {MODULE_LABELS[m] ?? m}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Flecha */}
+            <div className="mt-5 text-muted-foreground text-lg font-bold">→</div>
+
+            {/* Destino */}
+            <div className="space-y-1">
+              <Label className="text-xs">Hacia</Label>
+              <Select value={moduloDestino} onValueChange={setModuloDestino}>
+                <SelectTrigger className={cn("h-9", !moduloDestino && "text-muted-foreground")}>
+                  <SelectValue placeholder="Área destino" />
+                </SelectTrigger>
+                <SelectContent>
+                  {modulosDestino.map(m => (
+                    <SelectItem key={m.value} value={m.value}>
+                      <span className="flex items-center gap-1.5">
+                        <span className={MODULE_ICON_CLS[m.value]}>{MODULE_ICONS[m.value]}</span>
+                        {m.label}
+                        {!prod.modulo_ids.includes(m.value) && (
+                          <span className="ml-1 text-[10px] text-primary font-medium">(nuevo)</span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Aviso si el destino es un área nueva para este producto */}
+          {destinoEsNuevo && (
+            <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2 text-xs text-blue-800 dark:border-blue-800/30 dark:bg-blue-900/10 dark:text-blue-300">
+              <AlertCircleIcon className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <p>
+                <strong>{MODULE_LABELS[moduloDestino] ?? moduloDestino}</strong> es un área nueva para este producto.
+                Al confirmar, el producto quedará disponible también en esa área.
+              </p>
+            </div>
+          )}
+
+          {/* Cantidad */}
+          <div className="space-y-1">
+            <Label className="text-xs">
+              Cantidad a transferir *
+              <span className="ml-1 font-normal text-muted-foreground">
+                (máx. {fmtNum(prod.cantidad_actual, 1)} {prod.unidad_medida})
+              </span>
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                min="0"
+                max={prod.cantidad_actual}
+                step="any"
+                value={cantidad}
+                onChange={e => { setCantidad(e.target.value); setError(""); }}
+                onKeyDown={e => { if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault(); }}
+                placeholder={`ej: ${fmtNum(prod.cantidad_actual / 2, 1)}`}
+                className={cn("h-9", !cantidadValida && cantidad ? "border-red-400" : "")}
+              />
+              <span className="flex items-center text-sm text-muted-foreground shrink-0">
+                {prod.unidad_medida}
+              </span>
+            </div>
+            {/* Barra de progreso */}
+            {cantidadValida && (
+              <div className="space-y-0.5">
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{ width: `${(qty / prod.cantidad_actual) * 100}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {((qty / prod.cantidad_actual) * 100).toFixed(0)}% del stock disponible
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Observaciones */}
+          <div className="space-y-1">
+            <Label className="text-xs">Observaciones <span className="font-normal text-muted-foreground">(opcional)</span></Label>
+            <Input
+              value={observaciones}
+              onChange={e => setObservaciones(e.target.value)}
+              placeholder="Motivo de la transferencia…"
+              className="h-9"
+            />
+          </div>
+
+          {error && (
+            <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>Cancelar</Button>
+          <Button
+            size="sm"
+            disabled={!puedeConfirmar}
+            onClick={confirmar}
+            className="gap-1.5"
+          >
+            <span>↔</span> Confirmar transferencia
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Conteo Físico / Ajuste masivo ───────────────────────────────────────────
 
-function ConteoFisicoView({ onDone }: { onDone: () => void }) {
-  const { getAllProductos, registrarMovimiento } = useInventario();
-  const productos = getAllProductos();
+const CONTEO_PAGE_SIZE  = 20; // filas por página en vista de módulo
+const CONTEO_PREVIEW    = 8;  // productos visibles por sección en vista "Todos"
 
-  const [conteos, setConteos]     = useState<Record<string, string>>({});
-  const [search,  setSearch]      = useState("");
-  const [soloDif, setSoloDif]     = useState(false);
-  const [loading, setLoading]     = useState(false);
+function ConteoFisicoView({
+  onDone,
+  userArea,
+  isAdmin,
+}: {
+  onDone: () => void;
+  userArea?: string;
+  isAdmin: boolean;
+}) {
+  const { getAllProductos, registrarMovimiento } = useInventario();
+  const allProductos = getAllProductos();
+
+  // Módulos presentes en el catálogo, en orden canónico
+  const modulesInCatalog = useMemo(() => {
+    const set = new Set<string>();
+    allProductos.forEach(p => p.modulo_ids.forEach(m => set.add(m)));
+    const order = MODULOS_OPCIONES.map(o => o.value);
+    return [...set].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  }, [allProductos]);
+
+  const defaultModulo = useMemo(() => {
+    if (userArea && modulesInCatalog.includes(userArea)) return userArea;
+    if (isAdmin) return "todos";
+    return modulesInCatalog[0] ?? "todos";
+  }, [userArea, modulesInCatalog, isAdmin]);
+
+  const [activeModulo, setActiveModulo] = useState(defaultModulo);
+  const [conteos,      setConteos]      = useState<Record<string, string>>({});
+  const [search,       setSearch]       = useState("");
+  const [soloDif,      setSoloDif]      = useState(false);
+  const [loading,      setLoading]      = useState(false);
+  const [currentPage,  setCurrentPage]  = useState(1);
   const fecha = new Date().toLocaleDateString("es-CL");
+
+  // Cambia de módulo y resetea búsqueda + página
+  const switchModulo = (m: string) => {
+    setActiveModulo(m);
+    setSearch("");
+    setCurrentPage(1);
+    setSoloDif(false);
+  };
 
   const setConteo = (id: string, v: string) =>
     setConteos(prev => ({ ...prev, [id]: v }));
 
-  const getDif = (p: typeof productos[0]) => {
+  const getDif = useCallback((p: InvCatalogo) => {
     const conteo = parseFloat(conteos[p.id] ?? "");
     if (isNaN(conteo)) return null;
     return conteo - p.cantidad_actual;
-  };
+  }, [conteos]);
 
-  const filtrados = productos.filter(p => {
+  // Productos del módulo activo
+  const productosPorModulo = useMemo(() =>
+    activeModulo === "todos"
+      ? allProductos
+      : allProductos.filter(p => p.modulo_ids.includes(activeModulo)),
+  [allProductos, activeModulo]);
+
+  // Filtrados por búsqueda / solo-dif
+  const filtrados = useMemo(() => {
     const q = search.toLowerCase();
-    if (q && !p.nombre.toLowerCase().includes(q) && !p.codigo.toLowerCase().includes(q)) return false;
-    if (soloDif) {
+    return productosPorModulo.filter(p => {
+      if (q && !p.nombre.toLowerCase().includes(q) && !p.codigo.toLowerCase().includes(q)) return false;
+      if (soloDif) { const d = getDif(p); return d !== null && d !== 0; }
+      return true;
+    });
+  }, [productosPorModulo, search, soloDif, getDif]);
+
+  // Diferencias del scope actual (para el botón confirmar)
+  const conDiferencias = useMemo(() =>
+    productosPorModulo.filter(p => { const d = getDif(p); return d !== null && d !== 0; }),
+  [productosPorModulo, getDif]);
+
+  // Paginación (solo aplica en modo módulo específico)
+  const totalPages      = activeModulo !== "todos" ? Math.ceil(filtrados.length / CONTEO_PAGE_SIZE) : 1;
+  const paginaActual    = Math.min(currentPage, Math.max(1, totalPages));
+  const filtradosPagina = activeModulo !== "todos"
+    ? filtrados.slice((paginaActual - 1) * CONTEO_PAGE_SIZE, paginaActual * CONTEO_PAGE_SIZE)
+    : filtrados;
+
+  const goPage = (n: number) => setCurrentPage(Math.max(1, Math.min(n, totalPages)));
+
+  // Conteo de diferencias por módulo (para badges de tabs)
+  const difsPorModulo = useMemo(() => {
+    const map: Record<string, number> = {};
+    allProductos.forEach(p => {
       const d = getDif(p);
-      return d !== null && d !== 0;
-    }
-    return true;
-  });
-
-  const conDiferencias = productos.filter(p => {
-    const d = getDif(p);
-    return d !== null && d !== 0;
-  });
-
-  const confirmar = () => {
-    setLoading(true);
-    conDiferencias.forEach(p => {
-      const conteo = parseFloat(conteos[p.id] ?? "");
-      if (!isNaN(conteo)) {
-        registrarMovimiento(p.id, "ajuste", "conteo_fisico", conteo, {
-          observaciones: `Conteo físico — ${fecha}`,
-        });
+      if (d !== null && d !== 0) {
+        p.modulo_ids.forEach(m => { map[m] = (map[m] ?? 0) + 1; });
       }
     });
+    return map;
+  }, [allProductos, getDif]);
+
+  // Agrupado por primer modulo_id (vista "Todos")
+  const groupedByModule = useMemo(() => {
+    if (activeModulo !== "todos") return null;
+    const map: Record<string, InvCatalogo[]> = {};
+    filtrados.forEach(p => {
+      const primary = p.modulo_ids[0] ?? "sin_area";
+      if (!map[primary]) map[primary] = [];
+      map[primary].push(p);
+    });
+    // Ordenar secciones según MODULOS_OPCIONES
+    const order = MODULOS_OPCIONES.map(o => o.value);
+    return Object.fromEntries(
+      Object.entries(map).sort(([a], [b]) => order.indexOf(a) - order.indexOf(b)),
+    );
+  }, [activeModulo, filtrados]);
+
+  const MAX_CONTEO = 999_999;
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  // Construye el resumen para el modal de confirmación
+  const resumenAjustes = conDiferencias.map(p => {
+    const conteo = parseFloat(conteos[p.id] ?? "");
+    const dif    = conteo - p.cantidad_actual;
+    return { p, conteo, dif };
+  }).filter(r => !isNaN(r.conteo) && r.conteo >= 0 && r.conteo <= MAX_CONTEO);
+
+  const aplicarAjustes = () => {
+    setLoading(true);
+    resumenAjustes.forEach(({ p, conteo }) => {
+      registrarMovimiento(p.id, "ajuste", "conteo_fisico", conteo, {
+        observaciones: `Conteo físico — ${fecha}`,
+      });
+    });
     setLoading(false);
+    setShowConfirm(false);
     onDone();
+  };
+
+  // ── Cabecera de tabla reutilizable ─────────────────────────────────────────
+  const tableHead = (
+    <thead>
+      <tr className="border-b border-border bg-muted/40">
+        <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Producto</th>
+        <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Código</th>
+        <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Stock sistema</th>
+        <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground w-40">Conteo físico</th>
+        <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Diferencia</th>
+      </tr>
+    </thead>
+  );
+
+  // ── Fila de producto reutilizable ──────────────────────────────────────────
+  const renderRow = (p: InvCatalogo, showModules = false) => {
+    const dif = getDif(p);
+    const hasDif = dif !== null && dif !== 0;
+    return (
+      <tr
+        key={p.id}
+        className={cn(
+          "border-b border-border/50 last:border-0",
+          hasDif ? (dif! > 0 ? "bg-green-50/40 dark:bg-green-900/10" : "bg-red-50/40 dark:bg-red-900/10") : "",
+        )}
+      >
+        <td className="px-4 py-2">
+          <p className="font-medium text-sm">{p.nombre}</p>
+          {showModules && <ModuloBadges ids={p.modulo_ids} size="xs" />}
+        </td>
+        <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{p.codigo}</td>
+        <td className="px-3 py-2 text-right tabular-nums">
+          <span className="font-semibold">{fmtNum(p.cantidad_actual, 1)}</span>
+          <span className="ml-1 text-xs text-muted-foreground">{p.unidad_medida}</span>
+        </td>
+        <td className="px-3 py-2">
+          <Input
+            type="number" min="0" max={999_999} step="any"
+            value={conteos[p.id] ?? ""}
+            onChange={e => {
+              const val = e.target.value;
+              if (val !== "" && parseFloat(val) > 999_999) return;
+              setConteo(p.id, val);
+            }}
+            onKeyDown={e => { if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault(); }}
+            placeholder={fmtNum(p.cantidad_actual, 1)}
+            className={cn("h-8 text-right", hasDif ? "border-amber-400 bg-amber-50/60 dark:bg-amber-900/10 font-semibold" : "")}
+          />
+        </td>
+        <td className="px-3 py-2 text-right">
+          {dif === null ? (
+            <span className="text-muted-foreground">—</span>
+          ) : dif === 0 ? (
+            <span className="text-green-600 text-xs">✓</span>
+          ) : (
+            <span className={cn("font-semibold tabular-nums text-sm", dif > 0 ? "text-green-600" : "text-red-600")}>
+              {dif > 0 ? "+" : ""}{fmtNum(dif, 1)}
+              <span className="ml-1 text-[10px] font-normal text-muted-foreground">{p.unidad_medida}</span>
+            </span>
+          )}
+        </td>
+      </tr>
+    );
   };
 
   return (
     <div className="space-y-4">
-      {/* Header */}
+
+      {/* ── Tabs de módulo ────────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {isAdmin && (
+          <button
+            onClick={() => switchModulo("todos")}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
+              activeModulo === "todos"
+                ? "border-foreground bg-foreground text-background"
+                : "border-border bg-background text-muted-foreground hover:text-foreground",
+            )}
+          >
+            Todos
+            <span className={cn(
+              "rounded-full px-1.5 py-0 text-[10px] font-bold",
+              activeModulo === "todos" ? "bg-white/20 text-background" : "bg-muted text-muted-foreground",
+            )}>
+              {allProductos.length}
+            </span>
+          </button>
+        )}
+        {modulesInCatalog.map(m => {
+          const count = allProductos.filter(p => p.modulo_ids.includes(m)).length;
+          const difs  = difsPorModulo[m] ?? 0;
+          const isAct = activeModulo === m;
+          return (
+            <button
+              key={m}
+              onClick={() => switchModulo(m)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
+                isAct
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-border bg-background text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <span className={isAct ? "opacity-80" : MODULE_ICON_CLS[m]}>
+                {MODULE_ICONS[m]}
+              </span>
+              {MODULE_LABELS[m] ?? m}
+              <span className={cn(
+                "rounded-full px-1.5 py-0 text-[10px] font-bold",
+                isAct ? "bg-white/20 text-background" : "bg-muted text-muted-foreground",
+              )}>
+                {count}
+              </span>
+              {difs > 0 && (
+                <span className={cn(
+                  "rounded-full px-1.5 py-0 text-[10px] font-bold",
+                  isAct
+                    ? "bg-amber-300 text-amber-900"
+                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+                )}>
+                  ⚠ {difs}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Búsqueda + filtros ────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex-1 min-w-64">
+        <div className="flex-1 min-w-52">
           <Input
-            placeholder="Buscar producto o código…"
+            placeholder={`Buscar en ${activeModulo === "todos" ? "todos los productos" : (MODULE_LABELS[activeModulo] ?? activeModulo)}…`}
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="h-9"
           />
         </div>
         <label className="flex cursor-pointer items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={soloDif}
-            onChange={e => setSoloDif(e.target.checked)}
-            className="h-4 w-4 accent-primary"
-          />
+          <input type="checkbox" checked={soloDif} onChange={e => setSoloDif(e.target.checked)} className="h-4 w-4 accent-primary" />
           Solo con diferencias
         </label>
         {conDiferencias.length > 0 && (
           <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
-            {conDiferencias.length} diferencia{conDiferencias.length !== 1 ? "s" : ""}
+            {conDiferencias.length} diferencia{conDiferencias.length !== 1 ? "s" : ""}{activeModulo !== "todos" ? ` en ${MODULE_LABELS[activeModulo] ?? activeModulo}` : ""}
           </span>
         )}
         <p className="ml-auto text-xs text-muted-foreground">{fecha}</p>
@@ -1778,81 +2625,156 @@ function ConteoFisicoView({ onDone }: { onDone: () => void }) {
       <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2.5 text-xs text-blue-800 dark:border-blue-800/40 dark:bg-blue-900/10 dark:text-blue-300">
         <AlertCircleIcon className="h-4 w-4 shrink-0 mt-0.5" />
         <p>
-          Ingresa el stock real contado en bodega para cada producto. Solo se ajustarán los que tengan diferencias.
-          Los campos vacíos se ignoran.
+          Ingresa el stock real contado en bodega para cada producto.
+          {activeModulo !== "todos" && <> Solo se muestran productos de <strong>{MODULE_LABELS[activeModulo] ?? activeModulo}</strong>.</>}
+          {" "}Solo se ajustarán los que tengan diferencias. Los campos vacíos se ignoran.
         </p>
       </div>
 
-      {/* Tabla spreadsheet */}
+      {/* ── Tabla principal ────────────────────────────────────────────────────── */}
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="overflow-auto">
           <table className="w-full min-w-[600px] text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/40">
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Producto</th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Código</th>
-                <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Stock sistema</th>
-                <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground w-40">Conteo físico</th>
-                <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Diferencia</th>
-              </tr>
-            </thead>
+            {tableHead}
             <tbody>
-              {filtrados.length === 0 && (
-                <tr><td colSpan={5} className="py-10 text-center text-sm text-muted-foreground">Sin productos</td></tr>
-              )}
-              {filtrados.map(p => {
-                const dif = getDif(p);
-                const hasDif = dif !== null && dif !== 0;
-                return (
-                  <tr
-                    key={p.id}
-                    className={cn(
-                      "border-b border-border/50 last:border-0",
-                      hasDif ? (dif! > 0 ? "bg-green-50/40 dark:bg-green-900/10" : "bg-red-50/40 dark:bg-red-900/10") : "",
-                    )}
-                  >
-                    <td className="px-4 py-2">
-                      <p className="font-medium">{p.nombre}</p>
-                      <ModuloBadges ids={p.modulo_ids} size="xs" />
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{p.codigo}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      <span className="font-semibold">{fmtNum(p.cantidad_actual, 1)}</span>
-                      <span className="ml-1 text-xs text-muted-foreground">{p.unidad_medida}</span>
-                    </td>
-                    <td className="px-3 py-2">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={conteos[p.id] ?? ""}
-                        onChange={e => setConteo(p.id, e.target.value)}
-                        onKeyDown={e => { if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault(); }}
-                        placeholder={fmtNum(p.cantidad_actual, 1)}
-                        className={cn(
-                          "h-8 text-right",
-                          hasDif ? "border-amber-400 bg-amber-50/60 dark:bg-amber-900/10 font-semibold" : "",
-                        )}
-                      />
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {dif === null ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : dif === 0 ? (
-                        <span className="text-green-600 text-xs">✓ OK</span>
-                      ) : (
-                        <span className={cn("font-semibold tabular-nums text-sm", dif > 0 ? "text-green-600" : "text-red-600")}>
-                          {dif > 0 ? "+" : ""}{fmtNum(dif, 1)}
-                          <span className="ml-1 text-[10px] font-normal text-muted-foreground">{p.unidad_medida}</span>
-                        </span>
+
+              {/* ── MODO "Todos": preview por sección + botón ir al módulo ── */}
+              {activeModulo === "todos" && groupedByModule && (() => {
+                const entries = Object.entries(groupedByModule);
+                if (entries.length === 0)
+                  return <tr><td colSpan={5} className="py-12 text-center text-sm text-muted-foreground">Sin productos</td></tr>;
+
+                return entries.map(([modulo, prods]) => {
+                  const difsSection  = prods.filter(p => { const d = getDif(p); return d !== null && d !== 0; }).length;
+                  const preview      = prods.slice(0, CONTEO_PREVIEW);
+                  const remaining    = prods.length - CONTEO_PREVIEW;
+                  const allCounted   = prods.every(p => conteos[p.id]);
+
+                  return (
+                    <Fragment key={modulo}>
+                      {/* Fila divisora */}
+                      <tr className={cn("border-b border-t border-border", MODULE_BG_CLS[modulo] ?? "bg-muted/40")}>
+                        <td colSpan={5} className="px-4 py-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={cn("flex h-5 w-5 items-center justify-center rounded", MODULE_BG_CLS[modulo] ?? "bg-muted")}>
+                              <span className={MODULE_ICON_CLS[modulo] ?? "text-muted-foreground"}>{MODULE_ICONS[modulo]}</span>
+                            </span>
+                            <span className="font-semibold text-xs">{MODULE_LABELS[modulo] ?? modulo}</span>
+                            <span className="text-[11px] text-muted-foreground">· {prods.length} producto{prods.length !== 1 ? "s" : ""}</span>
+                            {difsSection > 0 && (
+                              <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                                · ⚠ {difsSection} diferencia{difsSection !== 1 ? "s" : ""}
+                              </span>
+                            )}
+                            {difsSection === 0 && allCounted && (
+                              <span className="text-[11px] font-medium text-green-600">· ✓ Contado</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* Primeros CONTEO_PREVIEW productos */}
+                      {preview.map(p => renderRow(p, false))}
+
+                      {/* Fila CTA si hay más productos */}
+                      {remaining > 0 && (
+                        <tr className="border-b border-border/40 bg-muted/20">
+                          <td colSpan={5} className="px-4 py-2.5">
+                            <button
+                              onClick={() => switchModulo(modulo)}
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                            >
+                              <span className={MODULE_ICON_CLS[modulo]}>{MODULE_ICONS[modulo]}</span>
+                              Ver los {remaining} producto{remaining !== 1 ? "s" : ""} restantes de {MODULE_LABELS[modulo] ?? modulo} →
+                            </button>
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                  </tr>
-                );
-              })}
+                    </Fragment>
+                  );
+                });
+              })()}
+
+              {/* ── MODO módulo específico: tabla paginada ── */}
+              {activeModulo !== "todos" && (() => {
+                if (filtradosPagina.length === 0)
+                  return (
+                    <tr><td colSpan={5} className="py-12 text-center text-sm text-muted-foreground">
+                      {filtrados.length === 0
+                        ? `Sin productos${search ? " que coincidan con la búsqueda" : " en esta área"}`
+                        : "Sin resultados en esta página"}
+                    </td></tr>
+                  );
+                return filtradosPagina.map(p => renderRow(p, false));
+              })()}
+
             </tbody>
           </table>
         </div>
+
+        {/* ── Paginación (solo modo módulo específico) ── */}
+        {activeModulo !== "todos" && totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
+            <p className="text-xs text-muted-foreground">
+              {filtrados.length === 0 ? "0 productos" : (
+                <>
+                  <span className="font-medium">{(paginaActual - 1) * CONTEO_PAGE_SIZE + 1}–{Math.min(paginaActual * CONTEO_PAGE_SIZE, filtrados.length)}</span>
+                  {" de "}<span className="font-medium">{filtrados.length}</span> productos
+                </>
+              )}
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => goPage(paginaActual - 1)}
+                disabled={paginaActual <= 1}
+                className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ← Anterior
+              </button>
+              {/* Números de página */}
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(n => n === 1 || n === totalPages || Math.abs(n - paginaActual) <= 1)
+                .reduce<(number | "…")[]>((acc, n, i, arr) => {
+                  if (i > 0 && (n as number) - (arr[i - 1] as number) > 1) acc.push("…");
+                  acc.push(n);
+                  return acc;
+                }, [])
+                .map((item, i) =>
+                  item === "…" ? (
+                    <span key={`ellipsis-${i}`} className="px-1 text-xs text-muted-foreground">…</span>
+                  ) : (
+                    <button
+                      key={item}
+                      onClick={() => goPage(item as number)}
+                      className={cn(
+                        "min-w-[28px] rounded-md border px-2 py-1 text-xs font-medium transition-colors",
+                        paginaActual === item
+                          ? "border-foreground bg-foreground text-background"
+                          : "border-border text-muted-foreground hover:bg-muted",
+                      )}
+                    >
+                      {item}
+                    </button>
+                  )
+                )
+              }
+              <button
+                onClick={() => goPage(paginaActual + 1)}
+                disabled={paginaActual >= totalPages}
+                className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Siguiente →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Conteo rápido sin paginación */}
+        {activeModulo !== "todos" && totalPages <= 1 && filtrados.length > 0 && (
+          <div className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
+            {filtrados.length} producto{filtrados.length !== 1 ? "s" : ""} en {MODULE_LABELS[activeModulo] ?? activeModulo}
+          </div>
+        )}
       </div>
 
       {/* Footer */}
@@ -1861,7 +2783,8 @@ function ConteoFisicoView({ onDone }: { onDone: () => void }) {
           {conDiferencias.length === 0
             ? "Sin diferencias — el stock del sistema coincide con el conteo."
             : <span className="font-medium text-amber-700 dark:text-amber-400">
-                Se ajustarán {conDiferencias.length} producto{conDiferencias.length !== 1 ? "s" : ""}.
+                {conDiferencias.length} producto{conDiferencias.length !== 1 ? "s" : ""} con diferencia
+                {activeModulo !== "todos" ? ` en ${MODULE_LABELS[activeModulo] ?? activeModulo}` : ""}.
               </span>
           }
         </div>
@@ -1870,197 +2793,495 @@ function ConteoFisicoView({ onDone }: { onDone: () => void }) {
           <Button
             size="sm"
             disabled={conDiferencias.length === 0 || loading}
-            onClick={confirmar}
-            className="gap-1.5 bg-primary"
+            onClick={() => setShowConfirm(true)}
+            className="gap-1.5"
           >
             <ClipboardCheck className="h-4 w-4" />
             Confirmar ajuste ({conDiferencias.length})
           </Button>
         </div>
       </div>
+
+      {/* ── Modal de confirmación con resumen ── */}
+      <Dialog open={showConfirm} onOpenChange={v => { if (!v) setShowConfirm(false); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardCheck className="h-5 w-5 text-primary" />
+              Resumen del conteo físico
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3 py-1">
+            <p className="text-sm text-muted-foreground">
+              Se registrarán los siguientes ajustes de stock con fecha <strong>{fecha}</strong>:
+            </p>
+
+            {/* Tabla de ajustes */}
+            <div className="overflow-hidden rounded-xl border border-border">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40">
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Producto</th>
+                    <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Sistema</th>
+                    <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Conteo</th>
+                    <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Ajuste</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resumenAjustes.map(({ p, conteo, dif }) => (
+                    <tr key={p.id} className={cn(
+                      "border-b border-border/50 last:border-0",
+                      dif > 0 ? "bg-green-50/30 dark:bg-green-900/10" : "bg-red-50/30 dark:bg-red-900/10",
+                    )}>
+                      <td className="px-3 py-2">
+                        <p className="font-medium">{p.nombre}</p>
+                        <ModuloBadges ids={p.modulo_ids} size="xs" />
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        {fmtNum(p.cantidad_actual, 1)} {p.unidad_medida}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums font-medium">
+                        {fmtNum(conteo, 1)} {p.unidad_medida}
+                      </td>
+                      <td className={cn(
+                        "px-3 py-2 text-right tabular-nums font-bold",
+                        dif > 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400",
+                      )}>
+                        {dif > 0 ? "+" : ""}{fmtNum(dif, 1)} {p.unidad_medida}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                {/* Totales por tipo */}
+                {resumenAjustes.length > 1 && (() => {
+                  const ganancias = resumenAjustes.filter(r => r.dif > 0).length;
+                  const perdidas  = resumenAjustes.filter(r => r.dif < 0).length;
+                  return (
+                    <tfoot>
+                      <tr className="border-t border-border bg-muted/30">
+                        <td colSpan={4} className="px-3 py-2 text-[11px] text-muted-foreground">
+                          {ganancias > 0 && <span className="text-green-600 font-medium mr-3">↑ {ganancias} con sobrante</span>}
+                          {perdidas  > 0 && <span className="text-red-600 font-medium">↓ {perdidas} con faltante</span>}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  );
+                })()}
+              </table>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground">
+              Esta acción es irreversible. Los movimientos quedarán registrados en el historial de inventario.
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowConfirm(false)}>
+              Revisar
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={aplicarAjustes} disabled={loading}>
+              <ClipboardCheck className="h-4 w-4" />
+              Aplicar {resumenAjustes.length} ajuste{resumenAjustes.length !== 1 ? "s" : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-// ─── Kardex por producto ──────────────────────────────────────────────────────
+// ─── Kardex por producto — Informe modal ─────────────────────────────────────
 
 function KardexSheet({ productId, onClose }: { productId: string | null; onClose: () => void }) {
   const { catalogos, getMovimientosByProducto } = useInventario();
+
+  // Estados — deben ir ANTES de cualquier return condicional
+  const [expanded,   setExpanded]   = useState(false);
+  const [fechaDesde, setFechaDesde] = useState("");
+  const [fechaHasta, setFechaHasta] = useState("");
+
   const p = productId ? catalogos.find(x => x.id === productId) : null;
 
+  if (!p) return (
+    <Dialog open={productId !== null} onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-lg"><p className="text-sm text-muted-foreground">Producto no encontrado.</p></DialogContent>
+    </Dialog>
+  );
+
+  const movs = getMovimientosByProducto(p.id)
+    .slice()
+    .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.created_at.localeCompare(b.created_at));
+
+  const precio = p.precio_unitario;
+
+  // Presets de fechas
+  const applyPreset = (preset: "mes" | "trimestre" | "anio" | "todo") => {
+    const hoy   = new Date();
+    const iso   = (d: Date) => d.toISOString().substring(0, 10);
+    const hasta = iso(hoy);
+    if (preset === "todo")      { setFechaDesde(""); setFechaHasta(""); return; }
+    if (preset === "mes")       { setFechaDesde(iso(new Date(hoy.getFullYear(), hoy.getMonth(), 1))); setFechaHasta(hasta); return; }
+    if (preset === "trimestre") { setFechaDesde(iso(new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1))); setFechaHasta(hasta); return; }
+    if (preset === "anio")      { setFechaDesde(iso(new Date(hoy.getFullYear(), 0, 1))); setFechaHasta(hasta); return; }
+  };
+
+  type KardexRow = {
+    fecha: string; concepto: string;
+    entQ?: number; entP?: number; entTotal?: number;
+    salQ?: number; salP?: number; salTotal?: number;
+    saldoQ: number; saldoP: number; saldoTotal: number;
+  };
+
+  let saldoQ = 0;
+  const rows: KardexRow[] = movs.map(m => {
+    const delta     = m.cantidad_nueva - m.cantidad_anterior;
+    const esEntrada = m.tipo === "entrada" || (m.tipo === "ajuste" && delta > 0);
+    const esSalida  = m.tipo === "salida"  || (m.tipo === "ajuste" && delta < 0);
+    const qty       = m.tipo === "ajuste" ? Math.abs(delta) : m.cantidad;
+    const p_unit    = m.precio_unitario ?? precio;
+    saldoQ = m.cantidad_nueva;
+    const concepto  = m.registro_origen_tipo
+      ? `${m.registro_origen_tipo} (auto)`
+      : m.observaciones ?? m.subtipo.replace(/_/g, " ");
+    return {
+      fecha: m.fecha, concepto,
+      entQ:     esEntrada ? qty     : undefined,
+      entP:     esEntrada ? p_unit  : undefined,
+      entTotal: esEntrada ? qty * p_unit : undefined,
+      salQ:     esSalida  ? qty     : undefined,
+      salP:     esSalida  ? p_unit  : undefined,
+      salTotal: esSalida  ? qty * p_unit : undefined,
+      saldoQ, saldoP: precio, saldoTotal: saldoQ * precio,
+    };
+  });
+
+  // Filtro de fechas — solo para la visualización; el saldo acumulado se mantiene
+  const rowsFiltrados = rows.filter(r => {
+    if (fechaDesde && r.fecha < fechaDesde) return false;
+    if (fechaHasta && r.fecha > fechaHasta) return false;
+    return true;
+  });
+
+  // Saldo de apertura (último saldo antes de fechaDesde)
+  const saldoApertura = fechaDesde
+    ? (rows.filter(r => r.fecha < fechaDesde).at(-1)?.saldoQ ?? 0)
+    : null;
+
+  const displayRows  = rowsFiltrados;
+  const hayFiltro    = !!(fechaDesde || fechaHasta);
+
+  const totalEntQ   = displayRows.reduce((s, r) => s + (r.entQ   ?? 0), 0);
+  const totalEntVal = displayRows.reduce((s, r) => s + (r.entTotal ?? 0), 0);
+  const totalSalQ   = displayRows.reduce((s, r) => s + (r.salQ   ?? 0), 0);
+  const totalSalVal = displayRows.reduce((s, r) => s + (r.salTotal ?? 0), 0);
+  const valorTotal  = saldoQ * precio;
+
+  const exportarKardex = () => {
+    const fecha = new Date().toLocaleDateString("es-CL").replace(/\//g, "-");
+    exportToCsv(
+      rows.map(r => ({
+        fecha:         r.fecha,
+        concepto:      r.concepto,
+        entrada_cant:  r.entQ   ?? "",
+        entrada_precio:r.entP   ?? "",
+        entrada_total: r.entTotal ?? "",
+        salida_cant:   r.salQ   ?? "",
+        salida_precio: r.salP   ?? "",
+        salida_total:  r.salTotal ?? "",
+        saldo_cant:    r.saldoQ,
+        saldo_precio:  r.saldoP,
+        saldo_total:   r.saldoTotal,
+      })),
+      [
+        { key: "fecha",          label: "Fecha" },
+        { key: "concepto",       label: "Concepto" },
+        { key: "entrada_cant",   label: "Entrada Cant." },
+        { key: "entrada_precio", label: "Entrada P.Unit." },
+        { key: "entrada_total",  label: "Entrada Total" },
+        { key: "salida_cant",    label: "Salida Cant." },
+        { key: "salida_precio",  label: "Salida P.Unit." },
+        { key: "salida_total",   label: "Salida Total" },
+        { key: "saldo_cant",     label: "Saldo Cant." },
+        { key: "saldo_precio",   label: "Saldo P.Unit." },
+        { key: "saldo_total",    label: "Saldo Total" },
+      ],
+      `kardex-${p.codigo}-${fecha}.csv`,
+    );
+  };
+
   return (
-    <Sheet open={productId !== null} onOpenChange={v => { if (!v) onClose(); }}>
-      <SheetContent className="w-full sm:max-w-4xl p-0 flex flex-col" side="right">
-        {!p ? null : (() => {
-          const movs = getMovimientosByProducto(p.id)
-            .slice()
-            .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.created_at.localeCompare(b.created_at));
+    <Dialog open={productId !== null} onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className={cn(
+        "flex flex-col gap-0 p-0 overflow-hidden transition-all duration-200",
+        expanded
+          ? "max-w-[100vw] w-screen h-screen max-h-screen rounded-none"
+          : "max-w-[95vw] w-full xl:max-w-6xl max-h-[92vh]",
+      )}>
 
-          const precio = p.precio_unitario;
+        {/* ── Encabezado del informe ─────────────────────────────────────────── */}
+        <div className="shrink-0 border-b border-border bg-muted/30 px-6 py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <BookOpen className="h-5 w-5 text-primary" />
+                <h2 className="text-lg font-bold">Balance de stock — Kardex</h2>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                <span className="font-semibold text-foreground">{p.nombre}</span>
+                <span className="font-mono text-xs text-muted-foreground">{p.codigo}</span>
+                {p.categoria && <span className="rounded-full border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground">{p.categoria}</span>}
+                <ModuloBadges ids={p.modulo_ids} size="xs" />
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                <span>Precio unitario: <strong className="text-foreground">{fmtCurrency(precio)}</strong></span>
+                <span>Unidad: <strong className="text-foreground">{p.unidad_medida}</strong></span>
+                <span>Ubicación: <strong className="text-foreground">{p.ubicacion_fisica || "—"}</strong></span>
+                <span>Generado: <strong className="text-foreground">{new Date().toLocaleDateString("es-CL")}</strong></span>
+              </div>
+            </div>
+            {/* Acciones */}
+            <div className="flex items-center gap-2 shrink-0 mr-8">
+              <Button variant="outline" size="sm" className="gap-1.5 h-8" onClick={exportarKardex}>
+                <Download className="h-3.5 w-3.5" /> Exportar
+              </Button>
+              <Button variant="ghost" size="sm" className="gap-1.5 h-8" onClick={() => window.print()}>
+                <BookOpen className="h-3.5 w-3.5" /> Imprimir
+              </Button>
+              <button
+                onClick={() => setExpanded(v => !v)}
+                title={expanded ? "Restaurar tamaño" : "Expandir a pantalla completa"}
+                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              >
+                {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
 
-          // Calcular Kardex con saldo acumulado
-          type KardexRow = {
-            fecha: string; concepto: string;
-            entQ?: number; entP?: number; entTotal?: number;
-            salQ?: number; salP?: number; salTotal?: number;
-            saldoQ: number; saldoP: number; saldoTotal: number;
-          };
+          {/* ── Filtro de fechas ─────────────────────────────────────────────── */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs text-muted-foreground">Período:</span>
+            {/* Presets rápidos */}
+            {([
+              { key: "todo",      label: "Todo" },
+              { key: "mes",       label: "Este mes" },
+              { key: "trimestre", label: "Últimos 3 meses" },
+              { key: "anio",      label: "Este año" },
+            ] as const).map(preset => (
+              <button
+                key={preset.key}
+                type="button"
+                onClick={() => applyPreset(preset.key)}
+                className={cn(
+                  "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                  !hayFiltro && preset.key === "todo"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : hayFiltro && preset.key !== "todo"
+                      ? "border-border text-muted-foreground hover:border-primary/50"
+                      : "border-border text-muted-foreground hover:border-primary/50",
+                )}
+              >
+                {preset.label}
+              </button>
+            ))}
+            {/* Separador */}
+            <span className="h-4 w-px bg-border" />
+            {/* Rango manual */}
+            <div className="flex items-center gap-1.5">
+              <label className="text-[11px] text-muted-foreground">Desde</label>
+              <input
+                type="date"
+                value={fechaDesde}
+                onChange={e => setFechaDesde(e.target.value)}
+                className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <label className="text-[11px] text-muted-foreground">Hasta</label>
+              <input
+                type="date"
+                value={fechaHasta}
+                onChange={e => setFechaHasta(e.target.value)}
+                className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+            {hayFiltro && (
+              <button
+                type="button"
+                onClick={() => applyPreset("todo")}
+                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3 w-3" /> Limpiar
+              </button>
+            )}
+            {hayFiltro && (
+              <span className="ml-1 text-[11px] text-muted-foreground">
+                — {displayRows.length} movimiento{displayRows.length !== 1 ? "s" : ""} en el período
+              </span>
+            )}
+          </div>
 
-          let saldoQ = 0;
-          const rows: KardexRow[] = movs.map(m => {
-            const delta = m.cantidad_nueva - m.cantidad_anterior;
-            const esEntrada = m.tipo === "entrada" || (m.tipo === "ajuste" && delta > 0);
-            const esSalida  = m.tipo === "salida"  || (m.tipo === "ajuste" && delta < 0);
-            const qty = m.tipo === "ajuste" ? Math.abs(delta) : m.cantidad;
-            const p_unit = m.precio_unitario ?? precio;
-            saldoQ = m.cantidad_nueva;
+          {/* ── KPIs de resumen ─────────────────────────────────────────────── */}
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              {
+                label: "Total entradas",
+                qty:   `${fmtNum(totalEntQ, 1)} ${p.unidad_medida}`,
+                valor: fmtCurrency(totalEntVal),
+                cls:   "border-green-200 bg-green-50/60 dark:border-green-800/30 dark:bg-green-900/10",
+                qcls:  "text-green-700 dark:text-green-400",
+              },
+              {
+                label: "Total salidas",
+                qty:   `${fmtNum(totalSalQ, 1)} ${p.unidad_medida}`,
+                valor: fmtCurrency(totalSalVal),
+                cls:   "border-red-200 bg-red-50/60 dark:border-red-800/30 dark:bg-red-900/10",
+                qcls:  "text-red-700 dark:text-red-400",
+              },
+              {
+                label: "Saldo actual",
+                qty:   `${fmtNum(saldoQ, 1)} ${p.unidad_medida}`,
+                valor: fmtCurrency(valorTotal),
+                cls:   "border-blue-200 bg-blue-50/60 dark:border-blue-800/30 dark:bg-blue-900/10",
+                qcls:  "text-blue-700 dark:text-blue-400",
+              },
+              {
+                label: "Movimientos",
+                qty:   `${rows.length} registro${rows.length !== 1 ? "s" : ""}`,
+                valor: rows.length > 0 ? `Último: ${rows[rows.length - 1].fecha}` : "Sin movimientos",
+                cls:   "border-border bg-muted/30",
+                qcls:  "text-foreground",
+              },
+            ].map(k => (
+              <div key={k.label} className={cn("rounded-xl border px-3 py-2.5", k.cls)}>
+                <p className="text-[11px] text-muted-foreground mb-0.5">{k.label}</p>
+                <p className={cn("text-sm font-bold", k.qcls)}>{k.qty}</p>
+                <p className="text-[11px] text-muted-foreground">{k.valor}</p>
+              </div>
+            ))}
+          </div>
+        </div>
 
-            const concepto = m.registro_origen_tipo
-              ? `${m.registro_origen_tipo} (auto)`
-              : m.observaciones ?? m.subtipo.replace(/_/g, " ");
+        {/* ── Tabla Kardex ──────────────────────────────────────────────────── */}
+        <div className="flex-1 overflow-auto">
+          {rows.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <BookOpen className="mb-3 h-10 w-10 opacity-20" />
+              <p className="text-sm font-medium">Sin movimientos registrados</p>
+              <p className="text-xs text-muted-foreground mt-1">Los movimientos aparecerán aquí una vez que se registren entradas o salidas.</p>
+            </div>
+          ) : displayRows.length === 0 && hayFiltro ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <Calendar className="mb-3 h-10 w-10 opacity-20" />
+              <p className="text-sm font-medium">Sin movimientos en ese período</p>
+              <p className="text-xs text-muted-foreground mt-1">Prueba con un rango de fechas diferente o selecciona "Todo".</p>
+            </div>
+          ) : (
+            <table className="w-full min-w-[780px] text-xs border-collapse">
+              <thead className="sticky top-0 z-10">
+                <tr className="border-b-2 border-border bg-background">
+                  <th rowSpan={2} className="border border-border px-3 py-2 text-left font-semibold bg-muted/60 w-24">Fecha</th>
+                  <th rowSpan={2} className="border border-border px-3 py-2 text-left font-semibold bg-muted/60">Concepto</th>
+                  <th colSpan={3} className="border border-border px-3 py-1.5 text-center font-semibold text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20">ENTRADAS</th>
+                  <th colSpan={3} className="border border-border px-3 py-1.5 text-center font-semibold text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20">SALIDAS</th>
+                  <th colSpan={3} className="border border-border px-3 py-1.5 text-center font-semibold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20">SALDO</th>
+                </tr>
+                <tr className="border-b border-border">
+                  {(["Cant.", "P.Unit.", "Total", "Cant.", "P.Unit.", "Total", "Cant.", "P.Unit.", "Total"] as const).map((h, i) => (
+                    <th key={i} className={cn(
+                      "border border-border px-2 py-1.5 text-right font-semibold text-muted-foreground text-[11px]",
+                      i < 3 ? "bg-green-50/70 dark:bg-green-900/10" :
+                      i < 6 ? "bg-red-50/70 dark:bg-red-900/10"   :
+                               "bg-blue-50/70 dark:bg-blue-900/10",
+                    )}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {/* Fila de saldo de apertura (si hay filtro desde una fecha) */}
+                {saldoApertura !== null && (
+                  <tr className="border-b border-border bg-blue-50/40 dark:bg-blue-900/10">
+                    <td className="border border-border/30 px-3 py-2 font-mono text-[11px] text-muted-foreground">{fechaDesde}</td>
+                    <td className="border border-border/30 px-3 py-2 italic text-muted-foreground" colSpan={7}>
+                      Saldo de apertura al inicio del período
+                    </td>
+                    <td className="border border-border/30 px-2 py-2 text-right font-bold text-blue-700 dark:text-blue-400 bg-blue-50/30 tabular-nums">{fmtNum(saldoApertura, 1)}</td>
+                    <td className="border border-border/30 px-2 py-2 text-right text-blue-700 dark:text-blue-400 bg-blue-50/30 tabular-nums">{fmtCurrency(precio)}</td>
+                    <td className="border border-border/30 px-2 py-2 text-right font-bold text-blue-700 dark:text-blue-400 bg-blue-50/30 tabular-nums">{fmtCurrency(saldoApertura * precio)}</td>
+                  </tr>
+                )}
+                {displayRows.map((r, i) => (
+                  <tr key={i} className={cn(
+                    "border-b border-border/40 hover:bg-primary/5 transition-colors",
+                    i % 2 !== 0 && "bg-muted/20",
+                  )}>
+                    <td className="border border-border/30 px-3 py-2.5 font-mono text-[11px] text-muted-foreground whitespace-nowrap">{r.fecha}</td>
+                    <td className="border border-border/30 px-3 py-2.5 max-w-[200px]">
+                      <span className="truncate block" title={r.concepto}>{r.concepto}</span>
+                    </td>
+                    {/* Entradas */}
+                    <td className="border border-border/30 px-2 py-2.5 text-right text-green-700 dark:text-green-400 bg-green-50/30 tabular-nums">{r.entQ !== undefined ? fmtNum(r.entQ, 1) : ""}</td>
+                    <td className="border border-border/30 px-2 py-2.5 text-right text-green-700 dark:text-green-400 bg-green-50/30 tabular-nums">{r.entP !== undefined ? fmtCurrency(r.entP) : ""}</td>
+                    <td className="border border-border/30 px-2 py-2.5 text-right font-semibold text-green-700 dark:text-green-400 bg-green-50/30 tabular-nums">{r.entTotal !== undefined ? fmtCurrency(r.entTotal) : ""}</td>
+                    {/* Salidas */}
+                    <td className="border border-border/30 px-2 py-2.5 text-right text-red-700 dark:text-red-400 bg-red-50/30 tabular-nums">{r.salQ !== undefined ? fmtNum(r.salQ, 1) : ""}</td>
+                    <td className="border border-border/30 px-2 py-2.5 text-right text-red-700 dark:text-red-400 bg-red-50/30 tabular-nums">{r.salP !== undefined ? fmtCurrency(r.salP) : ""}</td>
+                    <td className="border border-border/30 px-2 py-2.5 text-right font-semibold text-red-700 dark:text-red-400 bg-red-50/30 tabular-nums">{r.salTotal !== undefined ? fmtCurrency(r.salTotal) : ""}</td>
+                    {/* Saldo */}
+                    <td className="border border-border/30 px-2 py-2.5 text-right font-bold text-blue-700 dark:text-blue-400 bg-blue-50/30 tabular-nums">{fmtNum(r.saldoQ, 1)}</td>
+                    <td className="border border-border/30 px-2 py-2.5 text-right text-blue-700 dark:text-blue-400 bg-blue-50/30 tabular-nums">{fmtCurrency(r.saldoP)}</td>
+                    <td className="border border-border/30 px-2 py-2.5 text-right font-bold text-blue-700 dark:text-blue-400 bg-blue-50/30 tabular-nums">{fmtCurrency(r.saldoTotal)}</td>
+                  </tr>
+                ))}
+                {/* Totales */}
+                <tr className="border-t-2 border-border bg-muted/50 font-bold sticky bottom-0">
+                  <td colSpan={2} className="border border-border px-3 py-2.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">TOTALES</td>
+                  <td className="border border-border px-2 py-2.5 text-right tabular-nums text-green-700 dark:text-green-400">{fmtNum(totalEntQ, 1)}</td>
+                  <td className="border border-border px-2 py-2.5 bg-green-50/40" />
+                  <td className="border border-border px-2 py-2.5 text-right font-bold tabular-nums text-green-700 dark:text-green-400">{fmtCurrency(totalEntVal)}</td>
+                  <td className="border border-border px-2 py-2.5 text-right tabular-nums text-red-700 dark:text-red-400">{fmtNum(totalSalQ, 1)}</td>
+                  <td className="border border-border px-2 py-2.5 bg-red-50/40" />
+                  <td className="border border-border px-2 py-2.5 text-right font-bold tabular-nums text-red-700 dark:text-red-400">{fmtCurrency(totalSalVal)}</td>
+                  <td className="border border-border px-2 py-2.5 text-right font-bold tabular-nums text-blue-700 dark:text-blue-400">{fmtNum(saldoQ, 1)}</td>
+                  <td className="border border-border px-2 py-2.5 bg-blue-50/40" />
+                  <td className="border border-border px-2 py-2.5 text-right font-bold tabular-nums text-blue-700 dark:text-blue-400">{fmtCurrency(valorTotal)}</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </div>
 
-            return {
-              fecha: m.fecha, concepto,
-              entQ:    esEntrada ? qty    : undefined,
-              entP:    esEntrada ? p_unit : undefined,
-              entTotal:esEntrada ? qty * p_unit : undefined,
-              salQ:    esSalida  ? qty    : undefined,
-              salP:    esSalida  ? p_unit : undefined,
-              salTotal:esSalida  ? qty * p_unit : undefined,
-              saldoQ, saldoP: precio, saldoTotal: saldoQ * precio,
-            };
-          });
-
-          const valorTotal = saldoQ * precio;
-
-          return (
-            <>
-              <SheetHeader className="shrink-0 border-b border-border px-5 pt-5 pb-4">
-                <SheetTitle className="flex items-center gap-2">
-                  <BookOpen className="h-5 w-5 text-primary" />
-                  Balance de stock — {p.nombre}
-                </SheetTitle>
-                <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                  <span className="font-mono">{p.codigo}</span>
-                  <span>{p.categoria}</span>
-                  <span>Precio unitario: <strong>{fmtCurrency(precio)}</strong></span>
-                  <span>Unidad: <strong>{p.unidad_medida}</strong></span>
-                  <span className="ml-auto font-medium text-foreground">
-                    Saldo final: {fmtNum(saldoQ, 1)} {p.unidad_medida} · {fmtCurrency(valorTotal)}
-                  </span>
-                </div>
-              </SheetHeader>
-
-              <ScrollArea className="flex-1">
-                <div className="p-4">
-                  {rows.length === 0 ? (
-                    <p className="py-10 text-center text-sm text-muted-foreground">Sin movimientos registrados</p>
-                  ) : (
-                    <table className="w-full min-w-[700px] text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b-2 border-border bg-muted/40">
-                          <th rowSpan={2} className="border border-border px-3 py-2 text-left font-semibold">Fecha</th>
-                          <th rowSpan={2} className="border border-border px-3 py-2 text-left font-semibold">Concepto</th>
-                          <th colSpan={3} className="border border-border px-3 py-1.5 text-center font-semibold text-green-700 dark:text-green-400 bg-green-50/60 dark:bg-green-900/10">ENTRADAS</th>
-                          <th colSpan={3} className="border border-border px-3 py-1.5 text-center font-semibold text-red-700 dark:text-red-400 bg-red-50/60 dark:bg-red-900/10">SALIDAS</th>
-                          <th colSpan={3} className="border border-border px-3 py-1.5 text-center font-semibold text-blue-700 dark:text-blue-400 bg-blue-50/60 dark:bg-blue-900/10">SALDO</th>
-                        </tr>
-                        <tr className="border-b border-border bg-muted/20">
-                          {["Cant.", "P.Unit.", "Total", "Cant.", "P.Unit.", "Total", "Cant.", "P.Unit.", "Total"].map((h, i) => (
-                            <th key={i} className={cn("border border-border px-2 py-1 text-right font-semibold text-muted-foreground",
-                              i < 3 ? "bg-green-50/40 dark:bg-green-900/10" : i < 6 ? "bg-red-50/40 dark:bg-red-900/10" : "bg-blue-50/40 dark:bg-blue-900/10"
-                            )}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((r, i) => (
-                          <tr key={i} className={cn("border-b border-border/50 hover:bg-muted/10", i % 2 === 0 ? "" : "bg-muted/20")}>
-                            <td className="border border-border/30 px-3 py-2 font-mono text-muted-foreground whitespace-nowrap">{r.fecha}</td>
-                            <td className="border border-border/30 px-3 py-2 max-w-[180px] truncate" title={r.concepto}>{r.concepto}</td>
-                            {/* Entradas */}
-                            <td className="border border-border/30 px-2 py-2 text-right text-green-700 dark:text-green-400 bg-green-50/20 dark:bg-green-900/5 tabular-nums">
-                              {r.entQ !== undefined ? fmtNum(r.entQ, 1) : ""}
-                            </td>
-                            <td className="border border-border/30 px-2 py-2 text-right text-green-700 dark:text-green-400 bg-green-50/20 dark:bg-green-900/5 tabular-nums">
-                              {r.entP !== undefined ? fmtCurrency(r.entP) : ""}
-                            </td>
-                            <td className="border border-border/30 px-2 py-2 text-right font-medium text-green-700 dark:text-green-400 bg-green-50/20 dark:bg-green-900/5 tabular-nums">
-                              {r.entTotal !== undefined ? fmtCurrency(r.entTotal) : ""}
-                            </td>
-                            {/* Salidas */}
-                            <td className="border border-border/30 px-2 py-2 text-right text-red-700 dark:text-red-400 bg-red-50/20 dark:bg-red-900/5 tabular-nums">
-                              {r.salQ !== undefined ? fmtNum(r.salQ, 1) : ""}
-                            </td>
-                            <td className="border border-border/30 px-2 py-2 text-right text-red-700 dark:text-red-400 bg-red-50/20 dark:bg-red-900/5 tabular-nums">
-                              {r.salP !== undefined ? fmtCurrency(r.salP) : ""}
-                            </td>
-                            <td className="border border-border/30 px-2 py-2 text-right font-medium text-red-700 dark:text-red-400 bg-red-50/20 dark:bg-red-900/5 tabular-nums">
-                              {r.salTotal !== undefined ? fmtCurrency(r.salTotal) : ""}
-                            </td>
-                            {/* Saldo */}
-                            <td className="border border-border/30 px-2 py-2 text-right font-semibold text-blue-700 dark:text-blue-400 bg-blue-50/20 dark:bg-blue-900/5 tabular-nums">
-                              {fmtNum(r.saldoQ, 1)}
-                            </td>
-                            <td className="border border-border/30 px-2 py-2 text-right text-blue-700 dark:text-blue-400 bg-blue-50/20 dark:bg-blue-900/5 tabular-nums">
-                              {fmtCurrency(r.saldoP)}
-                            </td>
-                            <td className="border border-border/30 px-2 py-2 text-right font-semibold text-blue-700 dark:text-blue-400 bg-blue-50/20 dark:bg-blue-900/5 tabular-nums">
-                              {fmtCurrency(r.saldoTotal)}
-                            </td>
-                          </tr>
-                        ))}
-                        {/* Fila de totales */}
-                        <tr className="border-t-2 border-border bg-muted/40 font-semibold">
-                          <td colSpan={2} className="border border-border px-3 py-2 text-xs uppercase tracking-wide text-muted-foreground">TOTALES</td>
-                          <td className="border border-border px-2 py-2 text-right tabular-nums text-green-700 dark:text-green-400">
-                            {fmtNum(rows.reduce((s, r) => s + (r.entQ ?? 0), 0), 1)}
-                          </td>
-                          <td className="border border-border px-2 py-2 bg-green-50/20 dark:bg-green-900/5" />
-                          <td className="border border-border px-2 py-2 text-right font-semibold tabular-nums text-green-700 dark:text-green-400">
-                            {fmtCurrency(rows.reduce((s, r) => s + (r.entTotal ?? 0), 0))}
-                          </td>
-                          <td className="border border-border px-2 py-2 text-right tabular-nums text-red-700 dark:text-red-400">
-                            {fmtNum(rows.reduce((s, r) => s + (r.salQ ?? 0), 0), 1)}
-                          </td>
-                          <td className="border border-border px-2 py-2 bg-red-50/20 dark:bg-red-900/5" />
-                          <td className="border border-border px-2 py-2 text-right font-semibold tabular-nums text-red-700 dark:text-red-400">
-                            {fmtCurrency(rows.reduce((s, r) => s + (r.salTotal ?? 0), 0))}
-                          </td>
-                          <td className="border border-border px-2 py-2 text-right font-bold tabular-nums text-blue-700 dark:text-blue-400">{fmtNum(saldoQ, 1)}</td>
-                          <td className="border border-border px-2 py-2 bg-blue-50/20 dark:bg-blue-900/5" />
-                          <td className="border border-border px-2 py-2 text-right font-bold tabular-nums text-blue-700 dark:text-blue-400">{fmtCurrency(valorTotal)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </ScrollArea>
-            </>
-          );
-        })()}
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function Inventario() {
-  const { hierarchyLevel }   = useRole();
+  const { hierarchyLevel, currentUser } = useRole();
   const { getAllProductos, movimientos, getAlertas, getAlertasVencimiento, catalogos, desactivarProducto } = useInventario();
-  const [searchParams]       = useSearchParams();
+  const [searchParams] = useSearchParams();
 
-  const moduloParam = searchParams.get("modulo") ?? "all";
+  const isAdmin   = hierarchyLevel >= 4;
+  const userArea  = currentUser?.area_asignada;
+
+  // Auto-filtrar por área del usuario si es un rol operativo (< productor)
+  const moduloParam = searchParams.get("modulo") ??
+    (userArea && hierarchyLevel < 4 ? userArea : "all");
 
   // ── Tab principal ─────────────────────────────────────────────────────────
   const [mainTab, setMainTab] = useState<"stock" | "movimientos" | "conteo">("stock");
 
   // ── Filters (stock tab) ───────────────────────────────────────────────────
-  const [search,       setSearch]       = useState("");
-  const [filterModulo, setFilterModulo] = useState(moduloParam);
-  const [filterEstado, setFilterEstado] = useState("all");
-  const [viewMode,     setViewMode]     = useState<"grid" | "list">("list");
+  const [search,         setSearch]         = useState("");
+  const [filterModulo,   setFilterModulo]   = useState(moduloParam);
+  const [filterEstado,   setFilterEstado]   = useState("all");
+  const [viewMode,       setViewMode]       = useState<"grid" | "list">("list");
+  const [showInactivos,  setShowInactivos]  = useState(false);
+  // Confirmación activar/desactivar
+  const [confirmProd,    setConfirmProd]    = useState<InvCatalogo | null>(null);
 
   // ── Overlays ──────────────────────────────────────────────────────────────
   const [selectedId,    setSelectedId]    = useState<string | null>(null);
@@ -2071,6 +3292,7 @@ export default function Inventario() {
   const [modalTipo,     setModalTipo]     = useState<InvMovimientoTipo>("entrada");
   const [modalOpen,     setModalOpen]     = useState(false);
   const [kardexId,      setKardexId]      = useState<string | null>(null);
+  const [transferirId,  setTransferirId]  = useState<string | null>(null);
 
   const canAdmin = hierarchyLevel >= 5;
 
@@ -2177,16 +3399,21 @@ export default function Inventario() {
   );
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase();
-    return allProductos.filter(p => {
+    const q    = search.toLowerCase();
+    const pool = showInactivos
+      ? catalogos                            // todos (activos + inactivos)
+      : catalogos.filter(p => p.activo);     // solo activos
+    return pool.filter(p => {
       if (filterModulo !== "all" && !p.modulo_ids.includes(filterModulo)) return false;
-      if (filterEstado === "ok"      && getStockStatus(p) !== "ok")      return false;
-      if (filterEstado === "bajo"    && getStockStatus(p) !== "bajo")    return false;
-      if (filterEstado === "critico" && getStockStatus(p) !== "critico") return false;
+      if (!showInactivos) {
+        if (filterEstado === "ok"      && getStockStatus(p) !== "ok")      return false;
+        if (filterEstado === "bajo"    && getStockStatus(p) !== "bajo")    return false;
+        if (filterEstado === "critico" && getStockStatus(p) !== "critico") return false;
+      }
       if (q && !p.nombre.toLowerCase().includes(q) && !p.codigo.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [allProductos, filterModulo, filterEstado, search]);
+  }, [catalogos, filterModulo, filterEstado, search, showInactivos]);
 
   return (
     <MainLayout>
@@ -2198,12 +3425,10 @@ export default function Inventario() {
             {mainTab === "stock" && (
               <Button variant="outline" size="sm" className="gap-1.5" onClick={exportarStock}>
                 <Download className="h-4 w-4" />
-                Exportar{filtered.length < getAllProductos().length
-                  ? ` (${filtered.length} de ${getAllProductos().length})`
-                  : " stock"}
+                Exportar{filtered.length < catalogos.length ? ` (${filtered.length})` : ""}
               </Button>
             )}
-            {canAdmin && mainTab === "stock" && (
+            {canAdmin && mainTab === "stock" && !showInactivos && (
               <Button size="sm" className="gap-1.5" onClick={() => { setEditingProd(null); setProdDialogOpen(true); }}>
                 <Plus className="h-4 w-4" /> Nuevo producto
               </Button>
@@ -2239,14 +3464,26 @@ export default function Inventario() {
         ))}
       </div>
 
-      {/* Metrics */}
-      <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-5">
-        <MetricCard title="Productos activos"   value={allProductos.length}     icon={<Package        className="w-5 h-5" />} />
-        <MetricCard title="Bajo mínimo"         value={alertas.length}          icon={<AlertTriangle  className="w-5 h-5" />} variant={alertas.length > 0 ? "warning" : "default"} />
-        <MetricCard title="Por vencer / vencidos" value={alertasVenc.length}    icon={<CalendarClock  className="w-5 h-5" />} variant={vencCriticos.length > 0 ? "warning" : "default"} />
-        <MetricCard title="Valor total"         value={fmtCurrency(valorTotal)} icon={<DollarSign     className="w-5 h-5" />} variant="info" />
-        <MetricCard title="Movimientos del mes" value={movsMes}                 icon={<TrendingUp     className="w-5 h-5" />} variant="success" />
-      </div>
+      {/* Metrics — scope al filtro activo */}
+      {(() => {
+        const scopeProds = filterModulo !== "all"
+          ? allProductos.filter(p => p.modulo_ids.includes(filterModulo))
+          : allProductos;
+        const scopeAlertas    = filterModulo !== "all" ? alertas.filter(p => p.modulo_ids.includes(filterModulo)) : alertas;
+        const scopeVenc       = filterModulo !== "all" ? alertasVenc.filter(a => a.producto.modulo_ids.includes(filterModulo)) : alertasVenc;
+        const scopeVencCrit   = scopeVenc.filter(a => a.estado === "vencido" || a.estado === "critico");
+        const scopeValor      = scopeProds.reduce((s, p) => s + p.cantidad_actual * p.precio_unitario, 0);
+        const scopeMods       = filterModulo !== "all" ? `· ${MODULE_LABELS[filterModulo] ?? filterModulo}` : "";
+        return (
+          <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-5">
+            <MetricCard title={`Productos activos ${scopeMods}`} value={scopeProds.length}        icon={<Package        className="w-5 h-5" />} />
+            <MetricCard title="Bajo mínimo"                      value={scopeAlertas.length}      icon={<AlertTriangle  className="w-5 h-5" />} variant={scopeAlertas.length > 0 ? "warning" : "default"} />
+            <MetricCard title="Por vencer / vencidos"            value={scopeVenc.length}         icon={<CalendarClock  className="w-5 h-5" />} variant={scopeVencCrit.length > 0 ? "warning" : "default"} />
+            <MetricCard title={`Valor total ${scopeMods}`}       value={fmtCurrency(scopeValor)}  icon={<DollarSign     className="w-5 h-5" />} variant="info" />
+            <MetricCard title="Movimientos del mes"              value={movsMes}                  icon={<TrendingUp     className="w-5 h-5" />} variant="success" />
+          </div>
+        );
+      })()}
 
       {/* Historial de movimientos */}
       {mainTab === "movimientos" && (
@@ -2255,7 +3492,11 @@ export default function Inventario() {
 
       {/* Conteo físico / Ajuste masivo */}
       {mainTab === "conteo" && (
-        <ConteoFisicoView onDone={() => setMainTab("stock")} />
+        <ConteoFisicoView
+          onDone={() => setMainTab("stock")}
+          userArea={userArea}
+          isAdmin={isAdmin}
+        />
       )}
 
 
@@ -2273,7 +3514,7 @@ export default function Inventario() {
 
         {/* Products area */}
         <div className="space-y-4 min-w-0">
-          {/* Search + view toggle */}
+          {/* Search + filtros inline + view toggle */}
           <div className="flex items-center gap-2">
             <Input
               placeholder="Buscar por nombre o código..."
@@ -2281,6 +3522,32 @@ export default function Inventario() {
               onChange={e => setSearch(e.target.value)}
               className="h-9 flex-1"
             />
+            {/* Toggle inactivos — integrado junto al buscador */}
+            {canAdmin && (
+              <button
+                onClick={() => { setShowInactivos(v => !v); setFilterEstado("all"); }}
+                title={showInactivos ? "Volver a productos activos" : "Ver productos inactivos"}
+                className={cn(
+                  "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition-colors shrink-0",
+                  showInactivos
+                    ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:border-amber-500 dark:text-amber-400"
+                    : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-foreground/30",
+                )}
+              >
+                <Power className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">
+                  {showInactivos ? "Inactivos" : "Inactivos"}
+                </span>
+                <span className={cn(
+                  "rounded-full px-1.5 py-0 text-[10px] font-bold",
+                  showInactivos
+                    ? "bg-amber-200 text-amber-800 dark:bg-amber-700/40 dark:text-amber-300"
+                    : "bg-muted text-muted-foreground",
+                )}>
+                  {catalogos.filter(p => !p.activo).length}
+                </span>
+              </button>
+            )}
             <div className="flex rounded-lg border border-border bg-muted p-0.5 shrink-0">
               <button
                 onClick={() => setViewMode("grid")}
@@ -2301,6 +3568,23 @@ export default function Inventario() {
 
           {/* Banner de reglas automáticas — barra en contenido */}
           <ReglasBanner variant="bar" />
+
+          {/* Banner contextual cuando se ven inactivos */}
+          {showInactivos && (
+            <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-2.5 dark:border-amber-800/40 dark:bg-amber-900/10">
+              <Power className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <p className="flex-1 text-xs text-amber-800 dark:text-amber-300">
+                <strong>Mostrando productos inactivos.</strong> No aparecen en formularios ni catálogos.
+                Usa <Power className="inline h-3 w-3 mx-0.5" /> para reactivar.
+              </p>
+              <button
+                onClick={() => setShowInactivos(false)}
+                className="text-xs font-medium text-amber-700 hover:underline dark:text-amber-400 shrink-0"
+              >
+                ✕ Volver a activos
+              </button>
+            </div>
+          )}
 
           {/* Results count */}
           <p className="text-xs text-muted-foreground">
@@ -2351,39 +3635,75 @@ export default function Inventario() {
                   <tbody>
                     {filtered.map(p => {
                       const status = getStockStatus(p);
+                      const inactivo = !p.activo;
                       return (
                         <tr
                           key={p.id}
-                          className="cursor-pointer border-b border-border/50 last:border-0 hover:bg-muted/20"
-                          onClick={() => openDetail(p.id)}
+                          className={cn(
+                            "border-b border-border/50 last:border-0 transition-colors",
+                            inactivo
+                              ? "bg-muted/30 hover:bg-muted/50"
+                              : "cursor-pointer hover:bg-muted/20",
+                          )}
+                          onClick={() => !inactivo && openDetail(p.id)}
                         >
                           <td className="px-4 py-2.5">
-                            <p className="font-medium">{p.nombre}</p>
-                            <p className="font-mono text-[10px] text-muted-foreground">{p.codigo}</p>
+                            <div className="flex items-center gap-2">
+                              <div>
+                                <p className={cn("font-medium", inactivo && "text-muted-foreground line-through")}>{p.nombre}</p>
+                                <p className="font-mono text-[10px] text-muted-foreground">{p.codigo}</p>
+                              </div>
+                              {inactivo && (
+                                <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                  Inactivo
+                                </span>
+                              )}
+                            </div>
                           </td>
-                          <td className="px-3 py-2.5"><ModuloBadges ids={p.modulo_ids} size="xs" /></td>
-                          <td className="px-3 py-2.5 text-right">
+                          <td className={cn("px-3 py-2.5", inactivo && "opacity-50")}><ModuloBadges ids={p.modulo_ids} size="xs" /></td>
+                          <td className={cn("px-3 py-2.5 text-right", inactivo && "opacity-50")}>
                             <span className="font-semibold">{fmtNum(p.cantidad_actual, 1)}</span>
                             <span className="ml-1 text-xs text-muted-foreground">{p.unidad_medida}</span>
                           </td>
-                          <td className="px-3 py-2.5">
-                            <StockBar p={p} />
+                          <td className={cn("px-3 py-2.5", inactivo && "opacity-30")}>
+                            {inactivo ? null : <StockBar p={p} />}
                           </td>
-                          <td className="px-3 py-2.5"><StockBadge status={status} /></td>
+                          <td className="px-3 py-2.5">
+                            {inactivo
+                              ? <span className="text-[11px] text-muted-foreground italic">Inactivo</span>
+                              : <StockBadge status={status} />}
+                          </td>
                           <td className="px-3 py-2.5 text-right" onClick={e => e.stopPropagation()}>
                             <div className="inline-flex items-center gap-1">
-                              <button className="rounded bg-green-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-green-700" onClick={() => openMovimiento(p.id, "entrada")}>+</button>
-                              <button className="rounded bg-red-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-red-700" onClick={() => openMovimiento(p.id, "salida")}>−</button>
-                              <button className="rounded px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => openDetail(p.id)} title="Ver detalle">↗</button>
-                              <button className="rounded p-0.5 text-muted-foreground hover:bg-primary/10 hover:text-primary" onClick={() => setKardexId(p.id)} title="Balance de stock">
-                                <BookOpen className="h-3.5 w-3.5" />
-                              </button>
+                              {!inactivo && (
+                                <>
+                                  <button className="rounded bg-green-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-green-700" onClick={() => openMovimiento(p.id, "entrada")}>+</button>
+                                  <button className="rounded bg-red-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-red-700" onClick={() => openMovimiento(p.id, "salida")}>−</button>
+                                  <button
+                                    className="rounded p-0.5 text-muted-foreground hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 transition-colors"
+                                    onClick={() => setTransferirId(p.id)}
+                                    title="Transferir a otra área"
+                                  >
+                                    <ArrowLeftRight className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button className="rounded px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => openDetail(p.id)} title="Ver detalle">↗</button>
+                                  <button className="rounded p-0.5 text-muted-foreground hover:bg-primary/10 hover:text-primary" onClick={() => setKardexId(p.id)} title="Balance de stock">
+                                    <BookOpen className="h-3.5 w-3.5" />
+                                  </button>
+                                </>
+                              )}
                               {canAdmin && (
                                 <>
-                                  <button className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => { setEditingProd(p); setProdDialogOpen(true); }} title="Editar producto">
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                  <button className={cn("rounded p-0.5 hover:bg-muted", p.activo ? "text-muted-foreground" : "text-green-600")} onClick={() => desactivarProducto(p.id)} title={p.activo ? "Desactivar" : "Activar"}>
+                                  {!inactivo && (
+                                    <button className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => { setEditingProd(p); setProdDialogOpen(true); }} title="Editar">
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                  <button
+                                    className={cn("rounded p-0.5 hover:bg-muted transition-colors", inactivo ? "text-green-600 hover:text-green-700" : "text-muted-foreground hover:text-red-600")}
+                                    onClick={() => setConfirmProd(p)}
+                                    title={inactivo ? "Reactivar producto" : "Desactivar producto"}
+                                  >
                                     <Power className="h-3.5 w-3.5" />
                                   </button>
                                 </>
@@ -2411,8 +3731,56 @@ export default function Inventario() {
         onKardex={id => { setKardexId(id); }}
       />
       <KardexSheet productId={kardexId} onClose={() => setKardexId(null)} />
+      <TransferenciaModal productoId={transferirId} open={!!transferirId} onClose={() => setTransferirId(null)} />
       <ModalMovimiento open={modalOpen} onOpenChange={setModalOpen} productoId={modalId} tipoInicial={modalTipo} />
       <ProductoDialog open={prodDialogOpen} onOpenChange={setProdDialogOpen} editing={editingProd} />
+
+      {/* ── AlertDialog confirmar activar / desactivar (vista stock principal) ── */}
+      <Dialog open={!!confirmProd} onOpenChange={v => { if (!v) setConfirmProd(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className={cn(
+              "flex items-center gap-2",
+              confirmProd?.activo ? "text-red-600" : "text-green-600",
+            )}>
+              <Power className="h-4 w-4" />
+              {confirmProd?.activo ? "Desactivar producto" : "Reactivar producto"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 space-y-3">
+            <div className="rounded-xl border border-border bg-muted/30 px-4 py-3">
+              <p className="font-semibold text-sm">{confirmProd?.nombre}</p>
+              <p className="text-xs text-muted-foreground font-mono mt-0.5">{confirmProd?.codigo}</p>
+            </div>
+            {confirmProd?.activo ? (
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Este producto <strong>dejará de aparecer</strong> en formularios, catálogos de selección
+                y reportes de inventario. El historial de movimientos se conserva intacto.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Este producto volverá a estar <strong>disponible</strong> en formularios y catálogos.
+                Stock actual: <strong>{fmtNum(confirmProd?.cantidad_actual ?? 0, 1)} {confirmProd?.unidad_medida}</strong>.
+              </p>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setConfirmProd(null)}>Cancelar</Button>
+            <Button
+              size="sm"
+              variant={confirmProd?.activo ? "destructive" : "default"}
+              className={!confirmProd?.activo ? "bg-green-600 hover:bg-green-700 text-white" : ""}
+              onClick={() => {
+                if (confirmProd) desactivarProducto(confirmProd.id);
+                setConfirmProd(null);
+              }}
+            >
+              <Power className="h-3.5 w-3.5 mr-1.5" />
+              {confirmProd?.activo ? "Sí, desactivar" : "Sí, reactivar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 }

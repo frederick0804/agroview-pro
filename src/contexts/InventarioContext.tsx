@@ -13,10 +13,29 @@ import { useRole, ROLE_LEVELS } from "@/contexts/RoleContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// ─── Lote ─────────────────────────────────────────────────────────────────────
+
+export interface InvLote {
+  id:                  string;
+  catalogo_id:         string;
+  numero_lote:         string;
+  fecha_fabricacion?:  string;   // ISO date, opcional
+  fecha_vencimiento:   string;   // ISO date, obligatorio
+  certificado_origen?: string;
+  proveedor_id?:       string;
+  precio_unitario?:    number;
+  cantidad_inicial:    number;
+  cantidad_actual:     number;
+  notas?:              string;
+  activo:              boolean;
+  created_at:          string;
+}
+
 export type InvMovimientoTipo    = "entrada" | "salida" | "ajuste";
 export type InvMovimientoSubtipo =
   | "compra" | "uso_produccion" | "aplicacion_campo"
-  | "merma"  | "devolucion"     | "conteo_fisico";
+  | "merma"  | "devolucion"     | "conteo_fisico"
+  | "transferencia";
 
 /** Campo personalizado con su valor — específico por producto */
 export interface InvCampoConValor {
@@ -65,6 +84,16 @@ export interface InvMovimiento {
   observaciones?: string;
   usuario_id: string;
   created_at: string;
+  // Campos exclusivos de transferencias
+  modulo_origen?:    string;
+  modulo_destino?:   string;
+  transfer_pair_id?: string;
+  // Trazabilidad por lote
+  lote_id?:          string;
+  lote_numero?:      string;
+  // Trazabilidad por ubicación de campo
+  bloque_ref?:       string;   // ej: "Bloque A-1", "Nave 3", "Sector Norte" — extraído del formulario
+  cultivo_id?:       string;   // FK → Cultivos — qué cultivo se estaba tratando
 }
 
 // ─── Tipo para campos personalizados por producto ─────────────────────────────
@@ -348,6 +377,55 @@ const DEMO_MOVIMIENTOS: InvMovimiento[] = [
     fecha: "2026-05-22", usuario_id: "1", created_at: "2026-05-22T16:30:00Z" },
 ];
 
+// ─── Datos demo — Lotes ───────────────────────────────────────────────────────
+
+const DEMO_LOTES: InvLote[] = [
+  // INV-003 Azoxystrobin — 2 lotes (FEFO: el primero vence antes)
+  {
+    id: "LOT-001", catalogo_id: "INV-003",
+    numero_lote: "AZX-2024-089",
+    fecha_fabricacion: "2024-03-01",
+    fecha_vencimiento: "2026-09-01",
+    certificado_origen: "SAG-CL-2024-089",
+    proveedor_id: "Agroquímica del Sur",
+    precio_unitario: 45.50,
+    cantidad_inicial: 40, cantidad_actual: 36.2,
+    activo: true, created_at: "2024-04-30T08:00:00Z",
+  },
+  {
+    id: "LOT-002", catalogo_id: "INV-003",
+    numero_lote: "AZX-2025-012",
+    fecha_vencimiento: "2027-03-15",
+    precio_unitario: 47.00,
+    cantidad_inicial: 30, cantidad_actual: 30,
+    activo: true, created_at: "2025-01-15T08:00:00Z",
+  },
+  // INV-004 Fertilizante NPK — 1 lote
+  {
+    id: "LOT-003", catalogo_id: "INV-004",
+    numero_lote: "NPK-2025-003",
+    fecha_vencimiento: "2028-06-30",
+    certificado_origen: "ANMAT-2025-FER-003",
+    proveedor_id: "NutriAg SpA",
+    precio_unitario: 3.20,
+    cantidad_inicial: 60, cantidad_actual: 49,
+    activo: true, created_at: "2025-02-10T08:00:00Z",
+  },
+  // INV-006 Medio MS estéril — lote próximo a vencer (demo alertas)
+  {
+    id: "LOT-004", catalogo_id: "INV-006",
+    numero_lote: "MS-2024-041",
+    fecha_fabricacion: "2024-06-01",
+    fecha_vencimiento: "2026-06-10",
+    certificado_origen: "BioScience-2024-041",
+    proveedor_id: "BioScience Ltda.",
+    precio_unitario: 89.00,
+    cantidad_inicial: 20, cantidad_actual: 9,
+    notas: "Conservar entre 2°C y 8°C",
+    activo: true, created_at: "2024-06-15T08:00:00Z",
+  },
+];
+
 const DEMO_FORMULARIO_MAPAS: InvFormularioMapa[] = [
   {
     // TablaInsumos: cada fila lleva su propio catalogo_id + cantidad
@@ -379,15 +457,20 @@ const DEMO_FORMULARIO_MAPAS: InvFormularioMapa[] = [
 // ─── Context interface ────────────────────────────────────────────────────────
 
 export interface RegistrarMovimientoOpciones {
-  precio_unitario?: number;
-  proveedor_id?: string;
-  observaciones?: string;
+  precio_unitario?:      number;
+  proveedor_id?:         string;
+  observaciones?:        string;
   registro_origen_tipo?: string;
+  lote_id?:              string;
+  lote_numero?:          string;
+  bloque_ref?:           string;   // ubicación en el mapa del campo (extraído del formulario)
+  cultivo_id?:           string;   // cultivo al que pertenece el registro origen
 }
 
 interface InventarioContextValue {
   catalogos: InvCatalogo[];
   movimientos: InvMovimiento[];
+  lotes: InvLote[];
   formularioMapas: InvFormularioMapa[];
   agregarProducto:    (p: Omit<InvCatalogo, "id" | "created_at" | "updated_at">) => void;
   editarProducto:     (id: string, cambios: Partial<Omit<InvCatalogo, "id" | "created_at">>) => void;
@@ -405,6 +488,12 @@ interface InventarioContextValue {
   editarRegla:    (id: string, cambios: Partial<Omit<InvFormularioMapa, "id">>) => void;
   toggleRegla:    (id: string) => void;
   eliminarRegla:  (id: string) => void;
+  // Lotes CRUD
+  agregarLote:    (lote: Omit<InvLote, "id" | "created_at">) => InvLote;
+  editarLote:     (id: string, cambios: Partial<Omit<InvLote, "id" | "created_at">>) => void;
+  getLotesByProducto: (catalogoId: string) => InvLote[];
+  /** Devuelve lotes activos de un producto ordenados por FEFO (vencimiento más próximo primero) */
+  getLotesFEFO:       (catalogoId: string) => InvLote[];
   proveedores:             string[];
   agregarProveedor:        (nombre: string) => void;
   getProductosByModulo:    (moduloId: string) => InvCatalogo[];
@@ -413,14 +502,52 @@ interface InventarioContextValue {
   getAlertas:              () => InvCatalogo[];
   getStockCritico:         () => InvCatalogo[];
   getAlertasVencimiento:   () => AlertaVencimiento[];
-  simularTrigger:          (tablaNombre: string, datos: Record<string, unknown>) => void;
+  simularTrigger:          (tablaNombre: string, datos: Record<string, unknown>, contexto?: { cultivo_id?: string }) => void;
   /** Preview de qué se revertiría al borrar un registro */
   previewReversion:        (tablaNombre: string, datos: Record<string, unknown>) => Array<{ nombre: string; cantidad: number; tipoOriginal: InvMovimientoTipo }>;
   /** Crea movimientos inversos al borrar un registro */
   revertirMovimientos:     (tablaNombre: string, datos: Record<string, unknown>) => void;
+  /**
+   * Edición inteligente de TablaInsumos: solo registra el DELTA entre los valores
+   * anteriores y los nuevos. Si usabas 40L y corriges a 30L → devolución de 10L.
+   * Nunca hace revert total + re-apply.
+   */
+  ajustarMovimientosTablaInsumos: (
+    tablaNombre: string,
+    oldDatos:    Record<string, unknown>,
+    newDatos:    Record<string, unknown>,
+    contexto?:   { cultivo_id?: string },
+  ) => void;
+  /**
+   * Registra una transferencia entre áreas/módulos.
+   * Crea dos movimientos vinculados (salida del origen + entrada al destino).
+   * El saldo neto del producto no cambia — es un movimiento logístico.
+   */
+  realizarTransferencia: (
+    catalogoId:    string,
+    cantidad:      number,
+    moduloOrigen:  string,
+    moduloDestino: string,
+    observaciones?: string,
+  ) => boolean;
 }
 
 const InventarioContext = createContext<InventarioContextValue | null>(null);
+
+// ─── Helpers de módulo ────────────────────────────────────────────────────────
+
+const LOCATION_FIELDS = [
+  "bloque_sector", "bloque", "sector", "nave", "macrotunel",
+  "parcela", "cuartel", "lote_campo", "area_tratada", "ubicacion",
+] as const;
+
+export function extractBloqueRef(datos: Record<string, unknown>): string | undefined {
+  for (const field of LOCATION_FIELDS) {
+    const val = datos[field];
+    if (val && typeof val === "string" && val.trim()) return val.trim();
+  }
+  return undefined;
+}
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -430,6 +557,7 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
   const [catalogos,       setCatalogos]       = useState<InvCatalogo[]>(DEMO_CATALOGOS);
   const [movimientos,     setMovimientos]     = useState<InvMovimiento[]>(DEMO_MOVIMIENTOS);
   const [formularioMapas, setFormularioMapas] = useState<InvFormularioMapa[]>(DEMO_FORMULARIO_MAPAS);
+  const [lotes,           setLotes]           = useState<InvLote[]>(DEMO_LOTES);
 
   // Lista de proveedores conocidos (se llena desde los productos + nuevos que agrega el admin)
   const proveedoresIniciales = [...new Set(DEMO_CATALOGOS.map(c => c.proveedor_id).filter(Boolean) as string[])];
@@ -466,9 +594,34 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     setCatalogos(prev => prev.map(p => p.id === id ? { ...p, ...cambios, updated_at: now } : p));
   }, []);
 
+  /** Alterna el estado activo/inactivo del producto */
   const desactivarProducto = useCallback((id: string) => {
-    editarProducto(id, { activo: false });
-  }, [editarProducto]);
+    const p = catalogos.find(c => c.id === id);
+    if (!p) return;
+    editarProducto(id, { activo: !p.activo });
+  }, [editarProducto, catalogos]);
+
+  // ── Lotes CRUD + FEFO ─────────────────────────────────────────────────────
+  const agregarLote = useCallback((lote: Omit<InvLote, "id" | "created_at">): InvLote => {
+    const now   = new Date().toISOString();
+    const nuevo = { ...lote, id: `LOT-${Date.now()}`, created_at: now };
+    setLotes(prev => [...prev, nuevo]);
+    return nuevo;
+  }, []);
+
+  const editarLote = useCallback((id: string, cambios: Partial<Omit<InvLote, "id" | "created_at">>) => {
+    setLotes(prev => prev.map(l => l.id === id ? { ...l, ...cambios } : l));
+  }, []);
+
+  const getLotesByProducto = useCallback((catalogoId: string): InvLote[] =>
+    lotes.filter(l => l.catalogo_id === catalogoId),
+  [lotes]);
+
+  const getLotesFEFO = useCallback((catalogoId: string): InvLote[] =>
+    lotes
+      .filter(l => l.catalogo_id === catalogoId && l.activo && l.cantidad_actual > 0)
+      .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento)),
+  [lotes]);
 
   const registrarMovimiento = useCallback((
     catalogoId: string,
@@ -508,10 +661,23 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
       proveedor_id:       opciones.proveedor_id,
       observaciones:      opciones.observaciones,
       registro_origen_tipo: opciones.registro_origen_tipo,
+      lote_id:            opciones.lote_id,
+      lote_numero:        opciones.lote_numero,
+      bloque_ref:         opciones.bloque_ref,
+      cultivo_id:         opciones.cultivo_id,
       fecha:      now.substring(0, 10),
       usuario_id: currentUser ? String(currentUser.id) : "1",
       created_at: now,
     };
+
+    // Actualizar cantidad del lote si se especificó
+    if (opciones.lote_id) {
+      setLotes(prev => prev.map(l => {
+        if (l.id !== opciones.lote_id) return l;
+        const delta = tipo === "entrada" ? cantidad : tipo === "salida" ? -cantidad : (nueva - anterior);
+        return { ...l, cantidad_actual: Math.max(0, l.cantidad_actual + delta) };
+      }));
+    }
 
     setMovimientos(prev => [...prev, mov]);
     setCatalogos(prev => prev.map(p =>
@@ -682,11 +848,16 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     }
   }, [formularioMapas, registrarMovimiento, role, clienteIdStr]);
 
+  // Nombres de campos de ubicación en formularios agrícolas (orden de prioridad)
   const simularTrigger = useCallback((
     tablaNombre: string,
     datos: Record<string, unknown>,
+    contexto?: { cultivo_id?: string },
   ) => {
     const filtroCliente = role === "super_admin" ? null : clienteIdStr;
+    // Extraer referencias de ubicación del campo del formulario
+    const bloqueRef  = extractBloqueRef(datos);
+    const cultivoId  = contexto?.cultivo_id ?? (datos.cultivo_id as string | undefined);
     const mapas = formularioMapas.filter(m =>
       m.activo &&
       m.tabla_origen === tablaNombre &&
@@ -710,13 +881,20 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
       } catch { /* not a table */ }
 
       if (tablaRows) {
-        // TablaInsumos: un movimiento por cada fila de la tabla
+        // TablaInsumos: un movimiento por cada fila; aplica FEFO por lote
         for (const row of tablaRows) {
           const rowCant = Number(row.cantidad);
           if (!row.catalogo_id || isNaN(rowCant) || rowCant <= 0) continue;
+          const loteFefo = lotes
+            .filter(l => l.catalogo_id === row.catalogo_id && l.activo && l.cantidad_actual > 0)
+            .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento))[0];
           registrarMovimiento(row.catalogo_id, mapa.tipo_movimiento, mapa.subtipo, rowCant, {
             registro_origen_tipo: tablaNombre,
-            observaciones: `Automático desde ${tablaNombre}`,
+            observaciones:        `Automático desde ${tablaNombre}`,
+            lote_id:              loteFefo?.id,
+            lote_numero:          loteFefo?.numero_lote,
+            bloque_ref:           bloqueRef,
+            cultivo_id:           cultivoId,
           });
         }
         continue; // siguiente regla
@@ -728,7 +906,6 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
 
       let cant: number;
       if (mapa.formula_cantidad) {
-        // Evalúa expresión reemplazando nombres de campo por sus valores
         const expr = mapa.formula_cantidad.replace(/\b([a-zA-Z_]\w*)\b/g, (match) => {
           const val = datos[match];
           return val !== undefined ? String(val) : match;
@@ -742,29 +919,183 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
       }
 
       if (isNaN(cant) || cant <= 0) continue;
+      const loteFefoSimple = lotes
+        .filter(l => l.catalogo_id === cid && l.activo && l.cantidad_actual > 0)
+        .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento))[0];
       registrarMovimiento(cid, mapa.tipo_movimiento, mapa.subtipo, cant, {
         registro_origen_tipo: tablaNombre,
-        observaciones: `Automático desde ${tablaNombre}`,
+        observaciones:        `Automático desde ${tablaNombre}`,
+        lote_id:              loteFefoSimple?.id,
+        lote_numero:          loteFefoSimple?.numero_lote,
+        bloque_ref:           bloqueRef,
+        cultivo_id:           cultivoId,
       });
     }
-  }, [formularioMapas, registrarMovimiento, role, clienteIdStr]);
+  }, [formularioMapas, registrarMovimiento, lotes, role, clienteIdStr]);
+
+  // ── Ajuste delta para edición de TablaInsumos ────────────────────────────
+  const ajustarMovimientosTablaInsumos = useCallback((
+    tablaNombre: string,
+    oldDatos:    Record<string, unknown>,
+    newDatos:    Record<string, unknown>,
+    contexto?:   { cultivo_id?: string },
+  ) => {
+    const filtroCliente = role === "super_admin" ? null : clienteIdStr;
+    const bloqueRef  = extractBloqueRef(newDatos);
+    const cultivoId  = contexto?.cultivo_id ?? (newDatos.cultivo_id as string | undefined);
+    const invertir   = (t: InvMovimientoTipo): InvMovimientoTipo =>
+      t === "entrada" ? "salida" : t === "salida" ? "entrada" : "ajuste";
+
+    const mapas = formularioMapas.filter(m =>
+      m.activo &&
+      m.tabla_origen === tablaNombre &&
+      (filtroCliente === null || m.cliente_id === filtroCliente),
+    );
+
+    for (const mapa of mapas) {
+      const oldRows = parseTablaInsumos(oldDatos[mapa.campo_jsonb_cantidad]) ?? [];
+      const newRows = parseTablaInsumos(newDatos[mapa.campo_jsonb_cantidad]) ?? [];
+
+      // Unión de todos los productos que aparecen en alguna versión
+      const allIds = new Set([
+        ...oldRows.map(r => r.catalogo_id),
+        ...newRows.map(r => r.catalogo_id),
+      ]);
+
+      for (const catalogoId of allIds) {
+        if (!catalogoId) continue;
+        const oldQty = oldRows.find(r => r.catalogo_id === catalogoId)?.cantidad ?? 0;
+        const newQty = newRows.find(r => r.catalogo_id === catalogoId)?.cantidad ?? 0;
+        const delta  = newQty - oldQty;
+
+        if (Math.abs(delta) < 0.0001) continue; // sin cambio
+
+        const loteFefo = lotes
+          .filter(l => l.catalogo_id === catalogoId && l.activo && l.cantidad_actual > 0)
+          .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento))[0];
+
+        const sign = delta > 0 ? `+${delta}` : String(delta);
+        const obs  = `Corrección por edición (${sign} ${catalogos.find(c => c.id === catalogoId)?.unidad_medida ?? ""})`;
+
+        if (delta > 0) {
+          // Usó MÁS → descuento adicional
+          registrarMovimiento(catalogoId, mapa.tipo_movimiento, mapa.subtipo, delta, {
+            registro_origen_tipo: tablaNombre,
+            observaciones:        obs,
+            lote_id:              loteFefo?.id,
+            lote_numero:          loteFefo?.numero_lote,
+            bloque_ref:           bloqueRef,
+            cultivo_id:           cultivoId,
+          });
+        } else {
+          // Usó MENOS → devolución del exceso
+          registrarMovimiento(catalogoId, invertir(mapa.tipo_movimiento), "devolucion", Math.abs(delta), {
+            registro_origen_tipo: tablaNombre,
+            observaciones:        obs,
+            lote_id:              loteFefo?.id,
+            lote_numero:          loteFefo?.numero_lote,
+            bloque_ref:           bloqueRef,
+            cultivo_id:           cultivoId,
+          });
+        }
+      }
+    }
+  }, [formularioMapas, registrarMovimiento, lotes, catalogos, role, clienteIdStr]);
+
+  // ── Transferencia entre áreas ─────────────────────────────────────────────
+  const realizarTransferencia = useCallback((
+    catalogoId:    string,
+    cantidad:      number,
+    moduloOrigen:  string,
+    moduloDestino: string,
+    observaciones?: string,
+  ): boolean => {
+    const prod = catalogos.find(c => c.id === catalogoId);
+    if (!prod || cantidad <= 0 || cantidad > prod.cantidad_actual) return false;
+
+    const now      = new Date().toISOString();
+    const today    = now.substring(0, 10);
+    const pairId   = `TR-${Date.now()}`;
+    const obs      = observaciones?.trim() || `Transferencia ${moduloOrigen} → ${moduloDestino}`;
+    const clienteId  = String(prod.cliente_id);
+    const productorId = String(prod.productor_id);
+    const usuarioId  = "1"; // TODO: vincular con currentUser cuando esté disponible aquí
+
+    // Movimiento 1: SALIDA del origen
+    const salida: InvMovimiento = {
+      id: `${pairId}-out`,
+      catalogo_id:       catalogoId,
+      cliente_id:        clienteId,
+      productor_id:      productorId,
+      tipo:              "salida",
+      subtipo:           "transferencia",
+      cantidad,
+      cantidad_anterior: prod.cantidad_actual,
+      cantidad_nueva:    prod.cantidad_actual - cantidad,
+      precio_unitario:   prod.precio_unitario,
+      fecha:             today,
+      observaciones:     obs,
+      usuario_id:        usuarioId,
+      created_at:        now,
+      modulo_origen:     moduloOrigen,
+      modulo_destino:    moduloDestino,
+      transfer_pair_id:  pairId,
+    };
+
+    // Movimiento 2: ENTRADA al destino (restaura saldo — misma entidad física)
+    const entrada: InvMovimiento = {
+      id: `${pairId}-in`,
+      catalogo_id:       catalogoId,
+      cliente_id:        clienteId,
+      productor_id:      productorId,
+      tipo:              "entrada",
+      subtipo:           "transferencia",
+      cantidad,
+      cantidad_anterior: prod.cantidad_actual - cantidad,
+      cantidad_nueva:    prod.cantidad_actual, // saldo final igual al original
+      precio_unitario:   prod.precio_unitario,
+      fecha:             today,
+      observaciones:     obs,
+      usuario_id:        usuarioId,
+      created_at:        now,
+      modulo_origen:     moduloOrigen,
+      modulo_destino:    moduloDestino,
+      transfer_pair_id:  pairId,
+    };
+
+    // Si el destino no está en modulo_ids del producto, lo agregamos
+    const nuevoModuloIds = prod.modulo_ids.includes(moduloDestino)
+      ? prod.modulo_ids
+      : [...prod.modulo_ids, moduloDestino];
+
+    setCatalogos(prev => prev.map(p =>
+      p.id === catalogoId
+        ? { ...p, modulo_ids: nuevoModuloIds, updated_at: now }
+        : p,
+    ));
+
+    setMovimientos(prev => [...prev, salida, entrada]);
+    return true;
+  }, [catalogos]);
 
   const value = useMemo<InventarioContextValue>(() => ({
-    catalogos, movimientos, formularioMapas,
+    catalogos, movimientos, formularioMapas, lotes,
     proveedores, agregarProveedor,
     agregarProducto, editarProducto, desactivarProducto, registrarMovimiento,
     agregarRegla, editarRegla, toggleRegla, eliminarRegla,
+    agregarLote, editarLote, getLotesByProducto, getLotesFEFO,
     getProductosByModulo, getAllProductos, getMovimientosByProducto,
     getAlertas, getStockCritico, getAlertasVencimiento, simularTrigger,
-    previewReversion, revertirMovimientos,
+    previewReversion, revertirMovimientos, ajustarMovimientosTablaInsumos, realizarTransferencia,
   }), [
-    catalogos, movimientos, formularioMapas,
+    catalogos, movimientos, formularioMapas, lotes,
     proveedores, agregarProveedor,
     agregarProducto, editarProducto, desactivarProducto, registrarMovimiento,
     agregarRegla, editarRegla, toggleRegla, eliminarRegla,
+    agregarLote, editarLote, getLotesByProducto, getLotesFEFO,
     getProductosByModulo, getAllProductos, getMovimientosByProducto,
     getAlertas, getStockCritico, getAlertasVencimiento, simularTrigger,
-    previewReversion, revertirMovimientos,
+    previewReversion, revertirMovimientos, ajustarMovimientosTablaInsumos, realizarTransferencia,
   ]);
 
   return <InventarioContext.Provider value={value}>{children}</InventarioContext.Provider>;
