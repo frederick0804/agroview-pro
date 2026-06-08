@@ -226,7 +226,7 @@ function DynamicDefTable({
 }) {
   const { hasPermission } = useRole();
   const { definiciones, parametros, datos, addDato, updDato, delDato, setHasPendingChanges } = useConfig();
-  const { simularTrigger, formularioMapas, previewReversion, revertirMovimientos, ajustarMovimientosTablaInsumos, catalogos: invCatalogos } = useInventario();
+  const { simularTrigger, formularioMapas, previewReversion, revertirMovimientos, ajustarMovimientosTablaInsumos, ajustarMovimientosProductoFijo, catalogos: invCatalogos } = useInventario();
   const navigate = useNavigate();
   const [showIaPanel, setShowIaPanel] = useState(false);
   const [showMlPanel, setShowMlPanel] = useState(false);
@@ -864,24 +864,57 @@ function DynamicDefTable({
 
   // NO agregar columna separada de eventos - se integra en acciones
 
+  // Lógica de disparo de reglas de inventario para formularios SIN TablaInsumos
+  // (los que usan "producto fijo + campo/fórmula").
+  // Los formularios con TablaInsumos tienen su propio diálogo de celda que llama
+  // a `ajustarMovimientosTablaInsumos` / `simularTrigger` — no se tocan aquí.
+  const actualizarInventarioProductoFijo = (
+    dato: { id: string; cultivo_id?: string },
+    prevVals: Record<string, string>,
+    nextVals: Record<string, string>,
+    wasPending: boolean,
+    hasMissingRequired: boolean,
+  ) => {
+    if (hasTablaInsumos || !def?.nombre) return;
+    const ctx = { cultivo_id: dato.cultivo_id ?? filterCultivoId };
+    if (wasPending && !hasMissingRequired) {
+      // Fila recién completada → primer disparo
+      simularTrigger(def.nombre, nextVals as Record<string, unknown>, ctx);
+    } else if (!wasPending && !hasMissingRequired) {
+      // Fila ya estaba completa → calcular solo el delta
+      ajustarMovimientosProductoFijo(
+        def.nombre,
+        prevVals as Record<string, unknown>,
+        nextVals as Record<string, unknown>,
+        ctx,
+      );
+    }
+  };
+
   // Actualizar un campo — escribe de vuelta al contexto + recalcular fórmulas
   const handleUpdate = (rowIndex: number, key: keyof DynRow, value: unknown) => {
     const dato = defDatos[rowIndex];
     if (!dato) return;
     setTableError(null);
+    const wasPending = pendingRequiredDatoIds.includes(dato.id);
 
     if (key === "fecha") {
       const nextFecha = String(value);
-      const nextVals = parseValores(dato.valores);
-      const hasMissingRequired = hasMissingRequiredValues(nextVals, nextFecha);
+      const prevVals  = parseValores(dato.valores);
+      const hasMissingRequired = hasMissingRequiredValues(prevVals, nextFecha);
 
       updDato(dato.id, { ...dato, fecha: nextFecha });
 
       if (hasMissingRequired) addPendingRequiredDatoId(dato.id);
-      else removePendingRequiredDatoId(dato.id);
+      else {
+        removePendingRequiredDatoId(dato.id);
+        // Cambiar solo la fecha no altera cantidades → no hay delta de stock
+        // pero sí sirve para completar la fila si era el único campo faltante
+        actualizarInventarioProductoFijo(dato, prevVals, prevVals, wasPending, hasMissingRequired);
+      }
     } else {
-      const vals = parseValores(dato.valores) as Record<string, string>;
-      vals[key as string] = String(value);
+      const prevVals = parseValores(dato.valores) as Record<string, string>;
+      const vals     = { ...prevVals, [key as string]: String(value) };
       const nextVals = applyDerivedValues(vals, params);
       const uniqueError = findUniqueConstraintError(params, defDatos, nextVals, {
         excludeDatoId: dato.id,
@@ -895,7 +928,10 @@ function DynamicDefTable({
       updDato(dato.id, { ...dato, valores: JSON.stringify(nextVals) });
 
       if (hasMissingRequired) addPendingRequiredDatoId(dato.id);
-      else removePendingRequiredDatoId(dato.id);
+      else {
+        removePendingRequiredDatoId(dato.id);
+        actualizarInventarioProductoFijo(dato, prevVals, nextVals, wasPending, hasMissingRequired);
+      }
     }
   };
 
@@ -2990,7 +3026,7 @@ const MODULO_TIPO_DEFAULT: Record<string, InvMovimientoTipo> = {
  * Solo lectura, siempre expandido, sticky en pantallas grandes.
  */
 function InventarioDelFormulario({ defNombre, moduloKey }: { defNombre: string; moduloKey: string }) {
-  const { formularioMapas, getProductosByModulo } = useInventario();
+  const { formularioMapas, getProductosByModulo, getAllProductos } = useInventario();
   const { hierarchyLevel } = useRole();
   const navigate           = useNavigate();
 
@@ -2999,7 +3035,22 @@ function InventarioDelFormulario({ defNombre, moduloKey }: { defNombre: string; 
   const reglasDeEsteForm = formularioMapas.filter(r => r.activo && r.tabla_origen === defNombre);
   if (reglasDeEsteForm.length === 0) return null;
 
-  const productos = getProductosByModulo(moduloKey);
+  // Mostrar el/los producto(s) que esta forma realmente mueve, según sus reglas:
+  //  - Reglas de "producto fijo" (catalogo_id definido) → ese producto exacto,
+  //    sin importar a qué módulo de inventario pertenezca (puede ser distinto
+  //    al módulo del formulario — ej. un formulario "comercial" que mueve un
+  //    producto de "post-cosecha").
+  //  - Reglas de "tabla de insumos" (catalogo_id vacío) → el producto varía
+  //    fila por fila, así que mostramos el catálogo completo del módulo como
+  //    referencia de qué podría moverse.
+  const idsFijos       = reglasDeEsteForm.map(r => r.catalogo_id).filter(Boolean);
+  const hayTablaInsumos = reglasDeEsteForm.some(r => !r.catalogo_id);
+  const todos          = getAllProductos();
+
+  const productos = hayTablaInsumos
+    ? getProductosByModulo(moduloKey)
+    : todos.filter(p => idsFijos.includes(p.id));
+
   if (productos.length === 0) return null;
 
   const alertas = productos.filter(p => getStockStatus(p) !== "ok");

@@ -76,6 +76,150 @@ function paramLabel(p: ModParam): string {
   return l.charAt(0).toUpperCase() + l.slice(1);
 }
 
+// ─── FormulaBuilder — armar fórmulas por chips en vez de escribir texto ───────
+// Convierte la fórmula (string) en una secuencia de "fichas" (variable | operador
+// | número) que el usuario arma haciendo clic, sin tener que recordar sintaxis.
+// El string resultante sigue siendo el mismo que entiende `evaluarFormulaCantidad`
+// (solo números, identificadores, + - * / ( )).
+
+const FORMULA_OPERADORES = [
+  { tok: "+", label: "+", hint: "Sumar" },
+  { tok: "-", label: "−", hint: "Restar" },
+  { tok: "*", label: "×", hint: "Multiplicar" },
+  { tok: "/", label: "÷", hint: "Dividir" },
+  { tok: "(", label: "(", hint: "Abrir grupo" },
+  { tok: ")", label: ")", hint: "Cerrar grupo" },
+] as const;
+
+function tokenizarFormulaParaChips(formula: string): string[] {
+  const re = /\s*(?:([0-9]+(?:\.[0-9]+)?)|([a-zA-Z_]\w*)|([+\-*/()]))/g;
+  const tokens: string[] = [];
+  let m: RegExpExecArray | null;
+  re.lastIndex = 0;
+  while ((m = re.exec(formula))) {
+    if (m[0].length === 0) { re.lastIndex++; continue; }
+    const t = m[1] ?? m[2] ?? m[3];
+    if (t) tokens.push(t);
+  }
+  return tokens;
+}
+
+function FormulaBuilder({
+  value, onChange, variables,
+}: {
+  value: string;
+  onChange: (formula: string) => void;
+  variables: ModParam[];
+}) {
+  const [numEntry, setNumEntry] = useState("");
+  const tokens = useMemo(() => tokenizarFormulaParaChips(value), [value]);
+
+  const setTokens = (next: string[]) => onChange(next.join(" "));
+  const append    = (tok: string)    => setTokens([...tokens, tok]);
+  const removeAt  = (i: number)      => setTokens(tokens.filter((_, idx) => idx !== i));
+  const clear     = ()               => onChange("");
+
+  const isVar = (t: string) => /^[a-zA-Z_]/.test(t);
+  const chipColor = (t: string) =>
+    isVar(t)
+      ? "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800/40"
+      : /^[0-9]/.test(t)
+        ? "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:border-slate-700"
+        : "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800/40";
+
+  return (
+    <div className="space-y-2">
+      {/* Fórmula construida — se muestra como secuencia de chips clicables (clic = quitar) */}
+      <div className="flex min-h-[2.25rem] flex-wrap items-center gap-1 rounded-lg border border-dashed border-border bg-muted/20 px-2 py-1.5">
+        {tokens.length === 0 ? (
+          <span className="text-[11px] text-muted-foreground">
+            Sin fórmula — toca los chips de abajo para armar una (ej. {variables[0]?.nombre ?? "campo"} {variables.length > 1 ? `× ${variables[1].nombre}` : "× 2"})
+          </span>
+        ) : (
+          tokens.map((t, i) => (
+            <button
+              key={`${t}-${i}`}
+              type="button"
+              onClick={() => removeAt(i)}
+              title="Quitar de la fórmula"
+              className={cn("flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] transition-opacity hover:opacity-70", chipColor(t))}
+            >
+              {t}
+              <span className="text-[9px] opacity-60">✕</span>
+            </button>
+          ))
+        )}
+        {tokens.length > 0 && (
+          <button type="button" onClick={clear} className="ml-auto text-[10px] text-muted-foreground underline hover:text-destructive">
+            Limpiar
+          </button>
+        )}
+      </div>
+
+      {/* Paleta: campos numéricos disponibles */}
+      {variables.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[10px] font-medium text-muted-foreground">Campos del formulario</p>
+          <div className="flex flex-wrap gap-1.5">
+            {variables.map(p => (
+              <button
+                key={p.nombre}
+                type="button"
+                onClick={() => append(p.nombre)}
+                className="flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-mono text-[11px] text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-800/40 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40"
+              >
+                <Hash className="h-3 w-3" /> {p.nombre}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Paleta: operaciones */}
+      <div className="space-y-1">
+        <p className="text-[10px] font-medium text-muted-foreground">Operación</p>
+        <div className="flex flex-wrap gap-1.5">
+          {FORMULA_OPERADORES.map(op => (
+            <button
+              key={op.tok}
+              type="button"
+              onClick={() => append(op.tok)}
+              title={op.hint}
+              className="flex h-7 w-9 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 font-mono text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-400 dark:hover:bg-amber-900/40"
+            >
+              {op.label}
+            </button>
+          ))}
+          {/* Número literal */}
+          <div className="flex items-center gap-1">
+            <Input
+              value={numEntry}
+              onChange={e => setNumEntry(e.target.value.replace(/[^0-9.]/g, ""))}
+              placeholder="núm."
+              className="h-7 w-16 px-2 font-mono text-[11px]"
+            />
+            <Button
+              type="button" size="sm" variant="outline"
+              className="h-7 px-2 text-[11px]"
+              disabled={!numEntry}
+              onClick={() => { if (numEntry) { append(numEntry); setNumEntry(""); } }}
+            >
+              <Plus className="h-3 w-3" /> agregar
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Resultado en texto plano, para quien prefiera leerlo de corrido */}
+      {tokens.length > 0 && (
+        <p className="text-[10px] text-muted-foreground">
+          Fórmula: <code className="rounded bg-muted px-1 py-0 font-mono text-foreground">{tokens.join(" ")}</code>
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Form state ───────────────────────────────────────────────────────────────
 
 interface ReglaForm {
@@ -108,11 +252,13 @@ function ReglaDialog({
   const { agregarRegla, editarRegla, catalogos } = useInventario();
   const { definiciones, parametros }             = useConfig();
 
-  // Solo formularios que tienen al menos un campo TablaInsumos
-  // — son los únicos que tienen sentido vincular al inventario
-  const defsConInsumos = useMemo(
+  // Formularios vinculables a inventario: los que tienen "Tabla de insumos"
+  // (mueven varios productos por fila) O al menos un campo "Número"
+  // (formularios simples — mueven siempre el mismo producto fijo, con
+  // cantidad tomada de un campo o calculada con una fórmula).
+  const defsVinculables = useMemo(
     () => definiciones.filter(d =>
-      parametros.some(p => p.definicion_id === d.id && p.tipo_dato === "TablaInsumos")
+      parametros.some(p => p.definicion_id === d.id && (p.tipo_dato === "TablaInsumos" || p.tipo_dato === "Número"))
     ),
     [definiciones, parametros],
   );
@@ -149,8 +295,11 @@ function ReglaDialog({
       : [],
   [parametros, form.def_id]);
 
-  // Solo campos TablaInsumos — los únicos con sentido para reglas de inventario
   const tablaInsumosParams = defParams.filter(p => p.tipo_dato === "TablaInsumos");
+  const numericParams      = defParams.filter(p => p.tipo_dato === "Número");
+  // El formulario es "de tabla de insumos" si tiene ese tipo de campo;
+  // si no, es un formulario "simple" (producto fijo + campo/fórmula numérica)
+  const formularioEsTablaInsumos = tablaInsumosParams.length > 0;
 
   // ── Handlers ────────────────────────────────────────────────────────────────
   const handleDefChange = (defId: string) => {
@@ -192,7 +341,7 @@ function ReglaDialog({
   const selectedDef      = definiciones.find(d => d.id === form.def_id);
   const selectedProducto = catalogos.find(c => c.id === form.catalogo_id);
   const selectedCampo    = defParams.find(p => p.nombre === form.campo_cantidad);
-  const esTablaInsumos   = selectedCampo?.tipo_dato === "TablaInsumos";
+  const esTablaInsumos   = formularioEsTablaInsumos;
   // Para TablaInsumos no se necesita producto fijo — el producto viene de cada fila
   const canPreview       = !!(form.tabla_origen && (form.campo_cantidad || form.formula_cantidad) && (esTablaInsumos || form.catalogo_id));
 
@@ -201,7 +350,7 @@ function ReglaDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <GitBranch className="h-4 w-4 text-amber-500" />
@@ -223,29 +372,37 @@ function ReglaDialog({
             </Label>
             <Select value={form.def_id} onValueChange={handleDefChange}>
               <SelectTrigger className="h-9">
-                <SelectValue placeholder="Seleccionar formulario con insumos…" />
+                <SelectValue placeholder="Seleccionar formulario…" />
               </SelectTrigger>
               <SelectContent>
-                {defsConInsumos.length === 0 ? (
+                {defsVinculables.length === 0 ? (
                   <SelectItem value="__none" disabled>
-                    Sin formularios con campo "Tabla de insumos"
+                    Sin formularios con campos numéricos o de "Tabla de insumos"
                   </SelectItem>
                 ) : (
-                  defsConInsumos.map(d => (
-                    <SelectItem key={d.id} value={d.id}>
-                      <span className="flex items-center gap-2">
-                        <span>{d.nombre}</span>
-                        <span className="text-[10px] text-muted-foreground capitalize">{d.modulo}</span>
-                      </span>
-                    </SelectItem>
-                  ))
+                  defsVinculables.map(d => {
+                    const esTI = parametros.some(p => p.definicion_id === d.id && p.tipo_dato === "TablaInsumos");
+                    return (
+                      <SelectItem key={d.id} value={d.id}>
+                        <span className="flex items-center gap-2">
+                          <span>{d.nombre}</span>
+                          <span className="text-[10px] text-muted-foreground capitalize">{d.modulo}</span>
+                          <span className={cn("rounded px-1 py-0 text-[10px] font-medium",
+                            esTI ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400"
+                                 : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400")}>
+                            {esTI ? "Tabla de insumos" : "Producto fijo"}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    );
+                  })
                 )}
               </SelectContent>
             </Select>
-            {defsConInsumos.length === 0 && (
+            {defsVinculables.length === 0 && (
               <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                ⚠ Solo aparecen formularios que tienen un campo tipo "Tabla de insumos".
-                Ve a <strong>Configuración → Formularios</strong> y agrega ese campo al formulario que consuma insumos.
+                ⚠ Solo aparecen formularios que tienen un campo tipo "Tabla de insumos" o "Número".
+                Ve a <strong>Configuración → Formularios</strong> y agrega uno de esos campos al formulario que quieras vincular.
               </p>
             )}
             {selectedDef && (
@@ -310,49 +467,86 @@ function ReglaDialog({
 
             {!form.def_id ? (
               <p className="text-[11px] text-muted-foreground rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2">
-                Selecciona un formulario en el paso 1 para ver sus campos de insumos.
+                Selecciona un formulario en el paso 1 para ver sus campos disponibles.
               </p>
-            ) : tablaInsumosParams.length === 0 ? (
-              <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-400">
-                Este formulario no tiene campos de tipo "Tabla de insumos". Ve a{" "}
-                <strong>Configuración → Formularios</strong> y agrega uno.
-              </div>
-            ) : tablaInsumosParams.length === 1 ? (
-              <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50/60 px-3 py-2.5 dark:border-green-800/40 dark:bg-green-900/10">
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
-                <div>
-                  <p className="text-xs font-medium text-green-800 dark:text-green-300">
-                    Campo detectado automáticamente:
-                    <span className="ml-1 font-mono">{tablaInsumosParams[0].etiqueta_personalizada ?? tablaInsumosParams[0].nombre}</span>
-                  </p>
-                  <p className="text-[10px] text-green-700/70 dark:text-green-400/70">
-                    Los productos y cantidades se leerán de cada fila de la tabla al guardar
-                  </p>
+            ) : esTablaInsumos ? (
+              // ── Caso A: formulario con Tabla de insumos → producto y cantidad vienen de cada fila ──
+              tablaInsumosParams.length === 1 ? (
+                <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50/60 px-3 py-2.5 dark:border-green-800/40 dark:bg-green-900/10">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
+                  <div>
+                    <p className="text-xs font-medium text-green-800 dark:text-green-300">
+                      Campo detectado automáticamente:
+                      <span className="ml-1 font-mono">{tablaInsumosParams[0].etiqueta_personalizada ?? tablaInsumosParams[0].nombre}</span>
+                    </p>
+                    <p className="text-[10px] text-green-700/70 dark:text-green-400/70">
+                      Los productos y cantidades se leerán de cada fila de la tabla al guardar
+                    </p>
+                  </div>
                 </div>
+              ) : (
+                // Múltiples campos TablaInsumos → selector
+                <div className="space-y-1.5">
+                  <Select value={form.campo_cantidad} onValueChange={v => setForm(p => ({ ...p, campo_cantidad: v, formula_cantidad: "" }))}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Seleccionar campo de insumos…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {tablaInsumosParams.map(p => (
+                        <SelectItem key={p.nombre} value={p.nombre}>
+                          <span className="flex items-center gap-2">
+                            {paramLabel(p)}
+                            <span className={cn("rounded px-1 py-0 text-[10px] font-medium", TIPO_DATO_BADGE["TablaInsumos"] ?? "bg-violet-100 text-violet-700")}>
+                              Tabla de insumos
+                            </span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )
+            ) : numericParams.length === 0 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-400">
+                Este formulario no tiene campos numéricos. Ve a{" "}
+                <strong>Configuración → Formularios</strong> y agrega uno (ej. "cantidad", "dosis", "kilos").
               </div>
             ) : (
-              // Múltiples campos TablaInsumos → selector
-              <div className="space-y-1.5">
-                <Select value={form.campo_cantidad} onValueChange={v => setForm(p => ({ ...p, campo_cantidad: v, formula_cantidad: "" }))}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Seleccionar campo de insumos…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tablaInsumosParams.map(p => (
-                      <SelectItem key={p.nombre} value={p.nombre}>
-                        <span className="flex items-center gap-2">
-                          {paramLabel(p)}
-                          <span className={cn("rounded px-1 py-0 text-[10px] font-medium", TIPO_DATO_BADGE["TablaInsumos"] ?? "bg-violet-100 text-violet-700")}>
-                            Tabla de insumos
+              // ── Caso B: formulario simple (producto fijo) → elegir campo numérico Y/O escribir fórmula ──
+              <div className="space-y-2.5">
+                <div className="space-y-1">
+                  <p className="text-[11px] text-muted-foreground">
+                    Campo numérico que trae la cantidad (se usa si no hay fórmula, o como respaldo):
+                  </p>
+                  <Select value={form.campo_cantidad} onValueChange={v => setForm(p => ({ ...p, campo_cantidad: v }))}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Seleccionar campo numérico…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {numericParams.map(p => (
+                        <SelectItem key={p.nombre} value={p.nombre}>
+                          <span className="flex items-center gap-2">
+                            {paramLabel(p)}
+                            <span className={cn("rounded px-1 py-0 text-[10px] font-medium", TIPO_DATO_BADGE["Número"])}>
+                              {p.nombre}
+                            </span>
                           </span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {!form.def_id && (
-                  <p className="text-[11px] text-muted-foreground">Selecciona un formulario primero.</p>
-                )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <p className="text-[11px] text-muted-foreground">
+                    O, si la cantidad real se calcula combinando varios campos, arma una <strong>fórmula</strong> tocando los chips (opcional):
+                  </p>
+                  <FormulaBuilder
+                    value={form.formula_cantidad}
+                    onChange={v => setForm(p => ({ ...p, formula_cantidad: v }))}
+                    variables={numericParams}
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -407,11 +601,13 @@ function ReglaDialog({
               <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 mt-0.5" />
               <p className="text-xs text-green-800 dark:text-green-400 leading-relaxed">
                 Al guardar un registro de <strong>{selectedDef?.nombre ?? form.tabla_origen}</strong>,
-                el sistema tomará{" "}
+                el sistema {form.formula_cantidad ? "calculará la cantidad con la fórmula" : "tomará"}{" "}
                 <code className="font-mono bg-green-100 dark:bg-green-900/40 px-1 rounded">
-                  {form.formula_cantidad || selectedCampo ? paramLabel(selectedCampo!) : form.campo_cantidad}
+                  {form.formula_cantidad
+                    ? form.formula_cantidad
+                    : selectedCampo ? paramLabel(selectedCampo) : form.campo_cantidad}
                 </code>{" "}
-                {selectedCampo?.tipo_dato === "Número" && selectedProducto &&
+                {!form.formula_cantidad && selectedCampo?.tipo_dato === "Número" && selectedProducto &&
                   <span>({selectedCampo.etiqueta_personalizada ?? selectedCampo.nombre}, en {selectedProducto.unidad_medida})</span>}
                 {" "}→ registrará una{" "}
                 <strong>{TIPO_LABELS[form.tipo_movimiento]}</strong> en{" "}
