@@ -532,6 +532,17 @@ export const DEFINICIONES: ModDef[] = [
     cliente_id: 1,
     updated_at: "2026-01-10T08:00:00Z", updated_by: "Admin",
   },
+  {
+    // Formulario SIN TablaInsumos: mueve siempre el mismo producto (catalogo_id fijo
+    // en la regla FM-002). Sirve para demostrar el modo "producto fijo + campo/fórmula".
+    id: "inv-bod-1", tipo: "trazabilidad",
+    nombre: "MOVIMIENTO_BODEGA",
+    descripcion: "Recepción de cajas de exportación en bodega — registro simple (un solo producto)",
+    version: "1.0", modulo: "comercial", estado: "activo",
+    nivel_minimo: 2, roles_excluidos: [],
+    cliente_id: 1,
+    updated_at: "2026-02-01T08:00:00Z", updated_by: "Admin",
+  },
 ];
 
 // ─── Parámetros (Campos_configurados) ─────────────────────────────────────────
@@ -601,6 +612,13 @@ export const PARAMETROS: ModParam[] = [
   { id: "invp-2", definicion_id: "inv-pack-1", parametro_id: "p-18", nombre: "fecha_packing",      tipo_dato: "Fecha",         obligatorio: true,  orden: 2, etiqueta_personalizada: "Fecha de packing" },
   { id: "invp-3", definicion_id: "inv-pack-1", parametro_id: "p-03", nombre: "kilos_procesados",   tipo_dato: "Número",        obligatorio: true,  orden: 3, etiqueta_personalizada: "Kilos procesados" },
   { id: "invp-4", definicion_id: "inv-pack-1", parametro_id: "p-30", nombre: "insumos_usados",     tipo_dato: "TablaInsumos",  obligatorio: true,  orden: 4, etiqueta_personalizada: "Insumos de empaque usados", tabla_insumos_area: "post-cosecha" },
+  // ── inv-bod-1: Movimiento de Bodega (sin TablaInsumos — producto fijo en la regla) ──
+  { id: "invb-1", definicion_id: "inv-bod-1", parametro_id: "p-04", nombre: "bodega",             tipo_dato: "Texto",  obligatorio: true,  orden: 1, etiqueta_personalizada: "Bodega" },
+  { id: "invb-2", definicion_id: "inv-bod-1", parametro_id: "p-18", nombre: "fecha_movimiento",   tipo_dato: "Fecha",  obligatorio: true,  orden: 2, etiqueta_personalizada: "Fecha de recepción" },
+  { id: "invb-3", definicion_id: "inv-bod-1", parametro_id: "p-30", nombre: "responsable",        tipo_dato: "Texto",  obligatorio: true,  orden: 3, etiqueta_personalizada: "Responsable" },
+  { id: "invb-4", definicion_id: "inv-bod-1", parametro_id: "p-03", nombre: "bultos_recibidos",   tipo_dato: "Número", obligatorio: true,  orden: 4, etiqueta_personalizada: "Bultos recibidos" },
+  { id: "invb-5", definicion_id: "inv-bod-1", parametro_id: "p-03", nombre: "unidades_por_bulto", tipo_dato: "Número", obligatorio: true,  orden: 5, etiqueta_personalizada: "Unidades por bulto", valor_default: "25" },
+  { id: "invb-6", definicion_id: "inv-bod-1", parametro_id: "p-30", nombre: "observaciones",      tipo_dato: "Texto",  obligatorio: false, orden: 6, etiqueta_personalizada: "Observaciones" },
 ];
 
 // ─── Datos demo ───────────────────────────────────────────────────────────────

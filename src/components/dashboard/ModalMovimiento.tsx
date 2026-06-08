@@ -25,7 +25,7 @@ import {
 import { cn }      from "@/lib/utils";
 import {
   useInventario,
-  type InvMovimientoTipo, type InvMovimientoSubtipo,
+  type InvMovimientoTipo, type InvMovimientoSubtipo, type InvCampoConValor,
 } from "@/contexts/InventarioContext";
 import { ProveedorCombobox } from "@/components/ui/proveedor-combobox";
 import {
@@ -131,6 +131,11 @@ export function ModalMovimiento({
   const [loteCert,      setLoteCert]      = useState("");
   const [loteSinLote,   setLoteSinLote]   = useState(false); // "no tengo número de lote"
 
+  // Valores de los campos personalizados del producto, capturados para este lote
+  const [loteCampos,    setLoteCampos]    = useState<InvCampoConValor[]>([]);
+  const updateLoteCampo = (idx: number, valor: string) =>
+    setLoteCampos(prev => prev.map((c, i) => (i === idx ? { ...c, valor } : c)));
+
   const lotesFefo    = productoId ? getLotesFEFO(productoId)      : [];
   const todosLotes   = productoId ? getLotesByProducto(productoId) : [];
   const lotesActivos = todosLotes.filter(l => l.activo);
@@ -150,6 +155,7 @@ export function ModalMovimiento({
     setError("");
     setPaso(1);
     setLoteNumero(""); setLoteVence(""); setLoteCert(""); setLoteSinLote(false);
+    setLoteCampos((producto?.campos_extra ?? []).map(c => ({ ...c, valor: "" })));
     const fefo = getLotesFEFO(productoId ?? "");
     setLoteSelId(fefo[0]?.id ?? "");
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -212,7 +218,12 @@ export function ModalMovimiento({
         proveedor_id:       proveedor || producto.proveedor_id,
         precio_unitario:    precioStr ? parseFloat(precioStr) : producto.precio_unitario,
         cantidad_inicial:   qty,
-        cantidad_actual:    qty,
+        // Se crea en 0: registrarMovimiento() — más abajo, con lote_id — es quien suma
+        // la cantidad real al lote (vía el delta de la entrada). Si aquí lo dejamos en
+        // `qty`, la cantidad termina sumándose dos veces (qty + qty) y el lote queda
+        // con más stock del que realmente ingresó (ej. 160 en vez de 80).
+        cantidad_actual:    0,
+        campos_extra:       loteCampos.length > 0 ? loteCampos : undefined,
         activo:             true,
       });
       loteIdFinal  = nuevoLote.id;
@@ -372,12 +383,12 @@ export function ModalMovimiento({
                     <Tag className="h-3 w-3" /> Lote a descontar
                     <span className="font-normal text-muted-foreground">(FEFO — vence antes primero)</span>
                   </Label>
-                  <Select value={loteSelId} onValueChange={setLoteSelId}>
+                  <Select value={loteSelId || "__sin_lote__"} onValueChange={v => setLoteSelId(v === "__sin_lote__" ? "" : v)}>
                     <SelectTrigger className="h-9">
                       <SelectValue placeholder="Sin lote asignado" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Sin lote específico</SelectItem>
+                      <SelectItem value="__sin_lote__">Sin lote específico</SelectItem>
                       {lotesFefo.map(l => (
                         <SelectItem key={l.id} value={l.id}>
                           <span className="flex items-center gap-2 text-xs">
@@ -509,6 +520,51 @@ export function ModalMovimiento({
                       className="h-9"
                     />
                   </div>
+
+                  {/* Campos personalizados del producto — capturados por lote */}
+                  {loteCampos.length > 0 && (
+                    <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-3">
+                      <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1.5">
+                        <Tag className="h-3 w-3" /> Campos personalizados de «{producto.nombre}»
+                      </p>
+                      <p className="text-[10px] text-muted-foreground -mt-1">
+                        Estos valores quedan asociados a este lote específico (puede variar de una compra a otra).
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        {loteCampos.map((c, idx) => (
+                          <div key={c.nombre} className="space-y-1">
+                            <Label className="text-xs">{c.etiqueta || c.nombre}</Label>
+                            {c.tipo === "Sí/No" ? (
+                              <Select value={c.valor} onValueChange={v => updateLoteCampo(idx, v)}>
+                                <SelectTrigger className="h-9"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Sí">Sí</SelectItem>
+                                  <SelectItem value="No">No</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            ) : c.tipo === "Lista" ? (
+                              <Select value={c.valor} onValueChange={v => updateLoteCampo(idx, v)}>
+                                <SelectTrigger className="h-9"><SelectValue placeholder="Seleccionar opción…" /></SelectTrigger>
+                                <SelectContent>
+                                  {(c.opciones ?? []).map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Input
+                                type={c.tipo === "Número" ? "number" : c.tipo === "Fecha" ? "date" : "text"}
+                                min={c.tipo === "Número" ? "0" : undefined}
+                                onKeyDown={c.tipo === "Número" ? (e => { if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault(); }) : undefined}
+                                value={c.valor}
+                                onChange={e => updateLoteCampo(idx, e.target.value)}
+                                placeholder={c.etiqueta}
+                                className="h-9"
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Preview del lote */}
                   {loteNumero && loteVence && (
