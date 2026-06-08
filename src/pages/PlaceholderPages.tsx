@@ -2569,8 +2569,19 @@ function DynamicDefTable({
           catch { return []; }
         };
 
+        // Valida que todas las filas con producto tengan cantidad > 0
+        // y que no haya filas con cantidad pero sin producto.
+        const draftRows = parseJsonRows(draft);
+        const draftHasErrors = draftRows.some(r =>
+          (r.catalogo_id && !(Number(r.cantidad) > 0)) ||
+          (!r.catalogo_id && Number(r.cantidad) > 0)
+        );
+        // Al menos debe haber una fila válida completa (producto + cantidad)
+        const draftHasValidRows = draftRows.some(r => r.catalogo_id && Number(r.cantidad) > 0);
+
         const handleConfirm = () => {
           if (!dato) { setTablaInsumosEdit(null); return; }
+          if (draftHasErrors || !draftHasValidRows) return; // bloqueado por validación
 
           const prevVals = parseValores(dato.valores);
           const nextVals = { ...prevVals, [paramNombre]: draft };
@@ -2673,7 +2684,16 @@ function DynamicDefTable({
                 <Button variant="outline" onClick={() => setTablaInsumosEdit(null)}>
                   Cancelar
                 </Button>
-                <Button onClick={handleConfirm} className="gap-1.5">
+                <Button
+                  onClick={handleConfirm}
+                  disabled={draftHasErrors || !draftHasValidRows}
+                  className="gap-1.5"
+                  title={
+                    !draftHasValidRows ? "Agrega al menos un producto con cantidad" :
+                    draftHasErrors     ? "Completa la cantidad de todos los productos" :
+                    undefined
+                  }
+                >
                   <Package className="h-4 w-4" />
                   {isEditing ? "Guardar cambios" : "Guardar productos"}
                 </Button>
