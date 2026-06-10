@@ -44,7 +44,7 @@ import {
   tipoBadgeColor, tipoLabels, estadoBadge,
   type ModDef, type ModParam, type Parametro,
   type TipoConfig, type TipoDato, type EstadoDef,
-  type Cultivo, type Variedad, type Calibre, type NivelEstructura, type BloqueLayout,
+  type Cultivo, type Variedad, type Calibre, type NivelEstructura, type BloqueLayout, type MapaCultivo,
 } from "@/config/moduleDefinitions";
 import { VersionDiffDialog } from "@/components/dashboard/VersionDiffDialog";
 import { CampoConfigDrawer } from "@/components/dashboard/CampoConfigDrawer";
@@ -4855,6 +4855,7 @@ function TabCultivos() {
 
   // Tab interno para simplificar la UI de configuración
   const [cultivoTab, setCultivoTab] = useState<"general" | "medidas" | "calibres" | "estructura">("general");
+  const [estructuraModulo, setEstructuraModulo] = useState<string>("cultivo");
   const [showEstructuraPanel, setShowEstructuraPanel] = useState(true);
 
   const filteredCultivos = cultivosList.filter(c =>
@@ -5501,7 +5502,66 @@ function TabCultivos() {
 
                 {/* TAB: Estructura */}
                 <TabsContent value="estructura" className="p-3 md:p-4 m-0">
-              <div className="space-y-4 min-w-0">
+                {(() => {
+                  const MODULO_LABELS: Record<string, string> = { cultivo: "Cultivo", vivero: "Vivero", laboratorio: "Laboratorio" };
+                  const extraModulos = cultivo.mapas_extra ?? [];
+                  const validModulos = ["cultivo", ...extraModulos.map(m => m.modulo)];
+                  const activeModulo = validModulos.includes(estructuraModulo) ? estructuraModulo : "cultivo";
+                  return (
+                    <div className="space-y-4">
+                      {/* Selector de módulo */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          onClick={() => setEstructuraModulo("cultivo")}
+                          className={cn("px-2.5 py-1 rounded-lg text-xs font-medium border transition-all",
+                            activeModulo === "cultivo"
+                              ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+                              : "bg-background text-muted-foreground border-border hover:border-primary/40"
+                          )}
+                        >Cultivo</button>
+                        {extraModulos.map(m => (
+                          <button key={m.id}
+                            onClick={() => setEstructuraModulo(m.modulo)}
+                            className={cn("px-2.5 py-1 rounded-lg text-xs font-medium border transition-all",
+                              activeModulo === m.modulo
+                                ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+                                : "bg-background text-muted-foreground border-border hover:border-primary/40"
+                            )}
+                          >{MODULO_LABELS[m.modulo] ?? m.label}</button>
+                        ))}
+                        {canEditCultivo && (() => {
+                          const used = new Set(extraModulos.map(m => m.modulo));
+                          const available = [
+                            { value: "vivero",      label: "Vivero" },
+                            { value: "laboratorio", label: "Laboratorio" },
+                          ].filter(m => !used.has(m.value));
+                          if (available.length === 0) return null;
+                          return (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button className="px-2 py-1 rounded-lg text-xs font-medium border border-dashed border-border text-muted-foreground hover:border-primary/40 hover:text-primary transition-all flex items-center gap-1">
+                                  <Plus className="w-3 h-3" /> Módulo
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start" className="w-40">
+                                {available.map(opt => (
+                                  <DropdownMenuItem key={opt.value} onSelect={() => {
+                                    const newMapa: MapaCultivo = { id: `mapa-${Date.now()}`, modulo: opt.value, label: opt.label, estructura: [], layout_mapa: [] };
+                                    updCultivo(cultivo.id, "mapas_extra", [...extraModulos, newMapa]);
+                                    setEstructuraModulo(opt.value);
+                                  }}>
+                                    {opt.label}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Contenido: Cultivo (raíz) */}
+                      {activeModulo === "cultivo" && (
+                      <div className="space-y-4 min-w-0">
               {/* -- Sección 5: Estructura de Campo ---------------------------- */}
               <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between">
@@ -5747,6 +5807,199 @@ function TabCultivos() {
               </div>
             )}
             </div>
+        )}
+        {/* Contenido: módulo extra */}
+        {activeModulo !== "cultivo" && (() => {
+          const mapa = extraModulos.find(m => m.modulo === activeModulo);
+          if (!mapa) return null;
+          const updMapa = (field: keyof MapaCultivo, val: unknown) => {
+            const updated = extraModulos.map(m =>
+              m.modulo === activeModulo ? { ...m, [field]: val } : m
+            );
+            updCultivo(cultivo.id, "mapas_extra", updated);
+          };
+          const updNivelMapa = (nivelIdx: number, field: keyof NivelEstructura, val: unknown) => {
+            const updated = mapa.estructura.map((n, i) => i === nivelIdx ? { ...n, [field]: val } : n);
+            updMapa("estructura", updated);
+          };
+          return (
+            <div className="space-y-4 min-w-0">
+              {/* Estructura de niveles */}
+              <div className="bg-card rounded-xl border border-border overflow-hidden">
+                <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <Network className="w-4 h-4 text-sky-600" />
+                      Estructura de {MODULO_LABELS[mapa.modulo] ?? mapa.label}
+                    </h3>
+                    <span className="text-[10px] text-muted-foreground">Define los niveles jerárquicos</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {canEditCultivo && (
+                      <>
+                        {mapa.estructura.length === 0 && (
+                          <button
+                            onClick={() => {
+                              const plantilla: NivelEstructura[] = [
+                                { nivel: 1, label: "Invernadero", abrev: "IN", activo: true },
+                                { nivel: 2, label: "Mesa",        abrev: "MS", activo: true },
+                                { nivel: 3, label: "Bandeja",     abrev: "BD", activo: true },
+                              ];
+                              updMapa("estructura", plantilla);
+                            }}
+                            className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground border border-dashed border-border px-2 py-1 rounded-md hover:border-primary/40 transition-colors"
+                          >
+                            <ListFilter className="w-3.5 h-3.5" /> Cargar plantilla
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            const nuevoNivel: NivelEstructura = { nivel: mapa.estructura.length + 1, label: "", abrev: "", activo: true };
+                            updMapa("estructura", [...mapa.estructura, nuevoNivel]);
+                          }}
+                          className="flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/70 transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Agregar nivel
+                        </button>
+                        <button
+                          onClick={() => {
+                            updCultivo(cultivo.id, "mapas_extra", extraModulos.filter(m => m.modulo !== activeModulo));
+                            setEstructuraModulo("cultivo");
+                          }}
+                          className="text-muted-foreground hover:text-destructive transition-colors ml-1"
+                          title="Eliminar módulo"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {mapa.estructura.length === 0 ? (
+                  <div className="px-4 py-8 text-center space-y-2">
+                    <Network className="w-7 h-7 mx-auto text-muted-foreground/20" />
+                    <p className="text-xs text-muted-foreground">Sin estructura configurada.</p>
+                    {canEditCultivo && (
+                      <p className="text-[10px] text-muted-foreground/60">Usa "Cargar plantilla" para la jerarquía estándar.</p>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <div className="divide-y divide-border">
+                      {mapa.estructura.map((nivel, idx) => (
+                        <div
+                          key={idx}
+                          className={cn("group flex items-center gap-3 px-4 py-2.5 transition-colors",
+                            nivel.activo ? "hover:bg-muted/20" : "opacity-50 hover:opacity-70"
+                          )}
+                        >
+                          <Switch
+                            checked={nivel.activo}
+                            onCheckedChange={v => updNivelMapa(idx, "activo", v)}
+                            disabled={!canEditCultivo}
+                            className="scale-75 origin-left shrink-0"
+                          />
+                          <span className={cn("w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0",
+                            nivel.activo ? "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300" : "bg-muted text-muted-foreground"
+                          )}>
+                            {idx + 1}
+                          </span>
+                          <input
+                            value={nivel.label}
+                            onChange={e => updNivelMapa(idx, "label", e.target.value)}
+                            readOnly={!canEditCultivo}
+                            disabled={!canEditCultivo}
+                            placeholder="Nombre del nivel"
+                            className="flex-1 text-sm font-medium bg-transparent border-0 focus:outline-none disabled:opacity-60 min-w-0"
+                          />
+                          <input
+                            value={nivel.abrev}
+                            onChange={e => updNivelMapa(idx, "abrev", e.target.value.toUpperCase().slice(0, 4))}
+                            readOnly={!canEditCultivo}
+                            disabled={!canEditCultivo}
+                            placeholder="AB"
+                            maxLength={4}
+                            className="w-10 text-[10px] font-mono text-center bg-muted/40 rounded-md px-1.5 py-1 border border-transparent focus:border-primary/50 focus:bg-background focus:outline-none disabled:opacity-60 uppercase transition-colors"
+                          />
+                          {canEditCultivo && (
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <div className="flex flex-col gap-0.5">
+                                <button
+                                  onClick={() => {
+                                    if (idx === 0) return;
+                                    const r = [...mapa.estructura];
+                                    [r[idx - 1], r[idx]] = [r[idx], r[idx - 1]];
+                                    updMapa("estructura", r.map((n, i) => ({ ...n, nivel: i + 1 })));
+                                  }}
+                                  disabled={idx === 0}
+                                  className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                                ><ArrowUp className="w-3 h-3" /></button>
+                                <button
+                                  onClick={() => {
+                                    if (idx === mapa.estructura.length - 1) return;
+                                    const r = [...mapa.estructura];
+                                    [r[idx], r[idx + 1]] = [r[idx + 1], r[idx]];
+                                    updMapa("estructura", r.map((n, i) => ({ ...n, nivel: i + 1 })));
+                                  }}
+                                  disabled={idx === mapa.estructura.length - 1}
+                                  className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                                ><ArrowDown className="w-3 h-3" /></button>
+                              </div>
+                              <button
+                                onClick={() => updMapa("estructura", mapa.estructura.filter((_, i) => i !== idx).map((n, i) => ({ ...n, nivel: i + 1 })))}
+                                className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                              ><X className="w-3 h-3" /></button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {mapa.estructura.some(n => n.activo) && (
+                      <div className="mx-4 mb-4 mt-3 px-3 py-2.5 rounded-lg bg-sky-50 border border-sky-100 dark:bg-sky-950/20 dark:border-sky-900/40">
+                        <p className="text-[10px] font-semibold text-sky-700 dark:text-sky-400 uppercase tracking-wider mb-2">Jerarquía activa</p>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {mapa.estructura.filter(n => n.activo).map((n, i, arr) => (
+                            <span key={n.nivel} className="flex items-center gap-1">
+                              <span className="text-xs font-semibold text-sky-700 dark:text-sky-300 bg-sky-100 dark:bg-sky-900/40 px-2 py-0.5 rounded-md">{n.label}</span>
+                              <span className="text-[9px] font-mono text-sky-400 dark:text-sky-600">{n.abrev}</span>
+                              {i < arr.length - 1 && <ChevronRight className="w-3.5 h-3.5 text-sky-400 mx-0.5" />}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Mapa visual */}
+              {mapa.estructura.some(n => n.activo) && (
+                <div className="rounded-lg border bg-card text-card-foreground overflow-hidden min-w-0">
+                  <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
+                    <div className="flex items-center gap-2">
+                      <MapIcon className="w-4 h-4 text-emerald-500" />
+                      <h3 className="text-sm font-semibold text-foreground">Mapa de {MODULO_LABELS[mapa.modulo] ?? mapa.label}</h3>
+                      <span className="text-[10px] text-muted-foreground">Distribución visual de la estructura</span>
+                    </div>
+                  </div>
+                  <div className="p-2 md:p-2.5 xl:p-3">
+                    <CampoMapaEditor
+                      key={`mapa-extra-${mapa.id}`}
+                      estructura={mapa.estructura}
+                      layout={mapa.layout_mapa}
+                      onLayoutChange={newLayout => updMapa("layout_mapa", newLayout)}
+                      readOnly={!canEditCultivo}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </div>
+    );
+  })()}
                 </TabsContent>
               </Tabs>
             </div>

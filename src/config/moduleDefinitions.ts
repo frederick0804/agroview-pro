@@ -18,7 +18,7 @@ export type TipoConfig =
   | "trazabilidad"
   | "inventario"
   | "personalizado";
-export type TipoDato   = "Texto" | "Número" | "Fecha" | "Sí/No" | "Lista" | "Foto" | "Archivo" | "Relación" | "TablaInsumos";
+export type TipoDato   = "Texto" | "Número" | "Fecha" | "Sí/No" | "Lista" | "Foto" | "Archivo" | "Relación" | "TablaInsumos" | "SelectorBloque";
 /** Fila de una TablaInsumos — se serializa como JSON en ModDato.valores */
 export interface TablaInsumosRow { catalogo_id: string; cantidad: number; }
 export type EstadoDef  = "activo" | "borrador" | "archivado";
@@ -438,6 +438,16 @@ export const DEFINICIONES: ModDef[] = [
     cliente_id: 1,
     updated_at: "2025-03-01T10:00:00Z", updated_by: "Admin",
   },
+  // ── Cultivo — Registro de Cosecha (fuente de trazabilidad) ──────────────
+  {
+    id: "cul-cos-1", tipo: "cosecha_registro",
+    nombre: "Registro de Cosecha",
+    descripcion: "Registro diario de cosecha por bloque y operario — fuente de trazabilidad aguas abajo",
+    version: "1.0", modulo: "cultivo", estado: "activo",
+    nivel_minimo: 2, roles_excluidos: ["lector"],
+    cliente_id: 1,
+    updated_at: "2025-01-15T07:00:00Z", updated_by: "Admin",
+  },
   // ── Post-cosecha ──────────────────────────────────────────────────────────
   {
     id: "pc-1", tipo: "trazabilidad",
@@ -601,7 +611,7 @@ export const PARAMETROS: ModParam[] = [
   { id: "e3-2", definicion_id: "evt-3", parametro_id: "p-23", nombre: "resultado",      tipo_dato: "Texto",  obligatorio: true,  orden: 2 },
   { id: "e3-3", definicion_id: "evt-3", parametro_id: "p-30", nombre: "observaciones",  tipo_dato: "Texto",  obligatorio: false, orden: 3 },
   // ── inv-fit-1: Aplicación Fitosanitaria ─────────────────────────────────────
-  { id: "invf-1", definicion_id: "inv-fit-1", parametro_id: "p-04", nombre: "bloque",              tipo_dato: "Texto",         obligatorio: true,  orden: 1, etiqueta_personalizada: "Bloque / Sector" },
+  { id: "invf-1", definicion_id: "inv-fit-1", parametro_id: "p-04", nombre: "bloque",              tipo_dato: "SelectorBloque", obligatorio: true,  orden: 1, etiqueta_personalizada: "Bloque / Sector" },
   { id: "invf-2", definicion_id: "inv-fit-1", parametro_id: "p-18", nombre: "fecha_aplicacion",    tipo_dato: "Fecha",         obligatorio: true,  orden: 2, etiqueta_personalizada: "Fecha de aplicación" },
   { id: "invf-3", definicion_id: "inv-fit-1", parametro_id: "p-30", nombre: "responsable",         tipo_dato: "Texto",         obligatorio: true,  orden: 3, etiqueta_personalizada: "Responsable" },
   { id: "invf-4", definicion_id: "inv-fit-1", parametro_id: "p-03", nombre: "area_tratada_ha",     tipo_dato: "Número",        obligatorio: false, orden: 4, etiqueta_personalizada: "Área tratada (ha)" },
@@ -612,6 +622,79 @@ export const PARAMETROS: ModParam[] = [
   { id: "invp-2", definicion_id: "inv-pack-1", parametro_id: "p-18", nombre: "fecha_packing",      tipo_dato: "Fecha",         obligatorio: true,  orden: 2, etiqueta_personalizada: "Fecha de packing" },
   { id: "invp-3", definicion_id: "inv-pack-1", parametro_id: "p-03", nombre: "kilos_procesados",   tipo_dato: "Número",        obligatorio: true,  orden: 3, etiqueta_personalizada: "Kilos procesados" },
   { id: "invp-4", definicion_id: "inv-pack-1", parametro_id: "p-30", nombre: "insumos_usados",     tipo_dato: "TablaInsumos",  obligatorio: true,  orden: 4, etiqueta_personalizada: "Insumos de empaque usados", tabla_insumos_area: "post-cosecha" },
+  // ── com-1: Ficha de Cliente Comercial ───────────────────────────────────────
+  { id: "com1-1", definicion_id: "com-1", parametro_id: "p-01", nombre: "nombre_cliente",     tipo_dato: "Texto",  obligatorio: true,  orden: 1, etiqueta_personalizada: "Nombre del cliente" },
+  { id: "com1-2", definicion_id: "com-1", parametro_id: "p-25", nombre: "tipo_cliente",       tipo_dato: "Lista",  obligatorio: true,  orden: 2, etiqueta_personalizada: "Tipo de cliente",   opciones: [{ value: "exportador", label: "Exportador" }, { value: "mayorista", label: "Mayorista" }, { value: "retail", label: "Retail" }, { value: "distribuidor", label: "Distribuidor" }] },
+  { id: "com1-3", definicion_id: "com-1", parametro_id: "p-04", nombre: "pais_destino",       tipo_dato: "Texto",  obligatorio: false, orden: 3, etiqueta_personalizada: "País / Destino" },
+  { id: "com1-4", definicion_id: "com-1", parametro_id: "p-11", nombre: "contacto",           tipo_dato: "Texto",  obligatorio: false, orden: 4, etiqueta_personalizada: "Nombre de contacto" },
+  { id: "com1-5", definicion_id: "com-1", parametro_id: "p-04", nombre: "email",              tipo_dato: "Texto",  obligatorio: false, orden: 5, etiqueta_personalizada: "Email" },
+  { id: "com1-6", definicion_id: "com-1", parametro_id: "p-13", nombre: "telefono",           tipo_dato: "Texto",  obligatorio: false, orden: 6, etiqueta_personalizada: "Teléfono" },
+  { id: "com1-7", definicion_id: "com-1", parametro_id: "p-25", nombre: "condicion_venta",    tipo_dato: "Lista",  obligatorio: false, orden: 7, etiqueta_personalizada: "Condición de venta", opciones: [{ value: "FOB", label: "FOB" }, { value: "CIF", label: "CIF" }, { value: "EXW", label: "EXW" }, { value: "DDP", label: "DDP" }] },
+  { id: "com1-8", definicion_id: "com-1", parametro_id: "p-30", nombre: "observaciones",      tipo_dato: "Texto",  obligatorio: false, orden: 8, etiqueta_personalizada: "Notas / Condiciones" },
+  // ── com-2: Orden de Despacho ─────────────────────────────────────────────────
+  { id: "com2-1", definicion_id: "com-2", parametro_id: "p-01", nombre: "numero_orden",       tipo_dato: "Texto",  obligatorio: true,  orden: 1, etiqueta_personalizada: "N° Orden",          validaciones_adicionales: { unique: true } },
+  { id: "com2-2", definicion_id: "com-2", parametro_id: "p-25", nombre: "tipo_despacho",      tipo_dato: "Lista",  obligatorio: true,  orden: 2, etiqueta_personalizada: "Tipo de despacho",  opciones: [{ value: "exportacion", label: "Exportación" }, { value: "nacional", label: "Nacional" }, { value: "mercado_interno", label: "Mercado interno" }] },
+  { id: "com2-3", definicion_id: "com-2", parametro_id: "p-01", nombre: "cliente",            tipo_dato: "Texto",  obligatorio: true,  orden: 3, etiqueta_personalizada: "Cliente" },
+  { id: "com2-4", definicion_id: "com-2", parametro_id: "p-25", nombre: "presentacion",       tipo_dato: "Lista",  obligatorio: true,  orden: 4, etiqueta_personalizada: "Presentación",      opciones: [{ value: "caja_5kg", label: "Caja 5 kg" }, { value: "caja_2kg", label: "Caja 2 kg" }, { value: "clamshell_500g", label: "Clamshell 500 g" }, { value: "bandeja_1kg", label: "Bandeja 1 kg" }, { value: "granel", label: "A granel" }] },
+  { id: "com2-5", definicion_id: "com-2", parametro_id: "p-03", nombre: "cantidad",           tipo_dato: "Número", obligatorio: true,  orden: 5, etiqueta_personalizada: "Cantidad (unidades)" },
+  { id: "com2-6", definicion_id: "com-2", parametro_id: "p-03", nombre: "precio_unitario",    tipo_dato: "Número", obligatorio: false, orden: 6, etiqueta_personalizada: "Precio unitario (USD)" },
+  { id: "com2-7", definicion_id: "com-2", parametro_id: "p-03", nombre: "total_usd",          tipo_dato: "Número", obligatorio: false, orden: 7, etiqueta_personalizada: "Total (USD)",        formula: "cantidad * precio_unitario", editable_campo: false },
+  { id: "com2-8", definicion_id: "com-2", parametro_id: "p-04", nombre: "destino",            tipo_dato: "Texto",  obligatorio: false, orden: 8, etiqueta_personalizada: "Destino / Puerto" },
+  { id: "com2-9", definicion_id: "com-2", parametro_id: "p-31", nombre: "responsable",        tipo_dato: "Texto",  obligatorio: false, orden: 9, etiqueta_personalizada: "Responsable" },
+  { id: "com2-10",definicion_id: "com-2", parametro_id: "p-30", nombre: "observaciones",      tipo_dato: "Texto",  obligatorio: false, orden: 10, etiqueta_personalizada: "Observaciones" },
+  // ── com-3: Seguimiento de Exportación ───────────────────────────────────────
+  { id: "com3-1", definicion_id: "com-3", parametro_id: "p-01", nombre: "numero_contenedor",  tipo_dato: "Texto",  obligatorio: true,  orden: 1, etiqueta_personalizada: "N° Contenedor" },
+  { id: "com3-2", definicion_id: "com-3", parametro_id: "p-04", nombre: "numero_orden_ref",   tipo_dato: "Texto",  obligatorio: false, orden: 2, etiqueta_personalizada: "N° Orden ref." },
+  { id: "com3-3", definicion_id: "com-3", parametro_id: "p-14", nombre: "fecha_embarque",     tipo_dato: "Fecha",  obligatorio: false, orden: 3, etiqueta_personalizada: "Fecha de embarque" },
+  { id: "com3-4", definicion_id: "com-3", parametro_id: "p-04", nombre: "puerto_destino",     tipo_dato: "Texto",  obligatorio: false, orden: 4, etiqueta_personalizada: "Puerto destino" },
+  { id: "com3-5", definicion_id: "com-3", parametro_id: "p-25", nombre: "estado_embarque",    tipo_dato: "Lista",  obligatorio: true,  orden: 5, etiqueta_personalizada: "Estado",            opciones: [{ value: "preparacion", label: "En preparación" }, { value: "embarcado", label: "Embarcado" }, { value: "en_transito", label: "En tránsito" }, { value: "entregado", label: "Entregado" }, { value: "cerrado", label: "Cerrado" }] },
+  { id: "com3-6", definicion_id: "com-3", parametro_id: "p-26", nombre: "temperatura_transporte", tipo_dato: "Número", obligatorio: false, orden: 6, etiqueta_personalizada: "Temp. transporte (°C)" },
+  { id: "com3-7", definicion_id: "com-3", parametro_id: "p-30", nombre: "observaciones",      tipo_dato: "Texto",  obligatorio: false, orden: 7, etiqueta_personalizada: "Observaciones" },
+  // ── cul-cos-1: Registro de Cosecha ──────────────────────────────────────────
+  { id: "cos-1",  definicion_id: "cul-cos-1", parametro_id: "p-01", nombre: "numero_lote",     tipo_dato: "Texto",  obligatorio: true,  orden: 1, etiqueta_personalizada: "N° Lote", validaciones_adicionales: { unique: true } },
+  { id: "cos-2",  definicion_id: "cul-cos-1", parametro_id: "p-18", nombre: "fecha_cosecha",   tipo_dato: "Fecha",  obligatorio: true,  orden: 2, etiqueta_personalizada: "Fecha de cosecha" },
+  { id: "cos-3",  definicion_id: "cul-cos-1", parametro_id: "p-04", nombre: "bloque_sector",   tipo_dato: "SelectorBloque", obligatorio: true, orden: 3, etiqueta_personalizada: "Bloque / Sector" },
+  { id: "cos-4",  definicion_id: "cul-cos-1", parametro_id: "p-25", nombre: "variedad",        tipo_dato: "Lista",  obligatorio: true,  orden: 4, etiqueta_personalizada: "Variedad", opciones: [{ value: "festival", label: "Festival" }, { value: "san_andreas", label: "San Andreas" }, { value: "camarosa", label: "Camarosa" }, { value: "biloxi", label: "Biloxi" }, { value: "oneal", label: "O'Neal" }] },
+  { id: "cos-5",  definicion_id: "cul-cos-1", parametro_id: "p-03", nombre: "kg_cosechados",   tipo_dato: "Número", obligatorio: true,  orden: 5, etiqueta_personalizada: "Kg cosechados" },
+  { id: "cos-6",  definicion_id: "cul-cos-1", parametro_id: "p-31", nombre: "operario_jefe",   tipo_dato: "Texto",  obligatorio: true,  orden: 6, etiqueta_personalizada: "Jefe de cuadrilla" },
+  { id: "cos-7",  definicion_id: "cul-cos-1", parametro_id: "p-03", nombre: "num_operarios",   tipo_dato: "Número", obligatorio: false, orden: 7, etiqueta_personalizada: "N° operarios" },
+  { id: "cos-8",  definicion_id: "cul-cos-1", parametro_id: "p-30", nombre: "observaciones",   tipo_dato: "Texto",  obligatorio: false, orden: 8, etiqueta_personalizada: "Observaciones" },
+  // ── pc-1: Trazabilidad de Pallet ─────────────────────────────────────────────
+  { id: "pc1-1",  definicion_id: "pc-1", parametro_id: "p-01", nombre: "numero_pallet",   tipo_dato: "Texto",    obligatorio: true,  orden: 1, etiqueta_personalizada: "N° Pallet", validaciones_adicionales: { unique: true } },
+  { id: "pc1-2",  definicion_id: "pc-1", parametro_id: "p-18", nombre: "fecha_proceso",   tipo_dato: "Fecha",    obligatorio: true,  orden: 2, etiqueta_personalizada: "Fecha de proceso" },
+  { id: "pc1-3",  definicion_id: "pc-1", parametro_id: "p-04", nombre: "lote_cosecha",    tipo_dato: "Relación", obligatorio: true,  orden: 3, etiqueta_personalizada: "Lote de cosecha (origen)",
+    relacion_def_id: "cul-cos-1", relacion_campo_label: "numero_lote", relacion_campo_valor: "numero_lote",
+    relacion_campos_extra: ["fecha_cosecha", "bloque_sector", "variedad", "kg_cosechados"] },
+  { id: "pc1-4",  definicion_id: "pc-1", parametro_id: "p-25", nombre: "linea_proceso",   tipo_dato: "Lista",    obligatorio: true,  orden: 4, etiqueta_personalizada: "Línea de proceso", opciones: [{ value: "linea_1", label: "Línea 1" }, { value: "linea_2", label: "Línea 2" }, { value: "linea_3", label: "Línea 3" }] },
+  { id: "pc1-5",  definicion_id: "pc-1", parametro_id: "p-03", nombre: "peso_neto_kg",    tipo_dato: "Número",   obligatorio: true,  orden: 5, etiqueta_personalizada: "Peso neto (kg)" },
+  { id: "pc1-6",  definicion_id: "pc-1", parametro_id: "p-26", nombre: "temperatura_ingreso", tipo_dato: "Número", obligatorio: false, orden: 6, etiqueta_personalizada: "Temp. ingreso cámara (°C)" },
+  { id: "pc1-7",  definicion_id: "pc-1", parametro_id: "p-31", nombre: "responsable",     tipo_dato: "Texto",    obligatorio: false, orden: 7, etiqueta_personalizada: "Responsable" },
+  { id: "pc1-8",  definicion_id: "pc-1", parametro_id: "p-30", nombre: "observaciones",   tipo_dato: "Texto",    obligatorio: false, orden: 8, etiqueta_personalizada: "Observaciones" },
+  // ── pc-2: Control de Calidad Embalaje ────────────────────────────────────────
+  { id: "pc2-1",  definicion_id: "pc-2", parametro_id: "p-01", nombre: "codigo_control",  tipo_dato: "Texto",    obligatorio: true,  orden: 1, etiqueta_personalizada: "Código de control" },
+  { id: "pc2-2",  definicion_id: "pc-2", parametro_id: "p-18", nombre: "fecha_control",   tipo_dato: "Fecha",    obligatorio: true,  orden: 2, etiqueta_personalizada: "Fecha de control" },
+  { id: "pc2-3",  definicion_id: "pc-2", parametro_id: "p-04", nombre: "pallet_ref",      tipo_dato: "Relación", obligatorio: true,  orden: 3, etiqueta_personalizada: "Pallet inspeccionado",
+    relacion_def_id: "pc-1", relacion_campo_label: "numero_pallet", relacion_campo_valor: "numero_pallet",
+    relacion_campos_extra: ["lote_cosecha", "peso_neto_kg", "linea_proceso"] },
+  { id: "pc2-4",  definicion_id: "pc-2", parametro_id: "p-26", nombre: "calibre_prom_mm", tipo_dato: "Número",   obligatorio: true,  orden: 4, etiqueta_personalizada: "Calibre prom. (mm)" },
+  { id: "pc2-5",  definicion_id: "pc-2", parametro_id: "p-26", nombre: "brix",            tipo_dato: "Número",   obligatorio: true,  orden: 5, etiqueta_personalizada: "Brix (°Bx)" },
+  { id: "pc2-6",  definicion_id: "pc-2", parametro_id: "p-26", nombre: "firmeza_n",       tipo_dato: "Número",   obligatorio: false, orden: 6, etiqueta_personalizada: "Firmeza (N)" },
+  { id: "pc2-7",  definicion_id: "pc-2", parametro_id: "p-26", nombre: "pct_descarte",    tipo_dato: "Número",   obligatorio: true,  orden: 7, etiqueta_personalizada: "% Descarte" },
+  { id: "pc2-8",  definicion_id: "pc-2", parametro_id: "p-25", nombre: "estado_calidad",  tipo_dato: "Lista",    obligatorio: true,  orden: 8, etiqueta_personalizada: "Resultado", opciones: [{ value: "aprobado", label: "Aprobado" }, { value: "condicional", label: "Aprobado condicional" }, { value: "rechazado", label: "Rechazado" }] },
+  { id: "pc2-9",  definicion_id: "pc-2", parametro_id: "p-30", nombre: "observaciones",   tipo_dato: "Texto",    obligatorio: false, orden: 9, etiqueta_personalizada: "Observaciones" },
+  // ── pc-3: Inventario Cámara Fría ─────────────────────────────────────────────
+  { id: "pc3-1",  definicion_id: "pc-3", parametro_id: "p-01", nombre: "id_registro",     tipo_dato: "Texto",    obligatorio: true,  orden: 1, etiqueta_personalizada: "ID registro" },
+  { id: "pc3-2",  definicion_id: "pc-3", parametro_id: "p-04", nombre: "pallet_ref",      tipo_dato: "Relación", obligatorio: true,  orden: 2, etiqueta_personalizada: "Pallet en cámara",
+    relacion_def_id: "pc-1", relacion_campo_label: "numero_pallet", relacion_campo_valor: "numero_pallet",
+    relacion_campos_extra: ["lote_cosecha", "peso_neto_kg", "temperatura_ingreso"] },
+  { id: "pc3-3",  definicion_id: "pc-3", parametro_id: "p-04", nombre: "camara",          tipo_dato: "Lista",    obligatorio: true,  orden: 3, etiqueta_personalizada: "Cámara frigorífica", opciones: [{ value: "cam_1", label: "Cámara 1 (−1°C)" }, { value: "cam_2", label: "Cámara 2 (2°C)" }, { value: "cam_3", label: "Cámara 3 (4°C)" }] },
+  { id: "pc3-4",  definicion_id: "pc-3", parametro_id: "p-18", nombre: "fecha_ingreso",   tipo_dato: "Fecha",    obligatorio: true,  orden: 4, etiqueta_personalizada: "Fecha de ingreso" },
+  { id: "pc3-5",  definicion_id: "pc-3", parametro_id: "p-26", nombre: "temp_real",       tipo_dato: "Número",   obligatorio: false, orden: 5, etiqueta_personalizada: "Temp. real (°C)" },
+  { id: "pc3-6",  definicion_id: "pc-3", parametro_id: "p-25", nombre: "estado",          tipo_dato: "Lista",    obligatorio: true,  orden: 6, etiqueta_personalizada: "Estado", opciones: [{ value: "en_camara", label: "En cámara" }, { value: "despachado", label: "Despachado" }, { value: "merma", label: "Merma" }] },
+  // ── com-2: Orden de Despacho — se agrega referencia a pallet ─────────────────
+  { id: "com2-0", definicion_id: "com-2", parametro_id: "p-04", nombre: "pallet_origen",  tipo_dato: "Relación", obligatorio: false, orden: 0, etiqueta_personalizada: "Pallet de origen (trazabilidad)",
+    relacion_def_id: "pc-1", relacion_campo_label: "numero_pallet", relacion_campo_valor: "numero_pallet",
+    relacion_campos_extra: ["lote_cosecha", "peso_neto_kg"] },
   // ── inv-bod-1: Movimiento de Bodega (sin TablaInsumos — producto fijo en la regla) ──
   { id: "invb-1", definicion_id: "inv-bod-1", parametro_id: "p-04", nombre: "bodega",             tipo_dato: "Texto",  obligatorio: true,  orden: 1, etiqueta_personalizada: "Bodega" },
   { id: "invb-2", definicion_id: "inv-bod-1", parametro_id: "p-18", nombre: "fecha_movimiento",   tipo_dato: "Fecha",  obligatorio: true,  orden: 2, etiqueta_personalizada: "Fecha de recepción" },
@@ -631,11 +714,203 @@ export const DATOS_DEMO: ModDato[] = [
   { id: "d3",  definicion_id: "2", referencia: "Jumbo",  fecha: "2025-01-10", valores: '{"nombre":"Jumbo","mm_minimo":18,"mm_maximo":20,"peso_g_minimo":5}' },
   { id: "d4",  definicion_id: "2", referencia: "Extra",  fecha: "2025-01-10", valores: '{"nombre":"Extra","mm_minimo":16,"mm_maximo":18,"peso_g_minimo":4}' },
   // def 3 — Datos Personal (global) — etiquetados por cultivo donde trabajan
-  { id: "d5",  definicion_id: "3", cultivo_id: "c-01", referencia: "Pedro Soto",  fecha: "2025-02-01", valores: '{"rut":"12.345.678-9","nombre_completo":"Pedro Soto","cargo":"Cosechador","telefono":"+56912345678","fecha_ingreso":"2024-03-01","tipo_contrato":"plazo_fijo"}' },
-  { id: "d6",  definicion_id: "3", cultivo_id: "c-02", referencia: "Carmen Díaz", fecha: "2025-02-01", valores: '{"rut":"11.222.333-4","nombre_completo":"Carmen Díaz","cargo":"Cosechadora","telefono":"+56987654321","fecha_ingreso":"2023-07-15","tipo_contrato":"Indefinido"}' },
-  // def 4 — Asistencia (global) — etiquetados por cultivo
-  { id: "d7",  definicion_id: "4", cultivo_id: "c-01", referencia: "Pedro Soto / entrada",  fecha: "2025-03-06", valores: '{"empleado_id":"12345678","tipo_marca":"entrada","hora":"07:42","ubicacion_gps":"Bloque A-1"}' },
-  { id: "d8",  definicion_id: "4", cultivo_id: "c-02", referencia: "Carmen Díaz / entrada", fecha: "2025-03-06", valores: '{"empleado_id":"11222333","tipo_marca":"entrada","hora":"07:45","ubicacion_gps":"Bloque Arándano"}' },
+  // def 3 — Ficha de Personal — plantel completo
+  { id: "d5",   definicion_id: "3", referencia: "Pedro Soto",        fecha: "2024-03-01", valores: '{"rut":"12.345.678-9","nombre_completo":"Pedro Soto",        "cargo":"cosechador",    "telefono":"+56912345678","fecha_ingreso":"2024-03-01","tipo_contrato":"plazo_fijo"}' },
+  { id: "d6",   definicion_id: "3", referencia: "Carmen Díaz",       fecha: "2023-07-15", valores: '{"rut":"11.222.333-4","nombre_completo":"Carmen Díaz",       "cargo":"cosechador",    "telefono":"+56987654321","fecha_ingreso":"2023-07-15","tipo_contrato":"indefinido"}' },
+  { id: "rh-e3",definicion_id: "3", referencia: "Luis Vargas",       fecha: "2023-01-10", valores: '{"rut":"14.567.890-2","nombre_completo":"Luis Vargas",       "cargo":"supervisor",    "telefono":"+56945678901","fecha_ingreso":"2023-01-10","tipo_contrato":"indefinido"}' },
+  { id: "rh-e4",definicion_id: "3", referencia: "Ana Torres",        fecha: "2024-08-05", valores: '{"rut":"15.678.901-3","nombre_completo":"Ana Torres",        "cargo":"tecnico",       "telefono":"+56956789012","fecha_ingreso":"2024-08-05","tipo_contrato":"plazo_fijo"}' },
+  { id: "rh-e5",definicion_id: "3", referencia: "Roberto Fuentes",   fecha: "2025-01-20", valores: '{"rut":"13.456.789-1","nombre_completo":"Roberto Fuentes",   "cargo":"cosechador",    "telefono":"+56934567891","fecha_ingreso":"2025-01-20","tipo_contrato":"temporal"}' },
+  { id: "rh-e6",definicion_id: "3", referencia: "María González",    fecha: "2024-11-03", valores: '{"rut":"16.789.012-4","nombre_completo":"María González",    "cargo":"cosechador",    "telefono":"+56967890124","fecha_ingreso":"2024-11-03","tipo_contrato":"temporal"}' },
+  { id: "rh-e7",definicion_id: "3", referencia: "Jorge Espinoza",    fecha: "2022-05-18", valores: '{"rut":"17.890.123-5","nombre_completo":"Jorge Espinoza",    "cargo":"supervisor",    "telefono":"+56978901235","fecha_ingreso":"2022-05-18","tipo_contrato":"indefinido"}' },
+  { id: "rh-e8",definicion_id: "3", referencia: "Sandra Morales",    fecha: "2023-09-12", valores: '{"rut":"18.901.234-6","nombre_completo":"Sandra Morales",    "cargo":"administrativo","telefono":"+56989012346","fecha_ingreso":"2023-09-12","tipo_contrato":"indefinido"}' },
+  { id: "rh-e9",definicion_id: "3", referencia: "Felipe Castro",     fecha: "2025-03-01", valores: '{"rut":"19.012.345-7","nombre_completo":"Felipe Castro",     "cargo":"tecnico",       "telefono":"+56990123457","fecha_ingreso":"2025-03-01","tipo_contrato":"plazo_fijo"}' },
+  { id: "rh-e10",definicion_id:"3", referencia: "Patricia Rojas",    fecha: "2024-06-20", valores: '{"rut":"20.123.456-8","nombre_completo":"Patricia Rojas",    "cargo":"cosechador",    "telefono":"+56901234568","fecha_ingreso":"2024-06-20","tipo_contrato":"temporal"}' },
+  { id: "rh-e11",definicion_id:"3", referencia: "Miguel Soto",       fecha: "2023-03-14", valores: '{"rut":"21.234.567-9","nombre_completo":"Miguel Soto",       "cargo":"cosechador",    "telefono":"+56912345679","fecha_ingreso":"2023-03-14","tipo_contrato":"indefinido"}' },
+  { id: "rh-e12",definicion_id:"3", referencia: "Valentina Herrera", fecha: "2024-10-01", valores: '{"rut":"22.345.678-0","nombre_completo":"Valentina Herrera", "cargo":"tecnico",       "telefono":"+56923456780","fecha_ingreso":"2024-10-01","tipo_contrato":"plazo_fijo"}' },
+
+  // def 4 — Asistencia — semana 2026-06-02 al 2026-06-06 (lun–vie), 3 marcas por empleado/día
+  // ── Lunes 02-jun ──────────────────────────────────────────────────────────────
+  { id: "att-0602-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",    fecha:"2026-06-02",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:38","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0602-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",   fecha:"2026-06-02",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",     fecha:"2026-06-02",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:12","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",   fecha:"2026-06-02",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:45","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0602-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",  fecha:"2026-06-02",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",    fecha:"2026-06-02",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:20","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",   fecha:"2026-06-02",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"07:55","ubicacion_gps":"Oficina"}' },
+  { id: "att-0602-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",  fecha:"2026-06-02",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",    fecha:"2026-06-02",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:30","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / entrada",    fecha:"2026-06-02",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"entrada", "hora":"08:02","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0602-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / colación",   fecha:"2026-06-02",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"colacion","hora":"12:15","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / salida",     fecha:"2026-06-02",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"salida",  "hora":"17:05","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-13",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-06-02",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:30","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0602-14",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-06-02",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"11:55","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-15",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida",fecha:"2026-06-02",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-16",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada",fecha:"2026-06-02",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:42","ubicacion_gps":"Bloque 3"}' },
+  { id: "att-0602-17",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-06-02",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:10","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-18",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida", fecha:"2026-06-02",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:15","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada",fecha:"2026-06-02",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:50","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0602-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-06-02",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:30","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida", fecha:"2026-06-02",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"18:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada",fecha:"2026-06-02",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
+  { id: "att-0602-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-06-02",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida", fecha:"2026-06-02",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada", fecha:"2026-06-02",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"07:58","ubicacion_gps":"Vivero"}' },
+  { id: "att-0602-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación",fecha:"2026-06-02",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:20","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",  fecha:"2026-06-02",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:30","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada",fecha:"2026-06-02",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:35","ubicacion_gps":"Bloque 4"}' },
+  { id: "att-0602-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-06-02",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida", fecha:"2026-06-02",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"16:55","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",   fecha:"2026-06-02",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:40","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0602-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",  fecha:"2026-06-02",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",    fecha:"2026-06-02",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:10","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-34",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-06-02",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:05","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0602-35",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-06-02",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:10","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-36",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-06-02",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:45","ubicacion_gps":"Portería"}' },
+  // ── Martes 03-jun ─────────────────────────────────────────────────────────────
+  { id: "att-0603-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",     fecha:"2026-06-03",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:41","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0603-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",    fecha:"2026-06-03",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",      fecha:"2026-06-03",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:08","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",    fecha:"2026-06-03",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:52","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0603-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",   fecha:"2026-06-03",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:10","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",     fecha:"2026-06-03",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:22","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",    fecha:"2026-06-03",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
+  { id: "att-0603-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",   fecha:"2026-06-03",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",     fecha:"2026-06-03",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:15","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-06-03",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:29","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0603-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-06-03",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"11:58","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida", fecha:"2026-06-03",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:02","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-13",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada", fecha:"2026-06-03",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:47","ubicacion_gps":"Bloque 3"}' },
+  { id: "att-0603-14",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-06-03",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-15",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida",  fecha:"2026-06-03",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:18","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-16",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada", fecha:"2026-06-03",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:55","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0603-17",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-06-03",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:35","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-18",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida",  fecha:"2026-06-03",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"18:05","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada", fecha:"2026-06-03",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
+  { id: "att-0603-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-06-03",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida",  fecha:"2026-06-03",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada",  fecha:"2026-06-03",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"08:01","ubicacion_gps":"Vivero"}' },
+  { id: "att-0603-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación", fecha:"2026-06-03",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:25","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",   fecha:"2026-06-03",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:35","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada", fecha:"2026-06-03",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:33","ubicacion_gps":"Bloque 4"}' },
+  { id: "att-0603-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-06-03",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:02","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida",  fecha:"2026-06-03",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"16:58","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",    fecha:"2026-06-03",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:44","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0603-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",   fecha:"2026-06-03",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:08","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",     fecha:"2026-06-03",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:12","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-06-03",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:03","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0603-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-06-03",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-06-03",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:50","ubicacion_gps":"Portería"}' },
+  // ── Miércoles 04-jun ──────────────────────────────────────────────────────────
+  { id: "att-0604-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",     fecha:"2026-06-04",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:36","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0604-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",    fecha:"2026-06-04",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",      fecha:"2026-06-04",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:05","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",    fecha:"2026-06-04",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:48","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0604-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",   fecha:"2026-06-04",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:12","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",     fecha:"2026-06-04",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:25","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",    fecha:"2026-06-04",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"07:58","ubicacion_gps":"Oficina"}' },
+  { id: "att-0604-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",   fecha:"2026-06-04",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",     fecha:"2026-06-04",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:20","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-06-04",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:31","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0604-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-06-04",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida", fecha:"2026-06-04",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-13",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada", fecha:"2026-06-04",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:50","ubicacion_gps":"Bloque 3"}' },
+  { id: "att-0604-14",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-06-04",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:08","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-15",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida",  fecha:"2026-06-04",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:10","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-16",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada", fecha:"2026-06-04",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:52","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0604-17",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-06-04",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:30","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-18",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida",  fecha:"2026-06-04",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"17:58","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada", fecha:"2026-06-04",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
+  { id: "att-0604-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-06-04",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida",  fecha:"2026-06-04",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada",  fecha:"2026-06-04",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"07:59","ubicacion_gps":"Vivero"}' },
+  { id: "att-0604-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación", fecha:"2026-06-04",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:22","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",   fecha:"2026-06-04",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:28","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada", fecha:"2026-06-04",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:37","ubicacion_gps":"Bloque 4"}' },
+  { id: "att-0604-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-06-04",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida",  fecha:"2026-06-04",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"16:52","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",    fecha:"2026-06-04",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:43","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0604-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",   fecha:"2026-06-04",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",     fecha:"2026-06-04",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:15","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / entrada",     fecha:"2026-06-04",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"entrada", "hora":"08:04","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0604-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / colación",    fecha:"2026-06-04",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"colacion","hora":"12:20","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / salida",      fecha:"2026-06-04",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"salida",  "hora":"17:10","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-34",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-06-04",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:06","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0604-35",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-06-04",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:08","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-36",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-06-04",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:48","ubicacion_gps":"Portería"}' },
+  // ── Jueves 05-jun ─────────────────────────────────────────────────────────────
+  { id: "att-0605-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",     fecha:"2026-06-05",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:39","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0605-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",    fecha:"2026-06-05",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:03","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",      fecha:"2026-06-05",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",    fecha:"2026-06-05",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:46","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0605-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",   fecha:"2026-06-05",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:08","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",     fecha:"2026-06-05",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:18","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",    fecha:"2026-06-05",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"08:02","ubicacion_gps":"Oficina"}' },
+  { id: "att-0605-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",   fecha:"2026-06-05",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",     fecha:"2026-06-05",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:10","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-06-05",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:28","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0605-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-06-05",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"11:55","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida", fecha:"2026-06-05",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:05","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-13",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada", fecha:"2026-06-05",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:44","ubicacion_gps":"Bloque 3"}' },
+  { id: "att-0605-14",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-06-05",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-15",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida",  fecha:"2026-06-05",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:12","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-16",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada", fecha:"2026-06-05",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:48","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0605-17",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-06-05",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:28","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-18",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida",  fecha:"2026-06-05",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"18:02","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada", fecha:"2026-06-05",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
+  { id: "att-0605-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-06-05",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida",  fecha:"2026-06-05",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada",  fecha:"2026-06-05",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"07:57","ubicacion_gps":"Vivero"}' },
+  { id: "att-0605-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación", fecha:"2026-06-05",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:18","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",   fecha:"2026-06-05",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:32","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada", fecha:"2026-06-05",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:34","ubicacion_gps":"Bloque 4"}' },
+  { id: "att-0605-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-06-05",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida",  fecha:"2026-06-05",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",    fecha:"2026-06-05",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:41","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0605-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",   fecha:"2026-06-05",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:06","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",     fecha:"2026-06-05",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:08","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / entrada",     fecha:"2026-06-05",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0605-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / colación",    fecha:"2026-06-05",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"colacion","hora":"12:18","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / salida",      fecha:"2026-06-05",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"salida",  "hora":"17:05","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-34",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-06-05",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:07","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0605-35",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-06-05",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:12","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-36",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-06-05",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:55","ubicacion_gps":"Portería"}' },
+  // ── Viernes 06-jun ────────────────────────────────────────────────────────────
+  { id: "att-0606-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",     fecha:"2026-06-06",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:40","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0606-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",    fecha:"2026-06-06",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",      fecha:"2026-06-06",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:02","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",    fecha:"2026-06-06",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:50","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0606-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",   fecha:"2026-06-06",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:10","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",     fecha:"2026-06-06",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:20","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",    fecha:"2026-06-06",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"07:58","ubicacion_gps":"Oficina"}' },
+  { id: "att-0606-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",   fecha:"2026-06-06",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",     fecha:"2026-06-06",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:05","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-06-06",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:32","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0606-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-06-06",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida", fecha:"2026-06-06",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-13",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada", fecha:"2026-06-06",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:45","ubicacion_gps":"Bloque 3"}' },
+  { id: "att-0606-14",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-06-06",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-15",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida",  fecha:"2026-06-06",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:15","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-16",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada", fecha:"2026-06-06",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:53","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0606-17",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-06-06",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:32","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-18",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida",  fecha:"2026-06-06",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"17:55","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada", fecha:"2026-06-06",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
+  { id: "att-0606-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-06-06",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida",  fecha:"2026-06-06",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada",  fecha:"2026-06-06",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Vivero"}' },
+  { id: "att-0606-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación", fecha:"2026-06-06",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:20","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",   fecha:"2026-06-06",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:25","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada", fecha:"2026-06-06",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:36","ubicacion_gps":"Bloque 4"}' },
+  { id: "att-0606-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-06-06",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida",  fecha:"2026-06-06",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"16:50","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",    fecha:"2026-06-06",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:42","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0606-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",   fecha:"2026-06-06",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:07","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",     fecha:"2026-06-06",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:10","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / entrada",     fecha:"2026-06-06",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"entrada", "hora":"08:01","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0606-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / colación",    fecha:"2026-06-06",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"colacion","hora":"12:15","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / salida",      fecha:"2026-06-06",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"salida",  "hora":"17:08","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-34",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-06-06",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:05","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0606-35",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-06-06",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:10","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-36",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-06-06",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:45","ubicacion_gps":"Portería"}' },
   // def 5 — Laboratorio (global) — etiquetados por cultivo del análisis
   { id: "d9",  definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0112", fecha: "2025-01-28", valores: '{"muestra":"LAB-0112","tipo_prueba":"Brix","cultivo":"Fresas","resultado":"12.5","unidad":"°Brix","estado":"Completado"}' },
   { id: "d10", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0113", fecha: "2025-01-28", valores: '{"muestra":"LAB-0113","tipo_prueba":"pH Suelo","cultivo":"Fresas","resultado":"6.2","unidad":"pH","estado":"Completado"}' },
@@ -648,6 +923,13 @@ export const DATOS_DEMO: ModDato[] = [
   // def 7 — estructura fundo valle (cliente 2)
   { id: "d16", definicion_id: "7", referencia: "Parcela Norte", fecha: "2025-02-15", valores: '{"nombre":"Parcela Norte","bloque":"Sector A"}' },
   { id: "d17", definicion_id: "7", referencia: "Parcela Sur",   fecha: "2025-02-15", valores: '{"nombre":"Parcela Sur","bloque":"Sector B"}' },
+
+  // ── inv-fit-1: Aplicación Fitosanitaria — datos demo por bloque ──────────────
+  { id: "fit-d1", definicion_id: "inv-fit-1", cultivo_id: "c-01", referencia: "Fresa / Bloque 1 — Fungicida", fecha: "2025-03-10", valores: '{"bloque":"Bloque 1","fecha_aplicacion":"2025-03-10","responsable":"Pedro Soto","area_tratada_ha":0.8,"observaciones":"Aplicación preventiva"}' },
+  { id: "fit-d2", definicion_id: "inv-fit-1", cultivo_id: "c-01", referencia: "Fresa / Bloque 2 — Insecticida", fecha: "2025-03-15", valores: '{"bloque":"Bloque 2","fecha_aplicacion":"2025-03-15","responsable":"Carmen Díaz","area_tratada_ha":1.2,"observaciones":"Foco de pulgón detectado en HL3"}' },
+  { id: "fit-d3", definicion_id: "inv-fit-1", cultivo_id: "c-01", referencia: "Fresa / Bloque 1 — Herbicida", fecha: "2025-04-02", valores: '{"bloque":"Bloque 1","fecha_aplicacion":"2025-04-02","responsable":"Pedro Soto","area_tratada_ha":0.8,"observaciones":"Control de maleza post-lluvia"}' },
+  { id: "fit-d4", definicion_id: "inv-fit-1", cultivo_id: "c-02", referencia: "Arándano / Bloque A — Fungicida", fecha: "2025-03-12", valores: '{"bloque":"Bloque A","fecha_aplicacion":"2025-03-12","responsable":"Ana Torres","area_tratada_ha":1.5,"observaciones":"Tratamiento botrytis preventivo"}' },
+  { id: "fit-d5", definicion_id: "inv-fit-1", cultivo_id: "c-02", referencia: "Arándano / Bloque B — Insecticida", fecha: "2025-03-20", valores: '{"bloque":"Bloque B","fecha_aplicacion":"2025-03-20","responsable":"Ana Torres","area_tratada_ha":1.8,"observaciones":""}' },
 
   // ── Eventos demo — asociados a registros padre específicos ──
 
@@ -663,6 +945,67 @@ export const DATOS_DEMO: ModDato[] = [
 
   // evt-3: resultado complementario para laboratorio LAB-0112 (d9)
   { id: "e3-d9-1", definicion_id: "evt-3", cultivo_id: "c-01", registro_padre_dato_id: "d9", referencia: "Análisis adicional", fecha: "2025-01-29", valores: '{"tipo_prueba":"Acidez titulable","resultado":"0.8% ácido málico","observaciones":"Dentro del rango esperado para la variedad"}' },
+
+  // ── com-1: Fichas de Clientes Comerciales ───────────────────────────────────
+  { id: "com1-d1", definicion_id: "com-1", referencia: "AgroExport S.A.", fecha: "2025-01-10", valores: '{"nombre_cliente":"AgroExport S.A.","tipo_cliente":"exportador","pais_destino":"Estados Unidos","contacto":"Carlos Mendez","email":"cmendez@agroexport.com","telefono":"+1 305 555 0120","condicion_venta":"FOB","observaciones":"Cliente prioritario, pago 30 días. Requiere certificado GlobalGAP."}' },
+  { id: "com1-d2", definicion_id: "com-1", referencia: "Supermercados Unidos", fecha: "2025-01-12", valores: '{"nombre_cliente":"Supermercados Unidos","tipo_cliente":"retail","pais_destino":"Chile","contacto":"Valentina Rojas","email":"vrojas@superunidos.cl","telefono":"+56 2 2345 6789","condicion_venta":"EXW","observaciones":"Entrega en planta, pick-up del cliente. Volúmenes semanales acordados."}' },
+  { id: "com1-d3", definicion_id: "com-1", referencia: "Fresh Fruits Inc.", fecha: "2025-01-15", valores: '{"nombre_cliente":"Fresh Fruits Inc.","tipo_cliente":"distribuidor","pais_destino":"Canadá","contacto":"John Smith","email":"jsmith@freshfruits.ca","telefono":"+1 416 555 0198","condicion_venta":"CIF","observaciones":"Distribuidor exclusivo Canadá. Requiere phytosanitary certificate y temperatura de cadena de frío documentada."}' },
+  { id: "com1-d4", definicion_id: "com-1", referencia: "Mercado Central Mayoristas", fecha: "2025-02-03", valores: '{"nombre_cliente":"Mercado Central Mayoristas","tipo_cliente":"mayorista","pais_destino":"Argentina","contacto":"Ricardo Flores","email":"rflores@mcmayoristas.ar","telefono":"+54 11 4567 8901","condicion_venta":"FOB","observaciones":"Comprador spot, sin contrato fijo. Pagos al contado."}' },
+
+  // ── com-2: Órdenes de Despacho ───────────────────────────────────────────────
+  { id: "com2-d1", definicion_id: "com-2", referencia: "OD-2026-001", fecha: "2026-01-20", valores: '{"numero_orden":"OD-2026-001","tipo_despacho":"exportacion","cliente":"AgroExport S.A.","presentacion":"caja_5kg","cantidad":200,"precio_unitario":45,"total_usd":9000,"destino":"Puerto de Miami, FL","responsable":"Ana Torres","observaciones":"Envío aéreo urgente. Frío requerido -1°C a 2°C."}' },
+  { id: "com2-d2", definicion_id: "com-2", referencia: "OD-2026-002", fecha: "2026-01-22", valores: '{"numero_orden":"OD-2026-002","tipo_despacho":"nacional","cliente":"Supermercados Unidos","presentacion":"clamshell_500g","cantidad":500,"precio_unitario":8,"total_usd":4000,"destino":"Centro de distribución Santiago","responsable":"Miguel Soto","observaciones":"Entrega en 2 partes: lunes y miércoles."}' },
+  { id: "com2-d3", definicion_id: "com-2", referencia: "OD-2026-003", fecha: "2026-02-05", valores: '{"numero_orden":"OD-2026-003","tipo_despacho":"exportacion","cliente":"Fresh Fruits Inc.","presentacion":"caja_2kg","cantidad":350,"precio_unitario":22,"total_usd":7700,"destino":"Puerto de Montreal, QC","responsable":"Ana Torres","observaciones":"Consolidado en contenedor 40 HQ. BL pendiente."}' },
+  { id: "com2-d4", definicion_id: "com-2", referencia: "OD-2026-004", fecha: "2026-03-10", valores: '{"numero_orden":"OD-2026-004","tipo_despacho":"exportacion","cliente":"Mercado Central Mayoristas","presentacion":"bandeja_1kg","cantidad":800,"precio_unitario":12,"total_usd":9600,"destino":"Buenos Aires, ARG","responsable":"Luis Vega","observaciones":"Primera orden spot — validar calidad antes de despacho."}' },
+  { id: "com2-d5", definicion_id: "com-2", referencia: "OD-2026-005", fecha: "2026-04-18", valores: '{"numero_orden":"OD-2026-005","tipo_despacho":"nacional","cliente":"Supermercados Unidos","presentacion":"caja_5kg","cantidad":120,"precio_unitario":38,"total_usd":4560,"destino":"Centro de distribución Valparaíso","responsable":"Miguel Soto","observaciones":""}' },
+
+  // ── com-3: Seguimiento de Exportación ───────────────────────────────────────
+  { id: "com3-d1", definicion_id: "com-3", referencia: "CONT-2026-01", fecha: "2026-01-25", valores: '{"numero_contenedor":"MSCU7843210","numero_orden_ref":"OD-2026-001","fecha_embarque":"2026-01-28","puerto_destino":"Miami, FL","estado_embarque":"entregado","temperatura_transporte":1,"observaciones":"Entregado sin incidencias. Temperatura registrada en rango."}' },
+  { id: "com3-d2", definicion_id: "com-3", referencia: "CONT-2026-02", fecha: "2026-02-08", valores: '{"numero_contenedor":"HLCU4521987","numero_orden_ref":"OD-2026-003","fecha_embarque":"2026-02-15","puerto_destino":"Montreal, QC","estado_embarque":"en_transito","temperatura_transporte":2,"observaciones":"En ruta. ETD Montreal 25-Feb."}' },
+
+  // ── cul-cos-1: Registro de Cosecha — fuente de trazabilidad ─────────────────
+  { id: "cos-d1", definicion_id: "cul-cos-1", cultivo_id: "c-01", referencia: "LOT-2026-001", fecha: "2026-01-15",
+    valores: '{"numero_lote":"LOT-2026-001","fecha_cosecha":"2026-01-15","bloque_sector":"Bloque 1","variedad":"festival","kg_cosechados":380,"operario_jefe":"Pedro Soto","num_operarios":12,"observaciones":"Cosecha matutina, buenas condiciones"}' },
+  { id: "cos-d2", definicion_id: "cul-cos-1", cultivo_id: "c-01", referencia: "LOT-2026-002", fecha: "2026-01-16",
+    valores: '{"numero_lote":"LOT-2026-002","fecha_cosecha":"2026-01-16","bloque_sector":"Bloque 2","variedad":"san_andreas","kg_cosechados":420,"operario_jefe":"Carmen Díaz","num_operarios":14,"observaciones":""}' },
+  { id: "cos-d3", definicion_id: "cul-cos-1", cultivo_id: "c-01", referencia: "LOT-2026-003", fecha: "2026-01-17",
+    valores: '{"numero_lote":"LOT-2026-003","fecha_cosecha":"2026-01-17","bloque_sector":"Bloque 1","variedad":"festival","kg_cosechados":310,"operario_jefe":"Pedro Soto","num_operarios":10,"observaciones":"Inicio de cosecha tardío por niebla"}' },
+  { id: "cos-d4", definicion_id: "cul-cos-1", cultivo_id: "c-01", referencia: "LOT-2026-004", fecha: "2026-01-20",
+    valores: '{"numero_lote":"LOT-2026-004","fecha_cosecha":"2026-01-20","bloque_sector":"Bloque 3","variedad":"festival","kg_cosechados":195,"operario_jefe":"Carmen Díaz","num_operarios":8,"observaciones":"Bloque 3 en fin de temporada"}' },
+  { id: "cos-d5", definicion_id: "cul-cos-1", cultivo_id: "c-02", referencia: "LOT-2026-005", fecha: "2026-01-18",
+    valores: '{"numero_lote":"LOT-2026-005","fecha_cosecha":"2026-01-18","bloque_sector":"Bloque A","variedad":"biloxi","kg_cosechados":560,"operario_jefe":"Luis Vargas","num_operarios":16,"observaciones":"Excelente calibre este ciclo"}' },
+  { id: "cos-d6", definicion_id: "cul-cos-1", cultivo_id: "c-02", referencia: "LOT-2026-006", fecha: "2026-01-22",
+    valores: '{"numero_lote":"LOT-2026-006","fecha_cosecha":"2026-01-22","bloque_sector":"Bloque B","variedad":"oneal","kg_cosechados":480,"operario_jefe":"Luis Vargas","num_operarios":15,"observaciones":""}' },
+
+  // ── pc-1: Trazabilidad de Pallet — referencias a lotes de cosecha ────────────
+  { id: "pc1-d1", definicion_id: "pc-1", cultivo_id: "c-01", referencia: "PAL-2026-001", fecha: "2026-01-15",
+    valores: '{"numero_pallet":"PAL-2026-001","fecha_proceso":"2026-01-15","lote_cosecha":"LOT-2026-001","linea_proceso":"linea_1","peso_neto_kg":368,"temperatura_ingreso":-1,"responsable":"Ana Torres","observaciones":""}' },
+  { id: "pc1-d2", definicion_id: "pc-1", cultivo_id: "c-01", referencia: "PAL-2026-002", fecha: "2026-01-16",
+    valores: '{"numero_pallet":"PAL-2026-002","fecha_proceso":"2026-01-16","lote_cosecha":"LOT-2026-002","linea_proceso":"linea_2","peso_neto_kg":405,"temperatura_ingreso":-1,"responsable":"Miguel Soto","observaciones":""}' },
+  { id: "pc1-d3", definicion_id: "pc-1", cultivo_id: "c-01", referencia: "PAL-2026-003", fecha: "2026-01-17",
+    valores: '{"numero_pallet":"PAL-2026-003","fecha_proceso":"2026-01-17","lote_cosecha":"LOT-2026-003","linea_proceso":"linea_1","peso_neto_kg":298,"temperatura_ingreso":0,"responsable":"Ana Torres","observaciones":"Temp. ingreso ligeramente alta, monitorear"}' },
+  { id: "pc1-d4", definicion_id: "pc-1", cultivo_id: "c-01", referencia: "PAL-2026-004", fecha: "2026-01-20",
+    valores: '{"numero_pallet":"PAL-2026-004","fecha_proceso":"2026-01-20","lote_cosecha":"LOT-2026-004","linea_proceso":"linea_3","peso_neto_kg":188,"temperatura_ingreso":-1,"responsable":"Miguel Soto","observaciones":"Lote pequeño — completar pallet con siguiente cosecha"}' },
+  { id: "pc1-d5", definicion_id: "pc-1", cultivo_id: "c-02", referencia: "PAL-2026-005", fecha: "2026-01-18",
+    valores: '{"numero_pallet":"PAL-2026-005","fecha_proceso":"2026-01-18","lote_cosecha":"LOT-2026-005","linea_proceso":"linea_1","peso_neto_kg":544,"temperatura_ingreso":-1,"responsable":"Ana Torres","observaciones":""}' },
+
+  // ── pc-2: Control de Calidad — referencias a pallets ────────────────────────
+  { id: "pc2-d1", definicion_id: "pc-2", cultivo_id: "c-01", referencia: "QC-2026-001", fecha: "2026-01-15",
+    valores: '{"codigo_control":"QC-2026-001","fecha_control":"2026-01-15","pallet_ref":"PAL-2026-001","calibre_prom_mm":29,"brix":11.8,"firmeza_n":3.2,"pct_descarte":2.1,"estado_calidad":"aprobado","observaciones":"Fruta en óptimas condiciones"}' },
+  { id: "pc2-d2", definicion_id: "pc-2", cultivo_id: "c-01", referencia: "QC-2026-002", fecha: "2026-01-16",
+    valores: '{"codigo_control":"QC-2026-002","fecha_control":"2026-01-16","pallet_ref":"PAL-2026-002","calibre_prom_mm":27,"brix":12.3,"firmeza_n":3.0,"pct_descarte":3.5,"estado_calidad":"aprobado","observaciones":""}' },
+  { id: "pc2-d3", definicion_id: "pc-2", cultivo_id: "c-01", referencia: "QC-2026-003", fecha: "2026-01-17",
+    valores: '{"codigo_control":"QC-2026-003","fecha_control":"2026-01-17","pallet_ref":"PAL-2026-003","calibre_prom_mm":26,"brix":10.9,"firmeza_n":2.8,"pct_descarte":6.2,"estado_calidad":"condicional","observaciones":"Descarte elevado por fruta pequeña — destinar a mercado interno"}' },
+
+  // ── pc-3: Inventario Cámara Fría — referencias a pallets ────────────────────
+  { id: "pc3-d1", definicion_id: "pc-3", cultivo_id: "c-01", referencia: "CAM-2026-001", fecha: "2026-01-15",
+    valores: '{"id_registro":"CAM-2026-001","pallet_ref":"PAL-2026-001","camara":"cam_1","fecha_ingreso":"2026-01-15","temp_real":-1,"estado":"despachado"}' },
+  { id: "pc3-d2", definicion_id: "pc-3", cultivo_id: "c-01", referencia: "CAM-2026-002", fecha: "2026-01-16",
+    valores: '{"id_registro":"CAM-2026-002","pallet_ref":"PAL-2026-002","camara":"cam_1","fecha_ingreso":"2026-01-16","temp_real":-1,"estado":"despachado"}' },
+  { id: "pc3-d3", definicion_id: "pc-3", cultivo_id: "c-01", referencia: "CAM-2026-003", fecha: "2026-01-17",
+    valores: '{"id_registro":"CAM-2026-003","pallet_ref":"PAL-2026-003","camara":"cam_2","fecha_ingreso":"2026-01-17","temp_real":1,"estado":"en_camara"}' },
+  { id: "pc3-d4", definicion_id: "pc-3", cultivo_id: "c-02", referencia: "CAM-2026-004", fecha: "2026-01-18",
+    valores: '{"id_registro":"CAM-2026-004","pallet_ref":"PAL-2026-005","camara":"cam_1","fecha_ingreso":"2026-01-18","temp_real":-1,"estado":"en_camara"}' },
 ];
 
 // ─── Calibre ──────────────────────────────────────────────────────────────────
@@ -719,6 +1062,18 @@ export interface BloqueLayout {
   componentes?:     ComponenteCampo[]; // válvulas, sensores, etc.
 }
 
+// ─── MapaCultivo — mapa de campo adicional por módulo ─────────────────────────
+// Permite que un cultivo tenga estructuras físicas distintas según el módulo
+// (ej: vivero con mesa/bandeja, laboratorio con cámara/estante, vs. campo con bloque/hilera).
+
+export interface MapaCultivo {
+  id:          string;
+  modulo:      string;           // clave del módulo: "vivero", "laboratorio", etc.
+  label:       string;           // ej: "Mapa de invernadero", "Mapa de laboratorio"
+  estructura:  NivelEstructura[];
+  layout_mapa: BloqueLayout[];
+}
+
 // ─── Cultivo ──────────────────────────────────────────────────────────────────
 // Equivale a la tabla `Cultivos` del ERD.
 
@@ -739,10 +1094,12 @@ export interface Cultivo {
   // Configuración de calidad
   unidad_calibre?: "mm" | "cm";  // unidad de medida del diámetro de la fruta; default: "mm"
   calibres?: Calibre[];
-  // Configuración de campo
+  // Configuración de campo (mapa raíz — módulo "cultivo")
   estructura?: NivelEstructura[];
   // Mapa visual — instancias de bloques posicionadas en el campo
   layout_mapa?: BloqueLayout[];
+  // Mapas adicionales para otros módulos (vivero, laboratorio, etc.)
+  mapas_extra?: MapaCultivo[];
 }
 
 // ─── Variedad — CAT_VARIEDADES ────────────────────────────────────────────────
@@ -785,16 +1142,39 @@ export const CULTIVOS: Cultivo[] = [
       {
         id: "blk-01", nombre: "Bloque 1", nivelIdx: 0, x: 20, y: 20, width: 180, height: 120,
         hijos: [
-          { id: "hl-01", nombre: "HL1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
-          { id: "hl-02", nombre: "HL2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
-          { id: "hl-03", nombre: "HL3", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "hl-01", nombre: "HL1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0, hijos: [
+            { id: "cu-01", nombre: "CU1", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+            { id: "cu-02", nombre: "CU2", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+            { id: "cu-03", nombre: "CU3", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+            { id: "cu-04", nombre: "CU4", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+          ] },
+          { id: "hl-02", nombre: "HL2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0, hijos: [
+            { id: "cu-05", nombre: "CU1", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+            { id: "cu-06", nombre: "CU2", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+            { id: "cu-07", nombre: "CU3", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+            { id: "cu-08", nombre: "CU4", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+          ] },
+          { id: "hl-03", nombre: "HL3", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0, hijos: [
+            { id: "cu-09", nombre: "CU1", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+            { id: "cu-10", nombre: "CU2", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+            { id: "cu-11", nombre: "CU3", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+            { id: "cu-12", nombre: "CU4", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+          ] },
         ],
       },
       {
         id: "blk-02", nombre: "Bloque 2", nivelIdx: 0, x: 220, y: 20, width: 180, height: 120,
         hijos: [
-          { id: "hl-04", nombre: "HL1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
-          { id: "hl-05", nombre: "HL2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "hl-04", nombre: "HL1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0, hijos: [
+            { id: "cu-13", nombre: "CU1", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+            { id: "cu-14", nombre: "CU2", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+            { id: "cu-15", nombre: "CU3", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+          ] },
+          { id: "hl-05", nombre: "HL2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0, hijos: [
+            { id: "cu-16", nombre: "CU1", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+            { id: "cu-17", nombre: "CU2", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+            { id: "cu-18", nombre: "CU3", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+          ] },
           { id: "hl-06", nombre: "HL3", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
           { id: "hl-07", nombre: "HL4", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
           { id: "hl-08", nombre: "HL5", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
@@ -817,6 +1197,75 @@ export const CULTIVOS: Cultivo[] = [
         ],
       },
     ],
+    mapas_extra: [
+      {
+        id: "mapa-fre-vivero", modulo: "vivero", label: "Vivero",
+        estructura: [
+          { nivel: 1, label: "Invernadero", abrev: "IN", activo: true  },
+          { nivel: 2, label: "Mesa",        abrev: "MS", activo: true  },
+          { nivel: 3, label: "Bandeja",     abrev: "BD", activo: true  },
+        ],
+        layout_mapa: [
+          {
+            id: "fre-in-01", nombre: "Invernadero 1", nivelIdx: 0, x: 20, y: 20, width: 200, height: 140,
+            hijos: [
+              { id: "fre-ms-01", nombre: "MS1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0, hijos: [
+                { id: "fre-bd-01", nombre: "BD1", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+                { id: "fre-bd-02", nombre: "BD2", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+                { id: "fre-bd-03", nombre: "BD3", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+                { id: "fre-bd-04", nombre: "BD4", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+              ] },
+              { id: "fre-ms-02", nombre: "MS2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0, hijos: [
+                { id: "fre-bd-05", nombre: "BD1", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+                { id: "fre-bd-06", nombre: "BD2", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+                { id: "fre-bd-07", nombre: "BD3", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+              ] },
+              { id: "fre-ms-03", nombre: "MS3", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0, hijos: [
+                { id: "fre-bd-08", nombre: "BD1", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+                { id: "fre-bd-09", nombre: "BD2", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+              ] },
+            ],
+          },
+          {
+            id: "fre-in-02", nombre: "Invernadero 2", nivelIdx: 0, x: 240, y: 20, width: 200, height: 140,
+            hijos: [
+              { id: "fre-ms-04", nombre: "MS1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0, hijos: [
+                { id: "fre-bd-10", nombre: "BD1", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+                { id: "fre-bd-11", nombre: "BD2", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+              ] },
+              { id: "fre-ms-05", nombre: "MS2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0, hijos: [
+                { id: "fre-bd-12", nombre: "BD1", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+                { id: "fre-bd-13", nombre: "BD2", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+              ] },
+            ],
+          },
+        ],
+      },
+      {
+        id: "mapa-fre-lab", modulo: "laboratorio", label: "Laboratorio",
+        estructura: [
+          { nivel: 1, label: "Zona",    abrev: "ZN", activo: true },
+          { nivel: 2, label: "Estante", abrev: "ET", activo: true },
+        ],
+        layout_mapa: [
+          {
+            id: "fre-zn-01", nombre: "Zona A", nivelIdx: 0, x: 20, y: 20, width: 160, height: 100,
+            hijos: [
+              { id: "fre-et-01", nombre: "ET1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+              { id: "fre-et-02", nombre: "ET2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+              { id: "fre-et-03", nombre: "ET3", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+            ],
+          },
+          {
+            id: "fre-zn-02", nombre: "Zona B", nivelIdx: 0, x: 200, y: 20, width: 160, height: 100,
+            hijos: [
+              { id: "fre-et-04", nombre: "ET1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+              { id: "fre-et-05", nombre: "ET2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+            ],
+          },
+        ],
+      },
+    ],
   },
   // Arándanos → solo cliente 1; productor 1
   {
@@ -836,6 +1285,88 @@ export const CULTIVOS: Cultivo[] = [
       { nivel: 4, label: "Hilera",     abrev: "HL", activo: true  },
       { nivel: 5, label: "Cuadrante",  abrev: "CU", activo: false },
     ],
+    layout_mapa: [
+      {
+        id: "ara-blk-01", nombre: "Bloque A", nivelIdx: 0, x: 20, y: 20, width: 180, height: 140,
+        hijos: [
+          { id: "ara-mt-01", nombre: "MT1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "ara-mt-02", nombre: "MT2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+        ],
+      },
+      {
+        id: "ara-blk-02", nombre: "Bloque B", nivelIdx: 0, x: 220, y: 20, width: 180, height: 140,
+        hijos: [
+          { id: "ara-mt-03", nombre: "MT1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "ara-mt-04", nombre: "MT2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "ara-mt-05", nombre: "MT3", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+        ],
+      },
+      {
+        id: "ara-blk-03", nombre: "Bloque C", nivelIdx: 0, x: 20, y: 180, width: 380, height: 100,
+        hijos: [
+          { id: "ara-mt-06", nombre: "MT1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+          { id: "ara-mt-07", nombre: "MT2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+        ],
+      },
+    ],
+    mapas_extra: [
+      {
+        id: "mapa-ara-vivero", modulo: "vivero", label: "Vivero",
+        estructura: [
+          { nivel: 1, label: "Invernadero", abrev: "IN", activo: true },
+          { nivel: 2, label: "Mesa",        abrev: "MS", activo: true },
+          { nivel: 3, label: "Bandeja",     abrev: "BD", activo: true },
+        ],
+        layout_mapa: [
+          {
+            id: "ara-in-01", nombre: "Invernadero 1", nivelIdx: 0, x: 20, y: 20, width: 200, height: 130,
+            hijos: [
+              { id: "ara-ms-01", nombre: "MS1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0, hijos: [
+                { id: "ara-bd-01", nombre: "BD1", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+                { id: "ara-bd-02", nombre: "BD2", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+                { id: "ara-bd-03", nombre: "BD3", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+              ] },
+              { id: "ara-ms-02", nombre: "MS2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0, hijos: [
+                { id: "ara-bd-04", nombre: "BD1", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+                { id: "ara-bd-05", nombre: "BD2", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+              ] },
+            ],
+          },
+          {
+            id: "ara-in-02", nombre: "Invernadero 2", nivelIdx: 0, x: 240, y: 20, width: 160, height: 130,
+            hijos: [
+              { id: "ara-ms-03", nombre: "MS1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0, hijos: [
+                { id: "ara-bd-06", nombre: "BD1", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+                { id: "ara-bd-07", nombre: "BD2", nivelIdx: 2, x: 0, y: 0, width: 0, height: 0 },
+              ] },
+            ],
+          },
+        ],
+      },
+      {
+        id: "mapa-ara-lab", modulo: "laboratorio", label: "Laboratorio",
+        estructura: [
+          { nivel: 1, label: "Zona",    abrev: "ZN", activo: true },
+          { nivel: 2, label: "Estante", abrev: "ET", activo: true },
+        ],
+        layout_mapa: [
+          {
+            id: "ara-zn-01", nombre: "Zona A", nivelIdx: 0, x: 20, y: 20, width: 160, height: 100,
+            hijos: [
+              { id: "ara-et-01", nombre: "ET1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+              { id: "ara-et-02", nombre: "ET2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+            ],
+          },
+          {
+            id: "ara-zn-02", nombre: "Zona B", nivelIdx: 0, x: 200, y: 20, width: 160, height: 100,
+            hijos: [
+              { id: "ara-et-03", nombre: "ET1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+              { id: "ara-et-04", nombre: "ET2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+            ],
+          },
+        ],
+      },
+    ],
   },
   // Frambuesas → solo cliente 2; productor 3
   {
@@ -846,6 +1377,25 @@ export const CULTIVOS: Cultivo[] = [
     estructura: [
       { nivel: 1, label: "Bloque", abrev: "BL", activo: true },
       { nivel: 2, label: "Hilera", abrev: "HL", activo: true },
+    ],
+    mapas_extra: [
+      {
+        id: "mapa-fra-vivero", modulo: "vivero", label: "Vivero",
+        estructura: [
+          { nivel: 1, label: "Invernadero", abrev: "IN", activo: true },
+          { nivel: 2, label: "Mesa",        abrev: "MS", activo: true },
+        ],
+        layout_mapa: [
+          {
+            id: "fra-in-01", nombre: "Invernadero 1", nivelIdx: 0, x: 20, y: 20, width: 180, height: 120,
+            hijos: [
+              { id: "fra-ms-01", nombre: "MS1", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+              { id: "fra-ms-02", nombre: "MS2", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+              { id: "fra-ms-03", nombre: "MS3", nivelIdx: 1, x: 0, y: 0, width: 0, height: 0 },
+            ],
+          },
+        ],
+      },
     ],
   },
 ];

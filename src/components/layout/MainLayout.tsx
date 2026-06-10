@@ -6,6 +6,7 @@ import { BellRing, Settings2, ChevronUp, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useRole } from "@/contexts/RoleContext";
+import { useInventario } from "@/contexts/InventarioContext";
 import { SystemSettingsSheet } from "./SystemSettingsSheet";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { RoleNotifications } from "@/components/dashboard/RoleNotifications";
@@ -21,6 +22,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
   const { role, canAccessModule } = useRole();
+  const { getStockCritico, getAlertasVencimiento } = useInventario();
   const location = useLocation();
 
   const canOpenSystemSettings = canAccessModule("configuracion") || role === "productor";
@@ -32,16 +34,11 @@ export function MainLayout({ children }: MainLayoutProps) {
     if (isUserAccessConfigView) setToolsCollapsed(true);
   }, [isUserAccessConfigView]);
 
-  const pendingByRole = {
-    super_admin: 4,
-    cliente_admin: 4,
-    productor: 4,
-    jefe_area: 3,
-    supervisor: 3,
-    lector: 3,
-  } as const;
-
-  const pendingNotifications = pendingByRole[role] ?? 0;
+  const stockCritico = getStockCritico();
+  const alertasVencimiento = getAlertasVencimiento();
+  const pendingNotifications =
+    stockCritico.length +
+    alertasVencimiento.filter(a => a.estado !== "proximo").length;
 
   return (
     <div className="min-h-screen bg-background">
