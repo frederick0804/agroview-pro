@@ -18,15 +18,18 @@ import { ModalMovimiento }    from "@/components/dashboard/ModalMovimiento";
 import { TablaInsumosField } from "@/components/forms/TablaInsumosField";
 import {
   Settings, Download, Upload, SlidersHorizontal, Leaf, Sparkles, Brain,
-  BarChart3, ChevronDown, ChevronUp, Calendar, Plus, Eye, Clock, CheckCircle2, AlertCircle, X, Trash2, Pencil, Copy,
-  Package, AlertTriangle,
+  BarChart3, ChevronDown, ChevronRight, ChevronUp, Calendar, Plus, Eye, Clock, CheckCircle2, AlertCircle, X, Trash2, Pencil, Copy,
+  Package, AlertTriangle, MapPin,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { cn } from "@/lib/utils";
-import { parseValores, type TipoDato, type ModDato, type ModParam, type ModDef, type Cultivo } from "@/config/moduleDefinitions";
+import { parseValores, type TipoDato, type ModDato, type ModParam, type ModDef, type Cultivo, type BloqueLayout } from "@/config/moduleDefinitions";
 import { IaAnalysisPanel } from "@/components/dashboard/IaAnalysisPanel";
 import { getDataEntryMode, DATA_ENTRY_MODE_EVENT, type DataEntryMode } from "@/lib/dataEntryMode";
+import { CampoMapaEditor } from "@/components/cultivo/CampoMapaEditor";
+import { SelectorBloqueJerarquico } from "@/components/forms/SelectorBloqueJerarquico";
+import { Map } from "lucide-react";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -217,15 +220,16 @@ function ModuleDashboard({
 // Cualquier cambio en Configuración se refleja aquí en tiempo real.
 
 function DynamicDefTable({
-  defId, moduloKey, filterCultivoId, entryMode,
+  defId, moduloKey, filterCultivoId, filterBloqueId, entryMode,
 }: {
   defId: string;
   moduloKey: string;
   filterCultivoId?: string; // filtra registros cuando el formulario es global
+  filterBloqueId?: string | null; // filtra por bloque/sector del cultivo activo
   entryMode: DataEntryMode;
 }) {
   const { hasPermission } = useRole();
-  const { definiciones, parametros, datos, addDato, updDato, delDato, setHasPendingChanges } = useConfig();
+  const { definiciones, parametros, datos, cultivos, addDato, updDato, delDato, setHasPendingChanges } = useConfig();
   const { simularTrigger, formularioMapas, previewReversion, revertirMovimientos, ajustarMovimientosTablaInsumos, ajustarMovimientosProductoFijo, catalogos: invCatalogos } = useInventario();
   const navigate = useNavigate();
   const [showIaPanel, setShowIaPanel] = useState(false);
@@ -258,7 +262,14 @@ function DynamicDefTable({
   // ── Form modal state (must be before any early return — rules of hooks) ──────
   const buildEmptyFormValues = () => {
     const next: Record<string, string> = {};
-    params.forEach(p => { next[p.nombre] = ""; });
+    params.forEach(p => {
+      // Pre-llenar SelectorBloque si hay un filtro de bloque activo
+      if (p.tipo_dato === "SelectorBloque" && filterBloqueId) {
+        next[p.nombre] = filterBloqueId;
+      } else {
+        next[p.nombre] = p.valor_default ?? "";
+      }
+    });
     return next;
   };
 
@@ -282,6 +293,13 @@ function DynamicDefTable({
     areaFilter?:   string | null;
     currentValue:  string;
     originalValue: string;   // valor que ya estaba guardado (para detectar modo edición)
+  } | null>(null);
+
+  const [selectorBloqueEdit, setSelectorBloqueEdit] = useState<{
+    datoId:      string;
+    paramNombre: string;
+    paramLabel:  string;
+    draft:       string;
   } | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -351,13 +369,34 @@ function DynamicDefTable({
     });
   };
 
+  // Bloques del cultivo activo — para SelectorBloque
+  const activeCultivoId = filterCultivoId ?? def.cultivo_id;
+  const activeCultivo = cultivos.find(c => c.id === activeCultivoId);
+  const mapaActivoDef = activeCultivo
+    ? (activeCultivo.mapas_extra?.find(m => m.modulo === moduloKey)
+        ?? { layout_mapa: activeCultivo.layout_mapa ?? [], estructura: activeCultivo.estructura ?? [] })
+    : null;
+  const bloqueOptions: string[] = (mapaActivoDef?.layout_mapa ?? [])
+    .filter(b => b.nivelIdx === 0)
+    .map(b => b.nombre);
+
   // Para formularios globales: filtrar registros por cultivo seleccionado.
   // Para formularios específicos: mostrar todos (el cultivo ya está en la def).
+  // Si hay filterBloqueId: solo registros cuyo campo SelectorBloque coincide.
+  const bloquePamName = params.find(p => p.tipo_dato === "SelectorBloque")?.nombre;
   const defDatos: ModDato[] = datos.filter(d => {
     if (d.definicion_id !== defId) return false;
     if (!def.cultivo_id && filterCultivoId) {
-      // formulario global — solo mostrar registros del cultivo seleccionado
-      return d.cultivo_id === filterCultivoId;
+      if (d.cultivo_id !== filterCultivoId) return false;
+    }
+    if (filterBloqueId && bloquePamName) {
+      try {
+        const vals = JSON.parse(d.valores || "{}");
+        const v: string = String(vals[bloquePamName] ?? "");
+        // coincide si el valor empieza con el bloque seleccionado
+        // (cubre "Bloque 1" y "Bloque 1 / HL2" al filtrar por "Bloque 1")
+        if (!v.startsWith(filterBloqueId)) return false;
+      } catch { return false; }
     }
     return true;
   });
@@ -369,8 +408,14 @@ function DynamicDefTable({
     ...parseValores(d.valores),
   }));
 
-  // Formularios globales requieren un cultivo seleccionado para poder agregar
-  const canAddRecord = canCreate && (!def.cultivo_id ? !!filterCultivoId : true);
+  // Formularios globales requieren un cultivo seleccionado para poder agregar.
+  // Si el cultivo activo tiene bloques configurados, hay que seleccionar uno específico
+  // antes de agregar cualquier registro (evita registros sin ubicación).
+  const bloqueParam = params.find(p => p.tipo_dato === "SelectorBloque");
+  const hasBloqueConfig = bloqueOptions.length > 0; // cultivo tiene layout_mapa con bloques
+  const canAddRecord = canCreate
+    && (!def.cultivo_id ? !!filterCultivoId : true)
+    && (!hasBloqueConfig || !!filterBloqueId);
 
   // Campos con lógica derivada
   const formulaParams = params.filter(p => p.formula);
@@ -762,6 +807,46 @@ function DynamicDefTable({
           col.type = "select";
           col.options = p.opciones;
           col.filterable = true;
+        }
+        if (p.tipo_dato === "SelectorBloque") {
+          col.filterable = true;
+          col.filterType = "search";
+          col.editable   = false;
+          col.width      = "200px";
+          col.render     = (_value, row) => {
+            const dato = defDatos.find(d => String(d.id) === String(row.id));
+            const currentVal = String(parseValores(dato?.valores ?? "{}")[p.nombre] ?? "");
+            const isEmpty = !currentVal.trim();
+            const isRequired = p.obligatorio;
+            return (
+              <button
+                type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  if (!dato || !(canEdit || canCreate)) return;
+                  setSelectorBloqueEdit({
+                    datoId:      dato.id,
+                    paramNombre: p.nombre,
+                    paramLabel:  p.etiqueta_personalizada || p.nombre.replace(/_/g, " "),
+                    draft:       currentVal,
+                  });
+                }}
+                disabled={!(canEdit || canCreate)}
+                title={isEmpty ? "Clic para seleccionar ubicación" : `${currentVal} — clic para cambiar`}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors hover:opacity-80 max-w-[180px] truncate",
+                  isEmpty && isRequired
+                    ? "border-dashed border-amber-400 text-amber-600 hover:border-amber-500 dark:text-amber-400"
+                    : isEmpty
+                      ? "border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary"
+                      : "border-primary/30 bg-primary/8 text-primary",
+                )}
+              >
+                <MapPin className="h-3 w-3 shrink-0" />
+                <span className="truncate">{isEmpty ? "Sin ubicación" : currentVal}</span>
+              </button>
+            );
+          };
         }
         // ── Relación: dropdown con registros de otra definición ────────────────
         if (p.tipo_dato === "Relación" && p.relacion_def_id) {
@@ -1644,6 +1729,12 @@ function DynamicDefTable({
           Selecciona un cultivo arriba para poder agregar registros a este formulario global.
         </div>
       )}
+      {hasBloqueConfig && !filterBloqueId && canCreate && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+          <MapPin className="w-3.5 h-3.5 shrink-0" />
+          Selecciona un bloque o sector arriba para poder agregar registros a esta ubicación específica.
+        </div>
+      )}
 
       {canDuplicateRows && hasRowPendingRequired && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
@@ -1882,13 +1973,37 @@ function DynamicDefTable({
       >
         <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>{editingDatoId ? "Editar registro" : "Crear registro"}</DialogTitle>
+            <DialogTitle>{editingDatoId ? "Editar registro" : "Nuevo registro"}</DialogTitle>
             <DialogDescription>
               {editingDatoId
                 ? `Actualiza los datos del registro en ${def.nombre}.`
-                : `Completa los datos para crear un nuevo registro en ${def.nombre}.`}
+                : `Completa los campos para registrar en ${def.nombre}.`}
             </DialogDescription>
           </DialogHeader>
+
+          {/* Banner de contexto — cultivo y bloque activos */}
+          {(filterCultivoId || filterBloqueId) && (() => {
+            const cultivoActivo = cultivos.find(c => c.id === filterCultivoId);
+            const bloqueActivo  = filterBloqueId;
+            return (
+              <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">
+                <Leaf className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {cultivoActivo && <><strong>{cultivoActivo.nombre}</strong></>}
+                  {cultivoActivo && bloqueActivo && <span className="mx-1.5 opacity-40">·</span>}
+                  {bloqueActivo && (
+                    <span className="inline-flex items-center gap-1">
+                      <Map className="w-3 h-3" />
+                      <strong>{bloqueActivo}</strong>
+                    </span>
+                  )}
+                  {!bloqueActivo && bloquePamName && (
+                    <span className="ml-1 opacity-70">— selecciona el bloque en el formulario</span>
+                  )}
+                </span>
+              </div>
+            );
+          })()}
 
           <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
             <div className="space-y-1.5">
@@ -1915,8 +2030,19 @@ function DynamicDefTable({
                 const disabled = isDerived ? true : (editingDatoId ? !canEdit : !canCreate);
 
                 return (
-                  <div key={param.id} className="space-y-1.5">
-                    <Label className="text-xs">
+                  <div
+                    key={param.id}
+                    className={cn(
+                      "space-y-1.5",
+                      param.tipo_dato === "SelectorBloque" && "md:col-span-2 rounded-lg border border-primary/20 bg-primary/5 p-3",
+                      param.tipo_dato === "TablaInsumos" && "md:col-span-2",
+                    )}
+                  >
+                    <Label className={cn(
+                      "text-xs",
+                      param.tipo_dato === "SelectorBloque" && "flex items-center gap-1.5 text-primary font-semibold",
+                    )}>
+                      {param.tipo_dato === "SelectorBloque" && <Map className="w-3.5 h-3.5" />}
                       {label}
                       {param.obligatorio && !isDerived && <span className="text-destructive ml-1">*</span>}
                     </Label>
@@ -1952,6 +2078,15 @@ function DynamicDefTable({
                           ))}
                         </SelectContent>
                       </Select>
+                    ) : param.tipo_dato === "SelectorBloque" ? (
+                      <SelectorBloqueJerarquico
+                        value={value}
+                        onChange={(v) => handleFieldChange(param.nombre, v)}
+                        layout={mapaActivoDef?.layout_mapa ?? []}
+                        estructura={mapaActivoDef?.estructura ?? []}
+                        disabled={disabled}
+                        obligatorio={param.obligatorio}
+                      />
                     ) : param.tipo_dato === "Relación" ? (
                       <Select
                         value={value}
@@ -2313,6 +2448,15 @@ function DynamicDefTable({
                         </SelectContent>
                       </Select>
                     )}
+                    {!isDerived && param.tipo_dato === "SelectorBloque" && (
+                      <SelectorBloqueJerarquico
+                        value={value}
+                        onChange={(v) => updateNewEventoField(param.nombre, v)}
+                        layout={mapaActivoDef?.layout_mapa ?? []}
+                        estructura={mapaActivoDef?.estructura ?? []}
+                        obligatorio={param.obligatorio}
+                      />
+                    )}
                     {!isDerived && param.tipo_dato === "TablaInsumos" && (
                       <TablaInsumosField
                         value={value}
@@ -2569,8 +2713,19 @@ function DynamicDefTable({
           catch { return []; }
         };
 
+        // Valida que todas las filas con producto tengan cantidad > 0
+        // y que no haya filas con cantidad pero sin producto.
+        const draftRows = parseJsonRows(draft);
+        const draftHasErrors = draftRows.some(r =>
+          (r.catalogo_id && !(Number(r.cantidad) > 0)) ||
+          (!r.catalogo_id && Number(r.cantidad) > 0)
+        );
+        // Al menos debe haber una fila válida completa (producto + cantidad)
+        const draftHasValidRows = draftRows.some(r => r.catalogo_id && Number(r.cantidad) > 0);
+
         const handleConfirm = () => {
           if (!dato) { setTablaInsumosEdit(null); return; }
+          if (draftHasErrors || !draftHasValidRows) return; // bloqueado por validación
 
           const prevVals = parseValores(dato.valores);
           const nextVals = { ...prevVals, [paramNombre]: draft };
@@ -2673,7 +2828,16 @@ function DynamicDefTable({
                 <Button variant="outline" onClick={() => setTablaInsumosEdit(null)}>
                   Cancelar
                 </Button>
-                <Button onClick={handleConfirm} className="gap-1.5">
+                <Button
+                  onClick={handleConfirm}
+                  disabled={draftHasErrors || !draftHasValidRows}
+                  className="gap-1.5"
+                  title={
+                    !draftHasValidRows ? "Agrega al menos un producto con cantidad" :
+                    draftHasErrors     ? "Completa la cantidad de todos los productos" :
+                    undefined
+                  }
+                >
                   <Package className="h-4 w-4" />
                   {isEditing ? "Guardar cambios" : "Guardar productos"}
                 </Button>
@@ -2683,6 +2847,56 @@ function DynamicDefTable({
         );
       })()}
     </div>
+
+    {/* ── Dialog selector de bloque/sector (tabla mode) ── */}
+    {selectorBloqueEdit && (() => {
+      const { datoId, paramNombre, paramLabel, draft } = selectorBloqueEdit;
+      const dato = defDatos.find(d => d.id === datoId);
+      const setDraft = (v: string) => setSelectorBloqueEdit(prev => prev ? { ...prev, draft: v } : null);
+      const sbeParam = params.find(p => p.nombre === paramNombre);
+      const isRequired = sbeParam?.obligatorio ?? false;
+      const canConfirm = !isRequired || !!draft.trim();
+
+      const handleConfirm = () => {
+        if (!dato || !canConfirm) return;
+        const rowIdx = defDatos.indexOf(dato);
+        if (rowIdx >= 0) handleUpdate(rowIdx, paramNombre as keyof DynRow, draft);
+        setSelectorBloqueEdit(null);
+      };
+
+      return (
+        <Dialog open={true} onOpenChange={v => { if (!v) setSelectorBloqueEdit(null); }}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-primary" />
+                {paramLabel}
+              </DialogTitle>
+              <DialogDescription>
+                Selecciona la ubicación en el campo donde se realiza esta actividad.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-2">
+              <SelectorBloqueJerarquico
+                value={draft}
+                onChange={setDraft}
+                layout={activeCultivo?.layout_mapa ?? []}
+                estructura={activeCultivo?.estructura ?? []}
+                obligatorio={isRequired}
+              />
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setSelectorBloqueEdit(null)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleConfirm} disabled={!canConfirm}>
+                Confirmar ubicación
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      );
+    })()}
 
     {/* ── Modal de confirmación de delta (edición de TablaInsumos) ── */}
     {deltaConfirm && (
@@ -2758,7 +2972,7 @@ function DynamicDefTable({
 // Sus tabs se generan automáticamente desde las CONFIG_DEFINICIONES
 // asignadas a este módulo en Configuración.
 
-function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: string; moduloKey: string; extraModuloKeys?: string[] }) {
+function DynamicModulePage({ title, moduloKey, extraModuloKeys = [], enableBloqueFilter = true }: { title: string; moduloKey: string; extraModuloKeys?: string[]; enableBloqueFilter?: boolean }) {
   const { role, roleName, hierarchyLevel, hasPermission, currentUser } = useRole();
   const { definiciones, cultivos, datos, getUserDefAcceso } = useConfig();
   const navigate = useNavigate();
@@ -2833,6 +3047,20 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
     () => activeCultivos[0]?.id ?? allCultivoIds[0] ?? "todos",
   );
 
+  // null = sin filtro de bloque; string = nombre del bloque seleccionado
+  const [filterBloqueId, setFilterBloqueId] = useState<string | null>(null);
+  const [showMapaModal, setShowMapaModal] = useState(false);
+
+  // Bloques del cultivo activo — resuelve el mapa según el módulo actual.
+  // Si el cultivo tiene mapas_extra para este moduloKey lo usa; si no, cae al mapa raíz.
+  const activeCultivoForBloques = cultivos.find(c => c.id === filterCultivoId);
+  const mapaActivo = activeCultivoForBloques
+    ? (activeCultivoForBloques.mapas_extra?.find(m => m.modulo === moduloKey)
+        ?? { layout_mapa: activeCultivoForBloques.layout_mapa ?? [], estructura: activeCultivoForBloques.estructura ?? [] })
+    : null;
+  const bloquesDisponibles = (mapaActivo?.layout_mapa ?? []).filter(b => b.nivelIdx === 0);
+  const showBloquePicker = enableBloqueFilter && filterCultivoId !== "todos" && bloquesDisponibles.length > 0;
+
   // Defs visibles según el cultivo:
   //   - formularios globales: siempre visibles (sus registros se filtrarán por cultivo)
   //   - formularios específicos: solo si coincide el cultivo
@@ -2850,9 +3078,15 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
     () => formParamId ?? filteredDefs[0]?.id ?? "",
   );
 
-  // Reset tab al cambiar el cultivo seleccionado
+  // Al cambiar cultivo: mantener el tab activo si sigue siendo visible; si no, ir al primero
+  // También resetear el filtro de bloque porque cada cultivo tiene sus propios bloques
   useEffect(() => {
-    setActiveTab(formParamId ?? filteredDefs[0]?.id ?? "");
+    setActiveTab(prev => {
+      if (formParamId) return formParamId;
+      if (filteredDefs.some(d => d.id === prev)) return prev;
+      return filteredDefs[0]?.id ?? "";
+    });
+    setFilterBloqueId(null);
   }, [filterCultivoId, formParamId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const currentTab = filteredDefs.some(d => d.id === activeTab)
@@ -2955,6 +3189,121 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
             </div>
           )}
 
+          {/* ── Selector de bloque jerárquico (segundo nivel en cascada) ── */}
+          {showBloquePicker && (() => {
+            const filterPath = filterBloqueId
+              ? filterBloqueId.split(" / ").map(s => s.trim()).filter(Boolean)
+              : [];
+            const layout       = mapaActivo?.layout_mapa ?? [];
+            const estructura   = mapaActivo?.estructura   ?? [];
+            const nivelesActivos = estructura.filter(n => n.activo).sort((a, b) => a.nivel - b.nivel);
+
+            const getChildrenAtPath = (nodes: BloqueLayout[], path: string[]): BloqueLayout[] => {
+              if (path.length === 0) return nodes;
+              const head = nodes.find(n => n.nombre === path[0]);
+              return head ? getChildrenAtPath(head.hijos ?? [], path.slice(1)) : [];
+            };
+
+            return (
+              <div className="flex items-center gap-1.5 flex-wrap pl-1">
+                {/* Label fijo "BLOQUE" antes de los chips */}
+                {nivelesActivos[0] && (
+                  <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide shrink-0">
+                    {nivelesActivos[0].label}
+                  </span>
+                )}
+
+                {nivelesActivos.map((nivel, depth) => {
+                  if (depth > filterPath.length) return null;
+                  const candidates = getChildrenAtPath(layout, filterPath.slice(0, depth));
+                  if (candidates.length === 0) return null;
+                  const selectedAtDepth = filterPath[depth];
+
+                  if (depth === 0) {
+                    // Nivel raíz: chip "Todos" + chips por bloque, todos inline
+                    return (
+                      <Fragment key={nivel.nivel}>
+                        <button
+                          onClick={() => setFilterBloqueId(null)}
+                          className={cn(
+                            "px-2.5 py-1 rounded-lg text-xs font-medium border transition-all",
+                            filterPath.length === 0
+                              ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+                              : "bg-background text-muted-foreground border-border hover:border-slate-400",
+                          )}
+                        >
+                          General
+                        </button>
+                        {candidates.map(bloque => {
+                          const isSelected = selectedAtDepth === bloque.nombre;
+                          return (
+                            <button
+                              key={bloque.id}
+                              onClick={() => setFilterBloqueId(isSelected ? null : bloque.nombre)}
+                              className={cn(
+                                "px-2.5 py-1 rounded-lg text-xs font-medium border transition-all",
+                                isSelected
+                                  ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+                                  : "bg-background text-muted-foreground border-border hover:border-slate-400",
+                              )}
+                            >
+                              {bloque.nombre}
+                            </button>
+                          );
+                        })}
+                      </Fragment>
+                    );
+                  }
+
+                  // Niveles sub-bloque: separador › + label + select, todo en la misma fila
+                  const parentPath = filterPath.slice(0, depth).join(" / ");
+                  return (
+                    <Fragment key={nivel.nivel}>
+                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
+                      <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide shrink-0">
+                        {nivel.label}
+                      </span>
+                      <div className="relative">
+                        <select
+                          value={selectedAtDepth ?? ""}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (!val) setFilterBloqueId(parentPath || null);
+                            else setFilterBloqueId(parentPath ? `${parentPath} / ${val}` : val);
+                          }}
+                          className={cn(
+                            "appearance-none rounded-lg border text-xs font-medium pl-2.5 pr-6 py-1 cursor-pointer transition-all focus:outline-none focus:ring-1 focus:ring-primary/40",
+                            selectedAtDepth
+                              ? "border-transparent bg-primary text-primary-foreground"
+                              : "border-border bg-background text-muted-foreground hover:border-slate-400",
+                          )}
+                        >
+                          <option value="">General</option>
+                          {candidates.map(b => (
+                            <option key={b.id} value={b.nombre}>{b.nombre}</option>
+                          ))}
+                        </select>
+                        <ChevronDown className={cn(
+                          "pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3",
+                          selectedAtDepth ? "text-primary-foreground" : "text-muted-foreground",
+                        )} />
+                      </div>
+                    </Fragment>
+                  );
+                })}
+
+                {/* Ver mapa siempre al final de la fila */}
+                <button
+                  onClick={() => setShowMapaModal(true)}
+                  className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border border-primary/40 text-primary bg-primary/5 hover:bg-primary/10 transition-all"
+                >
+                  <Map className="w-3 h-3" />
+                  Ver mapa
+                </button>
+              </div>
+            );
+          })()}
+
           {/* ── Aviso cultivo activo (formularios globales) ──────────────── */}
           {hasGlobalDefs && filterCultivoId !== "todos" && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20 text-xs text-primary">
@@ -2979,6 +3328,7 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
               defId={filteredDefs[0].id}
               moduloKey={moduloKey}
               filterCultivoId={recordFilter}
+              filterBloqueId={filterBloqueId}
               entryMode={entryMode}
             />
           ) : (
@@ -2999,6 +3349,7 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
                     defId={d.id}
                     moduloKey={moduloKey}
                     filterCultivoId={recordFilter}
+                    filterBloqueId={filterBloqueId}
                     entryMode={entryMode}
                   />
                 </TabsContent>
@@ -3006,6 +3357,30 @@ function DynamicModulePage({ title, moduloKey, extraModuloKeys = [] }: { title: 
             </Tabs>
           )}
         </div>
+      )}
+
+      {/* ── Modal de mapa del campo ──────────────────────────────────────── */}
+      {showMapaModal && activeCultivoForBloques && (
+        <Dialog open={showMapaModal} onOpenChange={setShowMapaModal}>
+          <DialogContent className="max-w-5xl w-full max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Map className="w-4 h-4 text-primary" />
+                {activeCultivoForBloques.mapas_extra?.find(m => m.modulo === moduloKey)?.label ?? "Mapa del campo"} — {activeCultivoForBloques.nombre}
+              </DialogTitle>
+              <DialogDescription>
+                Estructura espacial configurada para este módulo y cultivo.
+              </DialogDescription>
+            </DialogHeader>
+            <CampoMapaEditor
+              estructura={mapaActivo?.estructura ?? []}
+              layout={mapaActivo?.layout_mapa ?? []}
+              onLayoutChange={() => {}}
+              readOnly
+              editorHeight={480}
+            />
+          </DialogContent>
+        </Dialog>
       )}
     </MainLayout>
   );
@@ -3133,7 +3508,7 @@ export const Laboratorio    = () => <DynamicModulePage title="Laboratorio"      
 export const Vivero         = () => <DynamicModulePage title="Vivero"           moduloKey="vivero"           />;
 export const Cultivo        = () => <DynamicModulePage title="Cultivo"          moduloKey="cultivo"          extraModuloKeys={["cosecha"]} />;
 export const Cosecha        = () => <DynamicModulePage title="Cosecha"          moduloKey="cosecha"          />;
-export const PostCosecha    = () => <DynamicModulePage title="Post-cosecha"     moduloKey="post-cosecha"     extraModuloKeys={["produccion"]} />;
+export const PostCosecha    = () => <DynamicModulePage title="Post-cosecha"     moduloKey="post-cosecha"     extraModuloKeys={["produccion"]} enableBloqueFilter={false} />;
 export const Produccion     = () => <DynamicModulePage title="Producción"       moduloKey="produccion"       />;
 export const RecursosHumanos= () => <DynamicModulePage title="Recursos Humanos" moduloKey="recursos-humanos" />;
-export const ComercialModule= () => <DynamicModulePage title="Comercial"         moduloKey="comercial"        />;
+export const ComercialModule= () => <DynamicModulePage title="Comercial"         moduloKey="comercial"        enableBloqueFilter={false} />;

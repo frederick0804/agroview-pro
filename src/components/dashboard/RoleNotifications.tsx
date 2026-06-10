@@ -6,10 +6,12 @@ import {
   BellRing,
   CheckCircle2,
   Info,
+  Package,
   ShieldAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
+import { useInventario } from "@/contexts/InventarioContext";
 
 type NotificationSeverity = "info" | "warning" | "critical" | "success";
 
@@ -337,11 +339,21 @@ export function RoleNotifications({
 }: RoleNotificationsProps) {
   const { role, currentUser } = useRole();
   const navigate = useNavigate();
+  const { getStockCritico, getAlertas, getAlertasVencimiento } = useInventario();
 
-  const notifications = useMemo(
-    () => getNotificationsByRole(role, currentUser?.area_asignada).slice(0, maxItems),
-    [role, currentUser?.area_asignada, maxItems]
+  const stockCritico = useMemo(() => getStockCritico(), [getStockCritico]);
+  const stockBajo = useMemo(
+    () => getAlertas().filter(p => !stockCritico.some(c => c.id === p.id)),
+    [getAlertas, stockCritico],
   );
+  const alertasVencimiento = useMemo(() => getAlertasVencimiento(), [getAlertasVencimiento]);
+
+  const roleNotifications = useMemo(
+    () => getNotificationsByRole(role, currentUser?.area_asignada).slice(0, maxItems),
+    [role, currentUser?.area_asignada, maxItems],
+  );
+
+  const totalAlertas = stockCritico.length + alertasVencimiento.filter(a => a.estado !== "proximo").length;
 
   return (
     <div className={cn("bg-card rounded-xl border border-border p-5", className)}>
@@ -351,12 +363,109 @@ export function RoleNotifications({
           {title}
         </h3>
         <span className="text-[11px] text-muted-foreground">
-          {notifications.length} activas
+          {roleNotifications.length + (stockCritico.length > 0 ? 1 : 0) + (alertasVencimiento.length > 0 ? 1 : 0)} activas
         </span>
       </div>
 
       <div className="space-y-2.5">
-        {notifications.map((notification) => {
+        {/* ── Alertas de inventario en tiempo real ── */}
+        {(stockCritico.length > 0 || stockBajo.length > 0) && (
+          <div className={cn(
+            "rounded-lg border px-3 py-2.5",
+            stockCritico.length > 0
+              ? SEVERITY_META.critical.card
+              : SEVERITY_META.warning.card,
+          )}>
+            <div className="flex items-start gap-2.5">
+              <div className={cn("mt-0.5", stockCritico.length > 0 ? SEVERITY_META.critical.iconColor : SEVERITY_META.warning.iconColor)}>
+                <Package className="w-3.5 h-3.5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <p className="text-xs font-semibold text-foreground">
+                    {stockCritico.length > 0
+                      ? `${stockCritico.length} producto${stockCritico.length > 1 ? "s" : ""} con stock crítico`
+                      : `${stockBajo.length} producto${stockBajo.length > 1 ? "s" : ""} con stock bajo`}
+                  </p>
+                  <span className={cn(
+                    "text-[10px] px-1.5 py-0.5 rounded-full font-medium",
+                    stockCritico.length > 0 ? SEVERITY_META.critical.badge : SEVERITY_META.warning.badge,
+                  )}>
+                    Inventario
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                  {[...stockCritico, ...stockBajo].slice(0, 3).map(p => p.nombre).join(", ")}
+                  {stockCritico.length + stockBajo.length > 3 && ` y ${stockCritico.length + stockBajo.length - 3} más`}
+                </p>
+                <div className="mt-1.5 flex items-center justify-between gap-2">
+                  <span className="text-[10px] text-muted-foreground">Ahora</span>
+                  <button
+                    onClick={() => navigate("/inventario")}
+                    className="text-[10px] font-semibold text-primary hover:text-primary/80 inline-flex items-center gap-1"
+                  >
+                    Ver inventario
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {alertasVencimiento.length > 0 && (
+          <div className={cn(
+            "rounded-lg border px-3 py-2.5",
+            alertasVencimiento.some(a => a.estado === "vencido")
+              ? SEVERITY_META.critical.card
+              : SEVERITY_META.warning.card,
+          )}>
+            <div className="flex items-start gap-2.5">
+              <div className={cn(
+                "mt-0.5",
+                alertasVencimiento.some(a => a.estado === "vencido")
+                  ? SEVERITY_META.critical.iconColor
+                  : SEVERITY_META.warning.iconColor,
+              )}>
+                <AlertTriangle className="w-3.5 h-3.5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <p className="text-xs font-semibold text-foreground">
+                    {alertasVencimiento.filter(a => a.estado === "vencido").length > 0
+                      ? `${alertasVencimiento.filter(a => a.estado === "vencido").length} lote${alertasVencimiento.filter(a => a.estado === "vencido").length > 1 ? "s" : ""} vencido${alertasVencimiento.filter(a => a.estado === "vencido").length > 1 ? "s" : ""}`
+                      : `${alertasVencimiento.length} lote${alertasVencimiento.length > 1 ? "s" : ""} próximo${alertasVencimiento.length > 1 ? "s" : ""} a vencer`}
+                  </p>
+                  <span className={cn(
+                    "text-[10px] px-1.5 py-0.5 rounded-full font-medium",
+                    alertasVencimiento.some(a => a.estado === "vencido") ? SEVERITY_META.critical.badge : SEVERITY_META.warning.badge,
+                  )}>
+                    Inventario
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                  {alertasVencimiento.slice(0, 3).map(a =>
+                    `${a.producto.nombre}${a.diasRestantes < 0 ? " (vencido)" : ` (${a.diasRestantes}d)`}`
+                  ).join(", ")}
+                  {alertasVencimiento.length > 3 && ` y ${alertasVencimiento.length - 3} más`}
+                </p>
+                <div className="mt-1.5 flex items-center justify-between gap-2">
+                  <span className="text-[10px] text-muted-foreground">Ahora</span>
+                  <button
+                    onClick={() => navigate("/inventario")}
+                    className="text-[10px] font-semibold text-primary hover:text-primary/80 inline-flex items-center gap-1"
+                  >
+                    Ver lotes
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Notificaciones contextuales por rol ── */}
+        {roleNotifications.map((notification) => {
           const meta = SEVERITY_META[notification.severity];
           const Icon = meta.icon;
           return (
@@ -401,7 +510,26 @@ export function RoleNotifications({
             </div>
           );
         })}
+
+        {roleNotifications.length === 0 && stockCritico.length === 0 && alertasVencimiento.length === 0 && (
+          <div className="rounded-lg border border-dashed border-border py-8 text-center">
+            <CheckCircle2 className="mx-auto mb-2 h-6 w-6 text-muted-foreground/30" />
+            <p className="text-sm text-muted-foreground">Sin alertas activas</p>
+          </div>
+        )}
       </div>
+
+      {totalAlertas > 0 && (
+        <div className="mt-4 pt-3 border-t border-border">
+          <button
+            onClick={() => navigate("/inventario")}
+            className="w-full text-[11px] font-medium text-primary hover:text-primary/80 inline-flex items-center justify-center gap-1"
+          >
+            Ver todo el inventario
+            <ArrowRight className="w-3 h-3" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

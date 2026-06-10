@@ -94,6 +94,13 @@ export function TablaInsumosField({ value, onChange, disabled, areaFilter, isEdi
     const p = activeCatalogos.find(c => c.id === r.catalogo_id);
     return p && Number(r.cantidad) > p.cantidad_actual;
   });
+  // Fila inválida: tiene producto seleccionado pero cantidad 0/vacía
+  const rowSinCantidad = (r: typeof rows[number]) => !!r.catalogo_id && !(Number(r.cantidad) > 0);
+  // Fila inválida: tiene cantidad pero ningún producto
+  const rowSinProducto = (r: typeof rows[number]) => !r.catalogo_id && Number(r.cantidad) > 0;
+  // ¿Hay algún error que bloquee guardar? (lo consumirá el padre vía prop si se necesita)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const hasRowErrors = rows.some(r => rowSinCantidad(r) || rowSinProducto(r));
   // En modo edición: overstock es solo una advertencia (no bloquea), el stock se restaurará al guardar
 
   return (
@@ -239,6 +246,16 @@ export function TablaInsumosField({ value, onChange, disabled, areaFilter, isEdi
                     {isEditing
                       ? "ℹ Stock aparece reducido — se restaurará al guardar"
                       : "⚠ Supera el stock disponible"}
+                  </p>
+                )}
+                {rowSinCantidad(row) && (
+                  <p className="mt-1.5 text-[11px] text-red-600 dark:text-red-400">
+                    ⚠ Ingresa la cantidad para este producto.
+                  </p>
+                )}
+                {rowSinProducto(row) && (
+                  <p className="mt-1.5 text-[11px] text-red-600 dark:text-red-400">
+                    ⚠ Selecciona un producto o elimina esta fila.
                   </p>
                 )}
               </div>
