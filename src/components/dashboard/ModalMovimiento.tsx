@@ -120,7 +120,7 @@ export function ModalMovimiento({
   const [error,         setError]         = useState("");
 
   // Paso (solo aplica a entrada/compra → 2 pasos)
-  const [paso,          setPaso]          = useState<1 | 2>(1);
+  const [paso,          setPaso]          = useState<1 | 2 | 3>(1);
 
   // Lote para SALIDA: FEFO auto-seleccionado, override posible
   const [loteSelId,     setLoteSelId]     = useState("");
@@ -141,7 +141,7 @@ export function ModalMovimiento({
   const lotesActivos = todosLotes.filter(l => l.activo);
 
   const esCompra      = tipo === "entrada" && subtipo === "compra";
-  const esDosParsos   = esCompra; // solo la compra tiene 2 pasos
+  const esDosParsos   = esCompra;
 
   // ── Reset ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -183,6 +183,33 @@ export function ModalMovimiento({
 
   const loteActual = lotesActivos.find(l => l.id === loteSelId) ?? null;
   const hayLotes   = lotesFefo.length > 0;
+
+  const validarBase = () => {
+    const qty = parseFloat(cantidadStr);
+    if (isNaN(qty) || qty <= 0) { setError("Ingresa una cantidad valida mayor a 0."); return false; }
+    if (qty > 999_999) { setError("La cantidad maxima permitida es 999.999."); return false; }
+    if (tipo === "salida" && qty > stockActual) {
+      setError(`Stock insuficiente. Disponible: ${fmtNum(stockActual)} ${producto?.unidad_medida ?? ""}.`);
+      return false;
+    }
+    setError("");
+    return true;
+  };
+
+  const irSiguiente = () => {
+    if (!validarBase()) return;
+    setPaso(esCompra ? 2 : 3);
+  };
+
+  const irConfirmacion = () => {
+    if (!validarBase()) return;
+    if (esCompra && !loteSinLote) {
+      if (!loteNumero.trim()) { setError("Ingresa el numero de lote o marca 'Sin numero de lote'."); return; }
+      if (!loteVence)         { setError("Ingresa la fecha de vencimiento del lote."); return; }
+    }
+    setError("");
+    setPaso(3);
+  };
 
   // ── Navegación pasos ──────────────────────────────────────────────────────
   const irPaso2 = () => {
@@ -334,7 +361,7 @@ export function ModalMovimiento({
                   }}
                   onKeyDown={e => {
                     if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault();
-                    if (e.key === "Enter" && esDosParsos) irPaso2();
+                    if (e.key === "Enter") irSiguiente();
                   }}
                   className="h-9"
                 />
@@ -583,6 +610,77 @@ export function ModalMovimiento({
             </>
           )}
 
+          {paso === 3 && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-border bg-muted/30 p-4">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Confirmar movimiento</p>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex-1 rounded-xl border border-border bg-background px-4 py-3 text-center">
+                    <p className="text-[11px] text-muted-foreground">Antes</p>
+                    <p className="mt-1 text-2xl font-bold tabular-nums">{fmtNum(stockActual)}</p>
+                    <p className="text-xs text-muted-foreground">{producto.unidad_medida}</p>
+                  </div>
+                  <div className={cn(
+                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white",
+                    tipo === "entrada" ? "bg-green-600" : tipo === "salida" ? "bg-red-600" : "bg-amber-600",
+                  )}>
+                    {tipo === "entrada" ? <ArrowDown className="h-5 w-5" /> : tipo === "salida" ? <ArrowUp className="h-5 w-5" /> : <SlidersHorizontal className="h-5 w-5" />}
+                  </div>
+                  <div className={cn(
+                    "flex-1 rounded-xl border px-4 py-3 text-center",
+                    stockNuevo !== null && stockNuevo <= producto.cantidad_minima * 0.5
+                      ? "border-red-300 bg-red-50 dark:border-red-800/50 dark:bg-red-950/20"
+                      : stockNuevo !== null && stockNuevo <= producto.cantidad_minima
+                        ? "border-amber-300 bg-amber-50 dark:border-amber-800/50 dark:bg-amber-950/20"
+                        : "border-green-300 bg-green-50 dark:border-green-800/50 dark:bg-green-950/20",
+                  )}>
+                    <p className="text-[11px] text-muted-foreground">Despues</p>
+                    <p className={cn(
+                      "mt-1 text-2xl font-bold tabular-nums",
+                      stockNuevo !== null && stockNuevo < stockActual ? "text-red-600" : stockNuevo !== null && stockNuevo > stockActual ? "text-green-600" : "text-foreground",
+                    )}>{fmtNum(stockNuevo ?? stockActual)}</p>
+                    <p className="text-xs text-muted-foreground">{producto.unidad_medida}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-xl border border-border bg-background px-3 py-2">
+                  <p className="text-muted-foreground">Movimiento</p>
+                  <p className="mt-0.5 font-semibold capitalize">{tipo} · {subtipo.replace(/_/g, " ")}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-background px-3 py-2">
+                  <p className="text-muted-foreground">Cantidad</p>
+                  <p className="mt-0.5 font-semibold">{fmtNum(cantidad)} {producto.unidad_medida}</p>
+                </div>
+                {(tipo === "salida" && loteActual) && (
+                  <div className="col-span-2 rounded-xl border border-border bg-background px-3 py-2">
+                    <p className="text-muted-foreground">Lote seleccionado</p>
+                    <p className="mt-0.5 font-mono font-semibold">{loteActual.numero_lote}</p>
+                  </div>
+                )}
+                {(tipo === "entrada" && proveedor) && (
+                  <div className="col-span-2 rounded-xl border border-border bg-background px-3 py-2">
+                    <p className="text-muted-foreground">Proveedor</p>
+                    <p className="mt-0.5 font-semibold">{proveedor}</p>
+                  </div>
+                )}
+              </div>
+
+              {stockNuevo !== null && stockNuevo <= producto.cantidad_minima && (
+                <div className={cn(
+                  "rounded-xl border px-3 py-2 text-xs",
+                  stockNuevo <= producto.cantidad_minima * 0.5
+                    ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800/50 dark:bg-red-950/20 dark:text-red-400"
+                    : "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-400",
+                )}>
+                  <AlertCircle className="mr-1 inline h-3.5 w-3.5" />
+                  El stock resultante queda {stockNuevo <= producto.cantidad_minima * 0.5 ? "critico" : "bajo"} frente al minimo de {fmtNum(producto.cantidad_minima)} {producto.unidad_medida}.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Error */}
           {error && (
             <div className="flex items-center gap-2 text-sm text-destructive">
@@ -593,8 +691,8 @@ export function ModalMovimiento({
         </div>
 
         <DialogFooter className="gap-2">
-          {paso === 2 && (
-            <Button variant="ghost" size="sm" className="gap-1 mr-auto" onClick={() => { setPaso(1); setError(""); }}>
+          {paso > 1 && (
+            <Button variant="ghost" size="sm" className="gap-1 mr-auto" onClick={() => { setPaso(paso === 3 && esCompra ? 2 : 1); setError(""); }}>
               <ChevronLeft className="h-3.5 w-3.5" /> Anterior
             </Button>
           )}
@@ -602,18 +700,28 @@ export function ModalMovimiento({
             Cancelar
           </Button>
           {/* Paso 1 de compra → ir al paso 2 */}
-          {esDosParsos && paso === 1 && (
+          {paso === 1 && (
             <Button
               size="sm"
-              onClick={irPaso2}
+              onClick={irSiguiente}
               disabled={!cantidadStr || parseFloat(cantidadStr) <= 0}
               className="gap-1 bg-green-600 hover:bg-green-700 text-white"
             >
               Siguiente <ChevronRight className="h-3.5 w-3.5" />
             </Button>
           )}
+          {esCompra && paso === 2 && (
+            <Button
+              size="sm"
+              onClick={irConfirmacion}
+              disabled={!cantidadStr || parseFloat(cantidadStr) <= 0}
+              className="gap-1 bg-green-600 hover:bg-green-700 text-white"
+            >
+              Revisar movimiento <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          )}
           {/* Confirmar final */}
-          {(!esDosParsos || paso === 2) && (
+          {paso === 3 && (
             <Button
               size="sm"
               onClick={handleConfirmar}

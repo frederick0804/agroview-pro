@@ -13,6 +13,47 @@ import { useRole, ROLE_LEVELS } from "@/contexts/RoleContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// ─── Proveedor ────────────────────────────────────────────────────────────────
+
+export interface InvProveedor {
+  id:          string;
+  nombre:      string;
+  ruc:         string;
+  autorizado:  boolean;
+  modulo_ids:  string[];   // áreas a las que provee
+  notas?:      string;
+  created_at:  string;
+  updated_at:  string;
+}
+
+// ─── Orden de compra ──────────────────────────────────────────────────────────
+
+export type InvOrdenEstado = "solicitado" | "aprobado" | "recibido" | "cancelado";
+
+export interface InvLineaOrden {
+  id:                string;
+  producto_id:       string;
+  cantidad:          number;
+  precio_unitario:   number;
+  estado:            "aprobado" | "sin_aprobar";
+  cantidad_recibida: number;
+}
+
+export interface InvOrdenCompra {
+  id:            string;
+  numero:        string;
+  cliente_id:    string;   // empresa (agrupador en tabla)
+  proveedor_id:  string;
+  solicitado_por: string;
+  aprobado_por?:  string;
+  estado:         InvOrdenEstado;
+  fecha_pedido:   string;  // ISO date
+  lineas:         InvLineaOrden[];
+  notas?:         string;
+  created_at:     string;
+  updated_at:     string;
+}
+
 // ─── Lote ─────────────────────────────────────────────────────────────────────
 
 export interface InvLote {
@@ -64,6 +105,9 @@ export interface InvCatalogo {
   cantidad_maxima: number;
   unidad_medida: string;
   precio_unitario: number;
+  precio_promedio_ponderado: number;   // recalculado en cada entrada
+  stock_seguridad: number;             // nivel debajo del cual se genera alerta
+  cuenta_contable?: string;            // código/nombre de la cuenta contable
   ubicacion_fisica?: string;
   proveedor_id?: string;
   campos_extra: InvCampoConValor[]; // campos propios de ESTE producto
@@ -274,6 +318,7 @@ const DEMO_CATALOGOS: InvCatalogo[] = [
     nombre: "Clamshell 125g", categoria: "Empaque",
     cantidad_actual: 8700, cantidad_minima: 2000, cantidad_maxima: 20000,
     unidad_medida: "unidades", precio_unitario: 0.05,
+    precio_promedio_ponderado: 0.05, stock_seguridad: 3000, cuenta_contable: "5-1110",
     ubicacion_fisica: "Bodega B, Estante 3", proveedor_id: "PackMaster Ltda.",
     campos_extra: [], activo: true,
     created_at: "2026-01-01T08:00:00Z", updated_at: "2026-05-24T10:00:00Z",
@@ -285,6 +330,7 @@ const DEMO_CATALOGOS: InvCatalogo[] = [
     cantidad_actual: 320,    // BAJO (min: 500)
     cantidad_minima: 500, cantidad_maxima: 5000,
     unidad_medida: "unidades", precio_unitario: 1.50,
+    precio_promedio_ponderado: 1.50, stock_seguridad: 600, cuenta_contable: "5-1110",
     ubicacion_fisica: "Bodega B, Estante 1", proveedor_id: "PackMaster Ltda.",
     campos_extra: [], activo: true,
     created_at: "2026-01-01T08:00:00Z", updated_at: "2026-05-25T10:00:00Z",
@@ -295,6 +341,7 @@ const DEMO_CATALOGOS: InvCatalogo[] = [
     nombre: "Azoxystrobin 1L", categoria: "Fungicidas",
     cantidad_actual: 66.5, cantidad_minima: 10, cantidad_maxima: 100,
     unidad_medida: "litros", precio_unitario: 45.00,
+    precio_promedio_ponderado: 45.00, stock_seguridad: 15, cuenta_contable: "5-1230",
     ubicacion_fisica: "Bodega A, Sector Fitosanitarios", proveedor_id: "AgroquímPro S.A.",
     campos_extra: [
       { nombre: "numero_lote",       etiqueta: "Nº de lote",     tipo: "Texto", valor: "AZ-2026-05" },
@@ -312,6 +359,7 @@ const DEMO_CATALOGOS: InvCatalogo[] = [
     nombre: "Fertilizante NPK 20-20-20", categoria: "Fertilizantes",
     cantidad_actual: 45, cantidad_minima: 20, cantidad_maxima: 200,
     unidad_medida: "kg", precio_unitario: 1.20,
+    precio_promedio_ponderado: 1.20, stock_seguridad: 30, cuenta_contable: "5-1220",
     ubicacion_fisica: "Bodega A, Sector Fertilizantes", proveedor_id: "NutriAgro Chile",
     campos_extra: [
       { nombre: "grado",        etiqueta: "Grado NPK",    tipo: "Texto", valor: "20-20-20" },
@@ -328,6 +376,7 @@ const DEMO_CATALOGOS: InvCatalogo[] = [
     cantidad_actual: 180,
     cantidad_minima: 200, cantidad_maxima: 1000,
     unidad_medida: "kg", precio_unitario: 0.80,
+    precio_promedio_ponderado: 0.80, stock_seguridad: 250, cuenta_contable: "5-1210",
     ubicacion_fisica: "Vivero Central, Zona Sustratos", proveedor_id: "CocoTec Ltda.",
     campos_extra: [
       { nombre: "humedad_max",   etiqueta: "Humedad máx.",  tipo: "Texto",  valor: "50%" },
@@ -344,6 +393,7 @@ const DEMO_CATALOGOS: InvCatalogo[] = [
     nombre: "Medio MS estéril 1L", categoria: "Reactivos",
     cantidad_actual: 12, cantidad_minima: 5, cantidad_maxima: 50,
     unidad_medida: "litros", precio_unitario: 89.00,
+    precio_promedio_ponderado: 89.00, stock_seguridad: 8, cuenta_contable: "5-1240",
     ubicacion_fisica: "Laboratorio, Refrigerador 1", proveedor_id: "BioScience Ltda.",
     campos_extra: [
       { nombre: "temperatura_almacen", etiqueta: "Temp. almacenamiento", tipo: "Texto",  valor: "4°C" },
@@ -625,8 +675,17 @@ interface InventarioContextValue {
   getLotesByProducto: (catalogoId: string) => InvLote[];
   /** Devuelve lotes activos de un producto ordenados por FEFO (vencimiento más próximo primero) */
   getLotesFEFO:       (catalogoId: string) => InvLote[];
-  proveedores:             string[];
-  agregarProveedor:        (nombre: string) => void;
+  proveedores:             InvProveedor[];
+  agregarProveedor:        (p: Omit<InvProveedor, "id" | "created_at" | "updated_at">) => void;
+  editarProveedor:         (id: string, cambios: Partial<Omit<InvProveedor, "id" | "created_at">>) => void;
+  eliminarProveedor:       (id: string) => void;
+  ordenes:                 InvOrdenCompra[];
+  crearOrden:              (o: Omit<InvOrdenCompra, "id" | "created_at" | "updated_at">) => InvOrdenCompra;
+  editarOrden:             (id: string, cambios: Partial<Omit<InvOrdenCompra, "id" | "created_at">>) => void;
+  eliminarOrden:           (id: string) => void;
+  aprobarOrden:            (id: string, aprobadoPor: string) => void;
+  recibirOrden:            (id: string) => void;
+  cancelarOrden:           (id: string) => void;
   getProductosByModulo:    (moduloId: string) => InvCatalogo[];
   getAllProductos:          () => InvCatalogo[];
   getMovimientosByProducto:(catalogoId: string) => InvMovimiento[];
@@ -702,12 +761,111 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
   const [formularioMapas, setFormularioMapas] = useState<InvFormularioMapa[]>(DEMO_FORMULARIO_MAPAS);
   const [lotes,           setLotes]           = useState<InvLote[]>(DEMO_LOTES);
 
-  // Lista de proveedores conocidos (se llena desde los productos + nuevos que agrega el admin)
-  const proveedoresIniciales = [...new Set(DEMO_CATALOGOS.map(c => c.proveedor_id).filter(Boolean) as string[])];
-  const [proveedores, setProveedores] = useState<string[]>(proveedoresIniciales);
+  const DEMO_PROVEEDORES: InvProveedor[] = [
+    { id: "prov-1", nombre: "AgroquímPro S.A.",  ruc: "20100123456", autorizado: true,  modulo_ids: ["laboratorio", "cultivo"],      created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
+    { id: "prov-2", nombre: "PackMaster Ltda.",   ruc: "20200234567", autorizado: true,  modulo_ids: ["post_cosecha"],                created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
+    { id: "prov-3", nombre: "NutriAgro Chile",    ruc: "20300345678", autorizado: true,  modulo_ids: ["cultivo", "vivero"],           created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
+    { id: "prov-4", nombre: "BioLab Supplies",    ruc: "20400456789", autorizado: false, modulo_ids: ["laboratorio"],                 created_at: "2026-02-01T00:00:00Z", updated_at: "2026-02-01T00:00:00Z" },
+  ];
 
-  const agregarProveedor = useCallback((nombre: string) => {
-    setProveedores(prev => prev.includes(nombre) ? prev : [...prev, nombre].sort());
+  const [proveedores, setProveedores] = useState<InvProveedor[]>(DEMO_PROVEEDORES);
+
+  const agregarProveedor = useCallback((p: Omit<InvProveedor, "id" | "created_at" | "updated_at">) => {
+    const now = new Date().toISOString();
+    const nuevo: InvProveedor = { ...p, id: `prov-${Date.now()}`, created_at: now, updated_at: now };
+    setProveedores(prev => [...prev, nuevo]);
+  }, []);
+
+  const editarProveedor = useCallback((id: string, cambios: Partial<Omit<InvProveedor, "id" | "created_at">>) => {
+    setProveedores(prev => prev.map(p => p.id === id ? { ...p, ...cambios, updated_at: new Date().toISOString() } : p));
+  }, []);
+
+  const eliminarProveedor = useCallback((id: string) => {
+    setProveedores(prev => prev.filter(p => p.id !== id));
+  }, []);
+
+  // ── Órdenes de compra ──────────────────────────────────────────────────────
+  const DEMO_ORDENES: InvOrdenCompra[] = [
+    {
+      id: "ord-1", numero: "Agrosa_1", cliente_id: "cli-agrotati", proveedor_id: "prov-1",
+      solicitado_por: "Genesis Rubira", estado: "solicitado", fecha_pedido: "2026-06-12",
+      lineas: [
+        { id: "lin-1", producto_id: "INV-001", cantidad: 10, precio_unitario: 2,   estado: "aprobado",    cantidad_recibida: 0 },
+        { id: "lin-2", producto_id: "INV-002", cantidad: 5,  precio_unitario: 15,  estado: "sin_aprobar", cantidad_recibida: 0 },
+      ],
+      created_at: "2026-04-01T10:00:00Z", updated_at: "2026-04-01T10:00:00Z",
+    },
+    {
+      id: "ord-2", numero: "IX3INTERNATIONAL_1", cliente_id: "cli-agrotati", proveedor_id: "prov-2",
+      solicitado_por: "Genesis Rubira", estado: "solicitado", fecha_pedido: "2026-06-12",
+      lineas: [
+        { id: "lin-3", producto_id: "INV-003", cantidad: 20, precio_unitario: 5,   estado: "sin_aprobar", cantidad_recibida: 0 },
+      ],
+      created_at: "2026-04-01T11:00:00Z", updated_at: "2026-04-01T11:00:00Z",
+    },
+    {
+      id: "ord-3", numero: "IX3INTERNATIONAL_1", cliente_id: "cli-ecuablue", proveedor_id: "prov-2",
+      solicitado_por: "Genesis Rubira", estado: "solicitado", fecha_pedido: "2026-06-12",
+      lineas: [
+        { id: "lin-4", producto_id: "INV-001", cantidad: 8, precio_unitario: 2,   estado: "sin_aprobar", cantidad_recibida: 0 },
+      ],
+      created_at: "2026-04-01T12:00:00Z", updated_at: "2026-04-01T12:00:00Z",
+    },
+    {
+      id: "ord-4", numero: "Agrosa_1", cliente_id: "cli-sierrablue", proveedor_id: "prov-1",
+      solicitado_por: "Genesis Rubira", estado: "solicitado", fecha_pedido: "2026-06-12",
+      lineas: [
+        { id: "lin-5", producto_id: "INV-002", cantidad: 3, precio_unitario: 15, estado: "aprobado", cantidad_recibida: 0 },
+      ],
+      created_at: "2026-04-01T13:00:00Z", updated_at: "2026-04-01T13:00:00Z",
+    },
+  ];
+
+  const [ordenes, setOrdenes] = useState<InvOrdenCompra[]>(DEMO_ORDENES);
+
+  const crearOrden = useCallback((o: Omit<InvOrdenCompra, "id" | "created_at" | "updated_at">): InvOrdenCompra => {
+    const now = new Date().toISOString();
+    const nueva: InvOrdenCompra = { ...o, id: `ord-${Date.now()}`, created_at: now, updated_at: now };
+    setOrdenes(prev => [...prev, nueva]);
+    return nueva;
+  }, []);
+
+  const editarOrden = useCallback((id: string, cambios: Partial<Omit<InvOrdenCompra, "id" | "created_at">>) => {
+    setOrdenes(prev => prev.map(o => o.id === id ? { ...o, ...cambios, updated_at: new Date().toISOString() } : o));
+  }, []);
+
+  const eliminarOrden = useCallback((id: string) => {
+    setOrdenes(prev => prev.filter(o => o.id !== id));
+  }, []);
+
+  const aprobarOrden = useCallback((id: string, aprobadoPor: string) => {
+    setOrdenes(prev => prev.map(o => o.id === id
+      ? {
+          ...o,
+          estado: "aprobado",
+          aprobado_por: aprobadoPor,
+          lineas: o.lineas.map(l => ({ ...l, estado: "aprobado" as const })),
+          updated_at: new Date().toISOString(),
+        }
+      : o));
+  }, []);
+
+  const recibirOrden = useCallback((id: string) => {
+    setOrdenes(prev => prev.map(o => {
+      if (o.id !== id) return o;
+      return {
+        ...o,
+        estado: "recibido",
+        lineas: o.lineas.map(l => ({ ...l, cantidad_recibida: l.cantidad })),
+        updated_at: new Date().toISOString(),
+      };
+    }));
+  }, []);
+
+  const cancelarOrden = useCallback((id: string) => {
+    setOrdenes(prev => prev.map(o => o.id === id
+      ? { ...o, estado: "cancelado", updated_at: new Date().toISOString() }
+      : o));
   }, []);
 
   // ── Scope ──────────────────────────────────────────────────────────────────
@@ -823,9 +981,18 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     }
 
     setMovimientos(prev => [...prev, mov]);
-    setCatalogos(prev => prev.map(p =>
-      p.id === catalogoId ? { ...p, cantidad_actual: nueva, updated_at: now } : p,
-    ));
+    setCatalogos(prev => prev.map(p => {
+      if (p.id !== catalogoId) return p;
+      // Recalcular PPP solo en entradas con precio informado
+      let ppp = p.precio_promedio_ponderado;
+      if (tipo === "entrada" && opciones.precio_unitario != null && opciones.precio_unitario > 0) {
+        const costoExistente = anterior * ppp;
+        const costoNuevo     = cantidad * opciones.precio_unitario;
+        ppp = nueva > 0 ? (costoExistente + costoNuevo) / nueva : opciones.precio_unitario;
+        ppp = Math.round(ppp * 10000) / 10000;
+      }
+      return { ...p, cantidad_actual: nueva, precio_promedio_ponderado: ppp, updated_at: now };
+    }));
     return true;
   }, [catalogos, currentUser]);
 
@@ -1285,7 +1452,8 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<InventarioContextValue>(() => ({
     catalogos, movimientos, formularioMapas, lotes,
-    proveedores, agregarProveedor,
+    proveedores, agregarProveedor, editarProveedor, eliminarProveedor,
+    ordenes, crearOrden, editarOrden, eliminarOrden, aprobarOrden, recibirOrden, cancelarOrden,
     agregarProducto, editarProducto, desactivarProducto, registrarMovimiento,
     agregarRegla, editarRegla, toggleRegla, eliminarRegla,
     agregarLote, editarLote, getLotesByProducto, getLotesFEFO,
@@ -1294,7 +1462,8 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     previewReversion, revertirMovimientos, ajustarMovimientosTablaInsumos, ajustarMovimientosProductoFijo, realizarTransferencia,
   }), [
     catalogos, movimientos, formularioMapas, lotes,
-    proveedores, agregarProveedor,
+    proveedores, agregarProveedor, editarProveedor, eliminarProveedor,
+    ordenes, crearOrden, editarOrden, eliminarOrden, aprobarOrden, recibirOrden, cancelarOrden,
     agregarProducto, editarProducto, desactivarProducto, registrarMovimiento,
     agregarRegla, editarRegla, toggleRegla, eliminarRegla,
     agregarLote, editarLote, getLotesByProducto, getLotesFEFO,

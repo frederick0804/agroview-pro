@@ -36,6 +36,7 @@ import {
   getCampoVencimiento,
   type InvCatalogo, type InvMovimientoTipo, type InvMovimiento,
   type InvCampoConValor, type InvCampoTipo, type AlertaVencimiento, type InvLote,
+  type InvProveedor,
 } from "@/contexts/InventarioContext";
 import { useRole } from "@/contexts/RoleContext";
 import {
@@ -47,6 +48,7 @@ import {
   History, Filter, Download, CalendarClock, Search,
   ClipboardCheck, BookOpen, AlertCircle as AlertCircleIcon,
   Maximize2, Minimize2, Calendar, ArrowLeftRight, Tag, MoreHorizontal,
+  Building2, ShieldCheck, ShieldOff, Trash2, GripVertical,
 } from "lucide-react";
 import { exportToCsv } from "@/lib/exportCsv";
 import { useConfig }   from "@/contexts/ConfigContext";
@@ -241,6 +243,12 @@ function ProductCard({
   const status    = getStockStatus(p);
   const pct       = getStockPct(p);
   const inactivo  = !p.activo;
+  const riesgoLabel = status === "critico" ? "Riesgo critico" : status === "bajo" ? "Reposicion sugerida" : "Sin riesgo";
+  const riesgoCls = status === "critico"
+    ? "text-red-700 bg-red-50 border-red-200 dark:text-red-400 dark:bg-red-950/20 dark:border-red-900/40"
+    : status === "bajo"
+      ? "text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-400 dark:bg-amber-950/20 dark:border-amber-900/40"
+      : "text-green-700 bg-green-50 border-green-200 dark:text-green-400 dark:bg-green-950/20 dark:border-green-900/40";
 
   return (
     <div
@@ -269,8 +277,33 @@ function ProductCard({
         </div>
       </div>
 
+      <div className={cn("px-4 pb-3", inactivo && "opacity-50")}>
+        <div className="mb-2 flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Stock actual</p>
+            <p className={cn(
+              "mt-0.5 text-3xl font-bold leading-none tabular-nums",
+              !inactivo && status === "critico" && "text-red-600 dark:text-red-400",
+              !inactivo && status === "bajo" && "text-amber-600 dark:text-amber-400",
+            )}>
+              {fmtNum(p.cantidad_actual, 1)}
+              <span className="ml-1 text-sm font-medium text-muted-foreground">{p.unidad_medida}</span>
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Valor</p>
+            <p className="text-sm font-bold tabular-nums">{fmtCurrency(p.cantidad_actual * p.precio_promedio_ponderado)}</p>
+          </div>
+        </div>
+        <StockBar p={p} />
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", riesgoCls)}>{riesgoLabel}</span>
+          <span className="text-[11px] text-muted-foreground">{pct.toFixed(0)}% max / min {fmtNum(p.cantidad_minima)}</span>
+        </div>
+      </div>
+
       {/* Stock bar */}
-      <div className={cn("px-4 pb-2", inactivo && "opacity-50")}>
+      <div className={cn("hidden px-4 pb-2", inactivo && "opacity-50")}>
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-[11px] text-muted-foreground">{pct.toFixed(0)}% del máximo</span>
           <span className="text-[11px] font-medium text-muted-foreground">
@@ -284,41 +317,77 @@ function ProductCard({
         </p>
       </div>
 
-      {/* Actions */}
+      {/* Datos financieros */}
+      {!inactivo && (
+        <div className="hidden px-4 pb-2.5 grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Precio unit.</span>
+            <span className="font-semibold">{fmtCurrency(p.precio_unitario)}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">PPP</span>
+            <span className={cn("font-semibold", p.precio_promedio_ponderado !== p.precio_unitario ? "text-amber-600 dark:text-amber-400" : "")}>
+              {fmtCurrency(p.precio_promedio_ponderado)}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Valor total</span>
+            <span className="font-semibold">{fmtCurrency(p.cantidad_actual * p.precio_promedio_ponderado)}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Stock seg.</span>
+            <span className={cn("font-semibold", p.stock_seguridad > 0 && p.cantidad_actual <= p.stock_seguridad ? "text-orange-600 dark:text-orange-400" : "")}>
+              {p.stock_seguridad > 0 ? fmtNum(p.stock_seguridad) : <span className="text-muted-foreground/60">—</span>}
+            </span>
+          </div>
+          {p.cuenta_contable && (
+            <div className="col-span-2 flex items-center gap-1.5">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Cuenta</span>
+              <span className="font-mono text-[11px] rounded bg-muted px-1.5 py-0.5">{p.cuenta_contable}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Actions — 1 CTA primario contextual + 1 secundario */}
       <div
-        className="mt-auto flex items-center gap-1 border-t border-border bg-muted/20 px-3 py-2"
+        className="mt-auto flex flex-col gap-1.5 border-t border-border bg-muted/20 px-3 py-2.5"
         onClick={e => e.stopPropagation()}
       >
         {!inactivo ? (
           <>
+            {/* CTA primario: "Registrar entrada" si hay alerta, "Registrar movimiento" si OK */}
             <button
-              className="flex-1 rounded-md bg-green-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-green-700 transition-colors"
+              className={cn(
+                "w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                status === "ok"
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                  : "bg-green-600 text-white hover:bg-green-700",
+              )}
               onClick={() => onMovimiento(p.id, "entrada")}
             >
-              + Entrada
+              <ArrowDown className="h-3.5 w-3.5" />
+              {status !== "ok" ? "Reponer stock" : "Nueva entrada"}
             </button>
-            <button
-              className="flex-1 rounded-md bg-red-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-red-700 transition-colors"
-              onClick={() => onMovimiento(p.id, "salida")}
-            >
-              − Salida
-            </button>
-            <button
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              onClick={() => onSelect(p.id)}
-            >
-              Detalle <ChevronRight className="h-3 w-3" />
-            </button>
-            <button
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-              onClick={() => onKardex(p.id)}
-              title="Balance de stock"
-            >
-              <BookOpen className="h-3 w-3" />
-            </button>
+            {/* CTA secundario: detalle + acciones adicionales */}
+            <div className="flex items-center gap-1">
+              <button
+                className="flex-1 flex items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                onClick={() => onSelect(p.id)}
+              >
+                Ver detalle y movimientos <ChevronRight className="h-3 w-3" />
+              </button>
+              <button
+                className="flex items-center justify-center rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                onClick={() => onMovimiento(p.id, "salida")}
+                title="Registrar salida"
+              >
+                <ArrowUp className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </>
         ) : (
-          <span className="flex-1 text-center text-[11px] italic text-muted-foreground">Producto inactivo</span>
+          <span className="flex-1 text-center text-[11px] italic text-muted-foreground">Producto inactivo — deshabilitado en formularios</span>
         )}
 
         {/* Menú "···" — edición / activar-desactivar (solo admins) */}
@@ -370,19 +439,15 @@ function FilterPanel({
   productos,
   filterModulo, setFilterModulo,
   filterEstado, setFilterEstado,
-  onReponer,
 }: {
   productos: InvCatalogo[];
   filterModulo: string;
   setFilterModulo: (v: string) => void;
   filterEstado: string;
   setFilterEstado: (v: string) => void;
-  onReponer: (id: string) => void;
 }) {
-  const { getAllProductos, getAlertasVencimiento } = useInventario();
-  const allProductos    = getAllProductos();
-  const alertas         = allProductos.filter(p => getStockStatus(p) !== "ok");
-  const alertasVenc     = getAlertasVencimiento();
+  const { getAllProductos } = useInventario();
+  const allProductos = getAllProductos();
 
   const moduloCount = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -465,43 +530,6 @@ function FilterPanel({
 
       {/* Reglas — compacto en sidebar */}
       <ReglasBanner variant="sidebar" />
-
-      {/* Alert mini-list */}
-      {alertas.length > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-800/40 dark:bg-amber-900/10">
-          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-amber-800 dark:text-amber-400">
-            <AlertTriangle className="h-3.5 w-3.5" /> {alertas.length} alerta{alertas.length !== 1 ? "s" : ""}
-          </div>
-          <div className="space-y-2">
-            {alertas.map(p => (
-              <div key={p.id} className="text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium truncate max-w-[130px]">{p.nombre}</span>
-                  <span className={cn("rounded-full px-1.5 py-0 text-[10px] font-medium",
-                    getStockStatus(p) === "critico"
-                      ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                      : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-                  )}>
-                    {getStockStatus(p) === "critico" ? "Crítico" : "Bajo"}
-                  </span>
-                </div>
-                <StockBar p={p} className="mt-1 h-1" />
-                <button
-                  className="mt-1 text-[10px] text-green-700 hover:underline dark:text-green-400"
-                  onClick={() => onReponer(p.id)}
-                >
-                  Reponer →
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Alertas de vencimiento */}
-      {alertasVenc.length > 0 && (
-        <VencimientoPanel alertas={alertasVenc} />
-      )}
     </aside>
   );
 }
@@ -646,16 +674,25 @@ function diasParaVencer(fechaISO: string): number {
   return Math.round((vence.getTime() - hoy.getTime()) / 86_400_000);
 }
 
-function LotesPanel({ productoId, unidad, onRegistrarEntrada, onVerHistorial }: {
+function LotesPanel({ productoId, unidad, onRegistrarEntrada, onUsarLote, onVerHistorial }: {
   productoId: string;
   unidad: string;
   onRegistrarEntrada?: () => void;
+  onUsarLote?: (lote: InvLote) => void;
   /** Filtra "Historial de movimientos" del producto para mostrar solo los de este lote */
   onVerHistorial?: (numeroLote: string) => void;
 }) {
   const { getLotesByProducto, editarLote, registrarMovimiento } = useInventario();
   const lotes = getLotesByProducto(productoId);
   const lotesOrdenados = [...lotes].sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento));
+  const lotesActivos = lotesOrdenados.filter(l => l.activo && l.cantidad_actual > 0);
+  const fefoRecomendado = lotesActivos[0] ?? null;
+  const vencimientoMeta = (fecha: string) => {
+    const dias = diasParaVencer(fecha);
+    if (dias < 0) return { dias, label: `Vencido ${Math.abs(dias)}d`, cls: "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800/50", dot: "bg-red-500" };
+    if (dias <= 30) return { dias, label: dias === 0 ? "Vence hoy" : `${dias}d`, cls: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800/50", dot: "bg-amber-500" };
+    return { dias, label: `${dias}d`, cls: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800/50", dot: "bg-green-500" };
+  };
   const [confirmLote, setConfirmLote] = useState<InvLote | null>(null);
   const [descontarStock, setDescontarStock] = useState(true);
 
@@ -725,6 +762,132 @@ function LotesPanel({ productoId, unidad, onRegistrarEntrada, onVerHistorial }: 
       )}
 
       {/* Lista de lotes — colapsada por tarjeta + scroll si hay muchos, para que el panel no se desborde */}
+      {lotesOrdenados.length > 0 && (
+        <div className="space-y-3">
+          {fefoRecomendado && (() => {
+            const meta = vencimientoMeta(fefoRecomendado.fecha_vencimiento);
+            return (
+              <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">FEFO recomendado</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <span className="rounded-lg bg-background px-2 py-1 font-mono text-sm font-bold shadow-sm">{fefoRecomendado.numero_lote}</span>
+                      <span className="text-sm font-semibold">{fmtNum(fefoRecomendado.cantidad_actual, 1)} {unidad}</span>
+                      <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium", meta.cls)}>
+                        <span className={cn("h-1.5 w-1.5 rounded-full", meta.dot)} />
+                        {meta.label}
+                      </span>
+                      {fefoRecomendado.proveedor_id && (
+                        <span className="truncate text-xs text-muted-foreground">{fefoRecomendado.proveedor_id}</span>
+                      )}
+                    </div>
+                  </div>
+                  {onUsarLote && (
+                    <Button size="sm" className="h-8 shrink-0 gap-1.5" onClick={() => onUsarLote(fefoRecomendado)}>
+                      <ArrowUp className="h-3.5 w-3.5" /> Usar este lote
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          <div className="flex flex-wrap gap-2">
+            {lotesOrdenados.slice(0, 8).map(lote => {
+              const meta = vencimientoMeta(lote.fecha_vencimiento);
+              return (
+                <button
+                  key={lote.id}
+                  type="button"
+                  onClick={() => toggleExpand(lote.id)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-[11px] font-medium shadow-sm transition-colors hover:bg-muted",
+                    !lote.activo && "opacity-50",
+                    fefoRecomendado?.id === lote.id && "border-primary text-primary",
+                  )}
+                >
+                  <span className={cn("h-1.5 w-1.5 rounded-full", meta.dot)} />
+                  <span className="font-mono">{lote.numero_lote}</span>
+                  <span className="text-muted-foreground">{fmtNum(lote.cantidad_actual, 1)}</span>
+                  <span className={cn("rounded-full px-1.5 py-0 text-[10px]", meta.cls)}>{meta.label}</span>
+                </button>
+              );
+            })}
+            {lotesOrdenados.length > 8 && (
+              <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
+                +{lotesOrdenados.length - 8} lotes
+              </span>
+            )}
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-border">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border bg-muted/40">
+                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Lote</th>
+                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Cantidad</th>
+                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Vencimiento</th>
+                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Proveedor</th>
+                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Accion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lotesOrdenados.map(lote => {
+                  const meta = vencimientoMeta(lote.fecha_vencimiento);
+                  return (
+                    <tr key={lote.id} className={cn("border-b border-border/50 last:border-0", fefoRecomendado?.id === lote.id && "bg-primary/5", !lote.activo && "opacity-50")}>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className={cn("h-2 w-2 rounded-full", meta.dot)} />
+                          <span className="font-mono font-semibold">{lote.numero_lote}</span>
+                          {fefoRecomendado?.id === lote.id && (
+                            <span className="rounded-full bg-primary/10 px-1.5 py-0 text-[10px] font-semibold text-primary">FEFO</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                        {fmtNum(lote.cantidad_actual, 1)} <span className="font-normal text-muted-foreground">{unidad}</span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium", meta.cls)}>
+                          <span className={cn("h-1.5 w-1.5 rounded-full", meta.dot)} />
+                          {new Date(lote.fecha_vencimiento).toLocaleDateString("es-CL")} · {meta.label}
+                        </span>
+                      </td>
+                      <td className="max-w-[160px] truncate px-3 py-2 text-muted-foreground">
+                        {lote.proveedor_id || "Sin proveedor"}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="inline-flex items-center gap-1">
+                          {onUsarLote && lote.activo && lote.cantidad_actual > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => onUsarLote(lote)}
+                              className="rounded-md border border-border px-2 py-1 text-[11px] font-medium hover:bg-muted"
+                            >
+                              Usar lote
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => toggleExpand(lote.id)}
+                            className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                            title="Ver ficha del lote"
+                          >
+                            <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expandedLotes.has(lote.id) && "rotate-90")} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {lotesOrdenados.length > 0 && (
         <div className={cn(
           "space-y-2",
@@ -1033,7 +1196,7 @@ function LotesPanel({ productoId, unidad, onRegistrarEntrada, onVerHistorial }: 
                 <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1.5">
                   <Tag className="h-3 w-3" /> Ficha del lote
                 </p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="hidden grid-cols-2 gap-3">
                   {editForm.campos_extra.map((c, idx) => (
                     <div key={c.nombre} className="space-y-1">
                       <Label className="text-xs">{c.etiqueta || c.nombre}</Label>
@@ -1109,18 +1272,40 @@ function LotesPanel({ productoId, unidad, onRegistrarEntrada, onVerHistorial }: 
 // ─── Detalle Sheet ────────────────────────────────────────────────────────────
 
 function DetalleSheet({
-  productId, open, onClose, onMovimiento, onKardex, onVerHistorialLote,
+  productId, open, onClose, onMovimiento, onKardex, onTransferir, onVerHistorialLote,
 }: {
   productId: string | null;
   open: boolean;
   onClose: () => void;
   onMovimiento: (id: string, tipo: InvMovimientoTipo) => void;
   onKardex: (id: string) => void;
+  onTransferir: (id: string) => void;
   /** Lleva al usuario al tab "Movimientos" pre-filtrado por producto + lote */
   onVerHistorialLote: (productoId: string, loteNumero: string) => void;
 }) {
-  const { catalogos } = useInventario();
+  const { catalogos, movimientos, getLotesByProducto } = useInventario();
   const p = productId ? catalogos.find(x => x.id === productId) : null;
+  const productMovs = useMemo(
+    () => productId
+      ? movimientos
+          .filter(m => m.catalogo_id === productId)
+          .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.created_at.localeCompare(a.created_at))
+      : [],
+    [movimientos, productId],
+  );
+  const lotesProducto = productId ? getLotesByProducto(productId) : [];
+  const proximoLote = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return [...lotesProducto]
+      .filter(l => l.activo && l.cantidad_actual > 0)
+      .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento))[0] ?? null;
+  }, [lotesProducto]);
+  const [detailTab, setDetailTab] = useState<"lotes" | "kardex" | "datos">("lotes");
+
+  useEffect(() => {
+    setDetailTab("lotes");
+  }, [productId]);
 
   return (
     <Sheet open={open} onOpenChange={v => { if (!v) onClose(); }}>
@@ -1141,10 +1326,202 @@ function DetalleSheet({
               </div>
             </SheetHeader>
 
+            {(() => {
+              const status = getStockStatus(p);
+              const statusMeta = {
+                ok: { label: "OK", cls: "border-green-200 bg-green-50/80 text-green-700 dark:border-green-900/40 dark:bg-green-950/20 dark:text-green-400" },
+                bajo: { label: "Bajo", cls: "border-amber-200 bg-amber-50/80 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-400" },
+                critico: { label: "Critico", cls: "border-red-200 bg-red-50/80 text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-400" },
+              }[status];
+              const diasProxLote = proximoLote ? diasParaVencer(proximoLote.fecha_vencimiento) : null;
+
+              return (
+                <div className="shrink-0 border-b border-border bg-background px-5 py-3">
+                  <div className="grid gap-3">
+                    <div className="grid gap-3 sm:grid-cols-[1fr_150px_150px]">
+                      <div className="rounded-xl border border-border bg-card px-4 py-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Stock actual</p>
+                        <div className="mt-1 flex items-end justify-between gap-3">
+                          <p className={cn(
+                            "text-4xl font-bold leading-none tabular-nums",
+                            status === "critico" && "text-red-600 dark:text-red-400",
+                            status === "bajo" && "text-amber-600 dark:text-amber-400",
+                          )}>
+                            {fmtNum(p.cantidad_actual, 1)}
+                            <span className="ml-1 text-sm font-medium text-muted-foreground">{p.unidad_medida}</span>
+                          </p>
+                          <span className={cn("rounded-full border px-2 py-0.5 text-xs font-semibold", statusMeta.cls)}>{statusMeta.label}</span>
+                        </div>
+                        <div className="mt-3">
+                          <StockBar p={p} />
+                          <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+                            <span>Min {fmtNum(p.cantidad_minima)}</span>
+                            <span>{getStockPct(p).toFixed(0)}% max</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-border bg-card px-3 py-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Riesgo</p>
+                        <p className="mt-1 text-sm font-bold">{status === "critico" ? "Reposicion urgente" : status === "bajo" ? "Reponer pronto" : "Controlado"}</p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                          {proximoLote ? `Lote ${proximoLote.numero_lote} / ${diasProxLote! < 0 ? "vencido" : `${diasProxLote}d`}` : "Sin lote activo"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-border bg-card px-3 py-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Valor</p>
+                        <p className="mt-1 text-lg font-bold tabular-nums">{fmtCurrency(p.cantidad_actual * p.precio_promedio_ponderado)}</p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">PPP {fmtCurrency(p.precio_promedio_ponderado)}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-2 sm:w-[300px] sm:justify-self-end">
+                      <Button size="sm" className="h-10 gap-1 bg-green-600 text-white hover:bg-green-700" onClick={() => onMovimiento(p.id, "entrada")} title="Entrada">
+                        <ArrowDown className="h-4 w-4" />
+                      </Button>
+                      <Button size="sm" className="h-10 gap-1 bg-red-600 text-white hover:bg-red-700" onClick={() => onMovimiento(p.id, "salida")} title="Salida">
+                        <ArrowUp className="h-4 w-4" />
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-10 gap-1 border-amber-300 text-amber-700 hover:bg-amber-50 dark:text-amber-400" onClick={() => onMovimiento(p.id, "ajuste")} title="Ajuste">
+                        <SlidersHorizontal className="h-4 w-4" />
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-10 gap-1" onClick={() => onTransferir(p.id)} title="Transferir">
+                        <ArrowLeftRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             <ScrollArea className="flex-1">
               <div className="space-y-5 p-5">
+                {(() => {
+                  const status = getStockStatus(p);
+                  const statusMeta = {
+                    ok: { label: "Stock saludable", cls: "border-green-200 bg-green-50/80 text-green-700 dark:border-green-900/40 dark:bg-green-950/20 dark:text-green-400" },
+                    bajo: { label: "Bajo minimo", cls: "border-amber-200 bg-amber-50/80 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-400" },
+                    critico: { label: "Critico", cls: "border-red-200 bg-red-50/80 text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-400" },
+                  }[status];
+                  const ultimoMov = productMovs[0];
+                  const diasProxLote = proximoLote ? diasParaVencer(proximoLote.fecha_vencimiento) : null;
+
+                  return (
+                    <div className="hidden overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+                      <div className={cn("border-b px-5 py-4", statusMeta.cls)}>
+                        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide opacity-75">Stock actual</p>
+                            <div className="mt-1 flex items-baseline gap-2">
+                              <span className="text-4xl font-bold tabular-nums text-foreground">{fmtNum(p.cantidad_actual, 1)}</span>
+                              <span className="text-sm font-medium text-muted-foreground">{p.unidad_medida}</span>
+                            </div>
+                            <p className="mt-1 text-sm font-semibold">{statusMeta.label}</p>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:min-w-[390px]">
+                            {[
+                              { label: "Valor", value: fmtCurrency(p.cantidad_actual * p.precio_promedio_ponderado), icon: <DollarSign className="h-3.5 w-3.5" /> },
+                              { label: "Minimo", value: `${fmtNum(p.cantidad_minima)} ${p.unidad_medida}`, icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+                              { label: "Ultimo mov.", value: ultimoMov ? `${ultimoMov.tipo} ${fmtNum(ultimoMov.cantidad, 1)}` : "Sin historial", icon: <History className="h-3.5 w-3.5" /> },
+                              { label: "Prox. lote", value: proximoLote ? (diasProxLote! < 0 ? "Vencido" : `${diasProxLote}d`) : "Sin lote", icon: <CalendarClock className="h-3.5 w-3.5" /> },
+                            ].map(item => (
+                              <div key={item.label} className="rounded-xl border border-border/70 bg-background/80 px-3 py-2 shadow-sm">
+                                <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                  {item.icon} {item.label}
+                                </div>
+                                <p className="truncate text-sm font-bold text-foreground">{item.value}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="mt-4">
+                          <div className="mb-2 flex justify-between text-xs text-muted-foreground">
+                            <span>Nivel de stock</span>
+                            <span>{getStockPct(p).toFixed(1)}% del maximo</span>
+                          </div>
+                          <div className="relative h-4 w-full overflow-hidden rounded-full bg-background/80">
+                            <div
+                              className={cn("h-full rounded-full transition-all duration-700",
+                                status === "critico" ? "bg-red-500" : status === "bajo" ? "bg-amber-500" : "bg-green-500")}
+                              style={{ width: `${getStockPct(p)}%` }}
+                            />
+                            {p.cantidad_maxima > 0 && (
+                              <div
+                                className="absolute top-0 h-full w-0.5 bg-foreground/40"
+                                style={{ left: `${Math.min(100, (p.cantidad_minima / p.cantidad_maxima) * 100)}%` }}
+                                title={`Minimo: ${fmtNum(p.cantidad_minima)}`}
+                              />
+                            )}
+                          </div>
+                          <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+                            <span>0</span><span>Min: {fmtNum(p.cantidad_minima)}</span><span>Max: {fmtNum(p.cantidad_maxima)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 p-4 md:grid-cols-[1fr_280px]">
+                        <div className="grid grid-cols-2 gap-3">
+                          <button onClick={() => onMovimiento(p.id, "entrada")} className="flex items-center justify-center gap-2 rounded-xl bg-green-600 px-3 py-3 text-sm font-semibold text-white transition-colors hover:bg-green-700">
+                            <ArrowDown className="h-4 w-4" /> Entrada
+                          </button>
+                          <button onClick={() => onMovimiento(p.id, "salida")} className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-3 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-700">
+                            <ArrowUp className="h-4 w-4" /> Salida
+                          </button>
+                          <button onClick={() => onMovimiento(p.id, "ajuste")} className="flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-400">
+                            <SlidersHorizontal className="h-4 w-4" /> Ajuste
+                          </button>
+                          <button onClick={() => onTransferir(p.id)} className="flex items-center justify-center gap-2 rounded-xl border border-border bg-background px-3 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted">
+                            <ArrowLeftRight className="h-4 w-4" /> Transferir
+                          </button>
+                        </div>
+
+                        <div className="rounded-xl border border-border bg-muted/20 p-3">
+                          <div className="mb-2 flex items-center justify-between">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Timeline</p>
+                            <button onClick={() => onKardex(p.id)} className="text-[11px] font-medium text-primary hover:underline">
+                              Ver todo
+                            </button>
+                          </div>
+                          <div className="space-y-2">
+                            {productMovs.slice(0, 4).map(m => {
+                              const isIn = m.tipo === "entrada";
+                              const isOut = m.tipo === "salida";
+                              return (
+                                <div key={m.id} className="flex gap-2">
+                                  <span className={cn(
+                                    "mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
+                                    isIn ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                      : isOut ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                        : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+                                  )}>
+                                    {isIn ? <ArrowDown className="h-3 w-3" /> : isOut ? <ArrowUp className="h-3 w-3" /> : <SlidersHorizontal className="h-3 w-3" />}
+                                  </span>
+                                  <div className="min-w-0 flex-1 border-b border-border/60 pb-2 last:border-0">
+                                    <p className="truncate text-xs font-semibold capitalize">
+                                      {m.tipo} · {fmtNum(m.cantidad, 1)} {p.unidad_medida}
+                                    </p>
+                                    <p className="truncate text-[11px] text-muted-foreground">
+                                      {m.fecha}{m.lote_numero ? ` · lote ${m.lote_numero}` : ""}{m.registro_origen_tipo ? ` · ${m.registro_origen_tipo}` : ""}
+                                    </p>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {productMovs.length === 0 && (
+                              <div className="rounded-lg border border-dashed border-border py-5 text-center text-xs text-muted-foreground">
+                                Sin movimientos registrados
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
                 {/* Metrics — 2×2 grid para no comprimir los valores */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="hidden grid-cols-2 gap-3">
                   {[
                     {
                       title: "Stock actual",
@@ -1188,7 +1565,7 @@ function DetalleSheet({
                 </div>
 
                 {/* Big stock bar */}
-                <div className="rounded-xl border border-border bg-muted/30 p-4">
+                <div className="hidden rounded-xl border border-border bg-muted/30 p-4">
                   <div className="mb-2 flex justify-between text-xs text-muted-foreground">
                     <span>Nivel de stock</span>
                     <span>{getStockPct(p).toFixed(1)}% del máximo</span>
@@ -1209,7 +1586,7 @@ function DetalleSheet({
                 </div>
 
                 {/* Actions */}
-                <div className="flex flex-wrap gap-2">
+                <div className="hidden flex-wrap gap-2">
                   <Button size="sm" className="gap-1.5 bg-green-600 text-white hover:bg-green-700" onClick={() => onMovimiento(p.id, "entrada")}>
                     <ArrowDown className="h-4 w-4" /> Registrar entrada
                   </Button>
@@ -1220,12 +1597,88 @@ function DetalleSheet({
                     <SlidersHorizontal className="h-4 w-4" /> Ajuste
                   </Button>
                   <Button size="sm" variant="outline" className="gap-1.5 ml-auto" onClick={() => onKardex(p.id)}>
-                    <BookOpen className="h-4 w-4" /> Balance de stock
+                    <BookOpen className="h-4 w-4" /> Historial de movimientos
                   </Button>
                 </div>
 
                 {/* Ficha técnica — campos propios del producto */}
-                {(p.campos_extra ?? []).filter(c => c.valor).length > 0 && (
+                <div className="flex rounded-xl border border-border bg-muted p-1">
+                  {([
+                    { id: "lotes", label: "Lotes", icon: <PackageOpen className="h-4 w-4" />, count: lotesProducto.filter(l => l.activo && l.cantidad_actual > 0).length },
+                    { id: "kardex", label: "Kardex", icon: <BookOpen className="h-4 w-4" />, count: productMovs.length },
+                    { id: "datos", label: "Datos", icon: <Info className="h-4 w-4" />, count: (p.campos_extra ?? []).filter(c => c.valor).length },
+                  ] as const).map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setDetailTab(tab.id)}
+                      className={cn(
+                        "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                        detailTab === tab.id
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {tab.icon}
+                      {tab.label}
+                      <span className={cn(
+                        "rounded-full px-1.5 py-0 text-[10px] font-bold",
+                        detailTab === tab.id ? "bg-primary/10 text-primary" : "bg-background text-muted-foreground",
+                      )}>
+                        {tab.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                {detailTab === "kardex" && (
+                  <div className="rounded-xl border border-border bg-card">
+                    <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                      <div>
+                        <p className="text-sm font-semibold">Kardex reciente</p>
+                        <p className="text-xs text-muted-foreground">Ultimos movimientos de este producto</p>
+                      </div>
+                      <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => onKardex(p.id)}>
+                        <BookOpen className="h-4 w-4" /> Ver todo
+                      </Button>
+                    </div>
+                    <div className="divide-y divide-border/60">
+                      {productMovs.slice(0, 8).map(m => {
+                        const isIn = m.tipo === "entrada";
+                        const isOut = m.tipo === "salida";
+                        return (
+                          <div key={m.id} className="grid grid-cols-[32px_1fr_auto] items-center gap-3 px-4 py-3">
+                            <span className={cn(
+                              "flex h-8 w-8 items-center justify-center rounded-full",
+                              isIn ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                : isOut ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+                            )}>
+                              {isIn ? <ArrowDown className="h-4 w-4" /> : isOut ? <ArrowUp className="h-4 w-4" /> : <SlidersHorizontal className="h-4 w-4" />}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold capitalize">{m.tipo} / {m.subtipo.replace(/_/g, " ")}</p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {m.fecha}{m.lote_numero ? ` / lote ${m.lote_numero}` : ""}{m.observaciones ? ` / ${m.observaciones}` : ""}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className={cn("text-sm font-bold tabular-nums", isIn ? "text-green-700 dark:text-green-400" : isOut ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400")}>
+                                {isIn ? "+" : isOut ? "-" : ""}{fmtNum(m.cantidad, 1)}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">{fmtNum(m.cantidad_nueva, 1)} {p.unidad_medida}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {productMovs.length === 0 && (
+                        <div className="px-4 py-10 text-center text-sm text-muted-foreground">Sin movimientos registrados</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {detailTab === "datos" && (p.campos_extra ?? []).filter(c => c.valor).length > 0 && (
                   <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
                     <p className="text-xs font-semibold text-primary flex items-center gap-2">
                       <Package className="h-4 w-4" /> Ficha técnica
@@ -1241,15 +1694,22 @@ function DetalleSheet({
                   </div>
                 )}
 
+                {detailTab === "datos" && (p.campos_extra ?? []).filter(c => c.valor).length === 0 && (
+                  <div className="rounded-xl border border-dashed border-border bg-muted/10 px-4 py-10 text-center text-sm text-muted-foreground">
+                    Este producto no tiene campos tecnicos adicionales.
+                  </div>
+                )}
+
                 {/* Panel de Lotes */}
-                <div className="rounded-xl border border-border bg-card p-4">
+                {detailTab === "lotes" && <div className="rounded-xl border border-border bg-card p-4">
                   <LotesPanel
                     productoId={p.id}
                     unidad={p.unidad_medida}
                     onRegistrarEntrada={() => onMovimiento(p.id, "entrada")}
+                    onUsarLote={() => onMovimiento(p.id, "salida")}
                     onVerHistorial={numero => onVerHistorialLote(p.id, numero)}
                   />
-                </div>
+                </div>}
 
               </div>
             </ScrollArea>
@@ -1271,12 +1731,14 @@ interface ProductoFormState {
   nombre: string; codigo: string; modulo_ids: string[]; categoria: string;
   cantidad_actual: string; cantidad_minima: string; cantidad_maxima: string;
   unidad_medida: string; precio_unitario: string;
+  stock_seguridad: string; cuenta_contable: string;
   ubicacion_fisica: string; proveedor_id: string;
   campos_extra: InvCampoConValor[]; // campos propios de este producto
 }
 const EMPTY_FORM: ProductoFormState = {
   nombre: "", codigo: "", modulo_ids: [], categoria: "", cantidad_actual: "",
   cantidad_minima: "", cantidad_maxima: "", unidad_medida: "unidades", precio_unitario: "",
+  stock_seguridad: "", cuenta_contable: "",
   ubicacion_fisica: "", proveedor_id: "", campos_extra: [],
 };
 function toFormState(p: InvCatalogo): ProductoFormState {
@@ -1285,6 +1747,8 @@ function toFormState(p: InvCatalogo): ProductoFormState {
     cantidad_actual: String(p.cantidad_actual), cantidad_minima: String(p.cantidad_minima),
     cantidad_maxima: String(p.cantidad_maxima), unidad_medida: p.unidad_medida,
     precio_unitario: String(p.precio_unitario),
+    stock_seguridad: String(p.stock_seguridad ?? ""),
+    cuenta_contable: p.cuenta_contable ?? "",
     ubicacion_fisica: p.ubicacion_fisica ?? "", proveedor_id: p.proveedor_id ?? "",
     campos_extra: p.campos_extra ?? [],
   };
@@ -1297,7 +1761,7 @@ function toNombreCampo(etiqueta: string): string {
 }
 
 function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpenChange: (v: boolean) => void; editing: InvCatalogo | null }) {
-  const { agregarProducto, editarProducto, proveedores, agregarProveedor, catalogos } = useInventario();
+  const { agregarProducto, editarProducto, proveedores, catalogos } = useInventario();
   const { currentUser } = useRole();
 
   // Categorías existentes derivadas del catálogo (únicas, ordenadas)
@@ -1386,15 +1850,21 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
         nombre: form.nombre, codigo: form.codigo, modulo_ids: form.modulo_ids,
         categoria: form.categoria, cantidad_minima: cantMin, cantidad_maxima: cantMax,
         unidad_medida: form.unidad_medida, precio_unitario: parseFloat(form.precio_unitario) || 0,
+        stock_seguridad: parseFloat(form.stock_seguridad) || 0,
+        cuenta_contable: form.cuenta_contable || undefined,
         ubicacion_fisica: form.ubicacion_fisica || undefined, proveedor_id: form.proveedor_id || undefined,
         campos_extra: form.campos_extra,
       });
     } else {
+      const precioUnit = parseFloat(form.precio_unitario) || 0;
       agregarProducto({
         cliente_id: clienteId, productor_id: productorId, modulo_ids: form.modulo_ids,
         codigo: form.codigo, nombre: form.nombre, categoria: form.categoria,
         cantidad_actual: cantAct, cantidad_minima: cantMin, cantidad_maxima: cantMax,
-        unidad_medida: form.unidad_medida, precio_unitario: parseFloat(form.precio_unitario) || 0,
+        unidad_medida: form.unidad_medida, precio_unitario: precioUnit,
+        precio_promedio_ponderado: precioUnit,
+        stock_seguridad: parseFloat(form.stock_seguridad) || 0,
+        cuenta_contable: form.cuenta_contable || undefined,
         ubicacion_fisica: form.ubicacion_fisica || undefined, proveedor_id: form.proveedor_id || undefined,
         campos_extra: form.campos_extra, activo: true,
       });
@@ -1547,6 +2017,23 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
                   onKeyDown={blockInvalidNumKey}
                   className="h-9" />
               </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Stock de seguridad</Label>
+                <Input type="number" min="0" step="any"
+                  value={form.stock_seguridad}
+                  onChange={e => set("stock_seguridad")(e.target.value)}
+                  onKeyDown={blockInvalidNumKey}
+                  placeholder="0"
+                  className="h-9" />
+                <p className="text-[10px] text-muted-foreground">Nivel de alerta antes del mínimo.</p>
+              </div>
+              <div className="space-y-1 sm:col-span-2">
+                <Label className="text-xs">Cuenta contable</Label>
+                <Input value={form.cuenta_contable}
+                  onChange={e => set("cuenta_contable")(e.target.value)}
+                  placeholder="ej: 5-1110, Insumos agrícolas"
+                  className="h-9" />
+              </div>
               {!editing && (
                 <div className="space-y-1">
                   <Label className="text-xs">Cantidad inicial</Label>
@@ -1583,7 +2070,6 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
                   value={form.proveedor_id}
                   onChange={v => setForm(p => ({ ...p, proveedor_id: v }))}
                   options={proveedores}
-                  onAdd={nombre => { agregarProveedor(nombre); setForm(p => ({ ...p, proveedor_id: nombre })); }}
                 />
               </div>
             </div>
@@ -1861,7 +2347,7 @@ function CatalogoInline({ canAdmin, onKardex }: { canAdmin: boolean; onKardex: (
                         </>
                       )}
                       {p.activo && (
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-primary" title="Balance de stock" onClick={() => onKardex(p.id)}>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-primary" title="Historial de movimientos" onClick={() => onKardex(p.id)}>
                           <BookOpen className="h-3.5 w-3.5" />
                         </Button>
                       )}
@@ -1947,9 +2433,10 @@ function CatalogoInline({ canAdmin, onKardex }: { canAdmin: boolean; onKardex: (
 
 const MOV_PAGE = 20;
 
-function MovimientosView({ onOpenDetail, onKardex, initialFilter, onInitialFilterConsumed }: {
+function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, onInitialFilterConsumed }: {
   onOpenDetail: (id: string) => void;
   onKardex: (id: string) => void;
+  onMovimiento: (id: string, tipo: InvMovimientoTipo) => void;
   /** Filtro a aplicar al entrar a esta vista (ej. desde "Ver historial" de un lote en el detalle de un producto) */
   initialFilter?: { productoId: string; loteNumero: string } | null;
   onInitialFilterConsumed?: () => void;
@@ -1968,6 +2455,9 @@ function MovimientosView({ onOpenDetail, onKardex, initialFilter, onInitialFilte
   const [fechaHasta,  setFechaHasta]  = useState(hoy);   // default: hoy
   const [page,        setPage]        = useState(1);
   const [expandedId,  setExpandedId]  = useState<string | null>(null);
+  const [quickMovTipo,  setQuickMovTipo]  = useState<InvMovimientoTipo | null>(null);
+  const [quickMovProd,  setQuickMovProd]  = useState("");
+  const [quickMovOpen,  setQuickMovOpen]  = useState(false);
 
   const hayFiltroFecha = fechaDesde !== "" || fechaHasta !== "";
 
@@ -2109,187 +2599,463 @@ function MovimientosView({ onOpenDetail, onKardex, initialFilter, onInitialFilte
     ajuste:  <SlidersHorizontal className="h-3 w-3" />,
   };
 
+  // ── Registrar movimiento rápido desde Movimientos ────────────────────────
+  const openQuickMov = (tipo: InvMovimientoTipo) => {
+    if (filterProd !== "all") {
+      onMovimiento(filterProd, tipo);
+    } else {
+      setQuickMovTipo(tipo);
+      setQuickMovProd(productoOpts[0]?.id ?? "");
+      setQuickMovOpen(true);
+    }
+  };
+
+  const confirmQuickMov = () => {
+    if (quickMovTipo && quickMovProd) {
+      onMovimiento(quickMovProd, quickMovTipo);
+      setQuickMovOpen(false);
+    }
+  };
+
+  // ── Estado del dialog de exportación ─────────────────────────────────────
+  const [exportOpen,      setExportOpen]      = useState(false);
+  const [exportDesde,     setExportDesde]     = useState(fechaDesde);
+  const [exportHasta,     setExportHasta]     = useState(fechaHasta);
+  const [exportTipo,      setExportTipo]      = useState(filterTipo);
+  const [exportProd,      setExportProd]      = useState(filterProd);
+
+  const exportPreviewCount = useMemo(() => {
+    return [...movimientos].filter(m => {
+      if (exportDesde && m.fecha < exportDesde) return false;
+      if (exportHasta && m.fecha > exportHasta) return false;
+      if (exportTipo !== "all" && m.tipo !== exportTipo) return false;
+      if (exportProd !== "all" && m.catalogo_id !== exportProd) return false;
+      return true;
+    }).length;
+  }, [movimientos, exportDesde, exportHasta, exportTipo, exportProd]);
+
+  const applyExportPreset = (preset: "hoy" | "semana" | "mes" | "trimestre" | "anio" | "todo") => {
+    const iso = (d: Date) => d.toISOString().substring(0, 10);
+    const now  = new Date();
+    const hasta = iso(now);
+    if (preset === "todo")      { setExportDesde(""); setExportHasta(""); return; }
+    if (preset === "hoy")       { setExportDesde(hoy); setExportHasta(hoy); return; }
+    if (preset === "semana")    { const d = new Date(now); d.setDate(d.getDate() - 6); setExportDesde(iso(d)); setExportHasta(hasta); return; }
+    if (preset === "mes")       { setExportDesde(iso(new Date(now.getFullYear(), now.getMonth(), 1))); setExportHasta(hasta); return; }
+    if (preset === "trimestre") { setExportDesde(iso(new Date(now.getFullYear(), now.getMonth() - 2, 1))); setExportHasta(hasta); return; }
+    if (preset === "anio")      { setExportDesde(iso(new Date(now.getFullYear(), 0, 1))); setExportHasta(hasta); return; }
+  };
+
+  const doExport = () => {
+    const rows = [...movimientos].filter(m => {
+      if (exportDesde && m.fecha < exportDesde) return false;
+      if (exportHasta && m.fecha > exportHasta) return false;
+      if (exportTipo !== "all" && m.tipo !== exportTipo) return false;
+      if (exportProd !== "all" && m.catalogo_id !== exportProd) return false;
+      return true;
+    }).sort((a, b) => b.fecha.localeCompare(a.fecha));
+
+    exportToCsv(
+      rows.map(m => {
+        const prod  = catalogos.find(c => c.id === m.catalogo_id);
+        const delta = m.cantidad_nueva - m.cantidad_anterior;
+        return {
+          fecha:            m.fecha,
+          producto:         prod?.nombre ?? m.catalogo_id,
+          codigo:           prod?.codigo ?? "",
+          tipo:             m.tipo,
+          subtipo:          m.subtipo.replace(/_/g, " "),
+          cantidad:         m.tipo === "ajuste" ? Math.abs(delta) : m.cantidad,
+          stock_anterior:   m.cantidad_anterior,
+          stock_resultante: m.cantidad_nueva,
+          unidad:           prod?.unidad_medida ?? "",
+          origen:           m.registro_origen_tipo ?? "Manual",
+          observaciones:    m.observaciones ?? "",
+        };
+      }),
+      [
+        { key: "fecha",            label: "Fecha" },
+        { key: "producto",         label: "Producto" },
+        { key: "codigo",           label: "Código" },
+        { key: "tipo",             label: "Tipo" },
+        { key: "subtipo",          label: "Subtipo" },
+        { key: "cantidad",         label: "Cantidad" },
+        { key: "stock_anterior",   label: "Stock anterior" },
+        { key: "stock_resultante", label: "Stock resultante" },
+        { key: "unidad",           label: "Unidad" },
+        { key: "origen",           label: "Origen" },
+        { key: "observaciones",    label: "Observaciones" },
+      ],
+      `movimientos${exportTipo !== "all" ? `-${exportTipo}` : ""}${exportDesde ? `-${exportDesde}` : ""}${exportHasta && exportHasta !== exportDesde ? `_${exportHasta}` : ""}-${fecha}.csv`,
+    );
+    setExportOpen(false);
+  };
+
+  // Filtros activos para el resumen
+  const activeFilterTags: { label: string; clear: () => void }[] = [];
+  if (fechaDesde === hoy && fechaHasta === hoy) activeFilterTags.push({ label: "Hoy", clear: () => {} });
+  else if (!fechaDesde && !fechaHasta)          activeFilterTags.push({ label: "Todo el historial", clear: () => {} });
+  else if (fechaDesde || fechaHasta)            activeFilterTags.push({ label: `${fechaDesde || "inicio"} → ${fechaHasta || "hoy"}`, clear: () => applyPreset("hoy") });
+  if (filterProd !== "all")    activeFilterTags.push({ label: productoOpts.find(p => p.id === filterProd)?.nombre ?? filterProd, clear: () => { setFilterProd("all"); setPage(1); } });
+  if (filterTipo !== "all")    activeFilterTags.push({ label: filterTipo, clear: () => { setFilterTipo("all"); setPage(1); } });
+  if (filterOrigen !== "all")  activeFilterTags.push({ label: filterOrigen, clear: () => { setFilterOrigen("all"); setPage(1); } });
+  if (filterLote)              activeFilterTags.push({ label: `Lote: ${filterLote}`, clear: () => { setFilterLote(null); setPage(1); } });
+
+  const clearAllFilters = () => {
+    applyPreset("hoy"); setFilterTipo("all"); setFilterProd("all");
+    setFilterOrigen("all"); setFilterLote(null); setSearch(""); setPage(1);
+  };
+
   return (
     <div className="space-y-3 min-w-0">
 
-      {/* ── Filtro de fechas ───────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/30 px-4 py-2.5">
-        <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        <span className="text-xs font-medium text-muted-foreground">Período:</span>
+      {/* ── Panel de filtros unificado ─────────────────────────────────────── */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
 
-        {/* Presets */}
-        {([
-          { key: "hoy",       label: "Hoy"         },
-          { key: "semana",    label: "Últimos 7 días" },
-          { key: "mes",       label: "Este mes"    },
-          { key: "trimestre", label: "3 meses"     },
-          { key: "anio",      label: "Este año"    },
-          { key: "todo",      label: "Todo"        },
-        ] as const).map(p => {
-          const isActive =
-            (p.key === "hoy"       && fechaDesde === hoy && fechaHasta === hoy) ||
-            (p.key === "todo"      && !fechaDesde && !fechaHasta);
-          return (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => applyPreset(p.key)}
-              className={cn(
-                "rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                isActive
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground",
-              )}
-            >
-              {p.label}
-            </button>
-          );
-        })}
-
-        {/* Separador */}
-        <span className="h-4 w-px bg-border" />
-
-        {/* Rango manual */}
-        <div className="flex items-center gap-1.5">
-          <label className="text-[11px] text-muted-foreground">Desde</label>
-          <input
-            type="date"
-            value={fechaDesde}
-            onChange={e => { setFechaDesde(e.target.value); setPage(1); }}
-            className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <label className="text-[11px] text-muted-foreground">Hasta</label>
-          <input
-            type="date"
-            value={fechaHasta}
-            onChange={e => { setFechaHasta(e.target.value); setPage(1); }}
-            className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-        </div>
-
-        {/* Limpiar rango (solo si no es preset "hoy") */}
-        {(fechaDesde !== hoy || fechaHasta !== hoy) && hayFiltroFecha && (
-          <button
-            type="button"
-            onClick={() => applyPreset("hoy")}
-            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-3 w-3" /> Volver a hoy
-          </button>
-        )}
-
-        <span className="ml-auto text-[11px] text-muted-foreground">
-          {filtered.length} movimiento{filtered.length !== 1 ? "s" : ""}
-        </span>
-      </div>
-
-      {/* ── Filtros de tipo / producto / origen / lote ───────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          placeholder="Buscar producto, formulario, notas…"
-          value={search}
-          onChange={e => { setSearch(e.target.value); setPage(1); }}
-          className="h-9 flex-1 min-w-48"
-        />
-        <Select value={filterProd} onValueChange={v => { setFilterProd(v); setPage(1); }}>
-          <SelectTrigger className="h-9 w-48 bg-background"><SelectValue placeholder="Todos los productos" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los productos</SelectItem>
-            {productoOpts.map(p => <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={filterTipo} onValueChange={v => { setFilterTipo(v); setPage(1); }}>
-          <SelectTrigger className="h-9 w-36 bg-background"><SelectValue placeholder="Tipo" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los tipos</SelectItem>
-            <SelectItem value="entrada">Entrada</SelectItem>
-            <SelectItem value="salida">Salida</SelectItem>
-            <SelectItem value="ajuste">Ajuste</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={filterOrigen} onValueChange={v => { setFilterOrigen(v); setPage(1); }}>
-          <SelectTrigger className="h-9 w-36 bg-background"><SelectValue placeholder="Origen" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos</SelectItem>
-            <SelectItem value="auto">Automáticos</SelectItem>
-            <SelectItem value="manual">Manuales</SelectItem>
-            <SelectItem value="transferencia">Transferencias</SelectItem>
-          </SelectContent>
-        </Select>
-        {/* Filtro por N° de lote — habilita trazabilidad puntual sin salir del listado.
-            Se acota a los lotes del producto seleccionado (si hay uno) para evitar
-            mezclar numeraciones de productos distintos. */}
-        <Select
-          value={filterLote ?? "all"}
-          onValueChange={v => { setFilterLote(v === "all" ? null : v); setPage(1); }}
-          disabled={loteOpts.length === 0}
-        >
-          <SelectTrigger className={cn("h-9 w-44 bg-background", filterLote && "border-primary text-primary")}>
-            <Tag className="h-3.5 w-3.5 shrink-0" />
-            <SelectValue placeholder={loteOpts.length === 0 ? "Sin lotes" : "Todos los lotes"} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los lotes</SelectItem>
-            {loteOpts.map(lo => <SelectItem key={lo} value={lo} className="font-mono">{lo}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        {filterLote && (
-          <button
-            onClick={() => { setFilterLote(null); setPage(1); }}
-            title="Quitar filtro de lote"
-            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-3 w-3" /> Quitar filtro de lote
-          </button>
-        )}
-        <div className="ml-auto flex items-center gap-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1.5 text-xs"
-            onClick={() => {
-              exportToCsv(
-                filtered.map(m => {
-                  const prod = catalogos.find(c => c.id === m.catalogo_id);
-                  const delta = m.cantidad_nueva - m.cantidad_anterior;
-                  return {
-                    fecha:             m.fecha,
-                    producto:          prod?.nombre ?? m.catalogo_id,
-                    codigo:            prod?.codigo ?? "",
-                    tipo:              m.tipo,
-                    subtipo:           m.subtipo.replace(/_/g, " "),
-                    cantidad:          m.tipo === "ajuste" ? Math.abs(delta) : m.cantidad,
-                    stock_anterior:    m.cantidad_anterior,
-                    stock_resultante:  m.cantidad_nueva,
-                    unidad:            prod?.unidad_medida ?? "",
-                    origen:            m.registro_origen_tipo ?? "Manual",
-                    observaciones:     m.observaciones ?? "",
-                  };
-                }),
-                [
-                  { key: "fecha",           label: "Fecha" },
-                  { key: "producto",        label: "Producto" },
-                  { key: "codigo",          label: "Código" },
-                  { key: "tipo",            label: "Tipo" },
-                  { key: "subtipo",         label: "Subtipo" },
-                  { key: "cantidad",        label: "Cantidad" },
-                  { key: "stock_anterior",  label: "Stock anterior" },
-                  { key: "stock_resultante",label: "Stock resultante" },
-                  { key: "unidad",          label: "Unidad" },
-                  { key: "origen",          label: "Origen" },
-                  { key: "observaciones",   label: "Observaciones" },
-                ],
-                `movimientos${filterTipo !== "all" ? `-${filterTipo}` : ""}${filterOrigen !== "all" ? `-${filterOrigen}` : ""}-${fecha}.csv`,
+        {/* Sección 1: Período */}
+        <div className="px-4 py-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Período</p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {([
+              { key: "hoy",       label: "Hoy"          },
+              { key: "semana",    label: "7 días"        },
+              { key: "mes",       label: "Este mes"      },
+              { key: "trimestre", label: "3 meses"       },
+              { key: "anio",      label: "Este año"      },
+              { key: "todo",      label: "Todo"          },
+            ] as const).map(p => {
+              const isActive =
+                (p.key === "hoy"  && fechaDesde === hoy && fechaHasta === hoy) ||
+                (p.key === "todo" && !fechaDesde && !fechaHasta);
+              return (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => applyPreset(p.key)}
+                  className={cn(
+                    "rounded-full border px-3 py-1 text-[11px] font-medium transition-colors",
+                    isActive
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                  )}
+                >
+                  {p.label}
+                </button>
               );
-            }}
-          >
-            <Download className="h-3.5 w-3.5" />
-            Exportar ({filtered.length})
-          </Button>
+            })}
+
+            <span className="h-4 w-px bg-border mx-1" />
+
+            {/* Rango personalizado inline */}
+            <div className="flex items-center gap-1.5 rounded-full border border-dashed border-border px-3 py-1">
+              <Calendar className="h-3 w-3 text-muted-foreground shrink-0" />
+              <input
+                type="date"
+                value={fechaDesde}
+                onChange={e => { setFechaDesde(e.target.value); setPage(1); }}
+                className="bg-transparent text-[11px] outline-none w-[100px] text-muted-foreground focus:text-foreground"
+              />
+              <span className="text-[10px] text-muted-foreground">→</span>
+              <input
+                type="date"
+                value={fechaHasta}
+                onChange={e => { setFechaHasta(e.target.value); setPage(1); }}
+                className="bg-transparent text-[11px] outline-none w-[100px] text-muted-foreground focus:text-foreground"
+              />
+            </div>
+
+            <span className="ml-auto shrink-0 rounded-full border border-border bg-muted/40 px-3 py-1 text-[11px] text-muted-foreground">
+              <strong className="text-foreground">{filtered.length}</strong> movimiento{filtered.length !== 1 ? "s" : ""}
+            </span>
+          </div>
         </div>
+
+        <div className="border-t border-border/60" />
+
+        {/* Sección 2: Filtros + búsqueda + exportar */}
+        <div className="px-4 py-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Filtros</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              placeholder="Producto, formulario, notas…"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
+              className="h-8 flex-1 min-w-40 text-xs"
+            />
+            <Select value={filterProd} onValueChange={v => { setFilterProd(v); setPage(1); }}>
+              <SelectTrigger className={cn("h-8 w-44 text-xs bg-background", filterProd !== "all" && "border-primary text-primary")}><SelectValue placeholder="Todos los productos" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los productos</SelectItem>
+                {productoOpts.map(p => <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterTipo} onValueChange={v => { setFilterTipo(v); setPage(1); }}>
+              <SelectTrigger className={cn("h-8 w-32 text-xs bg-background", filterTipo !== "all" && "border-primary text-primary")}><SelectValue placeholder="Tipo" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los tipos</SelectItem>
+                <SelectItem value="entrada">Entrada</SelectItem>
+                <SelectItem value="salida">Salida</SelectItem>
+                <SelectItem value="ajuste">Ajuste</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={filterOrigen} onValueChange={v => { setFilterOrigen(v); setPage(1); }}>
+              <SelectTrigger className={cn("h-8 w-32 text-xs bg-background", filterOrigen !== "all" && "border-primary text-primary")}><SelectValue placeholder="Origen" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="auto">Automáticos</SelectItem>
+                <SelectItem value="manual">Manuales</SelectItem>
+                <SelectItem value="transferencia">Transferencias</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={filterLote ?? "all"}
+              onValueChange={v => { setFilterLote(v === "all" ? null : v); setPage(1); }}
+              disabled={loteOpts.length === 0}
+            >
+              <SelectTrigger className={cn("h-8 w-36 text-xs bg-background", filterLote && "border-primary text-primary")}>
+                <Tag className="h-3 w-3 shrink-0 mr-1" />
+                <SelectValue placeholder={loteOpts.length === 0 ? "Sin lotes" : "Lote"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los lotes</SelectItem>
+                {loteOpts.map(lo => <SelectItem key={lo} value={lo} className="font-mono text-xs">{lo}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 text-xs bg-green-600 text-white hover:bg-green-700"
+                onClick={() => openQuickMov("entrada")}
+                title={filterProd !== "all" ? `Registrar entrada — ${productoOpts.find(p => p.id === filterProd)?.nombre}` : "Registrar entrada"}
+              >
+                <ArrowDown className="h-3.5 w-3.5" />
+                Nueva entrada
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 text-xs border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                onClick={() => openQuickMov("salida")}
+                title={filterProd !== "all" ? `Registrar salida — ${productoOpts.find(p => p.id === filterProd)?.nombre}` : "Registrar salida"}
+              >
+                <ArrowUp className="h-3.5 w-3.5" />
+                Nueva salida
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => {
+                  setExportDesde(fechaDesde);
+                  setExportHasta(fechaHasta);
+                  setExportTipo(filterTipo);
+                  setExportProd(filterProd);
+                  setExportOpen(true);
+                }}
+              >
+                <Download className="h-3.5 w-3.5" />
+                Exportar
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Sección 3: chips de filtros activos (solo si hay más de 1 — el de período siempre está) */}
+        {(activeFilterTags.length > 1 || filterProd !== "all" || filterTipo !== "all" || filterOrigen !== "all" || filterLote) && (
+          <div className="border-t border-border/60 px-4 py-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] text-muted-foreground shrink-0">Activos:</span>
+            {activeFilterTags.map((tag, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-[11px] font-medium text-primary"
+              >
+                {tag.label}
+                {tag.clear && i > 0 && (
+                  <button onClick={tag.clear} className="ml-0.5 opacity-60 hover:opacity-100">
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                )}
+              </span>
+            ))}
+            {(filterProd !== "all" || filterTipo !== "all" || filterOrigen !== "all" || filterLote || search) && (
+              <button onClick={clearAllFilters} className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 ml-1">
+                Limpiar todo
+              </button>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* ── Dialog selector de producto para nueva entrada/salida ──────────── */}
+      <Dialog open={quickMovOpen} onOpenChange={setQuickMovOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {quickMovTipo === "entrada"
+                ? <><ArrowDown className="h-4 w-4 text-green-600" /> Nueva entrada</>
+                : <><ArrowUp className="h-4 w-4 text-red-500" /> Nueva salida</>}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <p className="text-sm text-muted-foreground">Seleccioná el producto para el movimiento:</p>
+            <Select value={quickMovProd} onValueChange={setQuickMovProd}>
+              <SelectTrigger className="h-9 bg-background"><SelectValue placeholder="Seleccionar producto" /></SelectTrigger>
+              <SelectContent>
+                {productoOpts.map(p => (
+                  <SelectItem key={p.id} value={p.id}>
+                    <span className="font-medium">{p.nombre}</span>
+                    {p.codigo && <span className="ml-2 text-xs text-muted-foreground">{p.codigo}</span>}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setQuickMovOpen(false)}>Cancelar</Button>
+            <Button
+              size="sm"
+              disabled={!quickMovProd}
+              onClick={confirmQuickMov}
+              className={cn("gap-1.5", quickMovTipo === "entrada" ? "bg-green-600 hover:bg-green-700 text-white" : "bg-red-600 hover:bg-red-700 text-white")}
+            >
+              {quickMovTipo === "entrada"
+                ? <><ArrowDown className="h-3.5 w-3.5" /> Continuar</>
+                : <><ArrowUp className="h-3.5 w-3.5" /> Continuar</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog de exportación con selector de fechas ───────────────────── */}
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="h-4 w-4" /> Exportar movimientos
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            {/* Presets de fecha */}
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Período a exportar</p>
+              <div className="flex flex-wrap gap-1.5">
+                {([
+                  { key: "hoy",       label: "Hoy"     },
+                  { key: "semana",    label: "7 días"  },
+                  { key: "mes",       label: "Este mes"},
+                  { key: "trimestre", label: "3 meses" },
+                  { key: "anio",      label: "Este año"},
+                  { key: "todo",      label: "Todo"    },
+                ] as const).map(p => {
+                  const isActive =
+                    (p.key === "hoy"  && exportDesde === hoy && exportHasta === hoy) ||
+                    (p.key === "todo" && !exportDesde && !exportHasta);
+                  return (
+                    <button
+                      key={p.key}
+                      type="button"
+                      onClick={() => applyExportPreset(p.key)}
+                      className={cn(
+                        "rounded-full border px-3 py-1 text-[11px] font-medium transition-colors",
+                        isActive
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                      )}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Rango personalizado */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Desde</label>
+                <input
+                  type="date"
+                  value={exportDesde}
+                  onChange={e => setExportDesde(e.target.value)}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Hasta</label>
+                <input
+                  type="date"
+                  value={exportHasta}
+                  onChange={e => setExportHasta(e.target.value)}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            </div>
+
+            {/* Filtros adicionales del export */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Tipo de movimiento</label>
+                <Select value={exportTipo} onValueChange={setExportTipo}>
+                  <SelectTrigger className="h-9 text-xs bg-background"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los tipos</SelectItem>
+                    <SelectItem value="entrada">Solo entradas</SelectItem>
+                    <SelectItem value="salida">Solo salidas</SelectItem>
+                    <SelectItem value="ajuste">Solo ajustes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Producto</label>
+                <Select value={exportProd} onValueChange={setExportProd}>
+                  <SelectTrigger className="h-9 text-xs bg-background"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los productos</SelectItem>
+                    {productoOpts.map(p => <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Preview del resultado */}
+            <div className={cn(
+              "flex items-center gap-3 rounded-xl border px-4 py-3",
+              exportPreviewCount > 0
+                ? "border-green-200 bg-green-50/60 dark:border-green-800/40 dark:bg-green-900/10"
+                : "border-amber-200 bg-amber-50/60 dark:border-amber-800/40 dark:bg-amber-900/10",
+            )}>
+              <Download className={cn("h-4 w-4 shrink-0", exportPreviewCount > 0 ? "text-green-600" : "text-amber-600")} />
+              <div>
+                <p className={cn("text-sm font-medium", exportPreviewCount > 0 ? "text-green-800 dark:text-green-300" : "text-amber-800 dark:text-amber-300")}>
+                  {exportPreviewCount > 0
+                    ? `${exportPreviewCount} movimiento${exportPreviewCount !== 1 ? "s" : ""} se exportarán`
+                    : "Sin movimientos para los criterios seleccionados"}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {exportDesde && exportHasta ? `${exportDesde} → ${exportHasta}` : exportDesde ? `Desde ${exportDesde}` : exportHasta ? `Hasta ${exportHasta}` : "Todo el historial"}
+                  {exportTipo !== "all" && ` · Solo ${exportTipo}s`}
+                  {exportProd !== "all" && ` · ${productoOpts.find(p => p.id === exportProd)?.nombre ?? ""}`}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setExportOpen(false)}>Cancelar</Button>
+            <Button
+              size="sm"
+              disabled={exportPreviewCount === 0}
+              onClick={doExport}
+              className="gap-1.5"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Exportar {exportPreviewCount > 0 ? `(${exportPreviewCount})` : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Tabla */}
       <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -2542,7 +3308,7 @@ function MovimientosView({ onOpenDetail, onKardex, initialFilter, onInitialFilte
                                   className="flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
                                 >
                                   <BookOpen className="h-3.5 w-3.5" />
-                                  Balance de stock
+                                  Historial de movimientos
                                 </button>
                               </div>
                             )}
@@ -3343,6 +4109,9 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
   const [expanded,   setExpanded]   = useState(false);
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
+  const [filterTipo, setFilterTipo] = useState<"all" | InvMovimientoTipo>("all");
+  const [filterLote, setFilterLote] = useState("all");
+  const [kardexSearch, setKardexSearch] = useState("");
 
   const p = productId ? catalogos.find(x => x.id === productId) : null;
 
@@ -3359,18 +4128,19 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
   const precio = p.precio_unitario;
 
   // Presets de fechas
-  const applyPreset = (preset: "mes" | "trimestre" | "anio" | "todo") => {
+  const applyPreset = (preset: "hoy" | "mes" | "trimestre" | "anio" | "todo") => {
     const hoy   = new Date();
     const iso   = (d: Date) => d.toISOString().substring(0, 10);
     const hasta = iso(hoy);
     if (preset === "todo")      { setFechaDesde(""); setFechaHasta(""); return; }
+    if (preset === "hoy")       { setFechaDesde(hasta); setFechaHasta(hasta); return; }
     if (preset === "mes")       { setFechaDesde(iso(new Date(hoy.getFullYear(), hoy.getMonth(), 1))); setFechaHasta(hasta); return; }
     if (preset === "trimestre") { setFechaDesde(iso(new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1))); setFechaHasta(hasta); return; }
     if (preset === "anio")      { setFechaDesde(iso(new Date(hoy.getFullYear(), 0, 1))); setFechaHasta(hasta); return; }
   };
 
   type KardexRow = {
-    fecha: string; concepto: string;
+    fecha: string; concepto: string; tipo: InvMovimientoTipo; loteNumero?: string; origen?: string;
     entQ?: number; entP?: number; entTotal?: number;
     salQ?: number; salP?: number; salTotal?: number;
     saldoQ: number; saldoP: number; saldoTotal: number;
@@ -3388,7 +4158,7 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
       ? `${m.registro_origen_tipo} (auto)`
       : m.observaciones ?? m.subtipo.replace(/_/g, " ");
     return {
-      fecha: m.fecha, concepto,
+      fecha: m.fecha, concepto, tipo: m.tipo, loteNumero: m.lote_numero, origen: m.registro_origen_tipo,
       entQ:     esEntrada ? qty     : undefined,
       entP:     esEntrada ? p_unit  : undefined,
       entTotal: esEntrada ? qty * p_unit : undefined,
@@ -3400,9 +4170,16 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
   });
 
   // Filtro de fechas — solo para la visualización; el saldo acumulado se mantiene
+  const loteOptions = Array.from(new Set(rows.map(r => r.loteNumero).filter(Boolean) as string[]))
+    .sort((a, b) => a.localeCompare(b));
+
   const rowsFiltrados = rows.filter(r => {
     if (fechaDesde && r.fecha < fechaDesde) return false;
     if (fechaHasta && r.fecha > fechaHasta) return false;
+    if (filterTipo !== "all" && r.tipo !== filterTipo) return false;
+    if (filterLote !== "all" && r.loteNumero !== filterLote) return false;
+    const q = kardexSearch.trim().toLowerCase();
+    if (q && !`${r.concepto} ${r.origen ?? ""} ${r.loteNumero ?? ""}`.toLowerCase().includes(q)) return false;
     return true;
   });
 
@@ -3412,7 +4189,24 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
     : null;
 
   const displayRows  = rowsFiltrados;
-  const hayFiltro    = !!(fechaDesde || fechaHasta);
+  const hayFiltro    = !!(fechaDesde || fechaHasta || filterTipo !== "all" || filterLote !== "all" || kardexSearch.trim());
+  const activePreset = (() => {
+    const hoy = new Date();
+    const iso = (d: Date) => d.toISOString().substring(0, 10);
+    const today = iso(hoy);
+    if (!fechaDesde && !fechaHasta) return "todo";
+    if (fechaDesde === today && fechaHasta === today) return "hoy";
+    if (fechaDesde === iso(new Date(hoy.getFullYear(), hoy.getMonth(), 1)) && fechaHasta === today) return "mes";
+    if (fechaDesde === iso(new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1)) && fechaHasta === today) return "trimestre";
+    if (fechaDesde === iso(new Date(hoy.getFullYear(), 0, 1)) && fechaHasta === today) return "anio";
+    return "custom";
+  })();
+  const limpiarFiltros = () => {
+    applyPreset("todo");
+    setFilterTipo("all");
+    setFilterLote("all");
+    setKardexSearch("");
+  };
 
   const totalEntQ   = displayRows.reduce((s, r) => s + (r.entQ   ?? 0), 0);
   const totalEntVal = displayRows.reduce((s, r) => s + (r.entTotal ?? 0), 0);
@@ -3423,7 +4217,7 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
   const exportarKardex = () => {
     const fecha = new Date().toLocaleDateString("es-CL").replace(/\//g, "-");
     exportToCsv(
-      rows.map(r => ({
+      displayRows.map(r => ({
         fecha:         r.fecha,
         concepto:      r.concepto,
         entrada_cant:  r.entQ   ?? "",
@@ -3468,7 +4262,7 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <BookOpen className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-bold">Balance de stock — Kardex</h2>
+                <h2 className="text-lg font-bold">Historial de movimientos — Kardex</h2>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                 <span className="font-semibold text-foreground">{p.nombre}</span>
@@ -3502,7 +4296,109 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
           </div>
 
           {/* ── Filtro de fechas ─────────────────────────────────────────────── */}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="mt-4 rounded-xl border border-border bg-background/85 p-3 shadow-sm">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                  <Calendar className="h-3.5 w-3.5" />
+                  Periodo
+                </div>
+                {([
+                  { key: "todo", label: "Todo" },
+                  { key: "hoy", label: "Hoy" },
+                  { key: "mes", label: "Este mes" },
+                  { key: "trimestre", label: "3 meses" },
+                  { key: "anio", label: "Este año" },
+                ] as const).map(preset => (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    onClick={() => applyPreset(preset.key)}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                      activePreset === preset.key
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                    )}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/20 px-2 py-1">
+                  <span className="text-[11px] font-medium text-muted-foreground">Desde</span>
+                  <input
+                    type="date"
+                    value={fechaDesde}
+                    onChange={e => setFechaDesde(e.target.value)}
+                    className="h-7 w-32 bg-transparent text-xs outline-none"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/20 px-2 py-1">
+                  <span className="text-[11px] font-medium text-muted-foreground">Hasta</span>
+                  <input
+                    type="date"
+                    value={fechaHasta}
+                    onChange={e => setFechaHasta(e.target.value)}
+                    className="h-7 w-32 bg-transparent text-xs outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-2 lg:grid-cols-[160px_180px_1fr_auto]">
+              <Select value={filterTipo} onValueChange={v => setFilterTipo(v as "all" | InvMovimientoTipo)}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los tipos</SelectItem>
+                  <SelectItem value="entrada">Entradas</SelectItem>
+                  <SelectItem value="salida">Salidas</SelectItem>
+                  <SelectItem value="ajuste">Ajustes</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={filterLote} onValueChange={setFilterLote}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Lote" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los lotes</SelectItem>
+                  {loteOptions.length === 0 ? (
+                    <SelectItem value="__none" disabled>Sin lotes asociados</SelectItem>
+                  ) : loteOptions.map(lote => (
+                    <SelectItem key={lote} value={lote}>{lote}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={kardexSearch}
+                  onChange={e => setKardexSearch(e.target.value)}
+                  placeholder="Buscar concepto, origen o lote..."
+                  className="h-9 pl-8 text-xs"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <span className="whitespace-nowrap rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                  {displayRows.length} de {rows.length}
+                </span>
+                {hayFiltro && (
+                  <Button variant="ghost" size="sm" className="h-9 gap-1.5 px-2 text-xs" onClick={limpiarFiltros}>
+                    <X className="h-3.5 w-3.5" /> Limpiar
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="hidden flex-wrap items-center gap-2">
             <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <span className="text-xs text-muted-foreground">Período:</span>
             {/* Presets rápidos */}
@@ -3792,11 +4688,349 @@ function BuscadorLotesGlobal({ onSelect }: { onSelect: (productoId: string, lote
   );
 }
 
+// ─── QuickEntryCell — entrada rápida inline en la vista lista ─────────────────
+
+function QuickEntryCell({
+  productoId, unidad, onMovimiento,
+}: {
+  productoId: string;
+  unidad: string;
+  onMovimiento: (id: string, tipo: InvMovimientoTipo) => void;
+}) {
+  const [qty, setQty] = useState("");
+  const { registrarMovimiento } = useInventario();
+
+  const handleEntrada = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const n = parseFloat(qty.replace(",", "."));
+    if (!qty.trim() || isNaN(n) || n <= 0) {
+      // Si no hay cantidad, abre el modal completo
+      onMovimiento(productoId, "entrada");
+      return;
+    }
+    registrarMovimiento(productoId, "entrada", "compra", n, {});
+    setQty("");
+  };
+
+  return (
+    <div className="inline-flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+      <input
+        type="number"
+        min="0"
+        step="any"
+        value={qty}
+        onChange={e => setQty(e.target.value)}
+        onKeyDown={e => { if (e.key === "Enter") handleEntrada(e as unknown as React.MouseEvent); }}
+        placeholder={`cant. (${unidad})`}
+        className="h-7 w-28 rounded-md border border-border bg-background px-2 text-xs text-right focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+      <button
+        onClick={handleEntrada}
+        title={qty.trim() ? "Registrar entrada rápida" : "Abrir formulario completo"}
+        className="h-7 inline-flex items-center gap-1 rounded-md bg-green-600 px-2 text-[11px] font-medium text-white hover:bg-green-700 transition-colors"
+      >
+        <ArrowDown className="h-3 w-3" />
+        {qty.trim() ? "Entrada" : "+ Entrada"}
+      </button>
+    </div>
+  );
+}
+
+// ─── ProveedoresView ──────────────────────────────────────────────────────────
+
+const MODULE_OPTIONS = [
+  { id: "laboratorio",  label: "Laboratorio" },
+  { id: "vivero",       label: "Vivero" },
+  { id: "cultivo",      label: "Cultivo" },
+  { id: "post_cosecha", label: "Post-cosecha" },
+  { id: "comercial",    label: "Comercial" },
+  { id: "rrhh",         label: "Recursos Humanos" },
+];
+
+type ProvForm = { nombre: string; ruc: string; autorizado: boolean; modulo_ids: string[]; notas: string };
+const EMPTY_PROV: ProvForm = { nombre: "", ruc: "", autorizado: true, modulo_ids: [], notas: "" };
+
+function ProveedoresView() {
+  const { proveedores, agregarProveedor, editarProveedor, eliminarProveedor } = useInventario();
+  const { hierarchyLevel } = useRole();
+  const canAdmin = hierarchyLevel >= 4;
+
+  const [search, setSearch]           = useState("");
+  const [dialogOpen, setDialogOpen]   = useState(false);
+  const [editing, setEditing]         = useState<InvProveedor | null>(null);
+  const [form, setForm]               = useState<ProvForm>(EMPTY_PROV);
+  const [confirmDel, setConfirmDel]   = useState<InvProveedor | null>(null);
+
+  const filtered = proveedores.filter(p =>
+    p.nombre.toLowerCase().includes(search.toLowerCase()) ||
+    p.ruc.includes(search),
+  );
+
+  const openNew = () => { setEditing(null); setForm(EMPTY_PROV); setDialogOpen(true); };
+  const openEdit = (p: InvProveedor) => {
+    setEditing(p);
+    setForm({ nombre: p.nombre, ruc: p.ruc, autorizado: p.autorizado, modulo_ids: p.modulo_ids, notas: p.notas ?? "" });
+    setDialogOpen(true);
+  };
+
+  const handleSave = () => {
+    if (!form.nombre.trim()) return;
+    if (editing) {
+      editarProveedor(editing.id, form);
+    } else {
+      agregarProveedor(form);
+    }
+    setDialogOpen(false);
+  };
+
+  const toggleModulo = (id: string) => {
+    setForm(f => ({
+      ...f,
+      modulo_ids: f.modulo_ids.includes(id) ? f.modulo_ids.filter(m => m !== id) : [...f.modulo_ids, id],
+    }));
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por nombre o RUC…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="h-9 pl-8"
+          />
+        </div>
+        {canAdmin && (
+          <Button size="sm" className="h-9 gap-1.5 shrink-0" onClick={openNew}>
+            <Plus className="h-4 w-4" />
+            Nuevo proveedor
+          </Button>
+        )}
+      </div>
+
+      {/* Tabla */}
+      <div className="rounded-xl border border-border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">Proveedor</th>
+              <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">RUC</th>
+              <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">Estado</th>
+              <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">Áreas</th>
+              {canAdmin && <th className="px-4 py-3 text-right font-semibold text-muted-foreground text-xs uppercase tracking-wide">Acciones</th>}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={canAdmin ? 5 : 4} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  {search ? "Sin resultados para esa búsqueda." : "No hay proveedores registrados."}
+                </td>
+              </tr>
+            ) : filtered.map(prov => (
+              <tr key={prov.id} className="hover:bg-muted/30 transition-colors">
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
+                      <Building2 className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <span className="font-medium">{prov.nombre}</span>
+                  </div>
+                </td>
+                <td className="px-4 py-3 font-mono text-muted-foreground">{prov.ruc || <span className="italic text-muted-foreground/50">—</span>}</td>
+                <td className="px-4 py-3">
+                  {prov.autorizado ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                      <ShieldCheck className="h-3 w-3" /> Autorizado
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                      <ShieldOff className="h-3 w-3" /> No autorizado
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-wrap gap-1">
+                    {prov.modulo_ids.length === 0
+                      ? <span className="text-muted-foreground/50 italic text-xs">—</span>
+                      : prov.modulo_ids.map(id => {
+                          const m = MODULE_OPTIONS.find(o => o.id === id);
+                          return (
+                            <span key={id} className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                              {m?.label ?? id}
+                            </span>
+                          );
+                        })
+                    }
+                  </div>
+                </td>
+                {canAdmin && (
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => openEdit(prov)}
+                        className="h-7 w-7 rounded-lg border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground flex items-center justify-center transition-colors"
+                        title="Editar"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setConfirmDel(prov)}
+                        className="h-7 w-7 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20 flex items-center justify-center transition-colors"
+                        title="Eliminar"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Dialog crear / editar */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editing ? "Editar proveedor" : "Nuevo proveedor"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-5 py-1">
+            {/* Nombre */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Nombre <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                value={form.nombre}
+                onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))}
+                placeholder="Ej. AgroquímPro S.A."
+                className="h-9"
+              />
+            </div>
+
+            {/* RUC + Estado en la misma fila, alineados */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">RUC</Label>
+                <Input
+                  value={form.ruc}
+                  onChange={e => setForm(f => ({ ...f, ruc: e.target.value }))}
+                  placeholder="20100123456"
+                  className="h-9 font-mono"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Estado</Label>
+                <div className="flex h-9 rounded-lg border border-border bg-muted p-0.5 gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, autorizado: true }))}
+                    className={cn(
+                      "flex-1 inline-flex items-center justify-center gap-1 rounded-md text-xs font-medium transition-colors",
+                      form.autorizado
+                        ? "bg-background shadow text-green-700 dark:text-green-400"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5" /> Sí
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, autorizado: false }))}
+                    className={cn(
+                      "flex-1 inline-flex items-center justify-center gap-1 rounded-md text-xs font-medium transition-colors",
+                      !form.autorizado
+                        ? "bg-background shadow text-amber-600 dark:text-amber-400"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <ShieldOff className="h-3.5 w-3.5" /> No
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Áreas */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Áreas que abastece
+              </Label>
+              <div className="grid grid-cols-3 gap-2">
+                {MODULE_OPTIONS.map(m => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => toggleModulo(m.id)}
+                    className={cn(
+                      "flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium transition-colors",
+                      form.modulo_ids.includes(m.id)
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                    )}
+                  >
+                    {form.modulo_ids.includes(m.id) && <Check className="h-3 w-3 shrink-0" />}
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Notas */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Notas</Label>
+              <textarea
+                value={form.notas}
+                onChange={e => setForm(f => ({ ...f, notas: e.target.value }))}
+                placeholder="Observaciones opcionales…"
+                rows={2}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
+            <Button onClick={handleSave} disabled={!form.nombre.trim()}>
+              {editing ? "Guardar cambios" : "Crear proveedor"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm eliminar */}
+      <Dialog open={!!confirmDel} onOpenChange={v => { if (!v) setConfirmDel(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>¿Eliminar proveedor?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Se eliminará <strong>{confirmDel?.nombre}</strong> del registro. Esta acción no se puede deshacer.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDel(null)}>Cancelar</Button>
+            <Button variant="destructive" onClick={() => { if (confirmDel) { eliminarProveedor(confirmDel.id); setConfirmDel(null); } }}>
+              Eliminar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function Inventario() {
+  const navigate = useNavigate();
   const { hierarchyLevel, currentUser } = useRole();
-  const { getAllProductos, movimientos, getAlertas, getAlertasVencimiento, catalogos, desactivarProducto } = useInventario();
+  const {
+    getAllProductos, movimientos, getAlertas, getAlertasVencimiento,
+    catalogos, lotes, desactivarProducto, registrarMovimiento,
+  } = useInventario();
   const [searchParams] = useSearchParams();
 
   const isAdmin   = hierarchyLevel >= 4;
@@ -3807,7 +5041,7 @@ export default function Inventario() {
     (userArea && hierarchyLevel < 4 ? userArea : "all");
 
   // ── Tab principal ─────────────────────────────────────────────────────────
-  const [mainTab, setMainTab] = useState<"stock" | "movimientos" | "conteo">("stock");
+  const [mainTab, setMainTab] = useState<"stock" | "movimientos" | "conteo" | "proveedores">("stock");
 
   // ── Navegación: "Ver historial de este lote" desde el detalle de un producto ──
   // Salta al tab "Movimientos" (la vista que concentra TODO el historial) ya
@@ -3825,6 +5059,29 @@ export default function Inventario() {
   const [filterEstado,   setFilterEstado]   = useState("all");
   const [viewMode,       setViewMode]       = useState<"grid" | "list">("list");
   const [showInactivos,  setShowInactivos]  = useState(false);
+  // Modo carga masiva
+  const [bulkMode,  setBulkMode]  = useState(false);
+  const [bulkQtys,  setBulkQtys]  = useState<Record<string, string>>({});
+  const [bulkTipo,  setBulkTipo]  = useState<"entrada" | "salida">("entrada");
+  const [bulkPos,   setBulkPos]   = useState<{ x: number; y: number } | null>(null);
+  const bulkDragOffset = useRef<{ dx: number; dy: number } | null>(null);
+
+  const bulkPendientes = Object.entries(bulkQtys).filter(([, v]) => {
+    const n = parseFloat(v.replace(",", "."));
+    return !isNaN(n) && n > 0;
+  });
+
+  const confirmarBulk = () => {
+    bulkPendientes.forEach(([id, v]) => {
+      const n = parseFloat(v.replace(",", "."));
+      registrarMovimiento(id, bulkTipo, bulkTipo === "entrada" ? "compra" : "uso_produccion", n, {});
+    });
+    setBulkQtys({});
+    setBulkMode(false);
+    setBulkPos(null);
+  };
+
+  const cancelarBulk = () => { setBulkQtys({}); setBulkMode(false); setBulkPos(null); };
   // Confirmación activar/desactivar
   const [confirmProd,    setConfirmProd]    = useState<InvCatalogo | null>(null);
 
@@ -3942,13 +5199,89 @@ export default function Inventario() {
     () => allProductos.reduce((s, p) => s + p.cantidad_actual * p.precio_unitario, 0),
     [allProductos],
   );
+  const visibleCatalogos = useMemo(() => {
+    const clienteId = currentUser?.clienteId ? String(currentUser.clienteId) : null;
+    const productorId = currentUser?.productorId ? String(currentUser.productorId) : null;
+    return catalogos.filter(p => {
+      if (clienteId && p.cliente_id !== clienteId) return false;
+      if (productorId && p.productor_id !== productorId) return false;
+      return true;
+    });
+  }, [catalogos, currentUser?.clienteId, currentUser?.productorId]);
+  const executiveScope = useMemo(
+    () => filterModulo !== "all"
+      ? visibleCatalogos.filter(p => p.modulo_ids.includes(filterModulo))
+      : visibleCatalogos,
+    [filterModulo, visibleCatalogos],
+  );
+  const executiveKpis = useMemo(() => {
+    const active = executiveScope.filter(p => p.activo);
+    const scopeIds = new Set(executiveScope.map(p => p.id));
+    const activeIds = new Set(active.map(p => p.id));
+    const activeLotProductIds = new Set(
+      lotes
+        .filter(l => l.activo && l.cantidad_actual > 0 && activeIds.has(l.catalogo_id))
+        .map(l => l.catalogo_id),
+    );
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const lotesPorVencer = lotes.filter(l => {
+      if (!l.activo || l.cantidad_actual <= 0 || !scopeIds.has(l.catalogo_id)) return false;
+      const vence = new Date(l.fecha_vencimiento);
+      if (isNaN(vence.getTime())) return false;
+      const dias = Math.ceil((vence.getTime() - today.getTime()) / 86_400_000);
+      return dias <= 90;
+    }).length;
+    const productosSinLote = active.filter(p => !activeLotProductIds.has(p.id)).length;
+    const productosInactivos = executiveScope.filter(p => !p.activo).length;
+
+    return {
+      valor: active.reduce((s, p) => s + p.cantidad_actual * p.precio_promedio_ponderado, 0),
+      criticos: active.filter(p => getStockStatus(p) === "critico").length,
+      lotesPorVencer,
+      movimientosMes: movimientos.filter(m => m.fecha.startsWith(currentMonth) && scopeIds.has(m.catalogo_id)).length,
+      pendientes: productosInactivos + productosSinLote,
+      productosInactivos,
+      productosSinLote,
+      productosActivos: active.length,
+    };
+  }, [currentMonth, executiveScope, lotes, movimientos]);
+
+  const contextualAlerts = useMemo(() => {
+    const active = executiveScope.filter(p => p.activo);
+    const scopeIds = new Set(active.map(p => p.id));
+    const reposicion = active.filter(p => {
+      const status = getStockStatus(p);
+      return status === "critico" || status === "bajo";
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const lotesSemana = lotes
+      .filter(l => l.activo && l.cantidad_actual > 0 && scopeIds.has(l.catalogo_id))
+      .map(l => {
+        const vence = new Date(l.fecha_vencimiento);
+        vence.setHours(0, 0, 0, 0);
+        const dias = Math.ceil((vence.getTime() - today.getTime()) / 86_400_000);
+        return { lote: l, dias };
+      })
+      .filter(x => x.dias <= 7)
+      .sort((a, b) => a.dias - b.dias);
+
+    return {
+      reposicion,
+      reposicionCritica: reposicion.filter(p => getStockStatus(p) === "critico").length,
+      lotesSemana,
+      vencidos: lotesSemana.filter(x => x.dias < 0).length,
+    };
+  }, [executiveScope, lotes]);
 
   const filtered = useMemo(() => {
     const q    = search.toLowerCase();
     const pool = showInactivos
-      ? catalogos                            // todos (activos + inactivos)
-      : catalogos.filter(p => p.activo);     // solo activos
-    return pool.filter(p => {
+      ? catalogos
+      : catalogos.filter(p => p.activo);
+    const result = pool.filter(p => {
       if (filterModulo !== "all" && !p.modulo_ids.includes(filterModulo)) return false;
       if (!showInactivos) {
         if (filterEstado === "ok"      && getStockStatus(p) !== "ok")      return false;
@@ -3958,6 +5291,13 @@ export default function Inventario() {
       if (q && !p.nombre.toLowerCase().includes(q) && !p.codigo.toLowerCase().includes(q)) return false;
       return true;
     });
+    // Ordenar por urgencia: crítico → bajo → ok (inactivos al final)
+    const urgency = (p: typeof result[0]) => {
+      if (!p.activo) return 3;
+      const s = getStockStatus(p);
+      return s === "critico" ? 0 : s === "bajo" ? 1 : 2;
+    };
+    return [...result].sort((a, b) => urgency(a) - urgency(b));
   }, [catalogos, filterModulo, filterEstado, search, showInactivos]);
 
   return (
@@ -3966,29 +5306,65 @@ export default function Inventario() {
         title="Inventario"
         description="Gestión de stock, movimientos y alertas por módulo"
         actions={
-          <div className="flex items-center gap-2">
-            <BuscadorLotesGlobal onSelect={irAHistorialDeLote} />
-            {mainTab === "stock" && (
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={exportarStock}>
-                <Download className="h-4 w-4" />
-                Exportar{filtered.length < catalogos.length ? ` (${filtered.length})` : ""}
-              </Button>
-            )}
-            {canAdmin && mainTab === "stock" && !showInactivos && (
-              <Button size="sm" className="gap-1.5" onClick={() => { setEditingProd(null); setProdDialogOpen(true); }}>
-                <Plus className="h-4 w-4" /> Nuevo producto
-              </Button>
-            )}
-          </div>
+          <button
+            onClick={() => navigate("/inventario/ordenes")}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-accent transition-colors"
+          >
+            <ShoppingCart className="h-4 w-4 text-muted-foreground" />
+            Órdenes de compra
+          </button>
         }
       />
+
+      {/* Executive dashboard */}
+      <div className="mb-5 grid gap-3 md:grid-cols-3">
+        {[
+          {
+            label: "Valor total",
+            value: fmtCurrency(executiveKpis.valor),
+            hint: `${executiveKpis.productosActivos} productos activos`,
+            icon: <DollarSign className="h-4 w-4" />,
+            cls: "border-emerald-200 bg-emerald-50/70 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-400",
+          },
+          {
+            label: "Movimientos del mes",
+            value: executiveKpis.movimientosMes,
+            hint: currentMonth,
+            icon: <TrendingUp className="h-4 w-4" />,
+            cls: "border-blue-200 bg-blue-50/70 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-400",
+          },
+          {
+            label: "Inactivos o sin lote",
+            value: executiveKpis.pendientes,
+            hint: `${executiveKpis.productosInactivos} inactivos · ${executiveKpis.productosSinLote} sin lote`,
+            icon: <PackageOpen className="h-4 w-4" />,
+            cls: executiveKpis.pendientes > 0
+              ? "border-slate-300 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300"
+              : "border-border bg-card text-muted-foreground",
+          },
+        ].map(kpi => (
+          <div key={kpi.label} className={cn("rounded-xl border px-4 py-3 shadow-sm", kpi.cls)}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wide opacity-75">{kpi.label}</p>
+                <p className="mt-1 truncate text-2xl font-bold tabular-nums text-foreground">{kpi.value}</p>
+              </div>
+              <div className="rounded-lg bg-background/70 p-2 shadow-sm">
+                {kpi.icon}
+              </div>
+            </div>
+            <p className="mt-2 truncate text-xs opacity-80">{kpi.hint}</p>
+          </div>
+        ))}
+      </div>
 
       {/* Tab switcher */}
       <div className="mb-6 flex gap-1 rounded-xl border border-border bg-muted p-1 w-fit">
         {([
-          { id: "stock",       label: "Stock",       icon: <Package   className="h-4 w-4" /> },
-          { id: "movimientos", label: "Movimientos",   icon: <History        className="h-4 w-4" /> },
-          { id: "conteo",      label: "Conteo físico", icon: <ClipboardCheck className="h-4 w-4" /> },
+          { id: "stock",        label: "Stock",           icon: <Package        className="h-4 w-4" /> },
+          { id: "movimientos",  label: "Movimientos",     icon: <History        className="h-4 w-4" /> },
+          { id: "conteo",       label: "Ajuste de stock", icon: <ClipboardCheck className="h-4 w-4" /> },
+          { id: "proveedores",  label: "Proveedores",     icon: <Building2      className="h-4 w-4" /> },
         ] as const).map(t => (
           <button
             key={t.id}
@@ -4010,23 +5386,30 @@ export default function Inventario() {
         ))}
       </div>
 
-      {/* Metrics — scope al filtro activo */}
+      {/* Stats bar — compacta */}
       {(() => {
-        const scopeProds = filterModulo !== "all"
-          ? allProductos.filter(p => p.modulo_ids.includes(filterModulo))
-          : allProductos;
-        const scopeAlertas    = filterModulo !== "all" ? alertas.filter(p => p.modulo_ids.includes(filterModulo)) : alertas;
-        const scopeVenc       = filterModulo !== "all" ? alertasVenc.filter(a => a.producto.modulo_ids.includes(filterModulo)) : alertasVenc;
-        const scopeVencCrit   = scopeVenc.filter(a => a.estado === "vencido" || a.estado === "critico");
-        const scopeValor      = scopeProds.reduce((s, p) => s + p.cantidad_actual * p.precio_unitario, 0);
-        const scopeMods       = filterModulo !== "all" ? `· ${MODULE_LABELS[filterModulo] ?? filterModulo}` : "";
+        return null;
+        const scopeProds = filterModulo !== "all" ? allProductos.filter(p => p.modulo_ids.includes(filterModulo)) : allProductos;
+        const scopeValor = scopeProds.reduce((s, p) => s + p.cantidad_actual * p.precio_unitario, 0);
         return (
-          <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-5">
-            <MetricCard title={`Productos activos ${scopeMods}`} value={scopeProds.length}        icon={<Package        className="w-5 h-5" />} />
-            <MetricCard title="Bajo mínimo"                      value={scopeAlertas.length}      icon={<AlertTriangle  className="w-5 h-5" />} variant={scopeAlertas.length > 0 ? "warning" : "default"} />
-            <MetricCard title="Por vencer / vencidos"            value={scopeVenc.length}         icon={<CalendarClock  className="w-5 h-5" />} variant={scopeVencCrit.length > 0 ? "warning" : "default"} />
-            <MetricCard title={`Valor total ${scopeMods}`}       value={fmtCurrency(scopeValor)}  icon={<DollarSign     className="w-5 h-5" />} variant="info" />
-            <MetricCard title="Movimientos del mes"              value={movsMes}                  icon={<TrendingUp     className="w-5 h-5" />} variant="success" />
+          <div className="mb-5 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-border bg-muted/40 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Package className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-sm font-semibold">{scopeProds.length}</span>
+              <span className="text-xs text-muted-foreground">productos</span>
+            </div>
+            <div className="h-4 w-px bg-border" />
+            <div className="flex items-center gap-2">
+              <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-sm font-semibold">{fmtCurrency(scopeValor)}</span>
+              <span className="text-xs text-muted-foreground">valor total</span>
+            </div>
+            <div className="h-4 w-px bg-border" />
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-sm font-semibold">{movsMes}</span>
+              <span className="text-xs text-muted-foreground">movimientos este mes</span>
+            </div>
           </div>
         );
       })()}
@@ -4036,6 +5419,7 @@ export default function Inventario() {
         <MovimientosView
           onOpenDetail={id => { openDetail(id); }}
           onKardex={id => setKardexId(id)}
+          onMovimiento={openMovimiento}
           initialFilter={movFiltroInicial}
           onInitialFilterConsumed={() => setMovFiltroInicial(null)}
         />
@@ -4050,6 +5434,9 @@ export default function Inventario() {
         />
       )}
 
+      {/* Proveedores */}
+      {mainTab === "proveedores" && <ProveedoresView />}
+
 
       {/* Stock — Main 2-column layout */}
       {mainTab === "stock" && (
@@ -4060,12 +5447,11 @@ export default function Inventario() {
           productos={filtered}
           filterModulo={filterModulo} setFilterModulo={setFilterModulo}
           filterEstado={filterEstado} setFilterEstado={setFilterEstado}
-          onReponer={id => openMovimiento(id, "entrada")}
         />
 
         {/* Products area */}
         <div className="space-y-4 min-w-0">
-          {/* Search + filtros inline + view toggle */}
+          {/* Toolbar — fila 1: búsqueda + toggle de vista */}
           <div className="flex items-center gap-2">
             <Input
               placeholder="Buscar por nombre o código..."
@@ -4073,32 +5459,6 @@ export default function Inventario() {
               onChange={e => setSearch(e.target.value)}
               className="h-9 flex-1"
             />
-            {/* Toggle inactivos — integrado junto al buscador */}
-            {canAdmin && (
-              <button
-                onClick={() => { setShowInactivos(v => !v); setFilterEstado("all"); }}
-                title={showInactivos ? "Volver a productos activos" : "Ver productos inactivos"}
-                className={cn(
-                  "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition-colors shrink-0",
-                  showInactivos
-                    ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:border-amber-500 dark:text-amber-400"
-                    : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-foreground/30",
-                )}
-              >
-                <Power className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">
-                  {showInactivos ? "Inactivos" : "Inactivos"}
-                </span>
-                <span className={cn(
-                  "rounded-full px-1.5 py-0 text-[10px] font-bold",
-                  showInactivos
-                    ? "bg-amber-200 text-amber-800 dark:bg-amber-700/40 dark:text-amber-300"
-                    : "bg-muted text-muted-foreground",
-                )}>
-                  {catalogos.filter(p => !p.activo).length}
-                </span>
-              </button>
-            )}
             <div className="flex rounded-lg border border-border bg-muted p-0.5 shrink-0">
               <button
                 onClick={() => setViewMode("grid")}
@@ -4117,8 +5477,153 @@ export default function Inventario() {
             </div>
           </div>
 
-          {/* Banner de reglas automáticas — barra en contenido */}
-          <ReglasBanner variant="bar" />
+          {/* Toolbar — fila 2: acciones contextuales */}
+          <div className="flex items-center gap-2">
+            {/* Toggle inactivos */}
+            {canAdmin && (
+              <button
+                onClick={() => { setShowInactivos(v => !v); setFilterEstado("all"); }}
+                title={showInactivos ? "Volver a productos activos" : "Ver productos inactivos"}
+                className={cn(
+                  "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition-colors shrink-0",
+                  showInactivos
+                    ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:border-amber-500 dark:text-amber-400"
+                    : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-foreground/30",
+                )}
+              >
+                <Power className="h-3.5 w-3.5" />
+                <span>Inactivos</span>
+                <span className={cn(
+                  "rounded-full px-1.5 py-0 text-[10px] font-bold",
+                  showInactivos
+                    ? "bg-amber-200 text-amber-800 dark:bg-amber-700/40 dark:text-amber-300"
+                    : "bg-muted text-muted-foreground",
+                )}>
+                  {catalogos.filter(p => !p.activo).length}
+                </span>
+              </button>
+            )}
+            {/* Exportar stock */}
+            <Button variant="outline" size="sm" className="h-9 gap-1.5 shrink-0" onClick={exportarStock}>
+              <Download className="h-4 w-4" />
+              Exportar
+            </Button>
+            {/* Spacer para empujar acciones primarias a la derecha */}
+            <div className="flex-1" />
+            {/* Carga masiva */}
+            {!showInactivos && viewMode === "list" && !bulkMode && (
+              <Button
+                variant="outline" size="sm"
+                className="h-9 gap-1.5 shrink-0 border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-900/20"
+                onClick={() => { setBulkQtys({}); setBulkTipo("entrada"); setBulkMode(true); }}
+              >
+                <Package className="h-4 w-4" />
+                Carga masiva
+              </Button>
+            )}
+            {/* Nuevo producto */}
+            {canAdmin && !showInactivos && (
+              <Button size="sm" className="h-9 gap-1.5 shrink-0" onClick={() => { setEditingProd(null); setProdDialogOpen(true); }}>
+                <Plus className="h-4 w-4" />
+                Nuevo producto
+              </Button>
+            )}
+          </div>
+
+
+          {/* Carga masiva — panel flotante y arrastrable */}
+          {bulkMode && (() => {
+            const defaultX = Math.max(0, window.innerWidth / 2 - 320);
+            const defaultY = window.innerHeight - 100;
+            const pos = bulkPos ?? { x: defaultX, y: defaultY };
+
+            const handleDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
+              e.preventDefault();
+              bulkDragOffset.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+              const onMove = (ev: MouseEvent) => {
+                if (!bulkDragOffset.current) return;
+                setBulkPos({
+                  x: Math.max(0, Math.min(window.innerWidth  - 200, ev.clientX - bulkDragOffset.current.dx)),
+                  y: Math.max(0, Math.min(window.innerHeight - 60,  ev.clientY - bulkDragOffset.current.dy)),
+                });
+              };
+              const onUp = () => {
+                bulkDragOffset.current = null;
+                window.removeEventListener("mousemove", onMove);
+                window.removeEventListener("mouseup",   onUp);
+              };
+              window.addEventListener("mousemove", onMove);
+              window.addEventListener("mouseup",   onUp);
+            };
+
+            return (
+              <div
+                style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 50, minWidth: 520, maxWidth: "min(700px, 95vw)" }}
+                className={cn(
+                  "flex flex-wrap items-center gap-3 rounded-xl border shadow-xl px-3 py-2.5",
+                  bulkTipo === "entrada"
+                    ? "border-green-300 bg-green-50 dark:border-green-700/60 dark:bg-green-950/80"
+                    : "border-red-300 bg-red-50 dark:border-red-700/60 dark:bg-red-950/80",
+                )}
+              >
+                {/* Drag handle */}
+                <div
+                  onMouseDown={handleDragStart}
+                  className="cursor-move text-muted-foreground hover:text-foreground shrink-0 touch-none"
+                  title="Mover panel"
+                >
+                  <GripVertical className="h-4 w-4" />
+                </div>
+
+                {/* Tipo */}
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide shrink-0">Tipo:</span>
+                <div className="flex rounded-lg border border-border bg-muted p-0.5 gap-0.5 shrink-0">
+                  <button
+                    onClick={() => setBulkTipo("entrada")}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                      bulkTipo === "entrada" ? "bg-green-600 text-white shadow" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <ArrowDown className="h-3 w-3" /> Entrada
+                  </button>
+                  <button
+                    onClick={() => setBulkTipo("salida")}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                      bulkTipo === "salida" ? "bg-red-600 text-white shadow" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <ArrowUp className="h-3 w-3" /> Salida
+                  </button>
+                </div>
+
+                {/* Contador */}
+                <span className="text-xs text-muted-foreground">
+                  {bulkPendientes.length > 0
+                    ? <><strong className="text-foreground">{bulkPendientes.length}</strong> producto{bulkPendientes.length !== 1 ? "s" : ""} con cantidad ingresada</>
+                    : "Ingresá cantidades en la columna →"}
+                </span>
+
+                {/* Acciones */}
+                <div className="ml-auto flex items-center gap-2 shrink-0">
+                  <Button variant="outline" size="sm" className="h-8" onClick={cancelarBulk}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    size="sm"
+                    className={cn("h-8 gap-1.5 font-semibold",
+                      bulkTipo === "entrada" ? "bg-green-600 hover:bg-green-700 text-white" : "bg-red-600 hover:bg-red-700 text-white")}
+                    disabled={bulkPendientes.length === 0}
+                    onClick={confirmarBulk}
+                  >
+                    {bulkTipo === "entrada" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
+                    Confirmar {bulkPendientes.length > 0 ? `(${bulkPendientes.length})` : ""}
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Banner contextual cuando se ven inactivos */}
           {showInactivos && (
@@ -4137,6 +5642,48 @@ export default function Inventario() {
             </div>
           )}
 
+          {!showInactivos && (contextualAlerts.reposicion.length > 0 || contextualAlerts.lotesSemana.length > 0) && (
+            <div className="flex flex-wrap gap-2">
+              {contextualAlerts.reposicion.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterEstado(contextualAlerts.reposicionCritica > 0 ? "critico" : "bajo");
+                    setSearch("");
+                  }}
+                  className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-1.5 text-left text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
+                >
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span>
+                    <strong>{contextualAlerts.reposicion.length}</strong> producto{contextualAlerts.reposicion.length !== 1 ? "s" : ""} necesita{contextualAlerts.reposicion.length !== 1 ? "n" : ""} reposicion
+                  </span>
+                  <span className="text-[11px] underline underline-offset-2">Ver</span>
+                </button>
+              )}
+
+              {contextualAlerts.lotesSemana.length > 0 && (() => {
+                const urgente = contextualAlerts.lotesSemana[0];
+                const producto = catalogos.find(p => p.id === urgente.lote.catalogo_id);
+                const vencidos = contextualAlerts.vencidos;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (producto) openDetail(producto.id);
+                    }}
+                    className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-red-200 bg-red-50/70 px-3 py-1.5 text-left text-xs font-medium text-red-800 transition-colors hover:bg-red-100 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300"
+                  >
+                    <CalendarClock className="h-4 w-4 shrink-0" />
+                    <span>
+                      <strong>{contextualAlerts.lotesSemana.length}</strong> lote{contextualAlerts.lotesSemana.length !== 1 ? "s" : ""} {vencidos > 0 ? "vencidos o por vencer" : "vence esta semana"}
+                    </span>
+                    {producto && <span className="max-w-[180px] truncate text-[11px] underline underline-offset-2">{producto.nombre}</span>}
+                  </button>
+                );
+              })()}
+            </div>
+          )}
+
           {/* Results count */}
           <p className="text-xs text-muted-foreground">
             {filtered.length} producto{filtered.length !== 1 ? "s" : ""}
@@ -4144,12 +5691,43 @@ export default function Inventario() {
             {filterEstado !== "all" && <> · estado: {filterEstado}</>}
           </p>
 
-          {/* Empty state */}
+          {/* Empty state contextual */}
           {filtered.length === 0 && (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/10 py-20 text-center">
-              <Package className="mb-2 h-10 w-10 opacity-20" />
-              <p className="text-sm font-medium">Sin productos</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">Cambia los filtros para ver más resultados.</p>
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/10 py-16 text-center gap-3">
+              <Package className="h-10 w-10 opacity-20" />
+              {search || filterModulo !== "all" || filterEstado !== "all" ? (
+                <>
+                  <div>
+                    <p className="text-sm font-medium">Sin resultados para los filtros activos</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {search && <span>Búsqueda: <strong>"{search}"</strong>{(filterModulo !== "all" || filterEstado !== "all") && " · "}</span>}
+                      {filterModulo !== "all" && <span>Área: <strong>{MODULE_LABELS[filterModulo] ?? filterModulo}</strong>{filterEstado !== "all" && " · "}</span>}
+                      {filterEstado !== "all" && <span>Estado: <strong>{filterEstado}</strong></span>}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { setSearch(""); setFilterModulo("all"); setFilterEstado("all"); }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" /> Quitar todos los filtros
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <p className="text-sm font-medium">Sin productos en el inventario</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Agrega tu primer producto para comenzar a registrar stock.</p>
+                  </div>
+                  {canAdmin && (
+                    <button
+                      onClick={() => { setEditingProd(null); setProdDialogOpen(true); }}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-xs font-medium hover:bg-primary/90 transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Agregar primer producto
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           )}
 
@@ -4175,32 +5753,50 @@ export default function Inventario() {
           {viewMode === "list" && filtered.length > 0 && (
             <div className="overflow-hidden rounded-xl border border-border bg-card">
               <div className="overflow-auto">
-                <table className="w-full min-w-[540px] text-sm">
+                <table className="w-full min-w-[720px] text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/40">
+                      <th className="w-1 px-0"></th>
                       <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Producto</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Área</th>
-                      <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Stock</th>
-                      <th className="w-28 px-3 py-2.5 font-semibold text-muted-foreground"></th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground whitespace-nowrap">Área</th>
+                      <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground whitespace-nowrap">Stock</th>
+                      <th className="w-24 px-3 py-2.5"></th>
                       <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Estado</th>
-                      <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Acciones</th>
+                      <th className="hidden 2xl:table-cell px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground whitespace-nowrap">Precio unit.</th>
+                      <th className="hidden 2xl:table-cell px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">PPP</th>
+                      <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground whitespace-nowrap">Valor total</th>
+                      <th className="hidden 2xl:table-cell px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Cuenta</th>
+                      {bulkMode && (
+                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-green-700 dark:text-green-400 whitespace-nowrap">
+                          Cantidad a {bulkTipo === "entrada" ? "ingresar" : "retirar"}
+                        </th>
+                      )}
+                      {!bulkMode && <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Acciones</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {filtered.map(p => {
                       const status = getStockStatus(p);
                       const inactivo = !p.activo;
+                      const accentCls = status === "critico" ? "bg-red-500" : status === "bajo" ? "bg-amber-500" : "bg-transparent";
+                      const rowCls = status === "critico"
+                        ? "bg-red-50/40 dark:bg-red-900/10"
+                        : status === "bajo"
+                          ? "bg-amber-50/30 dark:bg-amber-900/10"
+                          : "";
                       return (
                         <tr
                           key={p.id}
                           className={cn(
                             "border-b border-border/50 last:border-0 transition-colors",
-                            inactivo
-                              ? "bg-muted/30 hover:bg-muted/50"
-                              : "cursor-pointer hover:bg-muted/20",
+                            inactivo ? "bg-muted/30 hover:bg-muted/50" : cn("cursor-pointer hover:bg-muted/20", rowCls),
                           )}
                           onClick={() => !inactivo && openDetail(p.id)}
                         >
+                          {/* Franja de color izquierda según urgencia */}
+                          <td className="w-1 p-0">
+                            <div className={cn("h-full w-1 min-h-[40px]", accentCls)} />
+                          </td>
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
                               <div>
@@ -4209,14 +5805,16 @@ export default function Inventario() {
                               </div>
                               {inactivo && (
                                 <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                  Inactivo
+                                  Desactivado
                                 </span>
                               )}
                             </div>
                           </td>
-                          <td className={cn("px-3 py-2.5", inactivo && "opacity-50")}><ModuloBadges ids={p.modulo_ids} size="xs" /></td>
+                          <td className={cn("px-3 py-2.5 whitespace-nowrap", inactivo && "opacity-50")}><ModuloBadges ids={p.modulo_ids} size="xs" /></td>
                           <td className={cn("px-3 py-2.5 text-right", inactivo && "opacity-50")}>
-                            <span className="font-semibold">{fmtNum(p.cantidad_actual, 1)}</span>
+                            <span className={cn("font-semibold", status === "critico" && !inactivo && "text-red-600 dark:text-red-400", status === "bajo" && !inactivo && "text-amber-600 dark:text-amber-400")}>
+                              {fmtNum(p.cantidad_actual, 1)}
+                            </span>
                             <span className="ml-1 text-xs text-muted-foreground">{p.unidad_medida}</span>
                           </td>
                           <td className={cn("px-3 py-2.5", inactivo && "opacity-30")}>
@@ -4224,97 +5822,138 @@ export default function Inventario() {
                           </td>
                           <td className="px-3 py-2.5">
                             {inactivo
-                              ? <span className="text-[11px] text-muted-foreground italic">Inactivo</span>
+                              ? <span className="text-[11px] text-muted-foreground italic">Desactivado — oculto en formularios</span>
                               : <StockBadge status={status} />}
                           </td>
-                          <td className="px-3 py-2.5 text-right" onClick={e => e.stopPropagation()}>
-                            <div className="inline-flex items-center gap-1.5">
-                              {/* Acciones primarias — siempre visibles */}
-                              {!inactivo && (
-                                <>
-                                  <button
-                                    className="h-7 w-7 rounded-lg bg-green-600 text-white hover:bg-green-700 flex items-center justify-center text-sm font-bold transition-colors"
-                                    onClick={() => openMovimiento(p.id, "entrada")}
-                                    title="Registrar entrada"
-                                  >+</button>
-                                  <button
-                                    className="h-7 w-7 rounded-lg bg-red-600 text-white hover:bg-red-700 flex items-center justify-center text-sm font-bold transition-colors"
-                                    onClick={() => openMovimiento(p.id, "salida")}
-                                    title="Registrar salida"
-                                  >−</button>
-                                </>
-                              )}
-                              {inactivo && (
-                                <span className="text-[11px] text-muted-foreground italic px-1">Inactivo</span>
-                              )}
-
-                              {/* Separador */}
-                              <span className="h-4 w-px bg-border mx-0.5" />
-
-                              {/* Menú "···" — acciones secundarias */}
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <button className="h-7 w-7 rounded-lg border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground flex items-center justify-center transition-colors">
-                                    <MoreHorizontal className="h-3.5 w-3.5" />
-                                  </button>
-                                </PopoverTrigger>
-                                <PopoverContent align="end" className="w-48 p-1">
-                                  {!inactivo && (
-                                    <>
-                                      <button
-                                        onClick={() => openDetail(p.id)}
-                                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-accent transition-colors"
-                                      >
-                                        <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                                        Ver detalle
-                                      </button>
-                                      <button
-                                        onClick={() => setKardexId(p.id)}
-                                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-accent transition-colors"
-                                      >
-                                        <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
-                                        Balance de stock
-                                      </button>
-                                      <button
-                                        onClick={() => setTransferirId(p.id)}
-                                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-accent transition-colors"
-                                      >
-                                        <ArrowLeftRight className="h-3.5 w-3.5 text-muted-foreground" />
-                                        Transferir área
-                                      </button>
-                                    </>
-                                  )}
-                                  {canAdmin && (
-                                    <>
-                                      {!inactivo && (
-                                        <>
-                                          <div className="my-1 border-t border-border" />
-                                          <button
-                                            onClick={() => { setEditingProd(p); setProdDialogOpen(true); }}
-                                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-accent transition-colors"
-                                          >
-                                            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                                            Editar producto
-                                          </button>
-                                        </>
-                                      )}
-                                      <button
-                                        onClick={() => setConfirmProd(p)}
-                                        className={cn(
-                                          "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors",
-                                          inactivo
-                                            ? "text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
-                                            : "text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20",
+                          <td className={cn("hidden 2xl:table-cell px-3 py-2.5 text-right text-xs", inactivo && "opacity-50")}>
+                            {fmtCurrency(p.precio_unitario)}
+                          </td>
+                          <td className={cn("hidden 2xl:table-cell px-3 py-2.5 text-right text-xs font-semibold", inactivo && "opacity-50",
+                            !inactivo && p.precio_promedio_ponderado !== p.precio_unitario ? "text-amber-600 dark:text-amber-400" : "")}>
+                            {fmtCurrency(p.precio_promedio_ponderado)}
+                          </td>
+                          <td className={cn("px-3 py-2.5 text-right text-sm font-bold tabular-nums", inactivo && "opacity-50")}>
+                            {fmtCurrency(p.cantidad_actual * p.precio_promedio_ponderado)}
+                          </td>
+                          <td className={cn("hidden 2xl:table-cell px-3 py-2.5 text-xs", inactivo && "opacity-50")}>
+                            {p.cuenta_contable
+                              ? <span className="font-mono rounded bg-muted px-1.5 py-0.5">{p.cuenta_contable}</span>
+                              : <span className="text-muted-foreground/50">—</span>}
+                          </td>
+                          {/* Columna Acciones / Carga masiva — siempre un único td */}
+                          <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
+                            {bulkMode ? (
+                              // ── Modo carga masiva: input de cantidad ──────────
+                              inactivo ? null : (
+                                <div className="flex justify-end">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    value={bulkQtys[p.id] ?? ""}
+                                    onChange={e => setBulkQtys(prev => ({ ...prev, [p.id]: e.target.value }))}
+                                    onKeyDown={e => {
+                                      if (e.key === "Enter") {
+                                        const next = (e.currentTarget.closest("tr")?.nextElementSibling as HTMLElement | null)
+                                          ?.querySelector('input[type="number"]') as HTMLInputElement | null;
+                                        next?.focus();
+                                      }
+                                    }}
+                                    placeholder={`cant. (${p.unidad_medida})`}
+                                    className={cn(
+                                      "h-8 w-36 rounded-md border bg-background px-2 text-xs text-right focus:outline-none focus:ring-2 transition-colors",
+                                      bulkQtys[p.id] && parseFloat(bulkQtys[p.id]) > 0
+                                        ? "border-green-400 focus:ring-green-400/40 text-green-700 dark:text-green-400 font-medium"
+                                        : "border-border focus:ring-ring",
+                                    )}
+                                  />
+                                </div>
+                              )
+                            ) : (
+                              // ── Modo normal: botones de acción ───────────────
+                              <div className="flex items-center justify-end gap-1">
+                                {!inactivo && (
+                                  <>
+                                    <button
+                                      onClick={() => openMovimiento(p.id, "entrada")}
+                                      title="Registrar entrada"
+                                      className="h-7 w-7 rounded-lg bg-green-600 text-white hover:bg-green-700 flex items-center justify-center transition-colors"
+                                    >
+                                      <ArrowDown className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => openMovimiento(p.id, "salida")}
+                                      title="Registrar salida"
+                                      className="h-7 w-7 rounded-lg border border-red-300 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center justify-center transition-colors"
+                                    >
+                                      <ArrowUp className="h-3.5 w-3.5" />
+                                    </button>
+                                  </>
+                                )}
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <button className="h-7 w-7 rounded-lg border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground flex items-center justify-center transition-colors">
+                                      <MoreHorizontal className="h-3.5 w-3.5" />
+                                    </button>
+                                  </PopoverTrigger>
+                                  <PopoverContent align="end" className="w-48 p-1">
+                                    {!inactivo && (
+                                      <>
+                                        <button
+                                          onClick={() => openDetail(p.id)}
+                                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-accent transition-colors"
+                                        >
+                                          <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                                          Ver detalle
+                                        </button>
+                                        <button
+                                          onClick={() => setKardexId(p.id)}
+                                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-accent transition-colors"
+                                        >
+                                          <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
+                                          Historial de movimientos
+                                        </button>
+                                        <button
+                                          onClick={() => setTransferirId(p.id)}
+                                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-accent transition-colors"
+                                        >
+                                          <ArrowLeftRight className="h-3.5 w-3.5 text-muted-foreground" />
+                                          Transferir área
+                                        </button>
+                                      </>
+                                    )}
+                                    {canAdmin && (
+                                      <>
+                                        {!inactivo && (
+                                          <>
+                                            <div className="my-1 border-t border-border" />
+                                            <button
+                                              onClick={() => { setEditingProd(p); setProdDialogOpen(true); }}
+                                              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-accent transition-colors"
+                                            >
+                                              <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                                              Editar producto
+                                            </button>
+                                          </>
                                         )}
-                                      >
-                                        <Power className="h-3.5 w-3.5" />
-                                        {inactivo ? "Reactivar" : "Desactivar"}
-                                      </button>
-                                    </>
-                                  )}
-                                </PopoverContent>
-                              </Popover>
-                            </div>
+                                        <button
+                                          onClick={() => setConfirmProd(p)}
+                                          className={cn(
+                                            "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors",
+                                            inactivo
+                                              ? "text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
+                                              : "text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20",
+                                          )}
+                                        >
+                                          <Power className="h-3.5 w-3.5" />
+                                          {inactivo ? "Reactivar" : "Desactivar producto"}
+                                        </button>
+                                      </>
+                                    )}
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                            )}
                           </td>
                         </tr>
                       );
@@ -4328,6 +5967,7 @@ export default function Inventario() {
       </div>
       )}
 
+
       {/* Sheets + modals */}
       <DetalleSheet
         productId={selectedId}
@@ -4335,6 +5975,7 @@ export default function Inventario() {
         onClose={() => setDetalleOpen(false)}
         onMovimiento={openMovimiento}
         onKardex={id => { setKardexId(id); }}
+        onTransferir={id => setTransferirId(id)}
         onVerHistorialLote={irAHistorialDeLote}
       />
       <KardexSheet productId={kardexId} onClose={() => setKardexId(null)} />
