@@ -6,6 +6,7 @@ import {
   BellRing,
   CheckCircle2,
   Info,
+  Leaf,
   Package,
   ShieldAlert,
 } from "lucide-react";
@@ -97,6 +98,16 @@ const ROLE_NOTIFICATIONS: Record<UserRole, RoleNotification[]> = {
   ],
   cliente_admin: [
     {
+      id: "ca-ciclo-1",
+      title: "Lotes próximos a cambio de etapa",
+      message: "2 lotes de Fresas y 1 de Tomates Cherry cambian de etapa en los próximos 3 días.",
+      when: "Hace 1 h",
+      module: "Cultivo",
+      severity: "warning",
+      ctaLabel: "Ver lotes",
+      ctaPath: "/cultivo",
+    },
+    {
       id: "ca-1",
       title: "Usuarios pendientes de activacion",
       message: "Tienes 2 cuentas creadas que aun no han iniciado sesion.",
@@ -136,6 +147,36 @@ const ROLE_NOTIFICATIONS: Record<UserRole, RoleNotification[]> = {
     },
   ],
   productor: [
+    {
+      id: "pr-ciclo-1",
+      title: "Fresas — Lote L-045 entra en Floración",
+      message: "Quedan 3 días para que el lote L-045 pase a etapa de Floración (21 días estimados). Preparar programa de riego.",
+      when: "Hace 20 min",
+      module: "Cultivo",
+      severity: "warning",
+      ctaLabel: "Ver lote",
+      ctaPath: "/cultivo",
+    },
+    {
+      id: "pr-ciclo-2",
+      title: "Fresas — Lote L-087 completó Vegetativo",
+      message: "El lote L-087 completó los 30 días de etapa Vegetativa. Inicia Floración hoy.",
+      when: "Hoy 07:00",
+      module: "Cultivo",
+      severity: "success",
+      ctaLabel: "Registrar",
+      ctaPath: "/cultivo",
+    },
+    {
+      id: "pr-ciclo-3",
+      title: "Tomates Cherry — Lote T-023 retrasado",
+      message: "El lote T-023 lleva 8 días adicionales en Germinación (esperado: 14 días). Revisar condiciones.",
+      when: "Hace 3 h",
+      module: "Cultivo",
+      severity: "critical",
+      ctaLabel: "Atender",
+      ctaPath: "/cultivo",
+    },
     {
       id: "pr-1",
       title: "Formularios pendientes de envio",
@@ -177,6 +218,16 @@ const ROLE_NOTIFICATIONS: Record<UserRole, RoleNotification[]> = {
   ],
   jefe_area: [
     {
+      id: "ja-ciclo-1",
+      title: "3 lotes cambian de etapa esta semana",
+      message: "L-045 → Floración (en 3 días), L-087 → Floración (hoy), T-023 con retraso en Germinación.",
+      when: "Hace 30 min",
+      module: "Cultivo",
+      severity: "warning",
+      ctaLabel: "Ver todos",
+      ctaPath: "/cultivo",
+    },
+    {
       id: "ja-1",
       title: "Validacion pendiente en {area}",
       message: "Tienes 4 registros de {area} esperando aprobacion final.",
@@ -206,6 +257,16 @@ const ROLE_NOTIFICATIONS: Record<UserRole, RoleNotification[]> = {
     },
   ],
   supervisor: [
+    {
+      id: "sp-ciclo-1",
+      title: "Mañana: Lote L-045 pasa a Floración",
+      message: "Recordatorio configurado con 3 días de anticipación. Verificar condiciones de riego y temperatura antes del cambio.",
+      when: "Hace 10 min",
+      module: "Cultivo",
+      severity: "info",
+      ctaLabel: "Ver protocolo",
+      ctaPath: "/cultivo",
+    },
     {
       id: "sp-1",
       title: "Tareas asignadas en {area}",
@@ -467,14 +528,15 @@ export function RoleNotifications({
         {/* ── Notificaciones contextuales por rol ── */}
         {roleNotifications.map((notification) => {
           const meta = SEVERITY_META[notification.severity];
-          const Icon = meta.icon;
+          const isCiclo = notification.id.includes("ciclo");
+          const Icon = isCiclo ? Leaf : meta.icon;
           return (
             <div
               key={notification.id}
               className={cn("rounded-lg border px-3 py-2.5", meta.card)}
             >
               <div className="flex items-start gap-2.5">
-                <div className={cn("mt-0.5", meta.iconColor)}>
+                <div className={cn("mt-0.5", isCiclo ? "text-emerald-600 dark:text-emerald-400" : meta.iconColor)}>
                   <Icon className="w-3.5 h-3.5" />
                 </div>
                 <div className="flex-1 min-w-0">

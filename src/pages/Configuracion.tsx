@@ -11,6 +11,7 @@ import { Label }   from "@/components/ui/label";
 import { Button }  from "@/components/ui/button";
 import { Switch }  from "@/components/ui/switch";
 import { Badge }   from "@/components/ui/badge";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter,
@@ -26,7 +27,7 @@ import {
   Layers, List, Palette, Settings2, BookOpen,
   Upload, X, Plus,
   Trash2, Info, CheckCircle2, Check, Clock, Archive, Leaf, Search, Copy, History,
-  ChevronDown, RotateCcw, Power, XCircle, LayoutList, ArrowLeftRight, Lock, CheckSquare, Square, ListFilter, Zap,
+  ChevronDown, ChevronUp, RotateCcw, Power, XCircle, LayoutList, ArrowLeftRight, Lock, CheckSquare, Square, ListFilter, Zap,
   Ruler, Scale, Network, ChevronRight, ArrowUp, ArrowDown, Map as MapIcon, Tag,
   Hash, ToggleLeft, Image as ImageIcon, Link2, UserX, UserCheck, SlidersHorizontal,
   LayoutDashboard,
@@ -44,7 +45,7 @@ import {
   tipoBadgeColor, tipoLabels, estadoBadge,
   type ModDef, type ModParam, type Parametro,
   type TipoConfig, type TipoDato, type EstadoDef,
-  type Cultivo, type Variedad, type Calibre, type NivelEstructura, type BloqueLayout, type MapaCultivo,
+  type Cultivo, type Variedad, type Calibre, type NivelEstructura, type BloqueLayout, type MapaCultivo, type EtapaCiclo,
 } from "@/config/moduleDefinitions";
 import { VersionDiffDialog } from "@/components/dashboard/VersionDiffDialog";
 import { CampoConfigDrawer } from "@/components/dashboard/CampoConfigDrawer";
@@ -55,6 +56,7 @@ import {
   Shield, ShieldCheck, Sprout as SproutIcon, Briefcase, Eye,
   BookOpen as BookOpenAlt, Mail, Calendar,
   ShieldAlert, AlertTriangle, Users2, Building2, Tractor, Pencil, Globe, FileText, MapPin,
+  Timer, GripVertical, Bell, BellOff,
 } from "lucide-react";
 
 //  InfoBanner (dismissible) 
@@ -4782,6 +4784,548 @@ function TabFormularios({
   );
 }
 
+// --- Calibres tab (needs own component for hooks) ----------------------------
+
+const DOT_COLORS_CAL = ["bg-amber-400","bg-violet-500","bg-blue-500","bg-slate-400","bg-emerald-500","bg-rose-500","bg-orange-400","bg-teal-500"];
+
+function CalibreTabContent({ cultivo, canEdit, updCultivo }: {
+  cultivo: Cultivo;
+  canEdit: boolean;
+  updCultivo: (id: string, key: string, val: any) => void;
+}) {
+  const calibres: Calibre[] = (cultivo as any)?.calibres ?? [];
+  const unidad = (cultivo as any)?.unidad_calibre ?? "mm";
+
+  const [confirm, setConfirm] = useState<
+    | { type: "del"; id: string; nombre: string }
+    | { type: "edit"; id: string; field: keyof Calibre; prev: any; next: any; label: string }
+    | null
+  >(null);
+
+  // draft: values being typed before blur
+  const [drafts, setDrafts] = useState<Record<string, Partial<Calibre>>>({});
+
+  const getDraft = (calId: string, field: keyof Calibre, fallback: any) =>
+    drafts[calId]?.[field] !== undefined ? drafts[calId][field] : fallback;
+
+  const setDraft = (calId: string, field: keyof Calibre, val: any) =>
+    setDrafts(prev => ({ ...prev, [calId]: { ...prev[calId], [field]: val } }));
+
+  const clearDraft = (calId: string, field: keyof Calibre) =>
+    setDrafts(prev => {
+      const next = { ...prev };
+      if (next[calId]) { next[calId] = { ...next[calId] }; delete next[calId][field]; }
+      return next;
+    });
+
+  const commitEdit = (id: string, field: keyof Calibre, prev: any, next: any, label: string) => {
+    if (String(prev ?? "") === String(next ?? "")) { clearDraft(id, field); return; }
+    setConfirm({ type: "edit", id, field, prev, next, label });
+  };
+
+  const applyEdit = (id: string, field: keyof Calibre, val: any) => {
+    const updated = calibres.map(c => c.id === id ? { ...c, [field]: val } : c);
+    updCultivo(cultivo.id, "calibres", updated);
+  };
+
+  const applyDel = (id: string) =>
+    updCultivo(cultivo.id, "calibres", calibres.filter(c => c.id !== id));
+
+  const numField = (cal: Calibre, field: keyof Calibre, label: string) => (
+    <input
+      type="number" min={0}
+      value={getDraft(cal.id, field, cal[field] as number) ?? ""}
+      onChange={e => setDraft(cal.id, field, e.target.value !== "" ? Number(e.target.value) : undefined)}
+      onBlur={() => {
+        const next = getDraft(cal.id, field, cal[field]);
+        clearDraft(cal.id, field);
+        commitEdit(cal.id, field, cal[field], next, label);
+      }}
+      readOnly={!canEdit} disabled={!canEdit}
+      className="w-full text-xs text-center bg-muted/40 rounded-md px-1.5 py-1.5 border border-transparent focus:border-primary/50 focus:bg-background focus:outline-none disabled:opacity-60 transition-colors"
+    />
+  );
+
+  return (
+    <>
+      <AlertDialog open={confirm !== null} onOpenChange={open => { if (!open) setConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirm?.type === "del" ? "Eliminar calibre" : "Confirmar cambio"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirm?.type === "del"
+                ? <>¿Eliminar el calibre <strong>{confirm.nombre || "Sin nombre"}</strong>? Esta acción no se puede deshacer.</>
+                : confirm?.type === "edit"
+                  ? <>¿Guardar el cambio en <strong>{confirm.label}</strong>? El valor pasará de <strong>{confirm.prev ?? "—"}</strong> a <strong>{confirm.next ?? "—"}</strong>.</>
+                  : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConfirm(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className={confirm?.type === "del" ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
+              onClick={() => {
+                if (!confirm) return;
+                if (confirm.type === "del") applyDel(confirm.id);
+                else applyEdit(confirm.id, confirm.field, confirm.next);
+                setConfirm(null);
+              }}
+            >
+              {confirm?.type === "del" ? "Eliminar" : "Guardar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Scale className="w-4 h-4 text-amber-600" />
+            Calibres
+            <span className="text-[11px] font-normal text-muted-foreground">({calibres.length})</span>
+          </h3>
+          <div className="flex items-center gap-2 ml-auto flex-wrap">
+            <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5 border border-border text-[11px]">
+              {(["mm", "cm"] as const).map(u => (
+                <button key={u}
+                  onClick={() => canEdit && updCultivo(cultivo.id, "unidad_calibre", u)}
+                  disabled={!canEdit}
+                  className={cn("px-2 py-0.5 rounded font-medium transition-colors",
+                    unidad === u ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+                >{u}</button>
+              ))}
+            </div>
+            {canEdit && (
+              <>
+                {calibres.length === 0 && (
+                  <button onClick={() => {
+                    const plantilla: Calibre[] = [
+                      { id: `cal-${Date.now()}-1`, nombre: "Premium",  mm_min: 28, mm_max: 32, peso_g_min: 18 },
+                      { id: `cal-${Date.now()}-2`, nombre: "Extra",    mm_min: 24, mm_max: 28, peso_g_min: 14 },
+                      { id: `cal-${Date.now()}-3`, nombre: "Estándar", mm_min: 20, mm_max: 24, peso_g_min: 10 },
+                      { id: `cal-${Date.now()}-4`, nombre: "Descarte", mm_min: 0,  mm_max: 20 },
+                    ];
+                    updCultivo(cultivo.id, "calibres", plantilla);
+                  }} className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground border border-dashed border-border px-2 py-1 rounded-md hover:border-primary/40 transition-colors">
+                    <ListFilter className="w-3.5 h-3.5" /> Cargar plantilla
+                  </button>
+                )}
+                <button onClick={() => {
+                  const nuevo: Calibre = { id: `cal-${Date.now()}`, nombre: "" };
+                  updCultivo(cultivo.id, "calibres", [...calibres, nuevo]);
+                }} className="flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/70 transition-colors">
+                  <Plus className="w-3.5 h-3.5" /> Agregar
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {calibres.length === 0 ? (
+          <div className="px-4 py-8 text-center space-y-2">
+            <Scale className="w-7 h-7 mx-auto text-muted-foreground/20" />
+            <p className="text-xs text-muted-foreground">Sin calibres configurados.</p>
+            {canEdit && <p className="text-[10px] text-muted-foreground/60">Usa "Cargar plantilla" para empezar rápido.</p>}
+          </div>
+        ) : (
+          <div>
+            <div className="grid items-center gap-x-2 px-4 py-2 bg-muted/30 border-b border-border text-[10px] font-semibold text-muted-foreground uppercase tracking-wider"
+              style={{ gridTemplateColumns: "1fr 64px 64px 80px 80px 28px" }}>
+              <span>Nombre</span>
+              <span className="text-center">{unidad} mín</span>
+              <span className="text-center">{unidad} máx</span>
+              <span className="text-center">Peso mín (g)</span>
+              <span className="text-center">Peso máx (g)</span>
+              <span />
+            </div>
+            <div className="divide-y divide-border">
+              {calibres.map((cal, idx) => (
+                <div key={cal.id}
+                  className="group grid items-center gap-x-2 px-4 py-2 hover:bg-muted/20 transition-colors"
+                  style={{ gridTemplateColumns: "1fr 64px 64px 80px 80px 28px" }}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className={cn("w-2 h-2 rounded-full flex-shrink-0", DOT_COLORS_CAL[idx % DOT_COLORS_CAL.length])} />
+                    <input
+                      value={getDraft(cal.id, "nombre", cal.nombre) as string}
+                      onChange={e => setDraft(cal.id, "nombre", e.target.value)}
+                      onBlur={() => {
+                        const next = getDraft(cal.id, "nombre", cal.nombre);
+                        clearDraft(cal.id, "nombre");
+                        commitEdit(cal.id, "nombre", cal.nombre, next, "Nombre");
+                      }}
+                      placeholder="ej. Premium"
+                      readOnly={!canEdit} disabled={!canEdit}
+                      className="flex-1 text-sm font-medium bg-transparent border-0 focus:outline-none min-w-0 disabled:opacity-60"
+                    />
+                    {cal.mm_min !== undefined && cal.mm_max !== undefined && (
+                      <span className="text-[10px] text-muted-foreground/60 flex-shrink-0 hidden xl:block">
+                        {cal.mm_min}–{cal.mm_max} {unidad}
+                      </span>
+                    )}
+                  </div>
+                  {numField(cal, "mm_min", `${unidad} mínimo`)}
+                  {numField(cal, "mm_max", `${unidad} máximo`)}
+                  {numField(cal, "peso_g_min", "Peso mín (g)")}
+                  {numField(cal, "peso_g_max", "Peso máx (g)")}
+                  {canEdit ? (
+                    <button
+                      onClick={() => setConfirm({ type: "del", id: cal.id, nombre: cal.nombre })}
+                      title="Eliminar calibre"
+                      className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  ) : <span />}
+                </div>
+              ))}
+            </div>
+            <div className="px-4 py-2 bg-muted/10 border-t border-border flex items-center gap-3 flex-wrap">
+              {calibres.filter(c => c.nombre).map((cal, idx) => (
+                <span key={cal.id} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <span className={cn("w-2 h-2 rounded-full", DOT_COLORS_CAL[idx % DOT_COLORS_CAL.length])} />
+                  <span className="font-medium">{cal.nombre}</span>
+                  {cal.mm_min !== undefined && cal.mm_max !== undefined && (
+                    <span>{cal.mm_min}–{cal.mm_max}{unidad}</span>
+                  )}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// --- Ciclo de vida tab (needs own component for hooks) -----------------------
+
+function CicloTabContent({ cultivo, canEdit, updCultivo }: {
+  cultivo: Cultivo;
+  canEdit: boolean;
+  updCultivo: (id: string, key: string, val: any) => void;
+}) {
+  const etapas: EtapaCiclo[] = (cultivo as any)?.ciclo_vida ?? [];
+  const totalDias = etapas.reduce((s, e) => s + e.duracion, 0);
+
+  const updEtapas = (next: EtapaCiclo[]) => updCultivo(cultivo.id, "ciclo_vida", next);
+
+  const [hoveredSlice, setHoveredSlice] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+  const [cicloConfirm, setCicloConfirm] = useState<
+    | { type: "move"; from: number; to: number }
+    | { type: "del"; id: string; nombre: string }
+    | { type: "add" }
+    | { type: "edit"; id: string; field: keyof EtapaCiclo; prev: any; next: any; label: string }
+    | null
+  >(null);
+  const dragIdxRef = useRef<number | null>(null);
+
+  // drafts: local edits before blur confirmation
+  const [drafts, setDrafts] = useState<Record<string, Partial<EtapaCiclo>>>({});
+  const getDraft = (id: string, field: keyof EtapaCiclo, fallback: any) =>
+    drafts[id]?.[field] !== undefined ? drafts[id][field] : fallback;
+  const setDraft = (id: string, field: keyof EtapaCiclo, val: any) =>
+    setDrafts(prev => ({ ...prev, [id]: { ...prev[id], [field]: val } }));
+  const clearDraft = (id: string, field: keyof EtapaCiclo) =>
+    setDrafts(prev => { const n = { ...prev }; if (n[id]) { n[id] = { ...n[id] }; delete n[id][field]; } return n; });
+  const commitEdit = (id: string, field: keyof EtapaCiclo, prev: any, next: any, label: string) => {
+    if (String(prev ?? "") === String(next ?? "")) { clearDraft(id, field); return; }
+    setCicloConfirm({ type: "edit", id, field, prev, next, label });
+  };
+
+  const handleDragStart = (idx: number) => { dragIdxRef.current = idx; };
+  const handleDragOver = (e: React.DragEvent, idx: number) => { e.preventDefault(); setDragOver(idx); };
+  const handleDrop = (toIdx: number) => {
+    const fromIdx = dragIdxRef.current;
+    setDragOver(null); dragIdxRef.current = null;
+    if (fromIdx === null || fromIdx === toIdx) return;
+    setCicloConfirm({ type: "move", from: fromIdx, to: toIdx });
+  };
+  const handleDragEnd = () => { setDragOver(null); dragIdxRef.current = null; };
+
+  const applyMove = (from: number, to: number) => {
+    const next = [...etapas];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    updEtapas(next);
+  };
+  const applyDel = (id: string) => updEtapas(etapas.filter(e => e.id !== id));
+  const applyEdit = (id: string, field: keyof EtapaCiclo, val: any) =>
+    updEtapas(etapas.map(e => e.id === id ? { ...e, [field]: val } : e));
+  const applyAdd = () => {
+    const PALETTE = ["#86efac","#67e8f9","#fbbf24","#f97316","#c084fc","#f472b6","#60a5fa","#a3e635"];
+    updEtapas([...etapas, { id: `e-${Date.now()}`, nombre: "", duracion: 14, color: PALETTE[etapas.length % PALETTE.length] }]);
+  };
+
+  // SVG pie helpers
+  const cx = 80, cy = 80, r = 68, rInner = 38;
+  const toRad = (deg: number) => (deg - 90) * (Math.PI / 180);
+  const pieSlices = useMemo(() => {
+    if (totalDias === 0) return [];
+    let angle = 0;
+    return etapas.map(e => {
+      const sweep = (e.duracion / totalDias) * 360;
+      const start = angle; const end = angle + sweep; angle = end;
+      const large = sweep > 180 ? 1 : 0;
+      const x1 = cx + r * Math.cos(toRad(start)); const y1 = cy + r * Math.sin(toRad(start));
+      const x2 = cx + r * Math.cos(toRad(end - 0.1)); const y2 = cy + r * Math.sin(toRad(end - 0.1));
+      const xi1 = cx + rInner * Math.cos(toRad(start)); const yi1 = cy + rInner * Math.sin(toRad(start));
+      const xi2 = cx + rInner * Math.cos(toRad(end - 0.1)); const yi2 = cy + rInner * Math.sin(toRad(end - 0.1));
+      return { e, d: `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} L ${xi2} ${yi2} A ${rInner} ${rInner} 0 ${large} 0 ${xi1} ${yi1} Z` };
+    });
+  }, [etapas, totalDias]);
+
+  return (
+    <>
+      <AlertDialog open={cicloConfirm !== null} onOpenChange={open => { if (!open) setCicloConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {cicloConfirm?.type === "del" ? "Eliminar etapa"
+                : cicloConfirm?.type === "add" ? "Agregar etapa"
+                : cicloConfirm?.type === "edit" ? "Confirmar cambio"
+                : "Mover etapa"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {cicloConfirm?.type === "del"
+                ? <>¿Eliminar la etapa <strong>{cicloConfirm.nombre || "Sin nombre"}</strong>? Esta acción no se puede deshacer.</>
+                : cicloConfirm?.type === "move"
+                  ? <>¿Mover <strong>{etapas[cicloConfirm.from]?.nombre || "Sin nombre"}</strong> de la posición {cicloConfirm.from + 1} a la posición {cicloConfirm.to + 1}?</>
+                  : cicloConfirm?.type === "add"
+                    ? <>¿Agregar una nueva etapa al ciclo de vida?</>
+                    : cicloConfirm?.type === "edit"
+                      ? <>¿Guardar el cambio en <strong>{cicloConfirm.label}</strong>? El valor pasará de <strong>{cicloConfirm.prev ?? "—"}</strong> a <strong>{cicloConfirm.next ?? "—"}</strong>.</>
+                      : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setCicloConfirm(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className={cicloConfirm?.type === "del" ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
+              onClick={() => {
+                if (!cicloConfirm) return;
+                if (cicloConfirm.type === "del") applyDel(cicloConfirm.id);
+                else if (cicloConfirm.type === "move") applyMove(cicloConfirm.from, cicloConfirm.to);
+                else if (cicloConfirm.type === "add") applyAdd();
+                else if (cicloConfirm.type === "edit") { applyEdit(cicloConfirm.id, cicloConfirm.field, cicloConfirm.next); clearDraft(cicloConfirm.id, cicloConfirm.field); }
+                setCicloConfirm(null);
+              }}
+            >
+              {cicloConfirm?.type === "del" ? "Eliminar" : cicloConfirm?.type === "add" ? "Agregar" : cicloConfirm?.type === "edit" ? "Guardar" : "Mover"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col sm:flex-row gap-6 items-start">
+          {/* Pastel */}
+          <div className="shrink-0 flex flex-col items-center gap-3">
+            <div className="relative">
+            <svg width={160} height={160} viewBox="0 0 160 160">
+              {etapas.length === 0 ? (
+                <circle cx={cx} cy={cy} r={r} fill="none" stroke="currentColor" strokeWidth={2} className="text-border" strokeDasharray="6 4" />
+              ) : (
+                pieSlices.map(({ e, d }) => (
+                  <path key={e.id} d={d} fill={e.color} stroke="white" strokeWidth={1.5}
+                    style={{ transition: "opacity 0.15s", opacity: hoveredSlice && hoveredSlice !== e.id ? 0.45 : 1, cursor: "default" }}
+                    onMouseEnter={() => setHoveredSlice(e.id)}
+                    onMouseLeave={() => setHoveredSlice(null)}
+                  />
+                ))
+              )}
+              <circle cx={cx} cy={cy} r={rInner} className="fill-card" />
+              {etapas.length > 0 ? (
+                <>
+                  <text x={cx} y={cy - 6} textAnchor="middle" className="fill-foreground" style={{ fontSize: 18, fontWeight: 700, fontFamily: "inherit" }}>{totalDias}</text>
+                  <text x={cx} y={cy + 10} textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: 9, fontFamily: "inherit" }}>días totales</text>
+                  <text x={cx} y={cy + 22} textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: 9, fontFamily: "inherit" }}>~{Math.round(totalDias / 30)} meses</text>
+                </>
+              ) : (
+                <text x={cx} y={cy + 4} textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: 10, fontFamily: "inherit" }}>Sin etapas</text>
+              )}
+            </svg>
+            {/* Tooltip flotante sobre el donut */}
+            {hoveredSlice && etapas.find(e => e.id === hoveredSlice) && (
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                <div className="bg-popover border border-border rounded-lg shadow-lg px-3 py-2 text-xs max-w-[140px] text-center">
+                  <div className="flex items-center gap-1.5 justify-center mb-1">
+                    <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: etapas.find(e => e.id === hoveredSlice)!.color }} />
+                    <span className="font-semibold text-foreground">{etapas.find(e => e.id === hoveredSlice)!.nombre || "Sin nombre"}</span>
+                  </div>
+                  <div className="text-muted-foreground">
+                    {etapas.find(e => e.id === hoveredSlice)!.duracion} días
+                    {totalDias > 0 && <> · {Math.round((etapas.find(e => e.id === hoveredSlice)!.duracion / totalDias) * 100)}%</>}
+                  </div>
+                  {etapas.find(e => e.id === hoveredSlice)!.descripcion && (
+                    <div className="mt-1 text-muted-foreground/80 text-[10px] leading-tight">{etapas.find(e => e.id === hoveredSlice)!.descripcion}</div>
+                  )}
+                  {etapas.find(e => e.id === hoveredSlice)!.dias_alerta !== undefined && (
+                    <div className="mt-1 flex items-center justify-center gap-1 text-[10px] text-amber-600">
+                      <Bell className="w-2.5 h-2.5" />
+                      Aviso {etapas.find(e => e.id === hoveredSlice)!.dias_alerta}d antes
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            </div>
+            {etapas.length > 0 && (
+              <div className="flex flex-col gap-1 w-full max-w-[160px]">
+                {etapas.map(e => (
+                  <div key={e.id} className="flex items-center gap-1.5 text-xs">
+                    <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: e.color }} />
+                    <span className="truncate text-foreground font-medium">{e.nombre || <span className="text-muted-foreground italic">Sin nombre</span>}</span>
+                    <span className="ml-auto text-muted-foreground tabular-nums shrink-0">{e.duracion}d</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Lista DnD */}
+          <div className="flex-1 flex flex-col gap-2 min-w-0">
+            {etapas.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-10 gap-2 rounded-xl border-2 border-dashed border-border text-muted-foreground">
+                <Timer className="w-8 h-8 opacity-20" />
+                <p className="text-sm font-medium">Sin etapas</p>
+                <p className="text-xs text-center px-4">Agrega las fases del ciclo de vida de este cultivo</p>
+              </div>
+            )}
+            {etapas.map((etapa, idx) => (
+              <div
+                key={etapa.id}
+                draggable={canEdit}
+                onDragStart={() => handleDragStart(idx)}
+                onDragOver={e => handleDragOver(e, idx)}
+                onDrop={() => handleDrop(idx)}
+                onDragEnd={handleDragEnd}
+                className={cn(
+                  "group flex flex-col rounded-lg border bg-card px-3 py-2 transition-colors",
+                  dragOver === idx ? "border-primary bg-primary/5" : "border-border",
+                  canEdit && "cursor-grab active:cursor-grabbing"
+                )}
+              >
+                {/* Fila principal */}
+                <div className="flex items-center gap-2">
+                  {canEdit && (
+                    <GripVertical className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0 group-hover:text-muted-foreground transition-colors" />
+                  )}
+                  <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0" style={{ backgroundColor: etapa.color }}>
+                    {idx + 1}
+                  </span>
+                  <div className="relative shrink-0" onMouseDown={e => e.stopPropagation()}>
+                    <input type="color"
+                      value={getDraft(etapa.id, "color", etapa.color) as string}
+                      onChange={e => setDraft(etapa.id, "color", e.target.value)}
+                      onBlur={() => {
+                        const next = getDraft(etapa.id, "color", etapa.color);
+                        clearDraft(etapa.id, "color");
+                        commitEdit(etapa.id, "color", etapa.color, next, "Color");
+                      }}
+                      disabled={!canEdit} title="Cambiar color"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-default" />
+                    <div className="w-5 h-5 rounded border border-border/50 shadow-sm cursor-pointer"
+                      style={{ backgroundColor: getDraft(etapa.id, "color", etapa.color) as string }} />
+                  </div>
+                  <Input
+                    value={getDraft(etapa.id, "nombre", etapa.nombre) as string}
+                    onChange={e => setDraft(etapa.id, "nombre", e.target.value)}
+                    onBlur={() => {
+                      const next = getDraft(etapa.id, "nombre", etapa.nombre);
+                      clearDraft(etapa.id, "nombre");
+                      commitEdit(etapa.id, "nombre", etapa.nombre, next, "Nombre");
+                    }}
+                    placeholder="Nombre de la etapa" disabled={!canEdit}
+                    onMouseDown={e => e.stopPropagation()}
+                    className="h-7 text-sm flex-1 min-w-0 border-0 bg-transparent shadow-none focus-visible:ring-0 px-0 font-medium cursor-text"
+                  />
+                  <div className="flex items-center gap-1 shrink-0" onMouseDown={e => e.stopPropagation()}>
+                    <input type="number" min={1}
+                      value={getDraft(etapa.id, "duracion", etapa.duracion) as number}
+                      onChange={e => setDraft(etapa.id, "duracion", Math.max(1, parseInt(e.target.value) || 1))}
+                      onBlur={() => {
+                        const next = getDraft(etapa.id, "duracion", etapa.duracion);
+                        clearDraft(etapa.id, "duracion");
+                        commitEdit(etapa.id, "duracion", etapa.duracion, next, "Duración (días)");
+                      }}
+                      disabled={!canEdit}
+                      className="w-14 h-7 rounded-md border border-border bg-muted/40 px-2 text-xs text-right focus:outline-none focus:ring-2 focus:ring-ring tabular-nums cursor-text"
+                    />
+                    <span className="text-xs text-muted-foreground">d</span>
+                  </div>
+                  {totalDias > 0 && (
+                    <span className="text-[10px] text-muted-foreground tabular-nums w-8 text-right shrink-0">
+                      {Math.round((etapa.duracion / totalDias) * 100)}%
+                    </span>
+                  )}
+                  {canEdit && (
+                    <button
+                      onMouseDown={e => e.stopPropagation()}
+                      onClick={() => setCicloConfirm({ type: "del", id: etapa.id, nombre: etapa.nombre })}
+                      className="w-5 h-5 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+                {/* Segunda fila: descripción + alerta */}
+                <div className="pl-6 flex items-center gap-3" onMouseDown={e => e.stopPropagation()}>
+                  <input
+                    type="text"
+                    value={getDraft(etapa.id, "descripcion", etapa.descripcion) as string ?? ""}
+                    onChange={e => setDraft(etapa.id, "descripcion", e.target.value)}
+                    onBlur={() => {
+                      const next = getDraft(etapa.id, "descripcion", etapa.descripcion);
+                      clearDraft(etapa.id, "descripcion");
+                      commitEdit(etapa.id, "descripcion", etapa.descripcion, next, "Descripción");
+                    }}
+                    disabled={!canEdit}
+                    placeholder="Descripción opcional…"
+                    className="flex-1 text-xs text-muted-foreground bg-transparent border-0 outline-none focus:outline-none placeholder:text-muted-foreground/40 cursor-text disabled:cursor-default py-0.5"
+                  />
+                  {/* Alerta anticipada */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {etapa.dias_alerta !== undefined
+                      ? <Bell className="w-3 h-3 text-amber-500 shrink-0" />
+                      : <BellOff className="w-3 h-3 text-muted-foreground/30 shrink-0" />}
+                    <input
+                      type="number" min={0}
+                      value={getDraft(etapa.id, "dias_alerta", etapa.dias_alerta) as number ?? ""}
+                      onChange={e => setDraft(etapa.id, "dias_alerta", e.target.value !== "" ? Number(e.target.value) : undefined)}
+                      onBlur={() => {
+                        const next = getDraft(etapa.id, "dias_alerta", etapa.dias_alerta);
+                        clearDraft(etapa.id, "dias_alerta");
+                        commitEdit(etapa.id, "dias_alerta", etapa.dias_alerta, next, "Aviso anticipado (días)");
+                      }}
+                      disabled={!canEdit}
+                      placeholder="—"
+                      title="Días de anticipación para notificación"
+                      className="w-10 h-5 text-[10px] text-center bg-muted/40 rounded border border-transparent focus:border-amber-400/60 focus:outline-none tabular-nums disabled:opacity-50"
+                    />
+                    <span className="text-[10px] text-muted-foreground/50">d antes</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {canEdit && (
+              <button onClick={() => setCicloConfirm({ type: "add" })}
+                className="flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border py-2 text-xs font-medium text-muted-foreground hover:border-primary hover:text-primary transition-colors mt-1"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Agregar etapa
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // --- Hub de Cultivos ----------------------------------------------------------
 
 function TabCultivos() {
@@ -4854,7 +5398,7 @@ function TabCultivos() {
   const cultivoVars  = variedades.filter(v => v.cultivo_id === selectedId);
 
   // Tab interno para simplificar la UI de configuración
-  const [cultivoTab, setCultivoTab] = useState<"general" | "medidas" | "calibres" | "estructura">("general");
+  const [cultivoTab, setCultivoTab] = useState<"general" | "medidas" | "calibres" | "estructura" | "ciclo">("general");
   const [estructuraModulo, setEstructuraModulo] = useState<string>("cultivo");
   const [showEstructuraPanel, setShowEstructuraPanel] = useState(true);
 
@@ -5050,6 +5594,15 @@ function TabCultivos() {
                     {(cultivo.estructura ?? []).filter(e => e.activo).length > 0 && (
                       <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded-full bg-sky-100 text-sky-700">
                         {cultivo.estructura.filter(e => e.activo).length}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="ciclo" className="text-xs">
+                    <Timer className="w-3.5 h-3.5 mr-1.5" />
+                    Ciclo de vida
+                    {(cultivo.ciclo_vida ?? []).length > 0 && (
+                      <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded-full bg-violet-100 text-violet-700">
+                        {(cultivo.ciclo_vida ?? []).length}
                       </span>
                     )}
                   </TabsTrigger>
@@ -5310,194 +5863,7 @@ function TabCultivos() {
 
                 {/* TAB: Calibres */}
                 <TabsContent value="calibres" className="p-4 space-y-4 m-0">
-            {/* -- Sección 4: Calibres ---------------------------------------- */}
-            <div className="bg-card rounded-xl border border-border overflow-hidden">
-              <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
-                <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                  <Scale className="w-4 h-4 text-amber-600" />
-                  Calibres
-                  <span className="text-[11px] font-normal text-muted-foreground">
-                    ({(cultivo.calibres ?? []).length})
-                  </span>
-                </h3>
-                <div className="flex items-center gap-2 ml-auto flex-wrap">
-                  {/* mm / cm toggle */}
-                  <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5 border border-border text-[11px]">
-                    {(["mm", "cm"] as const).map(unit => (
-                      <button
-                        key={unit}
-                        onClick={() => canEditCultivo && updCultivo(cultivo.id, "unidad_calibre", unit)}
-                        disabled={!canEditCultivo}
-                        className={cn(
-                          "px-2 py-0.5 rounded font-medium transition-colors",
-                          (cultivo.unidad_calibre ?? "mm") === unit
-                            ? "bg-background text-foreground shadow-sm"
-                            : "text-muted-foreground hover:text-foreground",
-                        )}
-                      >
-                        {unit}
-                      </button>
-                    ))}
-                  </div>
-                  {canEditCultivo && (
-                    <>
-                      {(cultivo.calibres ?? []).length === 0 && (
-                        <button
-                          onClick={() => {
-                            const plantilla: Calibre[] = [
-                              { id: `cal-${Date.now()}-1`, nombre: "Premium",  mm_min: 28, mm_max: 32, peso_g_min: 18 },
-                              { id: `cal-${Date.now()}-2`, nombre: "Extra",    mm_min: 24, mm_max: 28, peso_g_min: 14 },
-                              { id: `cal-${Date.now()}-3`, nombre: "Estándar", mm_min: 20, mm_max: 24, peso_g_min: 10 },
-                              { id: `cal-${Date.now()}-4`, nombre: "Descarte", mm_min: 0,  mm_max: 20 },
-                            ];
-                            updCultivo(cultivo.id, "calibres", plantilla);
-                          }}
-                          className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground border border-dashed border-border px-2 py-1 rounded-md hover:border-primary/40 transition-colors"
-                        >
-                          <ListFilter className="w-3.5 h-3.5" /> Cargar plantilla
-                        </button>
-                      )}
-                      <button
-                        onClick={() => {
-                          const nuevo: Calibre = { id: `cal-${Date.now()}`, nombre: "" };
-                          updCultivo(cultivo.id, "calibres", [...(cultivo.calibres ?? []), nuevo]);
-                        }}
-                        className="flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/70 transition-colors"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Agregar
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {(cultivo.calibres ?? []).length === 0 ? (
-                <div className="px-4 py-8 text-center space-y-2">
-                  <Scale className="w-7 h-7 mx-auto text-muted-foreground/20" />
-                  <p className="text-xs text-muted-foreground">Sin calibres configurados.</p>
-                  {canEditCultivo && (
-                    <p className="text-[10px] text-muted-foreground/60">
-                      Usa "Cargar plantilla" para empezar rápido.
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  {/* Table header */}
-                  {(() => {
-                    const u = cultivo.unidad_calibre ?? "mm";
-                    return (
-                      <div className="grid items-center gap-x-2 px-4 py-2 bg-muted/30 border-b border-border text-[10px] font-semibold text-muted-foreground uppercase tracking-wider"
-                        style={{ gridTemplateColumns: "1fr 64px 64px 80px 80px 28px" }}>
-                        <span>Nombre</span>
-                        <span className="text-center">{u} mín</span>
-                        <span className="text-center">{u} máx</span>
-                        <span className="text-center">Peso mín (g)</span>
-                        <span className="text-center">Peso máx (g)</span>
-                        <span />
-                      </div>
-                    );
-                  })()}
-
-                  {/* Table rows */}
-                  <div className="divide-y divide-border">
-                    {(cultivo.calibres ?? []).map((cal, idx) => {
-                      const DOT_COLORS = [
-                        "bg-amber-400", "bg-violet-500", "bg-blue-500",
-                        "bg-slate-400", "bg-emerald-500", "bg-rose-500",
-                        "bg-orange-400", "bg-teal-500",
-                      ];
-                      const dotColor = DOT_COLORS[idx % DOT_COLORS.length];
-
-                      const updCal = (field: keyof Calibre, val: unknown) => {
-                        const updated = (cultivo.calibres ?? []).map(c =>
-                          c.id === cal.id ? { ...c, [field]: val } : c
-                        );
-                        updCultivo(cultivo.id, "calibres", updated);
-                      };
-
-                      const delCal = () => {
-                        updCultivo(
-                          cultivo.id,
-                          "calibres",
-                          (cultivo.calibres ?? []).filter(c => c.id !== cal.id),
-                        );
-                      };
-
-                      const numInput = (field: keyof Calibre) => (
-                        <input
-                          type="number"
-                          min={0}
-                          value={cal[field] as number ?? ""}
-                          onChange={e => updCal(field, e.target.value !== "" ? Number(e.target.value) : undefined)}
-                          readOnly={!canEditCultivo}
-                          disabled={!canEditCultivo}
-                          className="w-full text-xs text-center bg-muted/40 rounded-md px-1.5 py-1.5 border border-transparent focus:border-primary/50 focus:bg-background focus:outline-none disabled:opacity-60 transition-colors"
-                        />
-                      );
-
-                      return (
-                        <div
-                          key={cal.id}
-                          className="group grid items-center gap-x-2 px-4 py-2 hover:bg-muted/20 transition-colors"
-                          style={{ gridTemplateColumns: "1fr 64px 64px 80px 80px 28px" }}
-                        >
-                          {/* Color dot + nombre */}
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className={cn("w-2 h-2 rounded-full flex-shrink-0", dotColor)} />
-                            <input
-                              value={cal.nombre}
-                              onChange={e => updCal("nombre", e.target.value)}
-                              placeholder="ej. Premium"
-                              readOnly={!canEditCultivo}
-                              disabled={!canEditCultivo}
-                              className="flex-1 text-sm font-medium bg-transparent border-0 focus:outline-none min-w-0 disabled:opacity-60"
-                            />
-                            {cal.mm_min !== undefined && cal.mm_max !== undefined && (
-                              <span className="text-[10px] text-muted-foreground/60 flex-shrink-0 hidden xl:block">
-                                {cal.mm_min}?{cal.mm_max} {cultivo.unidad_calibre ?? "mm"}
-                              </span>
-                            )}
-                          </div>
-
-                          {numInput("mm_min")}
-                          {numInput("mm_max")}
-                          {numInput("peso_g_min")}
-                          {numInput("peso_g_max")}
-
-                          {/* Delete */}
-                          {canEditCultivo ? (
-                            <button
-                              onClick={delCal}
-                              title="Eliminar calibre"
-                              className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          ) : <span />}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Summary strip */}
-                  <div className="px-4 py-2 bg-muted/10 border-t border-border flex items-center gap-3 flex-wrap">
-                    {(cultivo.calibres ?? []).filter(c => c.nombre).map((cal, idx) => {
-                      const DOT_COLORS = ["bg-amber-400", "bg-violet-500", "bg-blue-500", "bg-slate-400", "bg-emerald-500", "bg-rose-500", "bg-orange-400", "bg-teal-500"];
-                      return (
-                        <span key={cal.id} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                          <span className={cn("w-2 h-2 rounded-full", DOT_COLORS[idx % DOT_COLORS.length])} />
-                          <span className="font-medium">{cal.nombre}</span>
-                          {cal.mm_min !== undefined && cal.mm_max !== undefined && (
-                            <span>{cal.mm_min}?{cal.mm_max}{cultivo.unidad_calibre ?? "mm"}</span>
-                          )}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
+                  <CalibreTabContent cultivo={cultivo} canEdit={canEditCultivo} updCultivo={updCultivo} />
                 </TabsContent>
 
                 {/* TAB: Estructura */}
@@ -6001,6 +6367,12 @@ function TabCultivos() {
     );
   })()}
                 </TabsContent>
+
+                {/* TAB: Ciclo de vida */}
+                <TabsContent value="ciclo" className="p-4 m-0">
+                  <CicloTabContent cultivo={cultivo} canEdit={canEditCultivo} updCultivo={updCultivo} />
+                </TabsContent>
+
               </Tabs>
             </div>
           </div>

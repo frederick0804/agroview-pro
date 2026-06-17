@@ -8,6 +8,7 @@ import { ConfigProvider } from "@/contexts/ConfigContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { InventarioProvider } from "@/contexts/InventarioContext";
 import Inventario from "./pages/Inventario";
+import OrdenesCompra from "./pages/OrdenesCompra";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -71,6 +72,7 @@ const App = () => {
               <Route path="/dashboard-builder" element={<Navigate to="/configuracion?tab=dashboard" replace />} />
               <Route path="/perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
               <Route path="/inventario" element={<ProtectedRoute><ModuleGuard modulo="inventario"><Inventario /></ModuleGuard></ProtectedRoute>} />
+              <Route path="/inventario/ordenes" element={<ProtectedRoute><ModuleGuard modulo="inventario"><OrdenesCompra /></ModuleGuard></ProtectedRoute>} />
               <Route path="/gestion-usuarios" element={<Navigate to="/configuracion?tab=usuarios" replace />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
