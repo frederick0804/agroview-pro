@@ -95,6 +95,7 @@ interface Informe {
   categoria: CategoriaInforme;
   nivel_acceso_minimo: number;
   roles_permitidos?: string[];
+  roles_excluidos?: string[];
   estado: EstadoInforme;
   es_favorito: boolean;
   es_programado: boolean;
@@ -829,6 +830,24 @@ const ROLE_LABELS: Record<string, string> = {
   supervisor: "Supervisor",
   lector: "Lector",
 };
+
+const NIVEL_ACCESS_OPTIONS = [
+  { value: 1, label: "Lector",        short: "Lector" },
+  { value: 2, label: "Supervisor",    short: "Superv." },
+  { value: 3, label: "Jefe de área",  short: "J.Área" },
+  { value: 4, label: "Productor",     short: "Product." },
+  { value: 5, label: "Cliente Admin", short: "C.Admin" },
+  { value: 6, label: "Super Admin",   short: "S.Admin" },
+];
+
+const ROLE_ACCESS_OPTIONS = [
+  { value: "lector",        label: "Lector",        short: "Lector" },
+  { value: "supervisor",    label: "Supervisor",     short: "Superv." },
+  { value: "jefe_area",     label: "Jefe de área",  short: "J.Área" },
+  { value: "productor",     label: "Productor",      short: "Product." },
+  { value: "cliente_admin", label: "Cliente Admin",  short: "C.Admin" },
+  { value: "super_admin",   label: "Super Admin",    short: "S.Admin" },
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1941,6 +1960,7 @@ interface DetailPanelProps {
   onClose: () => void;
   onConfigure: () => void;
   onUpdateSchedule?: (changes: Partial<Pick<Informe, "es_programado" | "frecuencia_programacion" | "hora_envio" | "destinatarios_programados" | "formato_preferido" | "filtros_automaticos">>) => void;
+  onPatchAcceso?: (changes: Partial<Pick<Informe, "nivel_acceso_minimo" | "roles_excluidos">>) => void;
   onDeleteTemplate?: () => void;
   onRestoreVersion?: (snap: InformeSnapshot) => void;
   onCopyVersionAsNew?: (snap: InformeSnapshot) => void;
@@ -1957,6 +1977,7 @@ function DetailPanel({
   onClose,
   onConfigure,
   onUpdateSchedule,
+  onPatchAcceso,
   onDeleteTemplate,
   onRestoreVersion,
   onCopyVersionAsNew,
@@ -2951,29 +2972,80 @@ function DetailPanel({
 
           {/* Access control */}
           <div>
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <Lock className="w-3 h-3" />
               Control de acceso
             </h4>
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center justify-between py-1.5 border-b border-dashed border-border">
-                <span className="text-muted-foreground">Nivel mínimo requerido</span>
-                <span className="font-semibold">Nv{informe.nivel_acceso_minimo}+</span>
-              </div>
-              {informe.roles_permitidos && informe.roles_permitidos.length > 0 && (
-                <div className="py-1.5 border-b border-dashed border-border">
-                  <p className="text-muted-foreground mb-1.5">Roles permitidos</p>
-                  <div className="flex flex-wrap gap-1">
-                    {informe.roles_permitidos.map((r) => (
-                      <span
-                        key={r}
-                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20"
-                      >
-                        {ROLE_LABELS[r] ?? r}
-                      </span>
+            <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
+              {/* Nivel mínimo */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] text-muted-foreground shrink-0">Nivel mínimo:</span>
+                {onPatchAcceso ? (
+                  <select
+                    value={informe.nivel_acceso_minimo}
+                    onChange={e => onPatchAcceso({ nivel_acceso_minimo: Number(e.target.value) })}
+                    className={cn(
+                      "text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer outline-none transition-colors",
+                      informe.nivel_acceso_minimo > 1
+                        ? "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800"
+                        : "bg-muted text-muted-foreground border-border hover:border-primary/40",
+                    )}
+                  >
+                    {NIVEL_ACCESS_OPTIONS.map(n => (
+                      <option key={n.value} value={n.value}>{n.label} (Nv.{n.value})</option>
                     ))}
-                  </div>
+                  </select>
+                ) : (
+                  <span className={cn(
+                    "text-[11px] font-medium px-2 py-0.5 rounded-full border",
+                    informe.nivel_acceso_minimo > 1
+                      ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800"
+                      : "bg-muted text-muted-foreground border-border",
+                  )}>
+                    {NIVEL_ACCESS_OPTIONS.find(n => n.value === informe.nivel_acceso_minimo)?.label ?? `Nv.${informe.nivel_acceso_minimo}`}
+                  </span>
+                )}
+              </div>
+
+              {/* Roles excluidos */}
+              <div className="space-y-1.5">
+                <span className="text-[11px] text-muted-foreground">Roles excluidos:</span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {(informe.roles_excluidos ?? []).length === 0 && (
+                    <span className="text-[10px] text-muted-foreground/60 italic">Ninguno</span>
+                  )}
+                  {(informe.roles_excluidos ?? []).map(r => {
+                    const rOpt = ROLE_ACCESS_OPTIONS.find(x => x.value === r);
+                    return (
+                      <span key={r} className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 shrink-0">
+                        {rOpt?.short ?? r}
+                        {onPatchAcceso && (
+                          <button
+                            onClick={() => onPatchAcceso({ roles_excluidos: (informe.roles_excluidos ?? []).filter(x => x !== r) })}
+                            className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity leading-none"
+                            title={`Quitar exclusión de ${rOpt?.label ?? r}`}
+                          >×</button>
+                        )}
+                      </span>
+                    );
+                  })}
+                  {onPatchAcceso && (() => {
+                    const excluded = informe.roles_excluidos ?? [];
+                    const available = ROLE_ACCESS_OPTIONS.filter(r => !excluded.includes(r.value));
+                    if (available.length === 0) return null;
+                    return (
+                      <select
+                        value=""
+                        onChange={e => { if (!e.target.value) return; onPatchAcceso({ roles_excluidos: [...excluded, e.target.value] }); }}
+                        className="text-[10px] px-1.5 py-0.5 rounded-full border border-dashed border-border cursor-pointer outline-none text-muted-foreground hover:border-destructive/50 hover:text-destructive transition-colors bg-transparent shrink-0"
+                      >
+                        <option value="">+ excluir rol</option>
+                        {available.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                      </select>
+                    );
+                  })()}
                 </div>
-              )}
+              </div>
             </div>
           </div>
 
@@ -4925,6 +4997,7 @@ const Informes = () => {
     }
 
     if (userLevel < inf.nivel_acceso_minimo) return false;
+    if (inf.roles_excluidos && inf.roles_excluidos.includes(role)) return false;
     if (inf.roles_permitidos && inf.roles_permitidos.length > 0) {
       return inf.roles_permitidos.includes(role);
     }
@@ -5837,6 +5910,11 @@ const Informes = () => {
               onClose={() => setSelectedId(null)}
               onConfigure={() => openBuilder(selectedInforme)}
               onUpdateSchedule={(changes) =>
+                setInformes((prev) =>
+                  prev.map((i) => (i.id === selectedInforme.id ? { ...i, ...changes } : i)),
+                )
+              }
+              onPatchAcceso={(changes) =>
                 setInformes((prev) =>
                   prev.map((i) => (i.id === selectedInforme.id ? { ...i, ...changes } : i)),
                 )

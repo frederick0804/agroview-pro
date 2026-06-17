@@ -5061,7 +5061,7 @@ function CicloTabContent({ cultivo, canEdit, updCultivo }: {
   };
 
   // SVG pie helpers
-  const cx = 80, cy = 80, r = 68, rInner = 38;
+  const cx = 110, cy = 110, r = 95, rInner = 52;
   const toRad = (deg: number) => (deg - 90) * (Math.PI / 180);
   const pieSlices = useMemo(() => {
     if (totalDias === 0) return [];
@@ -5125,7 +5125,7 @@ function CicloTabContent({ cultivo, canEdit, updCultivo }: {
           {/* Pastel */}
           <div className="shrink-0 flex flex-col items-center gap-3">
             <div className="relative">
-            <svg width={160} height={160} viewBox="0 0 160 160">
+            <svg width={220} height={220} viewBox="0 0 220 220">
               {etapas.length === 0 ? (
                 <circle cx={cx} cy={cy} r={r} fill="none" stroke="currentColor" strokeWidth={2} className="text-border" strokeDasharray="6 4" />
               ) : (
@@ -5140,9 +5140,9 @@ function CicloTabContent({ cultivo, canEdit, updCultivo }: {
               <circle cx={cx} cy={cy} r={rInner} className="fill-card" />
               {etapas.length > 0 ? (
                 <>
-                  <text x={cx} y={cy - 6} textAnchor="middle" className="fill-foreground" style={{ fontSize: 18, fontWeight: 700, fontFamily: "inherit" }}>{totalDias}</text>
-                  <text x={cx} y={cy + 10} textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: 9, fontFamily: "inherit" }}>días totales</text>
-                  <text x={cx} y={cy + 22} textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: 9, fontFamily: "inherit" }}>~{Math.round(totalDias / 30)} meses</text>
+                  <text x={cx} y={cy - 8} textAnchor="middle" className="fill-foreground" style={{ fontSize: 24, fontWeight: 700, fontFamily: "inherit" }}>{totalDias}</text>
+                  <text x={cx} y={cy + 11} textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: 11, fontFamily: "inherit" }}>días totales</text>
+                  <text x={cx} y={cy + 26} textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: 11, fontFamily: "inherit" }}>~{Math.round(totalDias / 30)} meses</text>
                 </>
               ) : (
                 <text x={cx} y={cy + 4} textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: 10, fontFamily: "inherit" }}>Sin etapas</text>
@@ -5151,7 +5151,7 @@ function CicloTabContent({ cultivo, canEdit, updCultivo }: {
             {/* Tooltip flotante sobre el donut */}
             {hoveredSlice && etapas.find(e => e.id === hoveredSlice) && (
               <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                <div className="bg-popover border border-border rounded-lg shadow-lg px-3 py-2 text-xs max-w-[140px] text-center">
+                <div className="bg-popover border border-border rounded-lg shadow-lg px-3 py-2 text-xs max-w-[160px] text-center">
                   <div className="flex items-center gap-1.5 justify-center mb-1">
                     <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: etapas.find(e => e.id === hoveredSlice)!.color }} />
                     <span className="font-semibold text-foreground">{etapas.find(e => e.id === hoveredSlice)!.nombre || "Sin nombre"}</span>
@@ -5399,6 +5399,7 @@ function TabCultivos() {
 
   // Tab interno para simplificar la UI de configuración
   const [cultivoTab, setCultivoTab] = useState<"general" | "medidas" | "calibres" | "estructura" | "ciclo">("general");
+  const [confirmToggleActivo, setConfirmToggleActivo] = useState<{ id: string; nombre: string; next: boolean } | null>(null);
   const [estructuraModulo, setEstructuraModulo] = useState<string>("cultivo");
   const [showEstructuraPanel, setShowEstructuraPanel] = useState(true);
 
@@ -5557,10 +5558,10 @@ function TabCultivos() {
                 <div className="flex items-center gap-2">
                   {isSuperAdmin && (
                     <>
-                      <span className="text-[10px] text-muted-foreground">Activo</span>
+                      <span className="text-[10px] text-muted-foreground">{cultivo.activo ? "Activo" : "Inactivo"}</span>
                       <Switch
                         checked={!!cultivo.activo}
-                        onCheckedChange={v => updCultivo(cultivo.id, "activo", v)}
+                        onCheckedChange={v => setConfirmToggleActivo({ id: cultivo.id, nombre: cultivo.nombre, next: v })}
                         className="scale-75"
                       />
                     </>
@@ -6440,6 +6441,44 @@ function TabCultivos() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Confirmar habilitar/deshabilitar cultivo ── */}
+      <AlertDialog open={!!confirmToggleActivo} onOpenChange={v => { if (!v) setConfirmToggleActivo(null); }}>
+        <AlertDialogContent className="max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className={cn("flex items-center gap-2", confirmToggleActivo?.next ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400")}>
+              <Leaf className="w-4 h-4" />
+              {confirmToggleActivo?.next ? "Habilitar cultivo" : "Deshabilitar cultivo"}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 pt-1">
+                <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
+                  <p className="font-semibold text-sm text-foreground">{confirmToggleActivo?.nombre}</p>
+                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {confirmToggleActivo?.next
+                    ? "El cultivo volverá a estar disponible en formularios, lotes y reportes."
+                    : "El cultivo dejará de aparecer en formularios, lotes nuevos y reportes. Los datos existentes se conservan."}
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConfirmToggleActivo(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmToggleActivo) {
+                  updCultivo(confirmToggleActivo.id, "activo", confirmToggleActivo.next);
+                  setConfirmToggleActivo(null);
+                }
+              }}
+              className={confirmToggleActivo?.next ? "bg-green-600 hover:bg-green-700 text-white" : "bg-amber-600 hover:bg-amber-700 text-white"}
+            >
+              {confirmToggleActivo?.next ? "Habilitar" : "Deshabilitar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
     </>
   );
@@ -9339,6 +9378,7 @@ const Configuracion = () => {
         <TabsContent value="cultivos">
           <TabCultivos />
         </TabsContent>
+
         <TabsContent value="formularios">
           <TabFormularios
             onPendingChange={setHasPending}
