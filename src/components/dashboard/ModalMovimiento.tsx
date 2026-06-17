@@ -43,7 +43,7 @@ const SUBTIPOS: Record<InvMovimientoTipo, { value: InvMovimientoSubtipo; label: 
   salida: [
     { value: "uso_produccion",   label: "Uso en producción" },
     { value: "aplicacion_campo", label: "Aplicación en campo" },
-    { value: "merma",            label: "Merma / Pérdida" },
+    { value: "merma",            label: "Pérdida" },
   ],
   ajuste: [
     { value: "conteo_fisico", label: "Conteo físico" },

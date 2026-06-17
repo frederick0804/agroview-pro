@@ -30,6 +30,9 @@ import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   useInventario, getStockStatus, getStockPct,
@@ -49,6 +52,7 @@ import {
   ClipboardCheck, BookOpen, AlertCircle as AlertCircleIcon,
   Maximize2, Minimize2, Calendar, ArrowLeftRight, Tag, MoreHorizontal,
   Building2, ShieldCheck, ShieldOff, Trash2, GripVertical,
+  PanelLeftClose, PanelLeftOpen, Check, Table2,
 } from "lucide-react";
 import { exportToCsv } from "@/lib/exportCsv";
 import { useConfig }   from "@/contexts/ConfigContext";
@@ -90,6 +94,11 @@ const fmtNum = (n: number, dec = 0) =>
   n.toLocaleString("es-CL", { minimumFractionDigits: dec, maximumFractionDigits: dec });
 const fmtCurrency = (n: number) =>
   `$${n.toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const SUBTIPO_LABEL: Record<string, string> = {
+  merma: "Pérdida",
+};
+const fmtSubtipo = (s: string) =>
+  SUBTIPO_LABEL[s] ?? s.replace(/_/g, " ");
 
 // ─── Shared atoms ─────────────────────────────────────────────────────────────
 
@@ -325,7 +334,7 @@ function ProductCard({
             <span className="font-semibold">{fmtCurrency(p.precio_unitario)}</span>
           </div>
           <div className="flex flex-col">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">PPP</span>
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">P. promedio</span>
             <span className={cn("font-semibold", p.precio_promedio_ponderado !== p.precio_unitario ? "text-amber-600 dark:text-amber-400" : "")}>
               {fmtCurrency(p.precio_promedio_ponderado)}
             </span>
@@ -439,12 +448,15 @@ function FilterPanel({
   productos,
   filterModulo, setFilterModulo,
   filterEstado, setFilterEstado,
+  sidebarOpen, setSidebarOpen,
 }: {
   productos: InvCatalogo[];
   filterModulo: string;
   setFilterModulo: (v: string) => void;
   filterEstado: string;
   setFilterEstado: (v: string) => void;
+  sidebarOpen: boolean;
+  setSidebarOpen: (v: boolean) => void;
 }) {
   const { getAllProductos } = useInventario();
   const allProductos = getAllProductos();
@@ -475,7 +487,24 @@ function FilterPanel({
   ];
 
   return (
-    <aside className="space-y-5">
+    <aside className="relative">
+      {/* Botón toggle — siempre visible */}
+      <button
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        title={sidebarOpen ? "Colapsar panel" : "Expandir panel"}
+        className={cn(
+          "absolute -right-3 top-0 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background shadow-sm text-muted-foreground hover:text-foreground transition-colors",
+        )}
+      >
+        {sidebarOpen
+          ? <PanelLeftClose className="h-3.5 w-3.5" />
+          : <PanelLeftOpen  className="h-3.5 w-3.5" />
+        }
+      </button>
+
+      {/* Contenido — oculto cuando colapsado */}
+      {sidebarOpen && <div className="space-y-5 pr-2">
+
       {/* Área de uso */}
       <div>
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Área de uso</p>
@@ -530,6 +559,8 @@ function FilterPanel({
 
       {/* Reglas — compacto en sidebar */}
       <ReglasBanner variant="sidebar" />
+
+      </div>}
     </aside>
   );
 }
@@ -1070,7 +1101,7 @@ function LotesPanel({ productoId, unidad, onRegistrarEntrada, onUsarLote, onVerH
                       <strong className="text-foreground">
                         Excluir su cantidad del stock disponible del producto
                       </strong> ({fmtNum(confirmLote.cantidad_actual, 1)} {unidad})
-                      — genera un <strong>movimiento de merma</strong> que resta esa cantidad del
+                      — genera un <strong>movimiento de pérdida</strong> que resta esa cantidad del
                       total disponible (porque ya no se puede usar: dañado, vencido, decomisado, etc.).
                       <br />
                       <strong className="text-foreground">El lote conserva su cantidad como registro</strong>{" "}
@@ -1115,7 +1146,7 @@ function LotesPanel({ productoId, unidad, onRegistrarEntrada, onUsarLote, onVerH
                       // del lote se conserva intacta como registro (no se pasa lote_id).
                       registrarMovimiento(productoId, "salida", "merma", confirmLote.cantidad_actual, {
                         lote_numero: confirmLote.numero_lote,
-                        observaciones: `Lote ${confirmLote.numero_lote} desactivado — ${fmtNum(confirmLote.cantidad_actual, 1)} ${unidad} excluidas del stock total por baja/merma.`,
+                        observaciones: `Lote ${confirmLote.numero_lote} desactivado — ${fmtNum(confirmLote.cantidad_actual, 1)} ${unidad} excluidas del stock total por baja/pérdida.`,
                       });
                     }
                     editarLote(confirmLote.id, { activo: false, stock_descontado: excluir });
@@ -1372,7 +1403,7 @@ function DetalleSheet({
                       <div className="rounded-xl border border-border bg-card px-3 py-3">
                         <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Valor</p>
                         <p className="mt-1 text-lg font-bold tabular-nums">{fmtCurrency(p.cantidad_actual * p.precio_promedio_ponderado)}</p>
-                        <p className="mt-1 truncate text-xs text-muted-foreground">PPP {fmtCurrency(p.precio_promedio_ponderado)}</p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">P. prom. {fmtCurrency(p.precio_promedio_ponderado)}</p>
                       </div>
                     </div>
 
@@ -1382,9 +1413,6 @@ function DetalleSheet({
                       </Button>
                       <Button size="sm" className="h-10 gap-1 bg-red-600 text-white hover:bg-red-700" onClick={() => onMovimiento(p.id, "salida")} title="Salida">
                         <ArrowUp className="h-4 w-4" />
-                      </Button>
-                      <Button size="sm" variant="outline" className="h-10 gap-1 border-amber-300 text-amber-700 hover:bg-amber-50 dark:text-amber-400" onClick={() => onMovimiento(p.id, "ajuste")} title="Ajuste">
-                        <SlidersHorizontal className="h-4 w-4" />
                       </Button>
                       <Button size="sm" variant="outline" className="h-10 gap-1" onClick={() => onTransferir(p.id)} title="Transferir">
                         <ArrowLeftRight className="h-4 w-4" />
@@ -1469,9 +1497,6 @@ function DetalleSheet({
                           <button onClick={() => onMovimiento(p.id, "salida")} className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-3 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-700">
                             <ArrowUp className="h-4 w-4" /> Salida
                           </button>
-                          <button onClick={() => onMovimiento(p.id, "ajuste")} className="flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-400">
-                            <SlidersHorizontal className="h-4 w-4" /> Ajuste
-                          </button>
                           <button onClick={() => onTransferir(p.id)} className="flex items-center justify-center gap-2 rounded-xl border border-border bg-background px-3 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted">
                             <ArrowLeftRight className="h-4 w-4" /> Transferir
                           </button>
@@ -1503,7 +1528,11 @@ function DetalleSheet({
                                       {m.tipo} · {fmtNum(m.cantidad, 1)} {p.unidad_medida}
                                     </p>
                                     <p className="truncate text-[11px] text-muted-foreground">
-                                      {m.fecha}{m.lote_numero ? ` · lote ${m.lote_numero}` : ""}{m.registro_origen_tipo ? ` · ${m.registro_origen_tipo}` : ""}
+                                      {m.fecha}
+                                      {m.lote_numero === "Sin lote"
+                                        ? <span className="italic text-muted-foreground/60"> · sin lote</span>
+                                        : m.lote_numero ? ` · lote ${m.lote_numero}` : ""}
+                                      {m.registro_origen_tipo ? ` · ${m.registro_origen_tipo}` : ""}
                                     </p>
                                   </div>
                                 </div>
@@ -1657,9 +1686,13 @@ function DetalleSheet({
                               {isIn ? <ArrowDown className="h-4 w-4" /> : isOut ? <ArrowUp className="h-4 w-4" /> : <SlidersHorizontal className="h-4 w-4" />}
                             </span>
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold capitalize">{m.tipo} / {m.subtipo.replace(/_/g, " ")}</p>
+                              <p className="truncate text-sm font-semibold capitalize">{m.tipo} / {fmtSubtipo(m.subtipo)}</p>
                               <p className="truncate text-xs text-muted-foreground">
-                                {m.fecha}{m.lote_numero ? ` / lote ${m.lote_numero}` : ""}{m.observaciones ? ` / ${m.observaciones}` : ""}
+                                {m.fecha}
+                                {m.lote_numero === "Sin lote"
+                                  ? <span className="italic text-muted-foreground/60"> / sin lote</span>
+                                  : m.lote_numero ? ` / lote ${m.lote_numero}` : ""}
+                                {m.observaciones ? ` / ${m.observaciones}` : ""}
                               </p>
                             </div>
                             <div className="text-right">
@@ -1773,6 +1806,7 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
   const [form, setForm]           = useState<ProductoFormState>(EMPTY_FORM);
   const [err,  setErr]            = useState("");
   const [paso, setPaso]           = useState(1);
+  const [unidadTipo, setUnidadTipo] = useState("Masa");
   const [opcionInputs, setOpcionInputs] = useState<Record<number, string>>({});
   const set = (k: keyof ProductoFormState) => (v: string) => setForm(p => ({ ...p, [k]: v }));
 
@@ -1949,7 +1983,7 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
                 </div>
                 {form.modulo_ids.length === 0 && <p className="text-[11px] text-muted-foreground">Selecciona al menos un área</p>}
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 sm:col-span-2">
                 <Label className="text-xs">Unidad de medida *</Label>
 
                 {/* Grupos de unidades comunes */}
@@ -1971,7 +2005,7 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
                           type="button"
                           onClick={() => set("unidad_medida")(form.unidad_medida === u ? "" : u)}
                           className={cn(
-                            "rounded-md border px-2 py-0.5 text-xs font-medium transition-colors",
+                            "flex-1 rounded-md border px-2 py-0.5 text-xs font-medium transition-colors text-center",
                             form.unidad_medida === u
                               ? "border-primary bg-primary/10 text-primary"
                               : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground",
@@ -1984,24 +2018,35 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
                   </div>
                 ))}
 
-                {/* Separador + input libre */}
+                {/* Separador + input dividido */}
                 <div className="flex items-center gap-2 pt-1">
                   <div className="h-px flex-1 bg-border" />
                   <span className="text-[10px] text-muted-foreground">o escribe cualquier otra</span>
                   <div className="h-px flex-1 bg-border" />
                 </div>
-                <div className="relative">
-                  <Input
-                    value={form.unidad_medida}
-                    onChange={e => set("unidad_medida")(e.target.value)}
-                    placeholder="ej: cuerda, vara, onza troy, ppm, %…"
-                    className={cn("h-9 text-sm pr-16", form.unidad_medida && "border-primary/60")}
-                  />
-                  {form.unidad_medida && (
-                    <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
-                      {form.unidad_medida}
-                    </span>
-                  )}
+                <div className={cn("flex rounded-md border overflow-hidden transition-colors", form.unidad_medida ? "border-primary/60" : "border-border")}>
+                  <select
+                    value={unidadTipo}
+                    onChange={e => setUnidadTipo(e.target.value)}
+                    className="h-9 border-r border-border bg-muted px-2 text-xs text-muted-foreground focus:outline-none cursor-pointer shrink-0"
+                  >
+                    {["Masa","Volumen","Longitud","Superficie","Contable","Otro"].map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  <div className="relative flex-1">
+                    <Input
+                      value={form.unidad_medida}
+                      onChange={e => set("unidad_medida")(e.target.value)}
+                      placeholder="ej: onza troy, ppm, vara…"
+                      className={cn("h-9 text-sm border-0 rounded-none focus-visible:ring-0 focus-visible:ring-offset-0", form.unidad_medida ? "pr-20" : "")}
+                    />
+                    {form.unidad_medida && (
+                      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+                        {unidadTipo}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {!form.unidad_medida && (
                   <p className="text-[11px] text-muted-foreground">
@@ -2026,13 +2071,6 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
                   placeholder="0"
                   className="h-9" />
                 <p className="text-[10px] text-muted-foreground">Nivel de alerta antes del mínimo.</p>
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <Label className="text-xs">Cuenta contable</Label>
-                <Input value={form.cuenta_contable}
-                  onChange={e => set("cuenta_contable")(e.target.value)}
-                  placeholder="ej: 5-1110, Insumos agrícolas"
-                  className="h-9" />
               </div>
               {!editing && (
                 <div className="space-y-1">
@@ -2060,7 +2098,7 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
                   onKeyDown={blockInvalidNumKey}
                   className="h-9" />
               </div>
-              <div className="space-y-1 sm:col-span-2">
+              <div className="space-y-1">
                 <Label className="text-xs">Ubicación física</Label>
                 <Input value={form.ubicacion_fisica} onChange={e => set("ubicacion_fisica")(e.target.value)} className="h-9" />
               </div>
@@ -2664,7 +2702,7 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
           producto:         prod?.nombre ?? m.catalogo_id,
           codigo:           prod?.codigo ?? "",
           tipo:             m.tipo,
-          subtipo:          m.subtipo.replace(/_/g, " "),
+          subtipo:          fmtSubtipo(m.subtipo),
           cantidad:         m.tipo === "ajuste" ? Math.abs(delta) : m.cantidad,
           stock_anterior:   m.cantidad_anterior,
           stock_resultante: m.cantidad_nueva,
@@ -3182,7 +3220,7 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
                         {fmtNum(m.cantidad_nueva, 1)}
                       </td>
                       <td className="px-3 py-2.5 text-xs text-muted-foreground">
-                        <div>{m.subtipo.replace(/_/g, " ")}</div>
+                        <div>{fmtSubtipo(m.subtipo)}</div>
                         {m.bloque_ref && (
                           <div className="flex items-center gap-1 mt-0.5">
                             <MapPin className="h-2.5 w-2.5 text-green-600 shrink-0" />
@@ -3237,7 +3275,7 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
                               </div>
                               <div>
                                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Subtipo</p>
-                                <p className="mt-0.5 capitalize">{m.subtipo.replace(/_/g, " ")}</p>
+                                <p className="mt-0.5 capitalize">{fmtSubtipo(m.subtipo)}</p>
                               </div>
                               <div>
                                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Registrado</p>
@@ -3267,14 +3305,19 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
                                   </p>
                                   <div className="flex flex-wrap gap-2">
                                     {m.lote_numero && (
-                                      <button
-                                        onClick={e => { e.stopPropagation(); setFilterLote(m.lote_numero!); setPage(1); }}
-                                        title="Ver solo movimientos de este lote"
-                                        className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-1 text-xs font-mono font-medium hover:border-primary hover:text-primary transition-colors"
-                                      >
-                                        <Tag className="h-3 w-3" />
-                                        Lote: {m.lote_numero}
-                                      </button>
+                                      m.lote_numero === "Sin lote"
+                                        ? <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-1 text-xs font-mono italic text-muted-foreground/60">
+                                            <Tag className="h-3 w-3" />
+                                            Sin lote
+                                          </span>
+                                        : <button
+                                            onClick={e => { e.stopPropagation(); setFilterLote(m.lote_numero!); setPage(1); }}
+                                            title="Ver solo movimientos de este lote"
+                                            className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-1 text-xs font-mono font-medium hover:border-primary hover:text-primary transition-colors"
+                                          >
+                                            <Tag className="h-3 w-3" />
+                                            Lote: {m.lote_numero}
+                                          </button>
                                     )}
                                     {m.bloque_ref && (
                                       <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50/60 dark:border-green-800/30 dark:bg-green-900/10 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-400">
@@ -4156,7 +4199,7 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
     saldoQ = m.cantidad_nueva;
     const concepto  = m.registro_origen_tipo
       ? `${m.registro_origen_tipo} (auto)`
-      : m.observaciones ?? m.subtipo.replace(/_/g, " ");
+      : m.observaciones ?? fmtSubtipo(m.subtipo);
     return {
       fecha: m.fecha, concepto, tipo: m.tipo, loteNumero: m.lote_numero, origen: m.registro_origen_tipo,
       entQ:     esEntrada ? qty     : undefined,
@@ -5029,7 +5072,7 @@ export default function Inventario() {
   const { hierarchyLevel, currentUser } = useRole();
   const {
     getAllProductos, movimientos, getAlertas, getAlertasVencimiento,
-    catalogos, lotes, desactivarProducto, registrarMovimiento,
+    catalogos, lotes, desactivarProducto, registrarMovimiento, editarProducto,
   } = useInventario();
   const [searchParams] = useSearchParams();
 
@@ -5058,12 +5101,20 @@ export default function Inventario() {
   const [filterModulo,   setFilterModulo]   = useState(moduloParam);
   const [filterEstado,   setFilterEstado]   = useState("all");
   const [viewMode,       setViewMode]       = useState<"grid" | "list">("list");
+  const [tableMode,      setTableMode]      = useState(() => localStorage.getItem("inv-tableMode") === "1");
+  const [editingCell,    setEditingCell]    = useState<{ id: string; field: "nombre" | "precio_unitario" | "ubicacion_fisica" } | null>(null);
+  const [cellDraft,      setCellDraft]      = useState("");
+  const [stockEdit,      setStockEdit]      = useState<{ id: string; draft: string } | null>(null);
+  const [stockConfirm,   setStockConfirm]   = useState<{ prod: InvCatalogo; nuevoValor: number } | null>(null);
+  const [stockSubtipo,   setStockSubtipo]   = useState<string>("compra");
+  const [sidebarOpen,    setSidebarOpen]    = useState(true);
   const [showInactivos,  setShowInactivos]  = useState(false);
   // Modo carga masiva
-  const [bulkMode,  setBulkMode]  = useState(false);
-  const [bulkQtys,  setBulkQtys]  = useState<Record<string, string>>({});
-  const [bulkTipo,  setBulkTipo]  = useState<"entrada" | "salida">("entrada");
-  const [bulkPos,   setBulkPos]   = useState<{ x: number; y: number } | null>(null);
+  const [bulkMode,        setBulkMode]        = useState(false);
+  const [bulkQtys,        setBulkQtys]        = useState<Record<string, string>>({});
+  const [bulkTipo,        setBulkTipo]        = useState<"entrada" | "salida">("entrada");
+  const [bulkPos,         setBulkPos]         = useState<{ x: number; y: number } | null>(null);
+  const [bulkSummaryOpen, setBulkSummaryOpen] = useState(false);
   const bulkDragOffset = useRef<{ dx: number; dy: number } | null>(null);
 
   const bulkPendientes = Object.entries(bulkQtys).filter(([, v]) => {
@@ -5074,7 +5125,9 @@ export default function Inventario() {
   const confirmarBulk = () => {
     bulkPendientes.forEach(([id, v]) => {
       const n = parseFloat(v.replace(",", "."));
-      registrarMovimiento(id, bulkTipo, bulkTipo === "entrada" ? "compra" : "uso_produccion", n, {});
+      registrarMovimiento(id, bulkTipo, bulkTipo === "entrada" ? "compra" : "uso_produccion", n, {
+        lote_numero: "Sin lote",
+      });
     });
     setBulkQtys({});
     setBulkMode(false);
@@ -5101,6 +5154,61 @@ export default function Inventario() {
   function openDetail(id: string) { setSelectedId(id); setDetalleOpen(true); }
   function openMovimiento(id: string, tipo: InvMovimientoTipo) {
     setModalId(id); setModalTipo(tipo); setModalOpen(true);
+  }
+
+  function toggleTableMode() {
+    setTableMode(v => {
+      const next = !v;
+      localStorage.setItem("inv-tableMode", next ? "1" : "0");
+      return next;
+    });
+    setEditingCell(null);
+  }
+
+  function startEdit(id: string, field: "nombre" | "precio_unitario" | "ubicacion_fisica", current: string) {
+    setEditingCell({ id, field });
+    setCellDraft(current);
+  }
+
+  function commitCell() {
+    if (!editingCell) return;
+    const { id, field } = editingCell;
+    if (field === "precio_unitario") {
+      const n = parseFloat(cellDraft.replace(",", "."));
+      if (!isNaN(n) && n >= 0) editarProducto(id, { precio_unitario: n });
+    } else {
+      editarProducto(id, { [field]: cellDraft } as Parameters<typeof editarProducto>[1]);
+    }
+    setEditingCell(null);
+  }
+
+  function commitStockEdit() {
+    if (!stockEdit) return;
+    const prod = catalogos.find(p => p.id === stockEdit.id);
+    if (!prod) { setStockEdit(null); return; }
+    const nuevo = parseFloat(stockEdit.draft.replace(",", "."));
+    if (isNaN(nuevo) || nuevo < 0 || nuevo === prod.cantidad_actual) { setStockEdit(null); return; }
+    const esEntrada = nuevo > prod.cantidad_actual;
+    setStockSubtipo(esEntrada ? "compra" : "uso_produccion");
+    setStockConfirm({ prod, nuevoValor: nuevo });
+    setStockEdit(null);
+  }
+
+  function onCellKeyDown(e: React.KeyboardEvent, id: string, fields: Array<"nombre" | "precio_unitario" | "ubicacion_fisica">, fieldIdx: number) {
+    if (e.key === "Enter") { e.preventDefault(); commitCell(); }
+    if (e.key === "Escape") { setEditingCell(null); }
+    if (e.key === "Tab") {
+      e.preventDefault();
+      commitCell();
+      const next = fields[fieldIdx + (e.shiftKey ? -1 : 1)];
+      if (next) {
+        const prod = catalogos.find(p => p.id === id);
+        if (prod) {
+          const val = next === "precio_unitario" ? String(prod.precio_unitario) : (prod[next] ?? "") as string;
+          setTimeout(() => startEdit(id, next, val), 0);
+        }
+      }
+    }
   }
 
   // ── Exportar stock (respeta filtros activos) ──────────────────────────────
@@ -5156,7 +5264,7 @@ export default function Inventario() {
           producto:          prod?.nombre ?? m.catalogo_id,
           codigo:            prod?.codigo ?? "",
           tipo:              m.tipo,
-          subtipo:           m.subtipo.replace(/_/g, " "),
+          subtipo:           fmtSubtipo(m.subtipo),
           cantidad:          m.tipo === "ajuste"
             ? Math.abs(m.cantidad_nueva - m.cantidad_anterior)
             : m.cantidad,
@@ -5440,13 +5548,14 @@ export default function Inventario() {
 
       {/* Stock — Main 2-column layout */}
       {mainTab === "stock" && (
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
+      <div className={cn("grid grid-cols-1 gap-6 lg:grid-cols-1 transition-all duration-200", sidebarOpen ? "lg:grid-cols-[220px_1fr]" : "lg:grid-cols-[32px_1fr]")}>
 
         {/* Filter panel */}
         <FilterPanel
           productos={filtered}
           filterModulo={filterModulo} setFilterModulo={setFilterModulo}
           filterEstado={filterEstado} setFilterEstado={setFilterEstado}
+          sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen}
         />
 
         {/* Products area */}
@@ -5460,20 +5569,41 @@ export default function Inventario() {
               className="h-9 flex-1"
             />
             <div className="flex rounded-lg border border-border bg-muted p-0.5 shrink-0">
-              <button
-                onClick={() => setViewMode("grid")}
-                className={cn("rounded-md p-1.5 transition-colors", viewMode === "grid" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}
-                title="Vista cards"
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setViewMode("list")}
-                className={cn("rounded-md p-1.5 transition-colors", viewMode === "list" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}
-                title="Vista lista"
-              >
-                <LayoutList className="h-4 w-4" />
-              </button>
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => { setViewMode("grid"); if (tableMode) toggleTableMode(); }}
+                      className={cn("rounded-md p-1.5 transition-colors", viewMode === "grid" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}
+                    >
+                      <LayoutGrid className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Vista tarjetas</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => { setViewMode("list"); if (tableMode) toggleTableMode(); }}
+                      className={cn("rounded-md p-1.5 transition-colors", viewMode === "list" && !tableMode ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}
+                    >
+                      <LayoutList className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Vista lista</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => { setViewMode("list"); toggleTableMode(); }}
+                      className={cn("rounded-md p-1.5 transition-colors", tableMode ? "bg-background shadow text-primary" : "text-muted-foreground hover:text-foreground")}
+                    >
+                      <Table2 className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Modo edición tabla</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
           </div>
 
@@ -5615,7 +5745,7 @@ export default function Inventario() {
                     className={cn("h-8 gap-1.5 font-semibold",
                       bulkTipo === "entrada" ? "bg-green-600 hover:bg-green-700 text-white" : "bg-red-600 hover:bg-red-700 text-white")}
                     disabled={bulkPendientes.length === 0}
-                    onClick={confirmarBulk}
+                    onClick={() => setBulkSummaryOpen(true)}
                   >
                     {bulkTipo === "entrada" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
                     Confirmar {bulkPendientes.length > 0 ? `(${bulkPendientes.length})` : ""}
@@ -5751,31 +5881,48 @@ export default function Inventario() {
 
           {/* List view */}
           {viewMode === "list" && filtered.length > 0 && (
-            <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <div className={cn(
+              "overflow-hidden border bg-card",
+              tableMode
+                ? "rounded-lg border-[#bfc0c1] dark:border-border"
+                : "rounded-xl border-border",
+            )}>
               <div className="overflow-auto">
-                <table className="w-full min-w-[720px] text-sm">
+                <table className={cn(
+                  "w-full min-w-[720px] text-sm",
+                  tableMode && "border-collapse [&_td]:border [&_td]:border-[#d0d1d2] dark:[&_td]:border-border/70 [&_td]:px-3 [&_td]:py-1.5",
+                )}>
                   <thead>
-                    <tr className="border-b border-border bg-muted/40">
-                      <th className="w-1 px-0"></th>
-                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Producto</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground whitespace-nowrap">Área</th>
-                      <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground whitespace-nowrap">Stock</th>
-                      <th className="w-24 px-3 py-2.5"></th>
-                      <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Estado</th>
-                      <th className="hidden 2xl:table-cell px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground whitespace-nowrap">Precio unit.</th>
-                      <th className="hidden 2xl:table-cell px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">PPP</th>
-                      <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground whitespace-nowrap">Valor total</th>
-                      <th className="hidden 2xl:table-cell px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Cuenta</th>
+                    <tr className={cn(
+                      tableMode
+                        ? "bg-[#e8eaed] dark:bg-muted/70 border-b-2 border-[#bfc0c1] dark:border-border"
+                        : "border-b border-border bg-muted/40",
+                    )}>
+                      <th className={cn("px-4 py-2 text-left text-xs font-bold whitespace-nowrap", tableMode ? "text-[#3c4043] dark:text-foreground border border-[#bfc0c1] dark:border-border" : "text-muted-foreground py-2.5")}>Producto</th>
+                      <th className={cn("px-3 py-2 text-left text-xs font-bold whitespace-nowrap", tableMode ? "text-[#3c4043] dark:text-foreground border border-[#bfc0c1] dark:border-border" : "text-muted-foreground py-2.5")}>Área</th>
+                      <th className={cn("px-3 py-2 text-right text-xs font-bold whitespace-nowrap", tableMode ? "text-[#3c4043] dark:text-foreground border border-[#bfc0c1] dark:border-border" : "text-muted-foreground py-2.5")}>Stock</th>
+                      {!tableMode && <th className="w-24 px-3 py-2"></th>}
+                      <th className={cn("px-3 py-2 text-left text-xs font-bold", tableMode ? "text-[#3c4043] dark:text-foreground border border-[#bfc0c1] dark:border-border" : "text-muted-foreground py-2.5")}>Estado</th>
+                      <th className={cn("hidden 2xl:table-cell px-3 py-2 text-right text-xs font-bold whitespace-nowrap", tableMode ? "text-[#3c4043] dark:text-foreground border border-[#bfc0c1] dark:border-border" : "text-muted-foreground py-2.5")}>Precio unit.</th>
+                      <th className={cn("hidden 2xl:table-cell px-3 py-2 text-right text-xs font-bold", tableMode ? "text-[#3c4043] dark:text-foreground border border-[#bfc0c1] dark:border-border" : "text-muted-foreground py-2.5")}>P. promedio</th>
+                      <th className={cn("px-3 py-2 text-right text-xs font-bold whitespace-nowrap", tableMode ? "text-[#3c4043] dark:text-foreground border border-[#bfc0c1] dark:border-border" : "text-muted-foreground py-2.5")}>Valor total</th>
                       {bulkMode && (
                         <th className="px-3 py-2.5 text-right text-xs font-semibold text-green-700 dark:text-green-400 whitespace-nowrap">
                           Cantidad a {bulkTipo === "entrada" ? "ingresar" : "retirar"}
                         </th>
                       )}
-                      {!bulkMode && <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground">Acciones</th>}
+                      {!bulkMode && (
+                        <th className={cn("px-3 py-2 text-left text-xs font-bold", tableMode ? "text-primary border border-[#bfc0c1] dark:border-border" : "text-muted-foreground py-2.5")}>
+                          {tableMode ? "Ubicación" : "Acciones"}
+                        </th>
+                      )}
+                      {tableMode && !bulkMode && (
+                        <th className="w-10 border border-[#bfc0c1] dark:border-border"></th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map(p => {
+                    {filtered.map((p, rowIdx) => {
                       const status = getStockStatus(p);
                       const inactivo = !p.activo;
                       const accentCls = status === "critico" ? "bg-red-500" : status === "bajo" ? "bg-amber-500" : "bg-transparent";
@@ -5783,50 +5930,108 @@ export default function Inventario() {
                         ? "bg-red-50/40 dark:bg-red-900/10"
                         : status === "bajo"
                           ? "bg-amber-50/30 dark:bg-amber-900/10"
-                          : "";
+                          : tableMode && rowIdx % 2 === 1
+                            ? "bg-[#f8f9fa] dark:bg-muted/20"
+                            : "";
+                      const bulkHasValue = bulkMode && !!bulkQtys[p.id] && parseFloat(bulkQtys[p.id]) > 0;
+                      const EDITABLE_FIELDS = ["nombre", "precio_unitario", "ubicacion_fisica"] as const;
                       return (
                         <tr
                           key={p.id}
                           className={cn(
-                            "border-b border-border/50 last:border-0 transition-colors",
-                            inactivo ? "bg-muted/30 hover:bg-muted/50" : cn("cursor-pointer hover:bg-muted/20", rowCls),
+                            "transition-all duration-150",
+                            tableMode ? "" : "border-b border-border/50 last:border-0",
+                            inactivo ? "bg-muted/30 hover:bg-muted/50" : cn(tableMode ? "hover:bg-blue-50/50 dark:hover:bg-muted/30" : "cursor-pointer hover:bg-muted/20", rowCls),
+                            bulkHasValue && "bg-amber-50/60 dark:bg-amber-900/20 shadow-[inset_0_0_0_1.5px_theme(colors.amber.400)] shadow-amber-300/40",
                           )}
-                          onClick={() => !inactivo && openDetail(p.id)}
+                          onClick={() => !inactivo && !bulkMode && !tableMode && openDetail(p.id)}
                         >
-                          {/* Franja de color izquierda según urgencia */}
-                          <td className="w-1 p-0">
-                            <div className={cn("h-full w-1 min-h-[40px]", accentCls)} />
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <div className="flex items-center gap-2">
-                              <div>
-                                <p className={cn("font-medium", inactivo && "text-muted-foreground line-through")}>{p.nombre}</p>
-                                <p className="font-mono text-[10px] text-muted-foreground">{p.codigo}</p>
+                          {/* Nombre — editable en modo tabla */}
+                          <td className="px-4 py-2.5" onClick={e => { if (tableMode && !inactivo) { e.stopPropagation(); startEdit(p.id, "nombre", p.nombre); } }}>
+                            {tableMode && !inactivo && editingCell?.id === p.id && editingCell.field === "nombre" ? (
+                              <input
+                                autoFocus
+                                value={cellDraft}
+                                onChange={e => setCellDraft(e.target.value)}
+                                onBlur={commitCell}
+                                onKeyDown={e => onCellKeyDown(e, p.id, EDITABLE_FIELDS, 0)}
+                                className="w-full rounded border border-primary px-2 py-1 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/30"
+                              />
+                            ) : (
+                              <div className={cn("flex items-center gap-2", tableMode && !inactivo && "group cursor-pointer")}>
+                                <div>
+                                  <p className={cn("font-medium", inactivo && "text-muted-foreground line-through")}>{p.nombre}</p>
+                                  <p className="font-mono text-[10px] text-muted-foreground">{p.codigo}</p>
+                                </div>
+                                {tableMode && !inactivo && <Pencil className="h-3 w-3 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />}
+                                {inactivo && (
+                                  <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Desactivado
+                                  </span>
+                                )}
                               </div>
-                              {inactivo && (
-                                <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                  Desactivado
-                                </span>
-                              )}
-                            </div>
+                            )}
                           </td>
                           <td className={cn("px-3 py-2.5 whitespace-nowrap", inactivo && "opacity-50")}><ModuloBadges ids={p.modulo_ids} size="xs" /></td>
-                          <td className={cn("px-3 py-2.5 text-right", inactivo && "opacity-50")}>
-                            <span className={cn("font-semibold", status === "critico" && !inactivo && "text-red-600 dark:text-red-400", status === "bajo" && !inactivo && "text-amber-600 dark:text-amber-400")}>
-                              {fmtNum(p.cantidad_actual, 1)}
-                            </span>
-                            <span className="ml-1 text-xs text-muted-foreground">{p.unidad_medida}</span>
+                          <td
+                            className={cn("px-3 py-2.5 text-right", inactivo && "opacity-50", tableMode && !inactivo && "group cursor-pointer")}
+                            onClick={e => { if (tableMode && !inactivo) { e.stopPropagation(); setStockEdit({ id: p.id, draft: String(p.cantidad_actual) }); } }}
+                          >
+                            {tableMode && !inactivo && stockEdit?.id === p.id ? (
+                              <input
+                                autoFocus
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={stockEdit.draft}
+                                onChange={e => setStockEdit(s => s ? { ...s, draft: e.target.value } : null)}
+                                onBlur={commitStockEdit}
+                                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); commitStockEdit(); } if (e.key === "Escape") setStockEdit(null); }}
+                                className="w-24 rounded border border-primary px-2 py-0.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary/30"
+                              />
+                            ) : (
+                              <span className="inline-flex items-center justify-end gap-1">
+                                <span className={cn("font-semibold", status === "critico" && !inactivo && "text-red-600 dark:text-red-400", status === "bajo" && !inactivo && "text-amber-600 dark:text-amber-400")}>
+                                  {fmtNum(p.cantidad_actual, 1)}
+                                </span>
+                                <span className="text-xs text-muted-foreground">{p.unidad_medida}</span>
+                                {tableMode && !inactivo && <Pencil className="h-2.5 w-2.5 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                              </span>
+                            )}
                           </td>
-                          <td className={cn("px-3 py-2.5", inactivo && "opacity-30")}>
-                            {inactivo ? null : <StockBar p={p} />}
-                          </td>
+                          {!tableMode && (
+                            <td className={cn("px-3 py-2.5", inactivo && "opacity-30")}>
+                              {inactivo ? null : <StockBar p={p} />}
+                            </td>
+                          )}
                           <td className="px-3 py-2.5">
                             {inactivo
                               ? <span className="text-[11px] text-muted-foreground italic">Desactivado — oculto en formularios</span>
                               : <StockBadge status={status} />}
                           </td>
-                          <td className={cn("hidden 2xl:table-cell px-3 py-2.5 text-right text-xs", inactivo && "opacity-50")}>
-                            {fmtCurrency(p.precio_unitario)}
+                          {/* Precio unitario — editable en modo tabla */}
+                          <td
+                            className={cn("hidden 2xl:table-cell px-3 py-2.5 text-right text-xs", inactivo && "opacity-50", tableMode && !inactivo && "group cursor-pointer")}
+                            onClick={e => { if (tableMode && !inactivo) { e.stopPropagation(); startEdit(p.id, "precio_unitario", String(p.precio_unitario)); } }}
+                          >
+                            {tableMode && !inactivo && editingCell?.id === p.id && editingCell.field === "precio_unitario" ? (
+                              <input
+                                autoFocus
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={cellDraft}
+                                onChange={e => setCellDraft(e.target.value)}
+                                onBlur={commitCell}
+                                onKeyDown={e => onCellKeyDown(e, p.id, EDITABLE_FIELDS, 1)}
+                                className="w-24 rounded border border-primary px-2 py-0.5 text-xs text-right focus:outline-none focus:ring-2 focus:ring-primary/30"
+                              />
+                            ) : (
+                              <span className="inline-flex items-center gap-1">
+                                {fmtCurrency(p.precio_unitario)}
+                                {tableMode && !inactivo && <Pencil className="h-2.5 w-2.5 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                              </span>
+                            )}
                           </td>
                           <td className={cn("hidden 2xl:table-cell px-3 py-2.5 text-right text-xs font-semibold", inactivo && "opacity-50",
                             !inactivo && p.precio_promedio_ponderado !== p.precio_unitario ? "text-amber-600 dark:text-amber-400" : "")}>
@@ -5834,11 +6039,6 @@ export default function Inventario() {
                           </td>
                           <td className={cn("px-3 py-2.5 text-right text-sm font-bold tabular-nums", inactivo && "opacity-50")}>
                             {fmtCurrency(p.cantidad_actual * p.precio_promedio_ponderado)}
-                          </td>
-                          <td className={cn("hidden 2xl:table-cell px-3 py-2.5 text-xs", inactivo && "opacity-50")}>
-                            {p.cuenta_contable
-                              ? <span className="font-mono rounded bg-muted px-1.5 py-0.5">{p.cuenta_contable}</span>
-                              : <span className="text-muted-foreground/50">—</span>}
                           </td>
                           {/* Columna Acciones / Carga masiva — siempre un único td */}
                           <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
@@ -5867,6 +6067,31 @@ export default function Inventario() {
                                         : "border-border focus:ring-ring",
                                     )}
                                   />
+                                </div>
+                              )
+                            ) : tableMode ? (
+                              // ── Modo tabla: campo ubicación editable ──────────
+                              inactivo ? null : (
+                                <div
+                                  className="group cursor-pointer"
+                                  onClick={e => { e.stopPropagation(); startEdit(p.id, "ubicacion_fisica", p.ubicacion_fisica ?? ""); }}
+                                >
+                                  {editingCell?.id === p.id && editingCell.field === "ubicacion_fisica" ? (
+                                    <input
+                                      autoFocus
+                                      value={cellDraft}
+                                      onChange={e => setCellDraft(e.target.value)}
+                                      onBlur={commitCell}
+                                      onKeyDown={e => onCellKeyDown(e, p.id, EDITABLE_FIELDS, 2)}
+                                      placeholder="Ubicación…"
+                                      className="w-full rounded border border-primary px-2 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                    />
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground truncate">
+                                      {p.ubicacion_fisica || <span className="italic opacity-40">—</span>}
+                                      <Pencil className="h-2.5 w-2.5 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
+                                    </span>
+                                  )}
                                 </div>
                               )
                             ) : (
@@ -5955,6 +6180,25 @@ export default function Inventario() {
                               </div>
                             )}
                           </td>
+                          {tableMode && !bulkMode && (
+                            <td className="w-10 px-1 py-1 text-center border border-[#d0d1d2] dark:border-border/70" onClick={e => e.stopPropagation()}>
+                              {!inactivo && (
+                                <TooltipProvider delayDuration={200}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        onClick={() => openDetail(p.id)}
+                                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                                      >
+                                        <ExternalLink className="h-3.5 w-3.5" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="left">Abrir ficha completa</TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -5982,6 +6226,148 @@ export default function Inventario() {
       <TransferenciaModal productoId={transferirId} open={!!transferirId} onClose={() => setTransferirId(null)} />
       <ModalMovimiento open={modalOpen} onOpenChange={setModalOpen} productoId={modalId} tipoInicial={modalTipo} />
       <ProductoDialog open={prodDialogOpen} onOpenChange={setProdDialogOpen} editing={editingProd} />
+
+      {/* ── Resumen carga masiva ── */}
+      {bulkSummaryOpen && (() => {
+        const esEntrada = bulkTipo === "entrada";
+        const items = bulkPendientes.map(([id, v]) => {
+          const prod = catalogos.find(c => c.id === id);
+          const qty = parseFloat(v.replace(",", "."));
+          return { prod, qty };
+        }).filter(i => i.prod) as { prod: InvCatalogo; qty: number }[];
+        const totalItems = items.length;
+        return (
+          <Dialog open onOpenChange={v => { if (!v) setBulkSummaryOpen(false); }}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle className={cn("flex items-center gap-2", esEntrada ? "text-green-700" : "text-red-600")}>
+                  {esEntrada ? <ArrowDown className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
+                  Resumen de {esEntrada ? "entradas" : "salidas"} — {totalItems} producto{totalItems !== 1 ? "s" : ""}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="max-h-72 overflow-y-auto rounded-lg border border-border divide-y divide-border text-sm">
+                <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-3 py-1.5 bg-muted text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <span>Producto</span>
+                  <span className="text-right">Actual</span>
+                  <span className={cn("text-right", esEntrada ? "text-green-700" : "text-red-600")}>{esEntrada ? "+ Entrada" : "− Salida"}</span>
+                  <span className="text-right">Resultado</span>
+                </div>
+                {items.map(({ prod, qty }) => {
+                  const resultado = esEntrada ? prod.cantidad_actual + qty : prod.cantidad_actual - qty;
+                  const negativo = resultado < 0;
+                  return (
+                    <div key={prod.id} className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-3 py-2 items-center">
+                      <div>
+                        <p className="font-medium leading-tight">{prod.nombre}</p>
+                        <p className="text-[10px] text-muted-foreground font-mono">{prod.codigo}</p>
+                      </div>
+                      <span className="text-right tabular-nums text-muted-foreground">{prod.cantidad_actual} {prod.unidad_medida}</span>
+                      <span className={cn("text-right tabular-nums font-semibold", esEntrada ? "text-green-600" : "text-red-600")}>
+                        {esEntrada ? "+" : "−"}{qty} {prod.unidad_medida}
+                      </span>
+                      <span className={cn("text-right tabular-nums font-bold", negativo ? "text-red-600" : "")}>
+                        {resultado.toFixed(resultado % 1 === 0 ? 0 : 1)} {prod.unidad_medida}
+                        {negativo && <span className="ml-1 text-[10px] text-red-500">⚠</span>}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              {items.some(({ prod, qty }) => !esEntrada && prod.cantidad_actual - qty < 0) && (
+                <p className="text-xs text-red-600 flex items-center gap-1.5 mt-1">
+                  <span>⚠</span> Algunos productos quedarían con stock negativo.
+                </p>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setBulkSummaryOpen(false)}>Revisar</Button>
+                <Button
+                  className={cn("gap-1.5", esEntrada ? "bg-green-600 hover:bg-green-700 text-white" : "bg-red-600 hover:bg-red-700 text-white")}
+                  onClick={() => { setBulkSummaryOpen(false); confirmarBulk(); }}
+                >
+                  {esEntrada ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
+                  Aplicar {totalItems} {esEntrada ? "entrada" : "salida"}{totalItems !== 1 ? "s" : ""}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
+
+      {/* ── Confirmación edición directa de stock ── */}
+      {stockConfirm && (() => {
+        const { prod, nuevoValor } = stockConfirm;
+        const delta = nuevoValor - prod.cantidad_actual;
+        const esEntrada = delta > 0;
+        return (
+          <Dialog open onOpenChange={v => { if (!v) setStockConfirm(null); }}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle className={cn("flex items-center gap-2", esEntrada ? "text-green-600" : "text-red-600")}>
+                  {esEntrada ? <ArrowDown className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
+                  {esEntrada ? "Registrar entrada" : "Registrar salida"}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 py-1">
+                <p className="text-sm font-medium">{prod.nombre}</p>
+                <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm space-y-1.5">
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Stock actual</span>
+                    <span className="font-mono font-semibold text-foreground">{fmtNum(prod.cantidad_actual, 1)} {prod.unidad_medida}</span>
+                  </div>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Nuevo valor</span>
+                    <span className="font-mono font-semibold text-foreground">{fmtNum(nuevoValor, 1)} {prod.unidad_medida}</span>
+                  </div>
+                  <div className={cn("flex justify-between font-semibold pt-1 border-t border-border", esEntrada ? "text-green-600" : "text-red-600")}>
+                    <span>{esEntrada ? "Entrada" : "Salida"}</span>
+                    <span className="font-mono">{esEntrada ? "+" : "−"}{fmtNum(Math.abs(delta), 1)} {prod.unidad_medida}</span>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Subtipo</label>
+                  <select
+                    value={stockSubtipo}
+                    onChange={e => setStockSubtipo(e.target.value)}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    {(esEntrada
+                      ? [
+                          { value: "compra",     label: "Compra" },
+                          { value: "devolucion", label: "Devolución" },
+                        ]
+                      : [
+                          { value: "uso_produccion",   label: "Uso en producción" },
+                          { value: "aplicacion_campo", label: "Aplicación en campo" },
+                          { value: "merma",            label: "Pérdida" },
+                          { value: "devolucion",       label: "Devolución" },
+                        ]
+                    ).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" size="sm" onClick={() => setStockConfirm(null)}>Cancelar</Button>
+                <Button
+                  size="sm"
+                  className={cn(esEntrada ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700", "text-white")}
+                  onClick={() => {
+                    registrarMovimiento(
+                      prod.id,
+                      esEntrada ? "entrada" : "salida",
+                      stockSubtipo as InvMovimientoSubtipo,
+                      Math.abs(delta),
+                      {},
+                    );
+                    setStockConfirm(null);
+                  }}
+                >
+                  Confirmar
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* ── AlertDialog confirmar activar / desactivar (vista stock principal) ── */}
       <Dialog open={!!confirmProd} onOpenChange={v => { if (!v) setConfirmProd(null); }}>
@@ -6032,3 +6418,4 @@ export default function Inventario() {
     </MainLayout>
   );
 }
+

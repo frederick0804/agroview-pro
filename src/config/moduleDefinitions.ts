@@ -1077,12 +1077,22 @@ export interface MapaCultivo {
 // ─── Cultivo ──────────────────────────────────────────────────────────────────
 // Equivale a la tabla `Cultivos` del ERD.
 
+export interface EtapaCiclo {
+  id:           string;
+  nombre:       string;   // ej: "Germinación"
+  duracion:     number;   // días estimados
+  color:        string;   // hex o clase tailwind, ej: "#4ade80"
+  descripcion?: string;
+  dias_alerta?: number;   // días de anticipación para notificación (undefined = sin alerta)
+}
+
 export interface Cultivo {
   id:              string;
   nombre:          string;    // ej: "Fresas"
   codigo:          string;    // ej: "FRE"
   descripcion:     string;
   activo:          boolean;
+  ciclo_vida?:     EtapaCiclo[];
   // Control de acceso multi-tenant:
   // vacío/undefined → visible para todos los clientes/productores
   clientes_ids?:   number[];  // solo estos clientes pueden usar este cultivo
@@ -1126,6 +1136,14 @@ export const CULTIVOS: Cultivo[] = [
     id: "c-01", nombre: "Fresas", codigo: "FRE", descripcion: "Fragaria × ananassa",
     activo: true, clientes_ids: [1, 2], productores_ids: [1, 3],
     unidad_superficie: "ha", unidad_produccion: "kg", marco_plantacion: 40000,
+    ciclo_vida: [
+      { id: "e-c01-1", nombre: "Germinación",   duracion: 14,  color: "#86efac", descripcion: "Desde siembra hasta emergencia de la plántula" },
+      { id: "e-c01-2", nombre: "Trasplante",     duracion: 7,   color: "#6ee7b7", descripcion: "Aclimatación tras el trasplante al sustrato definitivo" },
+      { id: "e-c01-3", nombre: "Vegetativo",     duracion: 30,  color: "#4ade80", descripcion: "Desarrollo de follaje y sistema radicular" },
+      { id: "e-c01-4", nombre: "Floración",      duracion: 21,  color: "#fbbf24", descripcion: "Apertura de flores y polinización" },
+      { id: "e-c01-5", nombre: "Fructificación", duracion: 30,  color: "#f97316", descripcion: "Cuaje y desarrollo del fruto" },
+      { id: "e-c01-6", nombre: "Cosecha",        duracion: 60,  color: "#ef4444", descripcion: "Período activo de cosecha escalonada" },
+    ],
     calibres: [
       { id: "cal-01", nombre: "Premium",  mm_min: 28, mm_max: 32, peso_g_min: 18 },
       { id: "cal-02", nombre: "Selecta",  mm_min: 24, mm_max: 28, peso_g_min: 14 },
@@ -1272,6 +1290,14 @@ export const CULTIVOS: Cultivo[] = [
     id: "c-02", nombre: "Arándanos", codigo: "ARA", descripcion: "Vaccinium spp.",
     activo: true, clientes_ids: [1], productores_ids: [1],
     unidad_superficie: "ha", unidad_produccion: "kg", marco_plantacion: 3300,
+    ciclo_vida: [
+      { id: "e-c02-1", nombre: "Brotación",     duracion: 21,  color: "#86efac", descripcion: "Salida de yemas y brotación inicial" },
+      { id: "e-c02-2", nombre: "Crecimiento",    duracion: 45,  color: "#4ade80", descripcion: "Elongación de brotes y hojas" },
+      { id: "e-c02-3", nombre: "Floración",      duracion: 20,  color: "#fbbf24", descripcion: "Apertura de flores en racimo" },
+      { id: "e-c02-4", nombre: "Fructificación", duracion: 50,  color: "#f97316", descripcion: "Desarrollo y maduración del fruto" },
+      { id: "e-c02-5", nombre: "Cosecha",        duracion: 40,  color: "#ef4444", descripcion: "Recolección en múltiples pasadas" },
+      { id: "e-c02-6", nombre: "Reposo",         duracion: 90,  color: "#94a3b8", descripcion: "Dormancia invernal" },
+    ],
     calibres: [
       { id: "cal-05", nombre: "Jumbo",    mm_min: 18, mm_max: 22, peso_g_min: 5 },
       { id: "cal-06", nombre: "Extra",    mm_min: 16, mm_max: 18, peso_g_min: 4 },
