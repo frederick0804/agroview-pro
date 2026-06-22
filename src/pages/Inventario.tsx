@@ -2469,7 +2469,7 @@ function CatalogoInline({ canAdmin, onKardex }: { canAdmin: boolean; onKardex: (
 
 // ─── Vista: Historial de movimientos ─────────────────────────────────────────
 
-const MOV_PAGE = 20;
+const MOV_PAGE_OPTIONS = [5, 10, 20, 100];
 
 function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, onInitialFilterConsumed }: {
   onOpenDetail: (id: string) => void;
@@ -2492,6 +2492,7 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
   const [fechaDesde,  setFechaDesde]  = useState(hoy);   // default: hoy
   const [fechaHasta,  setFechaHasta]  = useState(hoy);   // default: hoy
   const [page,        setPage]        = useState(1);
+  const [pageSize,    setPageSize]    = useState(20);
   const [expandedId,  setExpandedId]  = useState<string | null>(null);
   const [quickMovTipo,  setQuickMovTipo]  = useState<InvMovimientoTipo | null>(null);
   const [quickMovProd,  setQuickMovProd]  = useState("");
@@ -2577,8 +2578,10 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
       });
   }, [movimientos, catalogos, filterTipo, filterProd, filterOrigen, filterLote, search, fechaDesde, fechaHasta]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / MOV_PAGE));
-  const paginados  = filtered.slice((page - 1) * MOV_PAGE, page * MOV_PAGE);
+  useEffect(() => { setPage(1); }, [pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginados  = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   // ── Grupos de movimientos (estructura pre-calculada) ─────────────────────
   // Cada grupo es un array de movimientos con la misma operación (mismo origen+fecha).
@@ -3368,12 +3371,61 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
         </div>
 
         {/* Paginación */}
-        {totalPages > 1 && (
+        {filtered.length > 0 && (
           <div className="flex items-center justify-between border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
-            <span>{filtered.length} movimientos — pág. {page}/{totalPages}</span>
-            <div className="flex gap-1">
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={page === 1} onClick={() => setPage(p => p - 1)}>‹</Button>
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>›</Button>
+            <div className="flex items-center gap-3">
+              <span>{filtered.length} movimientos — pág. {page}/{totalPages}</span>
+              <Select value={String(pageSize)} onValueChange={v => setPageSize(Number(v))}>
+                <SelectTrigger className="h-7 w-[110px] bg-background text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MOV_PAGE_OPTIONS.map(n => (
+                    <SelectItem key={n} value={String(n)} className="text-xs">{n} por página</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ← Anterior
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(n => n === 1 || n === totalPages || Math.abs(n - page) <= 1)
+                .reduce<(number | "…")[]>((acc, n, i, arr) => {
+                  if (i > 0 && (n as number) - (arr[i - 1] as number) > 1) acc.push("…");
+                  acc.push(n);
+                  return acc;
+                }, [])
+                .map((item, i) =>
+                  item === "…" ? (
+                    <span key={`ellipsis-${i}`} className="px-1 text-xs text-muted-foreground">…</span>
+                  ) : (
+                    <button
+                      key={item}
+                      onClick={() => setPage(item as number)}
+                      className={cn(
+                        "min-w-[28px] rounded-md border px-2 py-1 text-xs font-medium transition-colors",
+                        page === item
+                          ? "border-foreground bg-foreground text-background"
+                          : "border-border text-muted-foreground hover:bg-muted",
+                      )}
+                    >
+                      {item}
+                    </button>
+                  )
+                )}
+              <button
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Siguiente →
+              </button>
             </div>
           </div>
         )}
@@ -5109,6 +5161,9 @@ export default function Inventario() {
   const [stockSubtipo,   setStockSubtipo]   = useState<string>("compra");
   const [sidebarOpen,    setSidebarOpen]    = useState(true);
   const [showInactivos,  setShowInactivos]  = useState(false);
+  const [page,           setPage]           = useState(1);
+  const [pageSize,       setPageSize]       = useState(20);
+  const PAGE_SIZE_OPTIONS = [5, 10, 20, 100];
   // Modo carga masiva
   const [bulkMode,        setBulkMode]        = useState(false);
   const [bulkQtys,        setBulkQtys]        = useState<Record<string, string>>({});
@@ -5407,6 +5462,74 @@ export default function Inventario() {
     };
     return [...result].sort((a, b) => urgency(a) - urgency(b));
   }, [catalogos, filterModulo, filterEstado, search, showInactivos]);
+
+  useEffect(() => { setPage(1); }, [filterModulo, filterEstado, search, showInactivos, viewMode, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginaActual = Math.min(page, totalPages);
+  const paginated = filtered.slice((paginaActual - 1) * pageSize, paginaActual * pageSize);
+
+  const paginationControls = filtered.length > 0 && (
+    <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
+      <div className="flex items-center gap-3">
+        <p className="text-xs text-muted-foreground">
+          <span className="font-medium">{(paginaActual - 1) * pageSize + 1}–{Math.min(paginaActual * pageSize, filtered.length)}</span>
+          {" de "}<span className="font-medium">{filtered.length}</span> productos
+        </p>
+        <Select value={String(pageSize)} onValueChange={v => setPageSize(Number(v))}>
+          <SelectTrigger className="h-7 w-[110px] bg-background text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PAGE_SIZE_OPTIONS.map(n => (
+              <SelectItem key={n} value={String(n)} className="text-xs">{n} por página</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => setPage(p => Math.max(1, p - 1))}
+          disabled={paginaActual <= 1}
+          className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          ← Anterior
+        </button>
+        {Array.from({ length: totalPages }, (_, i) => i + 1)
+          .filter(n => n === 1 || n === totalPages || Math.abs(n - paginaActual) <= 1)
+          .reduce<(number | "…")[]>((acc, n, i, arr) => {
+            if (i > 0 && (n as number) - (arr[i - 1] as number) > 1) acc.push("…");
+            acc.push(n);
+            return acc;
+          }, [])
+          .map((item, i) =>
+            item === "…" ? (
+              <span key={`ellipsis-${i}`} className="px-1 text-xs text-muted-foreground">…</span>
+            ) : (
+              <button
+                key={item}
+                onClick={() => setPage(item as number)}
+                className={cn(
+                  "min-w-[28px] rounded-md border px-2 py-1 text-xs font-medium transition-colors",
+                  paginaActual === item
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-border text-muted-foreground hover:bg-muted",
+                )}
+              >
+                {item}
+              </button>
+            )
+          )}
+        <button
+          onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+          disabled={paginaActual >= totalPages}
+          className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Siguiente →
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <MainLayout>
@@ -5864,7 +5987,7 @@ export default function Inventario() {
           {/* Grid view */}
           {viewMode === "grid" && filtered.length > 0 && (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {filtered.map(p => (
+              {paginated.map(p => (
                 <ProductCard
                   key={p.id}
                   p={p}
@@ -5878,6 +6001,7 @@ export default function Inventario() {
               ))}
             </div>
           )}
+          {viewMode === "grid" && filtered.length > 0 && paginationControls}
 
           {/* List view */}
           {viewMode === "list" && filtered.length > 0 && (
@@ -5922,7 +6046,7 @@ export default function Inventario() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((p, rowIdx) => {
+                    {paginated.map((p, rowIdx) => {
                       const status = getStockStatus(p);
                       const inactivo = !p.activo;
                       const accentCls = status === "critico" ? "bg-red-500" : status === "bajo" ? "bg-amber-500" : "bg-transparent";
@@ -6204,6 +6328,7 @@ export default function Inventario() {
                   </tbody>
                 </table>
               </div>
+              {paginationControls}
             </div>
           )}
         </div>
