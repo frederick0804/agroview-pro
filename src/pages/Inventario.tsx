@@ -5936,8 +5936,7 @@ export default function Inventario() {
                       const bulkHasValue = bulkMode && !!bulkQtys[p.id] && parseFloat(bulkQtys[p.id]) > 0;
                       const EDITABLE_FIELDS = ["nombre", "precio_unitario", "ubicacion_fisica"] as const;
                       return (
-                        <tr
-                          key={p.id}
+                        <tr key={p.id}
                           className={cn(
                             "transition-all duration-150",
                             tableMode ? "" : "border-b border-border/50 last:border-0",
