@@ -28,7 +28,7 @@ export interface InvProveedor {
 
 // ─── Orden de compra ──────────────────────────────────────────────────────────
 
-export type InvOrdenEstado = "solicitado" | "aprobado" | "recibido" | "cancelado";
+export type InvOrdenEstado = "solicitado" | "aprobado" | "recibido_parcial" | "recibido" | "cancelado";
 
 export interface InvLineaOrden {
   id:                string;
@@ -64,6 +64,7 @@ export interface InvLote {
   fecha_vencimiento:   string;   // ISO date, obligatorio
   certificado_origen?: string;
   proveedor_id?:       string;
+  orden_linea_id?:     string;   // línea de InvOrdenCompra que generó este lote (si vino de una recepción)
   precio_unitario?:    number;
   cantidad_inicial:    number;
   cantidad_actual:     number;
@@ -143,6 +144,8 @@ export interface InvMovimiento {
   // Trazabilidad por ubicación de campo
   bloque_ref?:       string;   // ej: "Bloque A-1", "Nave 3", "Sector Norte" — extraído del formulario
   cultivo_id?:       string;   // FK → Cultivos — qué cultivo se estaba tratando
+  // Trazabilidad por orden de compra
+  orden_linea_id?:   string;   // línea de InvOrdenCompra que generó esta entrada (si vino de una recepción)
 }
 
 // ─── Tipo para campos personalizados por producto ─────────────────────────────
@@ -654,6 +657,21 @@ const DEMO_FORMULARIO_MAPAS: InvFormularioMapa[] = [
 
 // ─── Context interface ────────────────────────────────────────────────────────
 
+/** Datos de lote opcionales para una línea de orden al momento de recibirla */
+export interface DatosLoteRecepcion {
+  numero_lote:         string;
+  fecha_vencimiento:   string;
+  fecha_fabricacion?:  string;
+  certificado_origen?: string;
+}
+
+/** Qué y cuánto se recibe de una línea — permite recepción parcial */
+export interface DatosRecepcionLinea {
+  /** Cantidad recibida en esta operación. Si se omite, se recibe todo el saldo pendiente. */
+  cantidad?: number;
+  lote?:     DatosLoteRecepcion;
+}
+
 export interface RegistrarMovimientoOpciones {
   precio_unitario?:      number;
   proveedor_id?:         string;
@@ -663,6 +681,7 @@ export interface RegistrarMovimientoOpciones {
   lote_numero?:          string;
   bloque_ref?:           string;   // ubicación en el mapa del campo (extraído del formulario)
   cultivo_id?:           string;   // cultivo al que pertenece el registro origen
+  orden_linea_id?:       string;   // línea de orden de compra que originó esta entrada (trazabilidad)
 }
 
 interface InventarioContextValue {
@@ -701,7 +720,12 @@ interface InventarioContextValue {
   editarOrden:             (id: string, cambios: Partial<Omit<InvOrdenCompra, "id" | "created_at">>) => void;
   eliminarOrden:           (id: string) => void;
   aprobarOrden:            (id: string, aprobadoPor: string) => void;
-  recibirOrden:            (id: string) => void;
+  aprobarLinea:            (ordenId: string, lineaId: string, aprobadoPor: string) => void;
+  rechazarLinea:           (ordenId: string, lineaId: string) => void;
+  recibirOrden:            (id: string, datosPorLinea?: Record<string, DatosRecepcionLinea>) => void;
+  /** Revierte la recepción más reciente de una línea (crea un movimiento de devolución inverso).
+   *  Devuelve false si no hay nada que revertir o si el stock ya se usó (no se puede dejar en negativo). */
+  revertirUltimaRecepcionLinea: (ordenId: string, lineaId: string) => boolean;
   cancelarOrden:           (id: string) => void;
   getProductosByModulo:    (moduloId: string) => InvCatalogo[];
   getAllProductos:          () => InvCatalogo[];
@@ -766,6 +790,18 @@ export function extractBloqueRef(datos: Record<string, unknown>): string | undef
     if (val && typeof val === "string" && val.trim()) return val.trim();
   }
   return undefined;
+}
+
+// Determina el estado de una orden a partir de sus líneas. Solo las líneas
+// aprobadas cuentan para decidir si la orden está "recibido"/"recibido_parcial" —
+// una línea sin aprobar no bloquea el resto de la orden.
+function calcularEstadoOrden(lineas: InvLineaOrden[]): InvOrdenEstado {
+  const aprobadas = lineas.filter(l => l.estado === "aprobado");
+  const algoRecibido = lineas.some(l => l.cantidad_recibida > 0);
+  if (aprobadas.length === 0) return algoRecibido ? "recibido_parcial" : "solicitado";
+  const completa = aprobadas.every(l => l.cantidad_recibida >= l.cantidad);
+  if (completa) return "recibido";
+  return algoRecibido ? "recibido_parcial" : "aprobado";
 }
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
@@ -867,23 +903,36 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
       : o));
   }, []);
 
-  const recibirOrden = useCallback((id: string) => {
-    setOrdenes(prev => prev.map(o => {
-      if (o.id !== id) return o;
-      return {
-        ...o,
-        estado: "recibido",
-        lineas: o.lineas.map(l => ({ ...l, cantidad_recibida: l.cantidad })),
-        updated_at: new Date().toISOString(),
-      };
-    }));
-  }, []);
-
   const cancelarOrden = useCallback((id: string) => {
     setOrdenes(prev => prev.map(o => o.id === id
       ? { ...o, estado: "cancelado", updated_at: new Date().toISOString() }
       : o));
   }, []);
+
+  // Aprobación/rechazo por línea — permite aprobar solo algunos productos de la
+  // orden en vez de todo o nada. El estado de la orden se recalcula a partir de
+  // sus líneas (calcularEstadoOrden); una orden cancelada no se toca.
+  const setLineaEstado = useCallback((ordenId: string, lineaId: string, nuevoEstado: "aprobado" | "sin_aprobar", aprobadoPor?: string) => {
+    setOrdenes(prev => prev.map(o => {
+      if (o.id !== ordenId || o.estado === "cancelado") return o;
+      const lineas = o.lineas.map(l => l.id === lineaId ? { ...l, estado: nuevoEstado } : l);
+      return {
+        ...o,
+        estado: calcularEstadoOrden(lineas),
+        aprobado_por: nuevoEstado === "aprobado" ? (aprobadoPor ?? o.aprobado_por) : o.aprobado_por,
+        lineas,
+        updated_at: new Date().toISOString(),
+      };
+    }));
+  }, []);
+
+  const aprobarLinea = useCallback((ordenId: string, lineaId: string, aprobadoPor: string) => {
+    setLineaEstado(ordenId, lineaId, "aprobado", aprobadoPor);
+  }, [setLineaEstado]);
+
+  const rechazarLinea = useCallback((ordenId: string, lineaId: string) => {
+    setLineaEstado(ordenId, lineaId, "sin_aprobar");
+  }, [setLineaEstado]);
 
   // ── Scope ──────────────────────────────────────────────────────────────────
   const clienteIdStr   = currentUser?.clienteId   ? String(currentUser.clienteId)   : null;
@@ -983,6 +1032,7 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
       lote_numero:        opciones.lote_numero,
       bloque_ref:         opciones.bloque_ref,
       cultivo_id:         opciones.cultivo_id,
+      orden_linea_id:     opciones.orden_linea_id,
       fecha:      now.substring(0, 10),
       usuario_id: currentUser ? String(currentUser.id) : "1",
       created_at: now,
@@ -1012,6 +1062,109 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     }));
     return true;
   }, [catalogos, currentUser]);
+
+  // Recepción de una orden de compra: por cada línea, registra el movimiento de
+  // entrada (que ya actualiza catálogo y PPP) por la cantidad indicada — puede ser
+  // menor a lo pendiente (recepción parcial) — y deja la trazabilidad orden_linea_id
+  // en ese movimiento. Si se pasa datosPorLinea[lineaId].lote, además crea el lote
+  // correspondiente antes del movimiento. La orden queda en "recibido" solo cuando
+  // todas las líneas completaron su cantidad; si falta algo, queda "recibido_parcial"
+  // y puede volver a llamarse para completar el saldo.
+  const recibirOrden = useCallback((id: string, datosPorLinea?: Record<string, DatosRecepcionLinea>) => {
+    const orden = ordenes.find(o => o.id === id);
+    if (!orden) return;
+
+    const nuevaCantidadRecibida: Record<string, number> = {};
+
+    orden.lineas.forEach(l => {
+      // Las líneas sin aprobar no se reciben — quedan fuera del ciclo de esta orden
+      // hasta que alguien las apruebe explícitamente.
+      if (l.estado !== "aprobado") return;
+      const pendiente = l.cantidad - l.cantidad_recibida;
+      const solicitado = datosPorLinea?.[l.id]?.cantidad;
+      const aRecibir = Math.max(0, Math.min(solicitado ?? pendiente, pendiente));
+      nuevaCantidadRecibida[l.id] = l.cantidad_recibida + aRecibir;
+      if (aRecibir <= 0) return;
+
+      let loteId: string | undefined;
+      let loteNumero: string | undefined;
+      const datosLote = datosPorLinea?.[l.id]?.lote;
+      if (datosLote?.numero_lote && datosLote.fecha_vencimiento) {
+        const nuevoLote = agregarLote({
+          catalogo_id:        l.producto_id,
+          proveedor_id:       orden.proveedor_id,
+          orden_linea_id:     l.id,
+          numero_lote:        datosLote.numero_lote,
+          fecha_vencimiento:  datosLote.fecha_vencimiento,
+          fecha_fabricacion:  datosLote.fecha_fabricacion,
+          certificado_origen: datosLote.certificado_origen,
+          precio_unitario:    l.precio_unitario,
+          cantidad_inicial:   aRecibir,
+          // Se crea en 0: registrarMovimiento() — más abajo, con lote_id — suma la
+          // cantidad real vía el delta de la entrada (mismo patrón que ModalMovimiento).
+          cantidad_actual:    0,
+          activo:             true,
+        });
+        loteId     = nuevoLote.id;
+        loteNumero = nuevoLote.numero_lote;
+      }
+
+      registrarMovimiento(l.producto_id, "entrada", "compra", aRecibir, {
+        precio_unitario:      l.precio_unitario,
+        proveedor_id:         orden.proveedor_id,
+        registro_origen_tipo: "ORDEN_COMPRA",
+        orden_linea_id:       l.id,
+        lote_id:              loteId,
+        lote_numero:          loteNumero,
+      });
+    });
+
+    setOrdenes(prev => prev.map(o => {
+      if (o.id !== id) return o;
+      const lineas = o.lineas.map(l => ({ ...l, cantidad_recibida: nuevaCantidadRecibida[l.id] ?? l.cantidad_recibida }));
+      return {
+        ...o,
+        estado: calcularEstadoOrden(lineas),
+        lineas,
+        updated_at: new Date().toISOString(),
+      };
+    }));
+  }, [ordenes, registrarMovimiento, agregarLote]);
+
+  // Deshacer una recepción: ubica el movimiento de entrada/compra más reciente de
+  // esa línea y registra su inverso (salida/devolución) por la misma cantidad y
+  // mismo lote. No borra el movimiento original — se preserva el historial — y
+  // falla (sin tocar nada) si ya no queda stock suficiente para revertir, es decir
+  // si parte de lo recibido ya se consumió en otro movimiento posterior.
+  const revertirUltimaRecepcionLinea = useCallback((ordenId: string, lineaId: string): boolean => {
+    const orden = ordenes.find(o => o.id === ordenId);
+    const linea = orden?.lineas.find(l => l.id === lineaId);
+    if (!orden || !linea) return false;
+
+    const ultimoMov = [...movimientos]
+      .filter(m => m.orden_linea_id === lineaId && m.tipo === "entrada" && m.subtipo === "compra")
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+    if (!ultimoMov) return false;
+
+    const ok = registrarMovimiento(ultimoMov.catalogo_id, "salida", "devolucion", ultimoMov.cantidad, {
+      lote_id:              ultimoMov.lote_id,
+      lote_numero:          ultimoMov.lote_numero,
+      proveedor_id:         orden.proveedor_id,
+      registro_origen_tipo: "ORDEN_COMPRA_REVERSION",
+      orden_linea_id:       lineaId,
+      observaciones:        `Reversión de recepción — orden ${orden.numero}`,
+    });
+    if (!ok) return false;
+
+    setOrdenes(prev => prev.map(o => {
+      if (o.id !== ordenId) return o;
+      const lineas = o.lineas.map(l => l.id === lineaId
+        ? { ...l, cantidad_recibida: Math.max(0, l.cantidad_recibida - ultimoMov.cantidad) }
+        : l);
+      return { ...o, estado: calcularEstadoOrden(lineas), lineas, updated_at: new Date().toISOString() };
+    }));
+    return true;
+  }, [ordenes, movimientos, registrarMovimiento]);
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const getProductosByModulo = useCallback((moduloId: string) =>
@@ -1470,7 +1623,7 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
   const value = useMemo<InventarioContextValue>(() => ({
     catalogos, movimientos, formularioMapas, lotes,
     proveedores, agregarProveedor, editarProveedor, eliminarProveedor,
-    ordenes, crearOrden, editarOrden, eliminarOrden, aprobarOrden, recibirOrden, cancelarOrden,
+    ordenes, crearOrden, editarOrden, eliminarOrden, aprobarOrden, aprobarLinea, rechazarLinea, recibirOrden, revertirUltimaRecepcionLinea, cancelarOrden,
     agregarProducto, editarProducto, desactivarProducto, registrarMovimiento,
     agregarRegla, editarRegla, toggleRegla, eliminarRegla,
     agregarLote, editarLote, getLotesByProducto, getLotesFEFO,
@@ -1480,7 +1633,7 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
   }), [
     catalogos, movimientos, formularioMapas, lotes,
     proveedores, agregarProveedor, editarProveedor, eliminarProveedor,
-    ordenes, crearOrden, editarOrden, eliminarOrden, aprobarOrden, recibirOrden, cancelarOrden,
+    ordenes, crearOrden, editarOrden, eliminarOrden, aprobarOrden, aprobarLinea, rechazarLinea, recibirOrden, revertirUltimaRecepcionLinea, cancelarOrden,
     agregarProducto, editarProducto, desactivarProducto, registrarMovimiento,
     agregarRegla, editarRegla, toggleRegla, eliminarRegla,
     agregarLote, editarLote, getLotesByProducto, getLotesFEFO,

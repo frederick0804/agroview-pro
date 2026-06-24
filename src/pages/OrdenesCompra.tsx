@@ -2,6 +2,7 @@ import { useState, useMemo, Fragment } from "react";
 import { useNavigate } from "react-router-dom";
 import { MainLayout }  from "@/components/layout/MainLayout";
 import { PageHeader }  from "@/components/layout/PageHeader";
+import { InventarioKpiCards } from "@/components/inventario/InventarioKpiCards";
 import { Button }      from "@/components/ui/button";
 import { Input }       from "@/components/ui/input";
 import { Label }       from "@/components/ui/label";
@@ -17,13 +18,15 @@ import {
 import { cn } from "@/lib/utils";
 import {
   useInventario,
-  type InvOrdenCompra, type InvLineaOrden, type InvOrdenEstado,
+  type InvOrdenCompra, type InvLineaOrden, type InvOrdenEstado, type DatosRecepcionLinea,
 } from "@/contexts/InventarioContext";
 import { useRole } from "@/contexts/RoleContext";
+import { toast } from "sonner";
 import {
   Plus, Pencil, Trash2, ChevronRight, Building2,
-  CheckCircle2, Clock, XCircle, PackageCheck,
-  Save, AlertTriangle, Eye, FileText, Ban, Calendar, ShoppingCart, ArrowLeft,
+  CheckCircle2, Clock, XCircle, PackageCheck, Undo2,
+  Save, AlertTriangle, Eye, FileText, Ban, Calendar, ShoppingCart,
+  Package, History, ClipboardCheck,
 } from "lucide-react";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -35,10 +38,11 @@ const CLIENTES_DEMO: Record<string, string> = {
 };
 
 const ESTADO_META: Record<InvOrdenEstado, { label: string; cls: string; icon: React.ReactNode }> = {
-  solicitado: { label: "Solicitado", cls: "bg-yellow-100 text-yellow-800 border-yellow-200",  icon: <Clock        className="h-3 w-3" /> },
-  aprobado:   { label: "Aprobado",   cls: "bg-blue-100   text-blue-800   border-blue-200",    icon: <CheckCircle2 className="h-3 w-3" /> },
-  recibido:   { label: "Recibido",   cls: "bg-green-100  text-green-800  border-green-200",   icon: <PackageCheck className="h-3 w-3" /> },
-  cancelado:  { label: "Cancelado",  cls: "bg-red-100    text-red-800    border-red-200",     icon: <XCircle      className="h-3 w-3" /> },
+  solicitado:        { label: "Solicitado",        cls: "bg-yellow-100 text-yellow-800 border-yellow-200",  icon: <Clock        className="h-3 w-3" /> },
+  aprobado:          { label: "Aprobado",          cls: "bg-blue-100   text-blue-800   border-blue-200",    icon: <CheckCircle2 className="h-3 w-3" /> },
+  recibido_parcial:  { label: "Recibido parcial",  cls: "bg-orange-100 text-orange-800 border-orange-200",  icon: <PackageCheck className="h-3 w-3" /> },
+  recibido:          { label: "Recibido",          cls: "bg-green-100  text-green-800  border-green-200",   icon: <PackageCheck className="h-3 w-3" /> },
+  cancelado:         { label: "Cancelado",         cls: "bg-red-100    text-red-800    border-red-200",     icon: <XCircle      className="h-3 w-3" /> },
 };
 
 function EstadoBadge({ estado }: { estado: InvOrdenEstado }) {
@@ -91,6 +95,15 @@ function lineaToForm(l: InvLineaOrden): LineaForm {
   };
 }
 
+interface LoteRecepcionForm {
+  cantidad:            string;   // cantidad a recibir en esta operación
+  crear:               boolean;
+  numero_lote:         string;
+  fecha_vencimiento:   string;
+  fecha_fabricacion:   string;
+  certificado_origen:  string;
+}
+
 function lineaFromForm(f: LineaForm): InvLineaOrden {
   return {
     id: f.id,
@@ -108,9 +121,22 @@ export default function OrdenesCompra() {
   const navigate = useNavigate();
   const { currentUser } = useRole();
   const {
-    ordenes, crearOrden, editarOrden, eliminarOrden, aprobarOrden, recibirOrden, cancelarOrden,
-    proveedores, catalogos,
+    ordenes, crearOrden, editarOrden, eliminarOrden, aprobarOrden, aprobarLinea, rechazarLinea,
+    recibirOrden, revertirUltimaRecepcionLinea, cancelarOrden,
+    proveedores, catalogos, movimientos,
   } = useInventario();
+
+  // Mismos contadores que se muestran en los tabs de Inventario, para que no
+  // "desaparezcan" al entrar a esta página (ver Inventario.tsx para el original).
+  const ordenesPendientes = useMemo(
+    () => ordenes.filter(o => o.estado === "solicitado" || o.estado === "aprobado" || o.estado === "recibido_parcial").length,
+    [ordenes],
+  );
+  const currentMonth = new Date().toISOString().substring(0, 7);
+  const movsMes = useMemo(
+    () => movimientos.filter(m => m.fecha.startsWith(currentMonth)).length,
+    [movimientos, currentMonth],
+  );
 
   const [search,        setSearch]        = useState("");
   const [fEstado,       setFEstado]       = useState<InvOrdenEstado | "all">("all");
@@ -120,11 +146,15 @@ export default function OrdenesCompra() {
   const [fHasta,        setFHasta]        = useState(TODAY);
   const [page,          setPage]          = useState(1);
   const PAGE_SIZE = 15;
-  const [detailOrden,   setDetailOrden]   = useState<InvOrdenCompra | null>(null);
+  const [detailOrdenId, setDetailOrdenId] = useState<string | null>(null);
+  const detailOrden = useMemo(() => ordenes.find(o => o.id === detailOrdenId) ?? null, [ordenes, detailOrdenId]);
   const [sheetOpen,     setSheetOpen]     = useState(false);
   const [editingOrden,  setEditingOrden]  = useState<InvOrdenCompra | null>(null);
   const [deleteTarget,  setDeleteTarget]  = useState<InvOrdenCompra | null>(null);
-  const [confirmAction, setConfirmAction] = useState<{ orden: InvOrdenCompra; tipo: "aprobar" | "recibir" | "cancelar" } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ orden: InvOrdenCompra; tipo: "aprobar" | "cancelar" } | null>(null);
+  const [recepcionOrden, setRecepcionOrden] = useState<InvOrdenCompra | null>(null);
+  const [recepcionLotes, setRecepcionLotes] = useState<Record<string, LoteRecepcionForm>>({});
+  const [revertirTarget, setRevertirTarget] = useState<{ ordenId: string; lineaId: string; nombre: string } | null>(null);
 
   // ── Form state ──────────────────────────────────────────────────────────────
   const [fNumero,      setFNumero]      = useState("");
@@ -183,6 +213,66 @@ export default function OrdenesCompra() {
 
   function addLinea() { setFLineas(prev => [...prev, lineaFormVacia()]); }
   function removeLinea(idx: number) { setFLineas(prev => prev.filter((_, i) => i !== idx)); }
+
+  // ── Recepción con cantidad parcial + datos de lote ──────────────────────────
+  function openRecepcion(o: InvOrdenCompra) {
+    const initial: Record<string, LoteRecepcionForm> = {};
+    o.lineas.forEach(l => {
+      const pendiente = l.cantidad - l.cantidad_recibida;
+      initial[l.id] = {
+        cantidad: pendiente > 0 ? String(pendiente) : "0",
+        crear: false, numero_lote: "", fecha_vencimiento: "", fecha_fabricacion: "", certificado_origen: "",
+      };
+    });
+    setRecepcionLotes(initial);
+    setRecepcionOrden(o);
+    setDetailOrdenId(null);
+  }
+
+  function updateRecepcionLinea(lineaId: string, cambios: Partial<LoteRecepcionForm>) {
+    setRecepcionLotes(prev => ({ ...prev, [lineaId]: { ...prev[lineaId], ...cambios } }));
+  }
+
+  const recepcionValida = !recepcionOrden || recepcionOrden.lineas.every(l => {
+    if (l.estado !== "aprobado") return true;
+    const f = recepcionLotes[l.id];
+    if (!f) return true;
+    const pendiente = l.cantidad - l.cantidad_recibida;
+    const cant = parseFloat(f.cantidad.replace(",", ".")) || 0;
+    if (cant < 0 || cant > pendiente) return false;
+    if (f.crear && cant > 0) return f.numero_lote.trim() !== "" && f.fecha_vencimiento !== "";
+    return true;
+  });
+
+  function confirmarRecepcion() {
+    if (!recepcionOrden) return;
+    const datos: Record<string, DatosRecepcionLinea> = {};
+    Object.entries(recepcionLotes).forEach(([lineaId, f]) => {
+      const cantidad = parseFloat(f.cantidad.replace(",", ".")) || 0;
+      datos[lineaId] = {
+        cantidad,
+        lote: f.crear && f.numero_lote.trim() && f.fecha_vencimiento ? {
+          numero_lote:        f.numero_lote.trim(),
+          fecha_vencimiento:  f.fecha_vencimiento,
+          fecha_fabricacion:  f.fecha_fabricacion || undefined,
+          certificado_origen: f.certificado_origen.trim() || undefined,
+        } : undefined,
+      };
+    });
+    recibirOrden(recepcionOrden.id, datos);
+    setRecepcionOrden(null);
+  }
+
+  function confirmarReversion() {
+    if (!revertirTarget) return;
+    const ok = revertirUltimaRecepcionLinea(revertirTarget.ordenId, revertirTarget.lineaId);
+    if (ok) {
+      toast.success(`Recepción de "${revertirTarget.nombre}" revertida`);
+    } else {
+      toast.error("No se pudo revertir — el stock recibido ya se usó en otro movimiento.");
+    }
+    setRevertirTarget(null);
+  }
 
   // ── Filtered + grouped + paginated ─────────────────────────────────────────
   const filtradas = useMemo(() => {
@@ -259,16 +349,43 @@ export default function OrdenesCompra() {
       <PageHeader
         title="Órdenes de compra"
         description="Gestión de pedidos a proveedores"
-        actions={
-          <button
-            onClick={() => navigate("/inventario")}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Volver a Inventario
-          </button>
-        }
       />
+
+      {/* Executive dashboard — compartido con el resto de Inventario */}
+      <InventarioKpiCards />
+
+      {/* Tab switcher — compartida con Inventario para saltar entre vistas sin perder contexto */}
+      <div className="mb-6 flex gap-1 rounded-xl border border-border bg-muted p-1 w-fit">
+        <button
+          className="inline-flex items-center gap-1.5 rounded-lg bg-background px-4 py-2 text-sm font-medium text-foreground shadow"
+        >
+          <ShoppingCart className="h-4 w-4" /> Órdenes de compra
+          {ordenesPendientes > 0 && (
+            <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0 text-[10px] font-bold text-primary">
+              {ordenesPendientes}
+            </span>
+          )}
+        </button>
+        {([
+          { tab: "stock",       label: "Stock",           icon: <Package        className="h-4 w-4" /> },
+          { tab: "movimientos", label: "Movimientos",     icon: <History        className="h-4 w-4" /> },
+          { tab: "conteo",      label: "Ajuste de stock", icon: <ClipboardCheck className="h-4 w-4" /> },
+          { tab: "proveedores", label: "Proveedores",     icon: <Building2      className="h-4 w-4" /> },
+        ] as const).map(t => (
+          <button
+            key={t.tab}
+            onClick={() => navigate(`/inventario?tab=${t.tab}`)}
+            className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {t.icon} {t.label}
+            {t.tab === "movimientos" && movsMes > 0 && (
+              <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0 text-[10px] font-bold text-primary">
+                {movsMes}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
 
       {/* Panel de filtros */}
       <div className="mb-4 rounded-xl border border-border bg-card overflow-hidden">
@@ -357,11 +474,12 @@ export default function OrdenesCompra() {
             {/* Estado */}
             <div className="flex rounded-lg border border-border bg-muted/40 p-0.5 gap-0.5">
               {([
-                { v: "all",       label: "Todos" },
-                { v: "solicitado",label: "Solicitado" },
-                { v: "aprobado",  label: "Aprobado" },
-                { v: "recibido",  label: "Recibido" },
-                { v: "cancelado", label: "Cancelado" },
+                { v: "all",              label: "Todos" },
+                { v: "solicitado",       label: "Solicitado" },
+                { v: "aprobado",         label: "Aprobado" },
+                { v: "recibido_parcial", label: "Recibido parcial" },
+                { v: "recibido",         label: "Recibido" },
+                { v: "cancelado",        label: "Cancelado" },
               ] as const).map(opt => (
                 <button
                   key={opt.v}
@@ -486,7 +604,7 @@ export default function OrdenesCompra() {
                     return (
                       <tr
                         key={orden.id}
-                        onClick={() => setDetailOrden(orden)}
+                        onClick={() => setDetailOrdenId(orden.id)}
                         className={cn(
                           "border-t border-border/50 transition-colors hover:bg-accent/40 cursor-pointer",
                           ri % 2 === 0 ? "bg-background" : "bg-muted/10",
@@ -502,30 +620,30 @@ export default function OrdenesCompra() {
                         <td className="px-4 py-2.5" onClick={e => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
                             <button
-                              onClick={() => setDetailOrden(orden)}
+                              onClick={() => setDetailOrdenId(orden.id)}
                               className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                               title="Ver detalle"
                             >
                               <Eye className="h-4 w-4" />
                             </button>
 
-                            {/* Aprobar — solo en solicitado */}
-                            {orden.estado === "solicitado" && (
+                            {/* Aprobar todas — mientras queden líneas sin aprobar y la orden no esté cancelada */}
+                            {orden.estado !== "cancelado" && orden.lineas.some(l => l.estado !== "aprobado") && (
                               <button
                                 onClick={() => setConfirmAction({ orden, tipo: "aprobar" })}
                                 className="rounded-md p-1.5 text-primary hover:bg-primary/10"
-                                title="Aprobar orden"
+                                title="Aprobar todas las líneas"
                               >
                                 <CheckCircle2 className="h-4 w-4" />
                               </button>
                             )}
 
-                            {/* Recibir — solo en aprobado */}
-                            {orden.estado === "aprobado" && (
+                            {/* Recibir — en aprobado o recibido parcial (para completar el saldo) */}
+                            {(orden.estado === "aprobado" || orden.estado === "recibido_parcial") && (
                               <button
-                                onClick={() => setConfirmAction({ orden, tipo: "recibir" })}
+                                onClick={() => openRecepcion(orden)}
                                 className="rounded-md p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30"
-                                title="Marcar como recibido"
+                                title={orden.estado === "recibido_parcial" ? "Completar recepción" : "Marcar como recibido"}
                               >
                                 <PackageCheck className="h-4 w-4" />
                               </button>
@@ -542,8 +660,8 @@ export default function OrdenesCompra() {
                               </button>
                             )}
 
-                            {/* Editar — solo si no está cancelada ni recibida */}
-                            {orden.estado !== "cancelado" && orden.estado !== "recibido" && (
+                            {/* Editar — solo si no está cancelada, recibida o con recepción parcial ya en curso */}
+                            {orden.estado !== "cancelado" && orden.estado !== "recibido" && orden.estado !== "recibido_parcial" && (
                               <button
                                 onClick={() => openEditar(orden)}
                                 className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -621,7 +739,7 @@ export default function OrdenesCompra() {
       )}
 
       {/* ── Sheet detalle ────────────────────────────────────────────────── */}
-      <Sheet open={!!detailOrden} onOpenChange={v => !v && setDetailOrden(null)}>
+      <Sheet open={!!detailOrden} onOpenChange={v => !v && setDetailOrdenId(null)}>
         <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
           <SheetTitle className="sr-only">{detailOrden?.numero ?? "Detalle de orden"}</SheetTitle>
           {detailOrden && (() => {
@@ -685,6 +803,19 @@ export default function OrdenesCompra() {
                       <tbody>
                         {detailOrden.lineas.map((linea, i) => {
                           const prod = catalogos.find(c => c.id === linea.producto_id);
+                          const editable = detailOrden.estado !== "cancelado" && linea.cantidad_recibida === 0;
+                          const badge = (
+                            <span className={cn(
+                              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
+                              linea.estado === "aprobado"
+                                ? "bg-green-100 text-green-800 border-green-200"
+                                : "bg-slate-100 text-slate-600 border-slate-200",
+                              editable && "cursor-pointer hover:opacity-80",
+                            )}>
+                              {linea.estado === "aprobado" ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                              {linea.estado === "aprobado" ? "Aprobado" : "Sin aprobar"}
+                            </span>
+                          );
                           return (
                             <tr key={linea.id} className={cn("border-t border-border/50", i % 2 === 0 ? "bg-background" : "bg-muted/10")}>
                               <td className="px-4 py-2.5 font-medium">{prod?.nombre ?? linea.producto_id}</td>
@@ -692,21 +823,35 @@ export default function OrdenesCompra() {
                               <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{fmtCurrency(linea.precio_unitario)}</td>
                               <td className="px-4 py-2.5 text-right font-semibold tabular-nums">{fmtCurrency(lineaTotal(linea))}</td>
                               <td className="px-4 py-2.5 text-center">
-                                <span className={cn(
-                                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
-                                  linea.estado === "aprobado"
-                                    ? "bg-green-100 text-green-800 border-green-200"
-                                    : "bg-slate-100 text-slate-600 border-slate-200",
-                                )}>
-                                  {linea.estado === "aprobado" ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-                                  {linea.estado === "aprobado" ? "Aprobado" : "Sin aprobar"}
-                                </span>
+                                {editable ? (
+                                  <button
+                                    type="button"
+                                    title={linea.estado === "aprobado" ? "Click para rechazar / quitar aprobación" : "Click para aprobar esta línea"}
+                                    onClick={() => linea.estado === "aprobado"
+                                      ? rechazarLinea(detailOrden.id, linea.id)
+                                      : aprobarLinea(detailOrden.id, linea.id, currentUser?.nombre ?? "Usuario")}
+                                  >
+                                    {badge}
+                                  </button>
+                                ) : badge}
                               </td>
                               <td className="px-4 py-2.5 text-right tabular-nums">
-                                <span className={cn(
-                                  linea.cantidad_recibida > 0 ? "text-green-700 font-semibold" : "text-muted-foreground",
-                                )}>
-                                  {linea.cantidad_recibida > 0 ? linea.cantidad_recibida : "—"}
+                                <span className="inline-flex items-center justify-end gap-1.5">
+                                  <span className={cn(
+                                    linea.cantidad_recibida > 0 ? "text-green-700 font-semibold" : "text-muted-foreground",
+                                  )}>
+                                    {linea.cantidad_recibida > 0 ? linea.cantidad_recibida : "—"}
+                                  </span>
+                                  {linea.cantidad_recibida > 0 && (
+                                    <button
+                                      type="button"
+                                      title="Revertir la última recepción de esta línea"
+                                      onClick={() => setRevertirTarget({ ordenId: detailOrden.id, lineaId: linea.id, nombre: prod?.nombre ?? linea.producto_id })}
+                                      className="rounded-md p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+                                    >
+                                      <Undo2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
                                 </span>
                               </td>
                             </tr>
@@ -734,36 +879,36 @@ export default function OrdenesCompra() {
 
                 {/* Acciones */}
                 <div className="flex flex-wrap items-center gap-2 pt-2">
-                  {detailOrden.estado === "solicitado" && (
+                  {detailOrden.estado !== "cancelado" && detailOrden.lineas.some(l => l.estado !== "aprobado") && (
                     <Button
                       className="gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground"
-                      onClick={() => { setConfirmAction({ orden: detailOrden, tipo: "aprobar" }); setDetailOrden(null); }}
+                      onClick={() => { setConfirmAction({ orden: detailOrden, tipo: "aprobar" }); setDetailOrdenId(null); }}
                     >
-                      <CheckCircle2 className="h-4 w-4" /> Aprobar
+                      <CheckCircle2 className="h-4 w-4" /> Aprobar todas
                     </Button>
                   )}
-                  {detailOrden.estado === "aprobado" && (
+                  {(detailOrden.estado === "aprobado" || detailOrden.estado === "recibido_parcial") && (
                     <Button
                       className="gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground"
-                      onClick={() => { setConfirmAction({ orden: detailOrden, tipo: "recibir" }); setDetailOrden(null); }}
+                      onClick={() => openRecepcion(detailOrden)}
                     >
-                      <PackageCheck className="h-4 w-4" /> Marcar recibido
+                      <PackageCheck className="h-4 w-4" /> {detailOrden.estado === "recibido_parcial" ? "Completar recepción" : "Marcar recibido"}
                     </Button>
                   )}
                   {(detailOrden.estado === "solicitado" || detailOrden.estado === "aprobado") && (
                     <Button
                       variant="outline"
                       className="gap-1.5 text-amber-600 border-amber-300 hover:bg-amber-50"
-                      onClick={() => { setConfirmAction({ orden: detailOrden, tipo: "cancelar" }); setDetailOrden(null); }}
+                      onClick={() => { setConfirmAction({ orden: detailOrden, tipo: "cancelar" }); setDetailOrdenId(null); }}
                     >
                       <Ban className="h-4 w-4" /> Cancelar orden
                     </Button>
                   )}
-                  {detailOrden.estado !== "cancelado" && detailOrden.estado !== "recibido" && (
+                  {detailOrden.estado !== "cancelado" && detailOrden.estado !== "recibido" && detailOrden.estado !== "recibido_parcial" && (
                     <Button
                       variant="outline"
                       className="gap-1.5"
-                      onClick={() => { openEditar(detailOrden); setDetailOrden(null); }}
+                      onClick={() => { openEditar(detailOrden); setDetailOrdenId(null); }}
                     >
                       <Pencil className="h-4 w-4" /> Editar
                     </Button>
@@ -772,13 +917,13 @@ export default function OrdenesCompra() {
                     <Button
                       variant="destructive"
                       className="gap-1.5"
-                      onClick={() => { setDeleteTarget(detailOrden); setDetailOrden(null); }}
+                      onClick={() => { setDeleteTarget(detailOrden); setDetailOrdenId(null); }}
                     >
                       <Trash2 className="h-4 w-4" /> Eliminar
                     </Button>
                   )}
                   <div className="flex-1" />
-                  <Button variant="ghost" onClick={() => setDetailOrden(null)}>Cerrar</Button>
+                  <Button variant="ghost" onClick={() => setDetailOrdenId(null)}>Cerrar</Button>
                 </div>
               </>
             );
@@ -1035,40 +1180,202 @@ export default function OrdenesCompra() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Dialog aprobar / recibir ──────────────────────────────────────── */}
+      {/* ── Dialog aprobar / cancelar ──────────────────────────────────────── */}
       <Dialog open={!!confirmAction} onOpenChange={v => !v && setConfirmAction(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {confirmAction?.tipo === "aprobar"  ? <><CheckCircle2 className="h-5 w-5 text-primary" /> Aprobar orden</> :
-               confirmAction?.tipo === "recibir"  ? <><PackageCheck className="h-5 w-5 text-green-500" /> Marcar como recibido</> :
                confirmAction?.tipo === "cancelar" ? <><Ban className="h-5 w-5 text-amber-500" /> Cancelar orden</> :
                "Confirmar acción"}
             </DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             {confirmAction?.tipo === "aprobar"  && <>¿Aprobar la orden <strong>{confirmAction.orden.numero}</strong>? Pasará al estado <strong>Aprobado</strong>.</>}
-            {confirmAction?.tipo === "recibir"  && <>¿Marcar <strong>{confirmAction.orden.numero}</strong> como recibida? El stock se actualizará automáticamente.</>}
             {confirmAction?.tipo === "cancelar" && <>¿Cancelar la orden <strong>{confirmAction.orden.numero}</strong>? Esta acción no se puede deshacer. La orden quedará como <strong>Cancelada</strong> y podrás eliminarla.</>}
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmAction(null)}>Volver</Button>
             <Button
               className={
-                confirmAction?.tipo === "aprobar"  ? "bg-primary hover:bg-primary/90 text-primary-foreground" :
-                confirmAction?.tipo === "recibir"  ? "bg-green-600 hover:bg-green-700 text-white" :
+                confirmAction?.tipo === "aprobar" ? "bg-primary hover:bg-primary/90 text-primary-foreground" :
                                                      "bg-amber-500 hover:bg-amber-600 text-white"
               }
               onClick={() => {
                 if (!confirmAction) return;
                 if (confirmAction.tipo === "aprobar")       aprobarOrden(confirmAction.orden.id, currentUser?.nombre ?? "Usuario");
-                else if (confirmAction.tipo === "recibir")  recibirOrden(confirmAction.orden.id);
                 else if (confirmAction.tipo === "cancelar") cancelarOrden(confirmAction.orden.id);
                 setConfirmAction(null);
               }}
             >
               Confirmar
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog recepción de orden (con datos de lote opcionales) ─────────── */}
+      <Dialog open={!!recepcionOrden} onOpenChange={v => !v && setRecepcionOrden(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PackageCheck className="h-5 w-5 text-green-600" /> Marcar como recibido
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Orden <strong>{recepcionOrden?.numero}</strong>. Si llegó menos de lo pedido, ajusta la cantidad por línea
+            — la orden quedará en <strong>Recibido parcial</strong> hasta completar el resto. Para productos que
+            requieran trazabilidad (vencimiento, certificado de origen), activa "Crear lote" e ingresa sus datos.
+          </p>
+          <div className="space-y-4">
+            {recepcionOrden?.lineas.map(l => {
+              const prod = catalogos.find(c => c.id === l.producto_id);
+              const f = recepcionLotes[l.id];
+              if (!f) return null;
+              const pendiente = l.cantidad - l.cantidad_recibida;
+              const cantidadNum = parseFloat(f.cantidad.replace(",", ".")) || 0;
+              const cantidadInvalida = cantidadNum < 0 || cantidadNum > pendiente;
+              const faltaDatos = f.crear && cantidadNum > 0 && (!f.numero_lote.trim() || !f.fecha_vencimiento);
+
+              if (l.estado !== "aprobado") {
+                return (
+                  <div key={l.id} className="rounded-xl border border-dashed border-border bg-muted/10 p-3 flex items-center justify-between">
+                    <p className="font-medium text-sm text-muted-foreground">{prod?.nombre ?? l.producto_id}</p>
+                    <span className="text-xs font-medium text-slate-500 flex items-center gap-1">
+                      <Clock className="h-3.5 w-3.5" /> Sin aprobar — apruébala en el detalle para recibirla
+                    </span>
+                  </div>
+                );
+              }
+
+              if (pendiente <= 0) {
+                return (
+                  <div key={l.id} className="rounded-xl border border-border bg-muted/20 p-3 flex items-center justify-between">
+                    <p className="font-medium text-sm">{prod?.nombre ?? l.producto_id}</p>
+                    <span className="text-xs font-medium text-green-700 flex items-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Completo ({l.cantidad_recibida}/{l.cantidad})
+                    </span>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={l.id} className="rounded-xl border border-border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-sm">{prod?.nombre ?? l.producto_id}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Pedido: {l.cantidad}{l.cantidad_recibida > 0 && <> · Ya recibido: {l.cantidad_recibida}</>} · Pendiente: {pendiente}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-2.5 grid grid-cols-2 gap-2 items-end">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Cantidad a recibir ahora *</Label>
+                      <Input
+                        value={f.cantidad}
+                        onChange={e => updateRecepcionLinea(l.id, { cantidad: e.target.value })}
+                        className={cn("h-9", cantidadInvalida && "border-red-400 focus-visible:ring-red-400")}
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-xs font-medium pb-2">
+                      <input
+                        type="checkbox"
+                        checked={f.crear}
+                        disabled={cantidadNum <= 0}
+                        onChange={e => updateRecepcionLinea(l.id, { crear: e.target.checked })}
+                        className="h-4 w-4"
+                      />
+                      Crear lote
+                    </label>
+                  </div>
+                  {cantidadInvalida && (
+                    <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3" /> La cantidad debe estar entre 0 y {pendiente} (lo pendiente).
+                    </p>
+                  )}
+                  {f.crear && cantidadNum > 0 && (
+                    <div className="mt-3 space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">N° de lote *</Label>
+                          <Input
+                            value={f.numero_lote}
+                            onChange={e => updateRecepcionLinea(l.id, { numero_lote: e.target.value })}
+                            placeholder="ej: LOT-2026-001"
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Fecha de vencimiento *</Label>
+                          <Input
+                            type="date"
+                            value={f.fecha_vencimiento}
+                            onChange={e => updateRecepcionLinea(l.id, { fecha_vencimiento: e.target.value })}
+                            className="h-9"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Fecha de fabricación</Label>
+                          <Input
+                            type="date"
+                            value={f.fecha_fabricacion}
+                            onChange={e => updateRecepcionLinea(l.id, { fecha_fabricacion: e.target.value })}
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Certificado de origen</Label>
+                          <Input
+                            value={f.certificado_origen}
+                            onChange={e => updateRecepcionLinea(l.id, { certificado_origen: e.target.value })}
+                            placeholder="ej: SAG-CL-2026-XXX"
+                            className="h-9"
+                          />
+                        </div>
+                      </div>
+                      {faltaDatos && (
+                        <p className="text-xs text-amber-600 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" /> N° de lote y fecha de vencimiento son obligatorios para crear el lote.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRecepcionOrden(null)}>Volver</Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white"
+              disabled={!recepcionValida}
+              onClick={confirmarRecepcion}
+            >
+              Confirmar recepción
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog revertir recepción ─────────────────────────────────────────── */}
+      <Dialog open={!!revertirTarget} onOpenChange={v => !v && setRevertirTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Undo2 className="h-5 w-5 text-red-500" /> Revertir recepción
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            ¿Revertir la última recepción de <strong>{revertirTarget?.nombre}</strong>? Se creará un movimiento de
+            devolución que descuenta del stock la cantidad de esa entrada. Si parte de ese stock ya se usó en otro
+            movimiento, la reversión no podrá aplicarse.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevertirTarget(null)}>Volver</Button>
+            <Button variant="destructive" onClick={confirmarReversion}>Revertir</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

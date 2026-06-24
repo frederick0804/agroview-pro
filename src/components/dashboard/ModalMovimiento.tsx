@@ -318,9 +318,11 @@ export function ModalMovimiento({
           {/* ══ PASO 1 — Tipo, subtipo, cantidad, precio, proveedor ══ */}
           {paso === 1 && (
             <>
-              {/* Tipo */}
-              <div className="grid grid-cols-3 gap-2">
-                {(["entrada", "salida", "ajuste"] as InvMovimientoTipo[]).map(t => (
+              {/* Tipo — "ajuste" se excluye a propósito: los ajustes de stock solo
+                  deben hacerse desde el tab dedicado "Ajuste de stock" (conteo físico),
+                  no desde este formulario rápido de entrada/salida. */}
+              <div className="grid grid-cols-2 gap-2">
+                {(["entrada", "salida"] as InvMovimientoTipo[]).map(t => (
                   <button key={t} onClick={() => setTipo(t)} className={cn(
                     "flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
                     tipo === t ? TIPO_BORDER[t] : "border-border hover:bg-muted",
