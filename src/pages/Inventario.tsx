@@ -13,7 +13,6 @@ import { PageHeader }  from "@/components/layout/PageHeader";
 import { MetricCard }  from "@/components/dashboard/MetricCard";
 import { ModalMovimiento }   from "@/components/dashboard/ModalMovimiento";
 import { InventarioKpiCards } from "@/components/inventario/InventarioKpiCards";
-import { ProveedorCombobox }  from "@/components/ui/proveedor-combobox";
 import { CategoriaCombobox } from "@/components/ui/categoria-combobox";
 import { Button }  from "@/components/ui/button";
 import { Input }   from "@/components/ui/input";
@@ -1763,14 +1762,14 @@ interface ProductoFormState {
   cantidad_actual: string; cantidad_minima: string; cantidad_maxima: string;
   unidad_medida: string; precio_unitario: string;
   stock_seguridad: string; cuenta_contable: string;
-  ubicacion_fisica: string; proveedor_id: string;
+  ubicacion_fisica: string; proveedor_ids: string[];
   campos_extra: InvCampoConValor[]; // campos propios de este producto
 }
 const EMPTY_FORM: ProductoFormState = {
   nombre: "", codigo: "", modulo_ids: [], categoria: "", cantidad_actual: "",
   cantidad_minima: "", cantidad_maxima: "", unidad_medida: "unidades", precio_unitario: "",
   stock_seguridad: "", cuenta_contable: "",
-  ubicacion_fisica: "", proveedor_id: "", campos_extra: [],
+  ubicacion_fisica: "", proveedor_ids: [], campos_extra: [],
 };
 function toFormState(p: InvCatalogo): ProductoFormState {
   return {
@@ -1780,7 +1779,7 @@ function toFormState(p: InvCatalogo): ProductoFormState {
     precio_unitario: String(p.precio_unitario),
     stock_seguridad: String(p.stock_seguridad ?? ""),
     cuenta_contable: p.cuenta_contable ?? "",
-    ubicacion_fisica: p.ubicacion_fisica ?? "", proveedor_id: p.proveedor_id ?? "",
+    ubicacion_fisica: p.ubicacion_fisica ?? "", proveedor_ids: p.proveedor_ids ?? [],
     campos_extra: p.campos_extra ?? [],
   };
 }
@@ -1871,6 +1870,15 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
     }));
   };
 
+  const toggleProveedor = (id: string) => {
+    setForm(prev => ({
+      ...prev,
+      proveedor_ids: prev.proveedor_ids.includes(id)
+        ? prev.proveedor_ids.filter(p => p !== id)
+        : [...prev.proveedor_ids, id],
+    }));
+  };
+
   const handleSave = () => {
     if (!form.nombre.trim() || !form.codigo.trim() || form.modulo_ids.length === 0) { setErr("Nombre, código y al menos un área de uso son obligatorios."); return; }
     const cantMin = parseFloat(form.cantidad_minima), cantMax = parseFloat(form.cantidad_maxima), cantAct = parseFloat(form.cantidad_actual);
@@ -1884,7 +1892,7 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
         unidad_medida: form.unidad_medida, precio_unitario: parseFloat(form.precio_unitario) || 0,
         stock_seguridad: parseFloat(form.stock_seguridad) || 0,
         cuenta_contable: form.cuenta_contable || undefined,
-        ubicacion_fisica: form.ubicacion_fisica || undefined, proveedor_id: form.proveedor_id || undefined,
+        ubicacion_fisica: form.ubicacion_fisica || undefined, proveedor_ids: form.proveedor_ids,
         campos_extra: form.campos_extra,
       });
     } else {
@@ -1897,7 +1905,7 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
         precio_promedio_ponderado: precioUnit,
         stock_seguridad: parseFloat(form.stock_seguridad) || 0,
         cuenta_contable: form.cuenta_contable || undefined,
-        ubicacion_fisica: form.ubicacion_fisica || undefined, proveedor_id: form.proveedor_id || undefined,
+        ubicacion_fisica: form.ubicacion_fisica || undefined, proveedor_ids: form.proveedor_ids,
         campos_extra: form.campos_extra, activo: true,
       });
     }
@@ -2100,13 +2108,26 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
                 <Label className="text-xs">Ubicación física</Label>
                 <Input value={form.ubicacion_fisica} onChange={e => set("ubicacion_fisica")(e.target.value)} className="h-9" />
               </div>
-              <div className="space-y-1 sm:col-span-2">
-                <Label className="text-xs">Proveedor</Label>
-                <ProveedorCombobox
-                  value={form.proveedor_id}
-                  onChange={v => setForm(p => ({ ...p, proveedor_id: v }))}
-                  options={proveedores}
-                />
+              <div className="space-y-2 sm:col-span-2">
+                <Label className="text-xs">Proveedores autorizados <span className="font-normal text-muted-foreground">(uno o más)</span></Label>
+                <div className="flex flex-wrap gap-2">
+                  {proveedores.map(prov => {
+                    const selected = form.proveedor_ids.includes(prov.id);
+                    return (
+                      <button key={prov.id} type="button" onClick={() => toggleProveedor(prov.id)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                          selected ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                        )}>
+                        <Building2 className="h-3 w-3" />
+                        {prov.nombre}
+                      </button>
+                    );
+                  })}
+                </div>
+                {proveedores.length === 0 && (
+                  <p className="text-[11px] text-muted-foreground">No hay proveedores registrados — créalos en la pestaña Proveedores.</p>
+                )}
               </div>
             </div>
           )}
@@ -5128,7 +5149,7 @@ export default function Inventario() {
   const {
     getAllProductos, movimientos, getAlertas, getAlertasVencimiento,
     catalogos, lotes, desactivarProducto, registrarMovimiento, editarProducto,
-    ordenes,
+    ordenes, proveedores,
   } = useInventario();
   const [searchParams] = useSearchParams();
 
@@ -5301,7 +5322,7 @@ export default function Inventario() {
         estado:           getStockStatus(p) === "ok" ? "OK" : getStockStatus(p) === "bajo" ? "Bajo" : "Crítico",
         precio_unitario:  p.precio_unitario,
         valor_total:      +(p.cantidad_actual * p.precio_unitario).toFixed(2),
-        proveedor:        p.proveedor_id ?? "",
+        proveedor:        p.proveedor_ids.map(id => proveedores.find(pr => pr.id === id)?.nombre).filter(Boolean).join(" / "),
         ubicacion:        p.ubicacion_fisica ?? "",
         // Campos personalizados aplanados
         ...Object.fromEntries((p.campos_extra ?? []).map(c => [c.nombre, c.valor])),

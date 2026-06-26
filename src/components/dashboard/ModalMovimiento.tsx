@@ -262,7 +262,8 @@ export function ModalMovimiento({
 
     const ok = registrarMovimiento(productoId, tipo, subtipo, qty, {
       precio_unitario: precioStr ? parseFloat(precioStr) : undefined,
-      proveedor_id:    proveedor || undefined,
+      // Si hay lote, el proveedor real vive en el lote — no lo repetimos aquí.
+      proveedor_id:    loteIdFinal ? undefined : (proveedor || undefined),
       observaciones:   observaciones || undefined,
       lote_id:         loteIdFinal,
       lote_numero:     loteNumFinal,
