@@ -110,6 +110,13 @@ export function ModalMovimiento({
     [catalogos, productoId],
   );
 
+  // Solo proveedores autorizados para ESTE producto. Si el producto no tiene
+  // ninguno configurado todavía, se muestran todos (evita un dropdown vacío sin salida).
+  const proveedoresVinculados = useMemo(() => {
+    if (!producto || producto.proveedor_ids.length === 0) return proveedores;
+    return proveedores.filter(p => producto.proveedor_ids.includes(p.id));
+  }, [proveedores, producto]);
+
   // ── Estado del formulario ─────────────────────────────────────────────────
   const [tipo,          setTipo]          = useState<InvMovimientoTipo>(tipoInicial);
   const [subtipo,       setSubtipo]       = useState<InvMovimientoSubtipo>(SUBTIPOS[tipoInicial][0].value);
@@ -150,7 +157,7 @@ export function ModalMovimiento({
     setSubtipo(SUBTIPOS[tipoInicial][0].value);
     setCantidadStr("");
     setPrecioStr(producto?.precio_unitario ? String(producto.precio_unitario) : "");
-    setProveedor(producto?.proveedor_id ?? "");
+    setProveedor(producto?.proveedor_ids[0] ?? "");
     setObservaciones("");
     setError("");
     setPaso(1);
@@ -242,7 +249,7 @@ export function ModalMovimiento({
         numero_lote:        loteNumero.trim(),
         fecha_vencimiento:  loteVence,
         certificado_origen: loteCert.trim() || undefined,
-        proveedor_id:       proveedor || producto.proveedor_id,
+        proveedor_id:       proveedor || producto.proveedor_ids[0],
         precio_unitario:    precioStr ? parseFloat(precioStr) : producto.precio_unitario,
         cantidad_inicial:   qty,
         // Se crea en 0: registrarMovimiento() — más abajo, con lote_id — es quien suma
@@ -262,7 +269,8 @@ export function ModalMovimiento({
 
     const ok = registrarMovimiento(productoId, tipo, subtipo, qty, {
       precio_unitario: precioStr ? parseFloat(precioStr) : undefined,
-      proveedor_id:    proveedor || undefined,
+      // Si hay lote, el proveedor real vive en el lote — no lo repetimos aquí.
+      proveedor_id:    loteIdFinal ? undefined : (proveedor || undefined),
       observaciones:   observaciones || undefined,
       lote_id:         loteIdFinal,
       lote_numero:     loteNumFinal,
@@ -318,9 +326,11 @@ export function ModalMovimiento({
           {/* ══ PASO 1 — Tipo, subtipo, cantidad, precio, proveedor ══ */}
           {paso === 1 && (
             <>
-              {/* Tipo */}
-              <div className="grid grid-cols-3 gap-2">
-                {(["entrada", "salida", "ajuste"] as InvMovimientoTipo[]).map(t => (
+              {/* Tipo — "ajuste" se excluye a propósito: los ajustes de stock solo
+                  deben hacerse desde el tab dedicado "Ajuste de stock" (conteo físico),
+                  no desde este formulario rápido de entrada/salida. */}
+              <div className="grid grid-cols-2 gap-2">
+                {(["entrada", "salida"] as InvMovimientoTipo[]).map(t => (
                   <button key={t} onClick={() => setTipo(t)} className={cn(
                     "flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
                     tipo === t ? TIPO_BORDER[t] : "border-border hover:bg-muted",
@@ -397,7 +407,7 @@ export function ModalMovimiento({
                   <ProveedorCombobox
                     value={proveedor}
                     onChange={setProveedor}
-                    options={proveedores}
+                    options={proveedoresVinculados}
                     onAdd={agregarProveedor}
                   />
                 </div>

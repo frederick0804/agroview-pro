@@ -12,7 +12,7 @@ import { MainLayout }  from "@/components/layout/MainLayout";
 import { PageHeader }  from "@/components/layout/PageHeader";
 import { MetricCard }  from "@/components/dashboard/MetricCard";
 import { ModalMovimiento }   from "@/components/dashboard/ModalMovimiento";
-import { ProveedorCombobox }  from "@/components/ui/proveedor-combobox";
+import { InventarioKpiCards } from "@/components/inventario/InventarioKpiCards";
 import { CategoriaCombobox } from "@/components/ui/categoria-combobox";
 import { Button }  from "@/components/ui/button";
 import { Input }   from "@/components/ui/input";
@@ -1622,9 +1622,6 @@ function DetalleSheet({
                   <Button size="sm" className="gap-1.5 bg-red-600 text-white hover:bg-red-700" onClick={() => onMovimiento(p.id, "salida")}>
                     <ArrowUp className="h-4 w-4" /> Registrar salida
                   </Button>
-                  <Button size="sm" variant="outline" className="gap-1.5 border-amber-500 text-amber-700 hover:bg-amber-50 dark:text-amber-400" onClick={() => onMovimiento(p.id, "ajuste")}>
-                    <SlidersHorizontal className="h-4 w-4" /> Ajuste
-                  </Button>
                   <Button size="sm" variant="outline" className="gap-1.5 ml-auto" onClick={() => onKardex(p.id)}>
                     <BookOpen className="h-4 w-4" /> Historial de movimientos
                   </Button>
@@ -1765,14 +1762,14 @@ interface ProductoFormState {
   cantidad_actual: string; cantidad_minima: string; cantidad_maxima: string;
   unidad_medida: string; precio_unitario: string;
   stock_seguridad: string; cuenta_contable: string;
-  ubicacion_fisica: string; proveedor_id: string;
+  ubicacion_fisica: string; proveedor_ids: string[];
   campos_extra: InvCampoConValor[]; // campos propios de este producto
 }
 const EMPTY_FORM: ProductoFormState = {
   nombre: "", codigo: "", modulo_ids: [], categoria: "", cantidad_actual: "",
   cantidad_minima: "", cantidad_maxima: "", unidad_medida: "unidades", precio_unitario: "",
   stock_seguridad: "", cuenta_contable: "",
-  ubicacion_fisica: "", proveedor_id: "", campos_extra: [],
+  ubicacion_fisica: "", proveedor_ids: [], campos_extra: [],
 };
 function toFormState(p: InvCatalogo): ProductoFormState {
   return {
@@ -1782,7 +1779,7 @@ function toFormState(p: InvCatalogo): ProductoFormState {
     precio_unitario: String(p.precio_unitario),
     stock_seguridad: String(p.stock_seguridad ?? ""),
     cuenta_contable: p.cuenta_contable ?? "",
-    ubicacion_fisica: p.ubicacion_fisica ?? "", proveedor_id: p.proveedor_id ?? "",
+    ubicacion_fisica: p.ubicacion_fisica ?? "", proveedor_ids: p.proveedor_ids ?? [],
     campos_extra: p.campos_extra ?? [],
   };
 }
@@ -1873,6 +1870,15 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
     }));
   };
 
+  const toggleProveedor = (id: string) => {
+    setForm(prev => ({
+      ...prev,
+      proveedor_ids: prev.proveedor_ids.includes(id)
+        ? prev.proveedor_ids.filter(p => p !== id)
+        : [...prev.proveedor_ids, id],
+    }));
+  };
+
   const handleSave = () => {
     if (!form.nombre.trim() || !form.codigo.trim() || form.modulo_ids.length === 0) { setErr("Nombre, código y al menos un área de uso son obligatorios."); return; }
     const cantMin = parseFloat(form.cantidad_minima), cantMax = parseFloat(form.cantidad_maxima), cantAct = parseFloat(form.cantidad_actual);
@@ -1886,7 +1892,7 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
         unidad_medida: form.unidad_medida, precio_unitario: parseFloat(form.precio_unitario) || 0,
         stock_seguridad: parseFloat(form.stock_seguridad) || 0,
         cuenta_contable: form.cuenta_contable || undefined,
-        ubicacion_fisica: form.ubicacion_fisica || undefined, proveedor_id: form.proveedor_id || undefined,
+        ubicacion_fisica: form.ubicacion_fisica || undefined, proveedor_ids: form.proveedor_ids,
         campos_extra: form.campos_extra,
       });
     } else {
@@ -1899,7 +1905,7 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
         precio_promedio_ponderado: precioUnit,
         stock_seguridad: parseFloat(form.stock_seguridad) || 0,
         cuenta_contable: form.cuenta_contable || undefined,
-        ubicacion_fisica: form.ubicacion_fisica || undefined, proveedor_id: form.proveedor_id || undefined,
+        ubicacion_fisica: form.ubicacion_fisica || undefined, proveedor_ids: form.proveedor_ids,
         campos_extra: form.campos_extra, activo: true,
       });
     }
@@ -2102,13 +2108,26 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
                 <Label className="text-xs">Ubicación física</Label>
                 <Input value={form.ubicacion_fisica} onChange={e => set("ubicacion_fisica")(e.target.value)} className="h-9" />
               </div>
-              <div className="space-y-1 sm:col-span-2">
-                <Label className="text-xs">Proveedor</Label>
-                <ProveedorCombobox
-                  value={form.proveedor_id}
-                  onChange={v => setForm(p => ({ ...p, proveedor_id: v }))}
-                  options={proveedores}
-                />
+              <div className="space-y-2 sm:col-span-2">
+                <Label className="text-xs">Proveedores autorizados <span className="font-normal text-muted-foreground">(uno o más)</span></Label>
+                <div className="flex flex-wrap gap-2">
+                  {proveedores.map(prov => {
+                    const selected = form.proveedor_ids.includes(prov.id);
+                    return (
+                      <button key={prov.id} type="button" onClick={() => toggleProveedor(prov.id)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                          selected ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                        )}>
+                        <Building2 className="h-3 w-3" />
+                        {prov.nombre}
+                      </button>
+                    );
+                  })}
+                </div>
+                {proveedores.length === 0 && (
+                  <p className="text-[11px] text-muted-foreground">No hay proveedores registrados — créalos en la pestaña Proveedores.</p>
+                )}
               </div>
             </div>
           )}
@@ -2612,19 +2631,26 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
     const keyOf = (m: typeof paginados[0]) =>
       m.registro_origen_tipo ? `${m.registro_origen_tipo}|${m.fecha}` : `manual|${m.id}`;
 
-    const order: string[] = [];
-    const map   = new Map<string, typeof paginados>();
+    // Solo se agrupan movimientos CONSECUTIVOS con la misma clave. Si algo distinto
+    // (ej. una devolución) ocurrió cronológicamente en medio de dos movimientos de la
+    // misma operación, esos dos ya no son adyacentes y no deben juntarse — de lo
+    // contrario el segundo "salta" sobre el movimiento intermedio y queda fuera de
+    // orden cronológico en la lista.
+    const raw: { key: string; movements: typeof paginados }[] = [];
     paginados.forEach(m => {
       const k = keyOf(m);
-      if (!map.has(k)) { order.push(k); map.set(k, []); }
-      map.get(k)!.push(m);
+      const last = raw[raw.length - 1];
+      if (last && last.key === k && !k.startsWith("manual|")) {
+        last.movements.push(m);
+      } else {
+        raw.push({ key: k, movements: [m] });
+      }
     });
 
     let colorIdx = 0;
-    return order.map(k => {
-      const movements = map.get(k)!;
-      const isMulti   = !k.startsWith("manual|") && movements.length >= 2;
-      return { key: k, isMulti, colorIdx: isMulti ? colorIdx++ % GROUP_BORDERS.length : 0, movements };
+    return raw.map(({ key, movements }) => {
+      const isMulti = !key.startsWith("manual|") && movements.length >= 2;
+      return { key, isMulti, colorIdx: isMulti ? colorIdx++ % GROUP_BORDERS.length : 0, movements };
     });
   }, [paginados]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -3127,7 +3153,7 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
 
             {/* Un <tbody> por grupo — evita bugs de reconciliación React */}
             {groups.map(group => (
-              <tbody key={group.key}>
+              <tbody key={`${group.key}-${group.movements[0].id}`}>
                 {/* Cabecera de grupo (solo si 2+ automáticos) */}
                 {group.isMulti && (
                   <tr>
@@ -3716,6 +3742,9 @@ function ConteoFisicoView({
     productosPorModulo.filter(p => { const d = getDif(p); return d !== null && d !== 0; }),
   [productosPorModulo, getDif]);
 
+  // ¿El usuario escribió algo en algún campo? (campos vacíos no cuentan como modificación)
+  const hasModificado = useMemo(() => Object.values(conteos).some(v => v.trim() !== ""), [conteos]);
+
   // Paginación (solo aplica en modo módulo específico)
   const totalPages      = activeModulo !== "todos" ? Math.ceil(filtrados.length / CONTEO_PAGE_SIZE) : 1;
   const paginaActual    = Math.min(currentPage, Math.max(1, totalPages));
@@ -4093,7 +4122,9 @@ function ConteoFisicoView({
           }
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={onDone}>Cancelar</Button>
+          {hasModificado && (
+            <Button variant="outline" size="sm" onClick={() => setConteos({})}>Cancelar</Button>
+          )}
           <Button
             size="sm"
             disabled={conDiferencias.length === 0 || loading}
@@ -5125,6 +5156,7 @@ export default function Inventario() {
   const {
     getAllProductos, movimientos, getAlertas, getAlertasVencimiento,
     catalogos, lotes, desactivarProducto, registrarMovimiento, editarProducto,
+    ordenes, proveedores,
   } = useInventario();
   const [searchParams] = useSearchParams();
 
@@ -5136,7 +5168,13 @@ export default function Inventario() {
     (userArea && hierarchyLevel < 4 ? userArea : "all");
 
   // ── Tab principal ─────────────────────────────────────────────────────────
-  const [mainTab, setMainTab] = useState<"stock" | "movimientos" | "conteo" | "proveedores">("stock");
+  // Lee ?tab= para poder llegar directo a un tab desde fuera (ej. desde la barra
+  // de navegación compartida con Órdenes de compra), sin perder el contexto.
+  const tabParam = searchParams.get("tab");
+  const TABS_VALIDOS = ["stock", "movimientos", "conteo", "proveedores"] as const;
+  const [mainTab, setMainTab] = useState<"stock" | "movimientos" | "conteo" | "proveedores">(
+    (TABS_VALIDOS as readonly string[]).includes(tabParam ?? "") ? (tabParam as typeof TABS_VALIDOS[number]) : "stock"
+  );
 
   // ── Navegación: "Ver historial de este lote" desde el detalle de un producto ──
   // Salta al tab "Movimientos" (la vista que concentra TODO el historial) ya
@@ -5175,6 +5213,14 @@ export default function Inventario() {
   const bulkPendientes = Object.entries(bulkQtys).filter(([, v]) => {
     const n = parseFloat(v.replace(",", "."));
     return !isNaN(n) && n > 0;
+  });
+
+  // En salida, ninguna fila puede pedir más de lo que hay en stock — se bloquea
+  // la confirmación en vez de dejar que falle en silencio dentro de registrarMovimiento.
+  const bulkExcedeStock = bulkTipo === "salida" && bulkPendientes.some(([id, v]) => {
+    const n = parseFloat(v.replace(",", "."));
+    const prod = catalogos.find(c => c.id === id);
+    return !prod || n > prod.cantidad_actual;
   });
 
   const confirmarBulk = () => {
@@ -5283,7 +5329,7 @@ export default function Inventario() {
         estado:           getStockStatus(p) === "ok" ? "OK" : getStockStatus(p) === "bajo" ? "Bajo" : "Crítico",
         precio_unitario:  p.precio_unitario,
         valor_total:      +(p.cantidad_actual * p.precio_unitario).toFixed(2),
-        proveedor:        p.proveedor_id ?? "",
+        proveedor:        p.proveedor_ids.map(id => proveedores.find(pr => pr.id === id)?.nombre).filter(Boolean).join(" / "),
         ubicacion:        p.ubicacion_fisica ?? "",
         // Campos personalizados aplanados
         ...Object.fromEntries((p.campos_extra ?? []).map(c => [c.nombre, c.valor])),
@@ -5358,6 +5404,10 @@ export default function Inventario() {
     () => movimientos.filter(m => m.fecha.startsWith(currentMonth)).length,
     [movimientos, currentMonth],
   );
+  const ordenesPendientes = useMemo(
+    () => ordenes.filter(o => o.estado === "solicitado" || o.estado === "aprobado" || o.estado === "recibido_parcial").length,
+    [ordenes],
+  );
   const valorTotal = useMemo(
     () => allProductos.reduce((s, p) => s + p.cantidad_actual * p.precio_unitario, 0),
     [allProductos],
@@ -5377,39 +5427,6 @@ export default function Inventario() {
       : visibleCatalogos,
     [filterModulo, visibleCatalogos],
   );
-  const executiveKpis = useMemo(() => {
-    const active = executiveScope.filter(p => p.activo);
-    const scopeIds = new Set(executiveScope.map(p => p.id));
-    const activeIds = new Set(active.map(p => p.id));
-    const activeLotProductIds = new Set(
-      lotes
-        .filter(l => l.activo && l.cantidad_actual > 0 && activeIds.has(l.catalogo_id))
-        .map(l => l.catalogo_id),
-    );
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const lotesPorVencer = lotes.filter(l => {
-      if (!l.activo || l.cantidad_actual <= 0 || !scopeIds.has(l.catalogo_id)) return false;
-      const vence = new Date(l.fecha_vencimiento);
-      if (isNaN(vence.getTime())) return false;
-      const dias = Math.ceil((vence.getTime() - today.getTime()) / 86_400_000);
-      return dias <= 90;
-    }).length;
-    const productosSinLote = active.filter(p => !activeLotProductIds.has(p.id)).length;
-    const productosInactivos = executiveScope.filter(p => !p.activo).length;
-
-    return {
-      valor: active.reduce((s, p) => s + p.cantidad_actual * p.precio_promedio_ponderado, 0),
-      criticos: active.filter(p => getStockStatus(p) === "critico").length,
-      lotesPorVencer,
-      movimientosMes: movimientos.filter(m => m.fecha.startsWith(currentMonth) && scopeIds.has(m.catalogo_id)).length,
-      pendientes: productosInactivos + productosSinLote,
-      productosInactivos,
-      productosSinLote,
-      productosActivos: active.length,
-    };
-  }, [currentMonth, executiveScope, lotes, movimientos]);
-
   const contextualAlerts = useMemo(() => {
     const active = executiveScope.filter(p => p.activo);
     const scopeIds = new Set(active.map(p => p.id));
@@ -5536,61 +5553,24 @@ export default function Inventario() {
       <PageHeader
         title="Inventario"
         description="Gestión de stock, movimientos y alertas por módulo"
-        actions={
-          <button
-            onClick={() => navigate("/inventario/ordenes")}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-accent transition-colors"
-          >
-            <ShoppingCart className="h-4 w-4 text-muted-foreground" />
-            Órdenes de compra
-          </button>
-        }
       />
 
-      {/* Executive dashboard */}
-      <div className="mb-5 grid gap-3 md:grid-cols-3">
-        {[
-          {
-            label: "Valor total",
-            value: fmtCurrency(executiveKpis.valor),
-            hint: `${executiveKpis.productosActivos} productos activos`,
-            icon: <DollarSign className="h-4 w-4" />,
-            cls: "border-emerald-200 bg-emerald-50/70 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-400",
-          },
-          {
-            label: "Movimientos del mes",
-            value: executiveKpis.movimientosMes,
-            hint: currentMonth,
-            icon: <TrendingUp className="h-4 w-4" />,
-            cls: "border-blue-200 bg-blue-50/70 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-400",
-          },
-          {
-            label: "Inactivos o sin lote",
-            value: executiveKpis.pendientes,
-            hint: `${executiveKpis.productosInactivos} inactivos · ${executiveKpis.productosSinLote} sin lote`,
-            icon: <PackageOpen className="h-4 w-4" />,
-            cls: executiveKpis.pendientes > 0
-              ? "border-slate-300 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300"
-              : "border-border bg-card text-muted-foreground",
-          },
-        ].map(kpi => (
-          <div key={kpi.label} className={cn("rounded-xl border px-4 py-3 shadow-sm", kpi.cls)}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wide opacity-75">{kpi.label}</p>
-                <p className="mt-1 truncate text-2xl font-bold tabular-nums text-foreground">{kpi.value}</p>
-              </div>
-              <div className="rounded-lg bg-background/70 p-2 shadow-sm">
-                {kpi.icon}
-              </div>
-            </div>
-            <p className="mt-2 truncate text-xs opacity-80">{kpi.hint}</p>
-          </div>
-        ))}
-      </div>
+      {/* Executive dashboard — compartido con Órdenes de compra, ver InventarioKpiCards */}
+      <InventarioKpiCards />
 
       {/* Tab switcher */}
       <div className="mb-6 flex gap-1 rounded-xl border border-border bg-muted p-1 w-fit">
+        <button
+          onClick={() => navigate("/inventario/ordenes")}
+          className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ShoppingCart className="h-4 w-4" /> Órdenes de compra
+          {ordenesPendientes > 0 && (
+            <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0 text-[10px] font-bold text-primary">
+              {ordenesPendientes}
+            </span>
+          )}
+        </button>
         {([
           { id: "stock",        label: "Stock",           icon: <Package        className="h-4 w-4" /> },
           { id: "movimientos",  label: "Movimientos",     icon: <History        className="h-4 w-4" /> },
@@ -5852,10 +5832,12 @@ export default function Inventario() {
                 </div>
 
                 {/* Contador */}
-                <span className="text-xs text-muted-foreground">
-                  {bulkPendientes.length > 0
-                    ? <><strong className="text-foreground">{bulkPendientes.length}</strong> producto{bulkPendientes.length !== 1 ? "s" : ""} con cantidad ingresada</>
-                    : "Ingresá cantidades en la columna →"}
+                <span className={cn("text-xs", bulkExcedeStock ? "text-red-600 dark:text-red-400 font-medium" : "text-muted-foreground")}>
+                  {bulkExcedeStock
+                    ? "Hay cantidades que superan el stock disponible — corrígelas para continuar"
+                    : bulkPendientes.length > 0
+                      ? <><strong className="text-foreground">{bulkPendientes.length}</strong> producto{bulkPendientes.length !== 1 ? "s" : ""} con cantidad ingresada</>
+                      : "Ingresá cantidades en la columna →"}
                 </span>
 
                 {/* Acciones */}
@@ -5867,7 +5849,7 @@ export default function Inventario() {
                     size="sm"
                     className={cn("h-8 gap-1.5 font-semibold",
                       bulkTipo === "entrada" ? "bg-green-600 hover:bg-green-700 text-white" : "bg-red-600 hover:bg-red-700 text-white")}
-                    disabled={bulkPendientes.length === 0}
+                    disabled={bulkPendientes.length === 0 || bulkExcedeStock}
                     onClick={() => setBulkSummaryOpen(true)}
                   >
                     {bulkTipo === "entrada" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
@@ -6167,31 +6149,44 @@ export default function Inventario() {
                           <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
                             {bulkMode ? (
                               // ── Modo carga masiva: input de cantidad ──────────
-                              inactivo ? null : (
-                                <div className="flex justify-end">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="any"
-                                    value={bulkQtys[p.id] ?? ""}
-                                    onChange={e => setBulkQtys(prev => ({ ...prev, [p.id]: e.target.value }))}
-                                    onKeyDown={e => {
-                                      if (e.key === "Enter") {
-                                        const next = (e.currentTarget.closest("tr")?.nextElementSibling as HTMLElement | null)
-                                          ?.querySelector('input[type="number"]') as HTMLInputElement | null;
-                                        next?.focus();
-                                      }
-                                    }}
-                                    placeholder={`cant. (${p.unidad_medida})`}
-                                    className={cn(
-                                      "h-8 w-36 rounded-md border bg-background px-2 text-xs text-right focus:outline-none focus:ring-2 transition-colors",
-                                      bulkQtys[p.id] && parseFloat(bulkQtys[p.id]) > 0
-                                        ? "border-green-400 focus:ring-green-400/40 text-green-700 dark:text-green-400 font-medium"
-                                        : "border-border focus:ring-ring",
+                              inactivo ? null : (() => {
+                                const bulkVal = bulkQtys[p.id] ? parseFloat(bulkQtys[p.id].replace(",", ".")) : 0;
+                                const excedeStock = bulkTipo === "salida" && bulkVal > p.cantidad_actual;
+                                return (
+                                  <div className="flex flex-col items-end gap-0.5">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max={bulkTipo === "salida" ? p.cantidad_actual : undefined}
+                                      step="any"
+                                      value={bulkQtys[p.id] ?? ""}
+                                      onChange={e => setBulkQtys(prev => ({ ...prev, [p.id]: e.target.value }))}
+                                      onKeyDown={e => {
+                                        if (e.key === "Enter") {
+                                          const next = (e.currentTarget.closest("tr")?.nextElementSibling as HTMLElement | null)
+                                            ?.querySelector('input[type="number"]') as HTMLInputElement | null;
+                                          next?.focus();
+                                        }
+                                      }}
+                                      placeholder={`cant. (${p.unidad_medida})`}
+                                      title={excedeStock ? `Solo hay ${fmtNum(p.cantidad_actual, 1)} ${p.unidad_medida} en stock` : undefined}
+                                      className={cn(
+                                        "h-8 w-36 rounded-md border bg-background px-2 text-xs text-right focus:outline-none focus:ring-2 transition-colors",
+                                        excedeStock
+                                          ? "border-red-500 focus:ring-red-400/40 text-red-600 dark:text-red-400 font-medium"
+                                          : bulkVal > 0
+                                            ? "border-green-400 focus:ring-green-400/40 text-green-700 dark:text-green-400 font-medium"
+                                            : "border-border focus:ring-ring",
+                                      )}
+                                    />
+                                    {excedeStock && (
+                                      <span className="text-[10px] text-red-600 dark:text-red-400">
+                                        máx. {fmtNum(p.cantidad_actual, 1)}
+                                      </span>
                                     )}
-                                  />
-                                </div>
-                              )
+                                  </div>
+                                );
+                              })()
                             ) : tableMode ? (
                               // ── Modo tabla: campo ubicación editable ──────────
                               inactivo ? null : (
@@ -6397,15 +6392,19 @@ export default function Inventario() {
                   );
                 })}
               </div>
-              {items.some(({ prod, qty }) => !esEntrada && prod.cantidad_actual - qty < 0) && (
-                <p className="text-xs text-red-600 flex items-center gap-1.5 mt-1">
-                  <span>⚠</span> Algunos productos quedarían con stock negativo.
-                </p>
-              )}
+              {(() => {
+                const hayNegativos = items.some(({ prod, qty }) => !esEntrada && prod.cantidad_actual - qty < 0);
+                return hayNegativos && (
+                  <p className="text-xs text-red-600 flex items-center gap-1.5 mt-1">
+                    <span>⚠</span> Algunos productos quedarían con stock negativo — no se puede aplicar así.
+                  </p>
+                );
+              })()}
               <DialogFooter>
                 <Button variant="outline" onClick={() => setBulkSummaryOpen(false)}>Revisar</Button>
                 <Button
                   className={cn("gap-1.5", esEntrada ? "bg-green-600 hover:bg-green-700 text-white" : "bg-red-600 hover:bg-red-700 text-white")}
+                  disabled={items.some(({ prod, qty }) => !esEntrada && prod.cantidad_actual - qty < 0)}
                   onClick={() => { setBulkSummaryOpen(false); confirmarBulk(); }}
                 >
                   {esEntrada ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
