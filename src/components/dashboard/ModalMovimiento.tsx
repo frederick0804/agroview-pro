@@ -110,6 +110,13 @@ export function ModalMovimiento({
     [catalogos, productoId],
   );
 
+  // Solo proveedores autorizados para ESTE producto. Si el producto no tiene
+  // ninguno configurado todavía, se muestran todos (evita un dropdown vacío sin salida).
+  const proveedoresVinculados = useMemo(() => {
+    if (!producto || producto.proveedor_ids.length === 0) return proveedores;
+    return proveedores.filter(p => producto.proveedor_ids.includes(p.id));
+  }, [proveedores, producto]);
+
   // ── Estado del formulario ─────────────────────────────────────────────────
   const [tipo,          setTipo]          = useState<InvMovimientoTipo>(tipoInicial);
   const [subtipo,       setSubtipo]       = useState<InvMovimientoSubtipo>(SUBTIPOS[tipoInicial][0].value);
@@ -150,7 +157,7 @@ export function ModalMovimiento({
     setSubtipo(SUBTIPOS[tipoInicial][0].value);
     setCantidadStr("");
     setPrecioStr(producto?.precio_unitario ? String(producto.precio_unitario) : "");
-    setProveedor(producto?.proveedor_id ?? "");
+    setProveedor(producto?.proveedor_ids[0] ?? "");
     setObservaciones("");
     setError("");
     setPaso(1);
@@ -242,7 +249,7 @@ export function ModalMovimiento({
         numero_lote:        loteNumero.trim(),
         fecha_vencimiento:  loteVence,
         certificado_origen: loteCert.trim() || undefined,
-        proveedor_id:       proveedor || producto.proveedor_id,
+        proveedor_id:       proveedor || producto.proveedor_ids[0],
         precio_unitario:    precioStr ? parseFloat(precioStr) : producto.precio_unitario,
         cantidad_inicial:   qty,
         // Se crea en 0: registrarMovimiento() — más abajo, con lote_id — es quien suma
@@ -400,7 +407,7 @@ export function ModalMovimiento({
                   <ProveedorCombobox
                     value={proveedor}
                     onChange={setProveedor}
-                    options={proveedores}
+                    options={proveedoresVinculados}
                     onAdd={agregarProveedor}
                   />
                 </div>

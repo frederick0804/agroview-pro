@@ -2631,19 +2631,26 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
     const keyOf = (m: typeof paginados[0]) =>
       m.registro_origen_tipo ? `${m.registro_origen_tipo}|${m.fecha}` : `manual|${m.id}`;
 
-    const order: string[] = [];
-    const map   = new Map<string, typeof paginados>();
+    // Solo se agrupan movimientos CONSECUTIVOS con la misma clave. Si algo distinto
+    // (ej. una devolución) ocurrió cronológicamente en medio de dos movimientos de la
+    // misma operación, esos dos ya no son adyacentes y no deben juntarse — de lo
+    // contrario el segundo "salta" sobre el movimiento intermedio y queda fuera de
+    // orden cronológico en la lista.
+    const raw: { key: string; movements: typeof paginados }[] = [];
     paginados.forEach(m => {
       const k = keyOf(m);
-      if (!map.has(k)) { order.push(k); map.set(k, []); }
-      map.get(k)!.push(m);
+      const last = raw[raw.length - 1];
+      if (last && last.key === k && !k.startsWith("manual|")) {
+        last.movements.push(m);
+      } else {
+        raw.push({ key: k, movements: [m] });
+      }
     });
 
     let colorIdx = 0;
-    return order.map(k => {
-      const movements = map.get(k)!;
-      const isMulti   = !k.startsWith("manual|") && movements.length >= 2;
-      return { key: k, isMulti, colorIdx: isMulti ? colorIdx++ % GROUP_BORDERS.length : 0, movements };
+    return raw.map(({ key, movements }) => {
+      const isMulti = !key.startsWith("manual|") && movements.length >= 2;
+      return { key, isMulti, colorIdx: isMulti ? colorIdx++ % GROUP_BORDERS.length : 0, movements };
     });
   }, [paginados]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -3146,7 +3153,7 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
 
             {/* Un <tbody> por grupo — evita bugs de reconciliación React */}
             {groups.map(group => (
-              <tbody key={group.key}>
+              <tbody key={`${group.key}-${group.movements[0].id}`}>
                 {/* Cabecera de grupo (solo si 2+ automáticos) */}
                 {group.isMulti && (
                   <tr>
