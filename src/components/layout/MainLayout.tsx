@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Sidebar } from "./Sidebar";
 import { RoleSelector } from "@/components/RoleSelector";
 import { cn } from "@/lib/utils";
-import { BellRing, Settings2, ChevronUp, ChevronDown } from "lucide-react";
+import { BellRing, Settings2, ChevronUp, ChevronDown, CloudOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useRole } from "@/contexts/RoleContext";
@@ -11,6 +11,9 @@ import { SystemSettingsSheet } from "./SystemSettingsSheet";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { RoleNotifications } from "@/components/dashboard/RoleNotifications";
 import { useLocation } from "react-router-dom";
+import { OfflineBanner } from "@/components/offline/OfflineBanner";
+import { SyncPanel } from "@/components/offline/SyncPanel";
+import { useOffline } from "@/contexts/OfflineContext";
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -20,9 +23,11 @@ export function MainLayout({ children }: MainLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSistema, setShowSistema] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showSync, setShowSync] = useState(false);
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
   const { role, canAccessModule } = useRole();
   const { getStockCritico, getAlertasVencimiento } = useInventario();
+  const { isOnline, pendientesCount, revisionCount } = useOffline();
   const location = useLocation();
 
   const canOpenSystemSettings = canAccessModule("configuracion") || role === "productor";
@@ -42,6 +47,7 @@ export function MainLayout({ children }: MainLayoutProps) {
 
   return (
     <div className="min-h-screen bg-background">
+      <OfflineBanner sidebarCollapsed={sidebarCollapsed} onOpenSync={() => setShowSync(true)} />
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -53,7 +59,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           sidebarCollapsed ? "ml-16" : "ml-64"
         )}
       >
-        <div className="p-6 pt-20">{children}</div>
+        <div className={cn("p-6", (!isOnline || revisionCount > 0) ? "pt-24" : "pt-20")}>{children}</div>
       </main>
 
       <>
@@ -66,6 +72,37 @@ export function MainLayout({ children }: MainLayoutProps) {
         >
           {!toolsCollapsed && (
             <>
+              {/* Sync button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="secondary"
+                    className={cn(
+                      "h-12 w-12 rounded-full shadow-lg border border-border relative",
+                      !isOnline && "bg-slate-800 text-white hover:bg-slate-700 border-slate-700",
+                      isOnline && revisionCount > 0 && "bg-amber-500 text-white hover:bg-amber-600 border-amber-400",
+                    )}
+                    onClick={() => setShowSync(true)}
+                    aria-label="Sincronización offline"
+                  >
+                    <CloudOff className="w-5 h-5" />
+                    {(pendientesCount + revisionCount) > 0 && (
+                      <span className={cn(
+                        "absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full text-white text-[10px] font-semibold leading-none inline-flex items-center justify-center ring-2 ring-background",
+                        revisionCount > 0 ? "bg-rose-600" : "bg-amber-500",
+                      )}>
+                        {(pendientesCount + revisionCount) > 9 ? "9+" : pendientesCount + revisionCount}
+                      </span>
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side={isUserAccessConfigView ? "right" : "left"}>
+                  {isOnline ? "Sincronización" : "Modo offline · Ver cambios pendientes"}
+                </TooltipContent>
+              </Tooltip>
+
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -128,6 +165,8 @@ export function MainLayout({ children }: MainLayoutProps) {
         {canOpenSystemSettings && (
           <SystemSettingsSheet open={showSistema} onOpenChange={setShowSistema} />
         )}
+
+        <SyncPanel open={showSync} onOpenChange={setShowSync} />
 
         <Sheet open={showNotifications} onOpenChange={setShowNotifications}>
           <SheetContent className="w-full sm:max-w-md overflow-y-auto">

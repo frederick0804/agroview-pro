@@ -8,9 +8,9 @@
 import { createContext, useContext, useState, useMemo, type ReactNode } from "react";
 import {
   DEFINICIONES, PARAMETROS, DATOS_DEMO, PARAMETROS_LIBRARY, CULTIVOS, VARIEDADES, SNAPSHOTS_DEMO,
-  ACCESOS_DEFINICION_DEMO,
+  ACCESOS_DEFINICION_DEMO, ALCANCES_DEMO,
   type ModDef, type ModParam, type ModDato, type Parametro, type TipoDato, type TipoConfig, type EstadoDef,
-  type Cultivo, type Variedad, type DefSnapshot, type DefinicionAccesoUsuario,
+  type Cultivo, type Variedad, type DefSnapshot, type DefinicionAccesoUsuario, type AlcanceRegistro,
 } from "@/config/moduleDefinitions";
 import { useRole, ROLE_LEVELS } from "@/contexts/RoleContext";
 
@@ -91,6 +91,13 @@ interface ConfigContextType {
   addDefAcceso: (acceso: Omit<DefinicionAccesoUsuario, "id" | "created_at">) => void;
   removeDefAcceso: (id: string) => void;
 
+  // ── Alcance de formularios (definicion_registros_alcance) ──
+  alcances: AlcanceRegistro[];
+  getDefAlcances: (defId: string) => AlcanceRegistro[];
+  addAlcance: (a: Omit<AlcanceRegistro, "id">) => void;
+  updAlcance: (id: string, patch: Partial<AlcanceRegistro>) => void;
+  removeAlcance: (id: string) => void;
+
   // ── Bloqueo de navegación ──
   hasPendingChanges: boolean;
   setHasPendingChanges: (v: boolean) => void;
@@ -118,6 +125,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const [rawVariedades, setVariedades] = useState<Variedad[]>(VARIEDADES);
   const [snapshots, setSnapshots] = useState<DefSnapshot[]>(SNAPSHOTS_DEMO);
   const [definicionAccesos, setDefinicionAccesos] = useState<DefinicionAccesoUsuario[]>(ACCESOS_DEFINICION_DEMO);
+  const [alcances, setAlcances] = useState<AlcanceRegistro[]>(ALCANCES_DEMO);
   const [hasPendingChanges, setHasPendingChanges] = useState(false);
 
   // ── Filtrado multi-tenant + jerarquía de niveles (§3 informe ROLES_PERMISOS) ─
@@ -524,6 +532,17 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const removeDefAcceso = (id: string) =>
     setDefinicionAccesos(prev => prev.filter(a => a.id !== id));
 
+  const getDefAlcances = (defId: string) => alcances.filter(a => a.definicion_id === defId);
+
+  const addAlcance = (a: Omit<AlcanceRegistro, "id">) =>
+    setAlcances(prev => [...prev, { ...a, id: `alc-${Date.now()}` }]);
+
+  const updAlcance = (id: string, patch: Partial<AlcanceRegistro>) =>
+    setAlcances(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a));
+
+  const removeAlcance = (id: string) =>
+    setAlcances(prev => prev.filter(a => a.id !== id));
+
   return (
     <ConfigContext.Provider value={{
       parametrosLib, addParamLib, updParamLib, delParamLib,
@@ -534,6 +553,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       variedades, allVariedades: rawVariedades, addVariedad, addVariedadFull, updVariedad, updVariedadClientes, updVariedadProductores, delVariedad,
       snapshots, getDefSnapshots, createSnapshot,
       definicionAccesos, getDefAccesos, getUserDefAcceso, addDefAcceso, removeDefAcceso,
+      alcances, getDefAlcances, addAlcance, updAlcance, removeAlcance,
       hasPendingChanges, setHasPendingChanges,
     }}>
       {children}

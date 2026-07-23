@@ -1792,7 +1792,9 @@ const Index = () => {
     getProductorDashboardModules,
   } = useRole();
   const navigate   = useNavigate();
-  const area       = currentUser?.area_asignada;
+  const { getUserModulos } = useRole();
+  const userModulos = currentUser ? getUserModulos(currentUser) : [];
+  const area        = userModulos[0]; // módulo principal para display
   const [showEditor, setShowEditor] = useState(false);
   const [editTab,    setEditTab]    = useState("resumen");
 

@@ -38,7 +38,7 @@ import {
   useInventario, getStockStatus, getStockPct,
   getCampoVencimiento,
   type InvCatalogo, type InvMovimientoTipo, type InvMovimiento,
-  type InvCampoConValor, type InvCampoTipo, type AlertaVencimiento, type InvLote,
+  type InvCampoConValor, type InvCampoTipo, type AlertaVencimiento,
   type InvProveedor,
 } from "@/contexts/InventarioContext";
 import { useRole } from "@/contexts/RoleContext";
@@ -50,12 +50,13 @@ import {
   ExternalLink, Info, ChevronRight, X, Zap, Settings2,
   History, Filter, Download, CalendarClock, Search,
   ClipboardCheck, BookOpen, AlertCircle as AlertCircleIcon,
-  Maximize2, Minimize2, Calendar, ArrowLeftRight, Tag, MoreHorizontal,
+  Maximize2, Minimize2, Calendar, ArrowLeftRight, MoreHorizontal,
   Building2, ShieldCheck, ShieldOff, Trash2, GripVertical,
   PanelLeftClose, PanelLeftOpen, Check, Table2,
 } from "lucide-react";
 import { exportToCsv } from "@/lib/exportCsv";
 import { useConfig }   from "@/contexts/ConfigContext";
+import { PARAMETROS_LIBRARY } from "@/config/moduleDefinitions";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -697,613 +698,11 @@ function ReglasBanner({ variant = "sidebar" }: { variant?: "sidebar" | "bar" }) 
   );
 }
 
-// ─── Panel de Lotes (dentro del DetalleSheet) ────────────────────────────────
-
-function diasParaVencer(fechaISO: string): number {
-  const hoy   = new Date(); hoy.setHours(0, 0, 0, 0);
-  const vence = new Date(fechaISO); vence.setHours(0, 0, 0, 0);
-  return Math.round((vence.getTime() - hoy.getTime()) / 86_400_000);
-}
-
-function LotesPanel({ productoId, unidad, onRegistrarEntrada, onUsarLote, onVerHistorial }: {
-  productoId: string;
-  unidad: string;
-  onRegistrarEntrada?: () => void;
-  onUsarLote?: (lote: InvLote) => void;
-  /** Filtra "Historial de movimientos" del producto para mostrar solo los de este lote */
-  onVerHistorial?: (numeroLote: string) => void;
-}) {
-  const { getLotesByProducto, editarLote, registrarMovimiento } = useInventario();
-  const lotes = getLotesByProducto(productoId);
-  const lotesOrdenados = [...lotes].sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento));
-  const lotesActivos = lotesOrdenados.filter(l => l.activo && l.cantidad_actual > 0);
-  const fefoRecomendado = lotesActivos[0] ?? null;
-  const vencimientoMeta = (fecha: string) => {
-    const dias = diasParaVencer(fecha);
-    if (dias < 0) return { dias, label: `Vencido ${Math.abs(dias)}d`, cls: "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800/50", dot: "bg-red-500" };
-    if (dias <= 30) return { dias, label: dias === 0 ? "Vence hoy" : `${dias}d`, cls: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800/50", dot: "bg-amber-500" };
-    return { dias, label: `${dias}d`, cls: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800/50", dot: "bg-green-500" };
-  };
-  const [confirmLote, setConfirmLote] = useState<InvLote | null>(null);
-  const [descontarStock, setDescontarStock] = useState(true);
-
-  // ── Lotes: tarjetas colapsadas por defecto (evitan que el panel crezca demasiado) ──
-  const [expandedLotes, setExpandedLotes] = useState<Set<string>>(new Set());
-  const toggleExpand = (id: string) => setExpandedLotes(prev => {
-    const next = new Set(prev);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return next;
-  });
-
-  // ── Edición de lote ───────────────────────────────────────────────────────
-  const [editLote, setEditLote] = useState<InvLote | null>(null);
-  const [editForm, setEditForm] = useState<{
-    numero_lote: string; fecha_fabricacion: string; fecha_vencimiento: string;
-    certificado_origen: string; notas: string; campos_extra: InvCampoConValor[];
-  }>({ numero_lote: "", fecha_fabricacion: "", fecha_vencimiento: "", certificado_origen: "", notas: "", campos_extra: [] });
-
-  const abrirEdicion = (lote: InvLote) => {
-    setEditLote(lote);
-    setEditForm({
-      numero_lote:        lote.numero_lote,
-      fecha_fabricacion:  lote.fecha_fabricacion ?? "",
-      fecha_vencimiento:  lote.fecha_vencimiento,
-      certificado_origen: lote.certificado_origen ?? "",
-      notas:              lote.notas ?? "",
-      campos_extra:       (lote.campos_extra ?? []).map(c => ({ ...c })),
-    });
-  };
-  const guardarEdicion = () => {
-    if (!editLote) return;
-    if (!editForm.numero_lote.trim() || !editForm.fecha_vencimiento) return;
-    editarLote(editLote.id, {
-      numero_lote:        editForm.numero_lote.trim(),
-      fecha_fabricacion:  editForm.fecha_fabricacion || undefined,
-      fecha_vencimiento:  editForm.fecha_vencimiento,
-      certificado_origen: editForm.certificado_origen.trim() || undefined,
-      notas:              editForm.notas.trim() || undefined,
-      campos_extra:       editForm.campos_extra.length > 0 ? editForm.campos_extra : undefined,
-    });
-    setEditLote(null);
-  };
-
-  return (
-    <div className="space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold flex items-center gap-1.5">
-          <Tag className="h-4 w-4 text-muted-foreground" />
-          Lotes registrados
-          <span className="text-muted-foreground font-normal">({lotes.filter(l => l.activo).length} activos)</span>
-        </h3>
-      </div>
-
-      {/* Estado vacío */}
-      {lotesOrdenados.length === 0 && (
-        <div className="rounded-xl border border-dashed border-border bg-muted/20 py-6 text-center space-y-2">
-          <Tag className="mx-auto h-8 w-8 text-muted-foreground/30" />
-          <p className="text-sm text-muted-foreground font-medium">Sin lotes registrados</p>
-          <p className="text-xs text-muted-foreground/70 max-w-xs mx-auto leading-relaxed">
-            Los lotes se crean automáticamente cuando registras una <strong>compra</strong>.
-            {onRegistrarEntrada && (
-              <> <button onClick={onRegistrarEntrada} className="text-primary hover:underline">Registrar compra ahora →</button></>
-            )}
-          </p>
-        </div>
-      )}
-
-      {/* Lista de lotes — colapsada por tarjeta + scroll si hay muchos, para que el panel no se desborde */}
-      {lotesOrdenados.length > 0 && (
-        <div className="space-y-3">
-          {fefoRecomendado && (() => {
-            const meta = vencimientoMeta(fefoRecomendado.fecha_vencimiento);
-            return (
-              <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">FEFO recomendado</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <span className="rounded-lg bg-background px-2 py-1 font-mono text-sm font-bold shadow-sm">{fefoRecomendado.numero_lote}</span>
-                      <span className="text-sm font-semibold">{fmtNum(fefoRecomendado.cantidad_actual, 1)} {unidad}</span>
-                      <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium", meta.cls)}>
-                        <span className={cn("h-1.5 w-1.5 rounded-full", meta.dot)} />
-                        {meta.label}
-                      </span>
-                      {fefoRecomendado.proveedor_id && (
-                        <span className="truncate text-xs text-muted-foreground">{fefoRecomendado.proveedor_id}</span>
-                      )}
-                    </div>
-                  </div>
-                  {onUsarLote && (
-                    <Button size="sm" className="h-8 shrink-0 gap-1.5" onClick={() => onUsarLote(fefoRecomendado)}>
-                      <ArrowUp className="h-3.5 w-3.5" /> Usar este lote
-                    </Button>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-
-          <div className="flex flex-wrap gap-2">
-            {lotesOrdenados.slice(0, 8).map(lote => {
-              const meta = vencimientoMeta(lote.fecha_vencimiento);
-              return (
-                <button
-                  key={lote.id}
-                  type="button"
-                  onClick={() => toggleExpand(lote.id)}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-[11px] font-medium shadow-sm transition-colors hover:bg-muted",
-                    !lote.activo && "opacity-50",
-                    fefoRecomendado?.id === lote.id && "border-primary text-primary",
-                  )}
-                >
-                  <span className={cn("h-1.5 w-1.5 rounded-full", meta.dot)} />
-                  <span className="font-mono">{lote.numero_lote}</span>
-                  <span className="text-muted-foreground">{fmtNum(lote.cantidad_actual, 1)}</span>
-                  <span className={cn("rounded-full px-1.5 py-0 text-[10px]", meta.cls)}>{meta.label}</span>
-                </button>
-              );
-            })}
-            {lotesOrdenados.length > 8 && (
-              <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
-                +{lotesOrdenados.length - 8} lotes
-              </span>
-            )}
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-border">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Lote</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Cantidad</th>
-                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Vencimiento</th>
-                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Proveedor</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Accion</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lotesOrdenados.map(lote => {
-                  const meta = vencimientoMeta(lote.fecha_vencimiento);
-                  return (
-                    <tr key={lote.id} className={cn("border-b border-border/50 last:border-0", fefoRecomendado?.id === lote.id && "bg-primary/5", !lote.activo && "opacity-50")}>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <span className={cn("h-2 w-2 rounded-full", meta.dot)} />
-                          <span className="font-mono font-semibold">{lote.numero_lote}</span>
-                          {fefoRecomendado?.id === lote.id && (
-                            <span className="rounded-full bg-primary/10 px-1.5 py-0 text-[10px] font-semibold text-primary">FEFO</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right font-semibold tabular-nums">
-                        {fmtNum(lote.cantidad_actual, 1)} <span className="font-normal text-muted-foreground">{unidad}</span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium", meta.cls)}>
-                          <span className={cn("h-1.5 w-1.5 rounded-full", meta.dot)} />
-                          {new Date(lote.fecha_vencimiento).toLocaleDateString("es-CL")} · {meta.label}
-                        </span>
-                      </td>
-                      <td className="max-w-[160px] truncate px-3 py-2 text-muted-foreground">
-                        {lote.proveedor_id || "Sin proveedor"}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="inline-flex items-center gap-1">
-                          {onUsarLote && lote.activo && lote.cantidad_actual > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => onUsarLote(lote)}
-                              className="rounded-md border border-border px-2 py-1 text-[11px] font-medium hover:bg-muted"
-                            >
-                              Usar lote
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => toggleExpand(lote.id)}
-                            className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                            title="Ver ficha del lote"
-                          >
-                            <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expandedLotes.has(lote.id) && "rotate-90")} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {lotesOrdenados.length > 0 && (
-        <div className={cn(
-          "space-y-2",
-          lotesOrdenados.length > 4 && "max-h-[26rem] overflow-y-auto pr-1 -mr-1",
-        )}>
-          {lotesOrdenados.map(lote => {
-            const dias    = diasParaVencer(lote.fecha_vencimiento);
-            const pct     = lote.cantidad_inicial > 0
-              ? Math.min(100, Math.round((lote.cantidad_actual / lote.cantidad_inicial) * 100))
-              : 0;
-            const borderCls = dias < 0  ? "border-red-300 dark:border-red-800/50"
-                            : dias < 30 ? "border-amber-300 dark:border-amber-800/50"
-                            :             "border-border";
-            const barCls    = pct > 50 ? "bg-green-500" : pct > 20 ? "bg-amber-500" : "bg-red-500";
-            const badgeCls  = dias < 0  ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                            : dias < 30 ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                            :             "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
-            const tieneFicha = (lote.campos_extra ?? []).filter(c => c.valor).length > 0;
-            const expanded = expandedLotes.has(lote.id);
-            return (
-              <div
-                key={lote.id}
-                className={cn("rounded-xl border bg-card overflow-hidden transition-colors", borderCls, !lote.activo && "opacity-60")}
-              >
-                {/* ── Fila compacta (siempre visible) ──
-                     Nota: usamos <div role="button"> en vez de <button> porque contiene
-                     botones de acción propios (historial/editar/activar) — anidar
-                     <button> dentro de <button> es HTML inválido y React lo advierte. */}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => toggleExpand(lote.id)}
-                  onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleExpand(lote.id); } }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-muted/30 transition-colors cursor-pointer"
-                >
-                  <ChevronRight className={cn(
-                    "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
-                    expanded && "rotate-90",
-                  )} />
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="font-mono text-xs font-bold truncate">{lote.numero_lote}</p>
-                      {tieneFicha && <Tag className="h-3 w-3 text-primary shrink-0" />}
-                    </div>
-                    {/* Mini barra inline */}
-                    <div className="mt-1 flex items-center gap-2">
-                      <div className="h-1 w-16 shrink-0 rounded-full bg-muted overflow-hidden">
-                        <div className={cn("h-full rounded-full", barCls)} style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="text-[10px] text-muted-foreground tabular-nums truncate">
-                        {fmtNum(lote.cantidad_actual, 1)} / {fmtNum(lote.cantidad_inicial, 1)} {unidad}
-                      </span>
-                    </div>
-                  </div>
-
-                  <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium", badgeCls)}>
-                    {dias < 0   ? `Vencido ${Math.abs(dias)}d`
-                   : dias === 0 ? "Hoy"
-                   :              new Date(lote.fecha_vencimiento).toLocaleDateString("es-CL")}
-                  </span>
-
-                  <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-                    {onVerHistorial && (
-                      <button
-                        onClick={() => onVerHistorial(lote.numero_lote)}
-                        title="Ver historial de movimientos de este lote"
-                        className="rounded p-1 text-muted-foreground hover:bg-muted transition-colors"
-                      >
-                        <History className="h-3 w-3" />
-                      </button>
-                    )}
-                    <button
-                      onClick={() => abrirEdicion(lote)}
-                      title="Editar lote"
-                      className="rounded p-1 text-muted-foreground hover:bg-muted transition-colors"
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </button>
-                    <button
-                      onClick={() => { setConfirmLote(lote); setDescontarStock(true); }}
-                      title={lote.activo ? "Desactivar lote" : "Reactivar lote"}
-                      className="rounded p-1 text-muted-foreground hover:bg-muted transition-colors"
-                    >
-                      <Power className="h-3 w-3" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* ── Detalle expandible ── */}
-                {expanded && (
-                  <div className="border-t border-border/60 px-3 pb-3 pt-2.5 space-y-2.5">
-                    {(lote.certificado_origen || lote.proveedor_id) && (
-                      <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground">
-                        {lote.certificado_origen && <span>📄 {lote.certificado_origen}</span>}
-                        {lote.proveedor_id && <span>🏷️ {lote.proveedor_id}</span>}
-                      </div>
-                    )}
-
-                    {/* Barra de consumo completa */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[11px]">
-                        <span className="text-muted-foreground">Disponible en este lote</span>
-                        <span className="font-semibold tabular-nums">
-                          {fmtNum(lote.cantidad_actual, 1)}
-                          <span className="font-normal text-muted-foreground"> / {fmtNum(lote.cantidad_inicial, 1)} {unidad}</span>
-                        </span>
-                      </div>
-                      <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                        <div className={cn("h-full rounded-full transition-all", barCls)} style={{ width: `${pct}%` }} />
-                      </div>
-                      <p className="text-[10px] text-muted-foreground text-right">{pct}% restante</p>
-                    </div>
-
-                    {/* Campos personalizados capturados para este lote */}
-                    {tieneFicha && (
-                      <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 space-y-1.5">
-                        <p className="text-[10px] font-semibold text-primary flex items-center gap-1.5">
-                          <Tag className="h-3 w-3" /> Ficha del lote
-                        </p>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                          {(lote.campos_extra ?? []).filter(c => c.valor).map(c => (
-                            <div key={c.nombre}>
-                              <p className="text-[9px] text-muted-foreground">{c.etiqueta}</p>
-                              <p className="text-xs font-medium">{c.valor}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {lote.notas && <p className="text-[11px] text-muted-foreground italic">{lote.notas}</p>}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── Dialog confirmar activar / desactivar lote ── */}
-      <Dialog open={!!confirmLote} onOpenChange={v => { if (!v) setConfirmLote(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className={cn(
-              "flex items-center gap-2",
-              confirmLote?.activo ? "text-red-600" : "text-green-600",
-            )}>
-              <Power className="h-4 w-4" />
-              {confirmLote?.activo ? "Desactivar lote" : "Reactivar lote"}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="py-2 space-y-3">
-            <div className="rounded-xl border border-border bg-muted/30 px-4 py-3">
-              <p className="font-mono text-sm font-bold">{confirmLote?.numero_lote}</p>
-              {confirmLote && (
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Disponible: {fmtNum(confirmLote.cantidad_actual, 1)} / {fmtNum(confirmLote.cantidad_inicial, 1)} {unidad}
-                </p>
-              )}
-            </div>
-
-            {confirmLote?.activo ? (
-              <>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  Este lote <strong>dejará de considerarse</strong> al descontar stock (orden FEFO) en
-                  nuevos movimientos. Su registro y cantidad <strong>se conservan tal cual</strong> —
-                  no se pierden ni se ponen en cero — y puedes reactivarlo cuando quieras.
-                </p>
-                {confirmLote.cantidad_actual > 0 && (
-                  <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/60 dark:border-amber-800/30 dark:bg-amber-900/10 px-3 py-2.5 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={descontarStock}
-                      onChange={e => setDescontarStock(e.target.checked)}
-                      className="mt-0.5 h-3.5 w-3.5 accent-primary"
-                    />
-                    <span className="text-muted-foreground leading-relaxed">
-                      <strong className="text-foreground">
-                        Excluir su cantidad del stock disponible del producto
-                      </strong> ({fmtNum(confirmLote.cantidad_actual, 1)} {unidad})
-                      — genera un <strong>movimiento de pérdida</strong> que resta esa cantidad del
-                      total disponible (porque ya no se puede usar: dañado, vencido, decomisado, etc.).
-                      <br />
-                      <strong className="text-foreground">El lote conserva su cantidad como registro</strong>{" "}
-                      — no queda en cero — y si lo reactivas, esa cantidad se restituye automáticamente
-                      al stock total (sin tener que crear un lote nuevo).
-                      <br />
-                      Si lo dejas <strong>sin marcar</strong>, el lote solo queda "en pausa": su cantidad
-                      sigue contando en el stock total (útil, por ejemplo, mientras está en cuarentena o
-                      control de calidad).
-                    </span>
-                  </label>
-                )}
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Este lote volverá a estar <strong>disponible</strong> para el descuento de stock por
-                orden FEFO (primero en vencer, primero en salir) en los próximos movimientos.
-                {confirmLote?.stock_descontado && (
-                  <> Como su cantidad (<strong>{fmtNum(confirmLote.cantidad_actual, 1)} {unidad}</strong>)
-                  había sido excluida del stock total al desactivarlo, se <strong>restituirá automáticamente</strong>
-                  {" "}mediante un movimiento de devolución — no necesitas crear un lote nuevo.</>
-                )}
-              </p>
-            )}
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => setConfirmLote(null)}>
-              Cancelar
-            </Button>
-            <Button
-              size="sm"
-              variant={confirmLote?.activo ? "destructive" : "default"}
-              className={!confirmLote?.activo ? "bg-green-600 hover:bg-green-700 text-white" : ""}
-              onClick={() => {
-                if (confirmLote) {
-                  if (confirmLote.activo) {
-                    // ── Desactivar ──
-                    const excluir = descontarStock && confirmLote.cantidad_actual > 0;
-                    if (excluir) {
-                      // Solo se descuenta del stock TOTAL del producto — la cantidad propia
-                      // del lote se conserva intacta como registro (no se pasa lote_id).
-                      registrarMovimiento(productoId, "salida", "merma", confirmLote.cantidad_actual, {
-                        lote_numero: confirmLote.numero_lote,
-                        observaciones: `Lote ${confirmLote.numero_lote} desactivado — ${fmtNum(confirmLote.cantidad_actual, 1)} ${unidad} excluidas del stock total por baja/pérdida.`,
-                      });
-                    }
-                    editarLote(confirmLote.id, { activo: false, stock_descontado: excluir });
-                  } else {
-                    // ── Reactivar ──
-                    if (confirmLote.stock_descontado && confirmLote.cantidad_actual > 0) {
-                      registrarMovimiento(productoId, "entrada", "devolucion", confirmLote.cantidad_actual, {
-                        lote_numero: confirmLote.numero_lote,
-                        observaciones: `Lote ${confirmLote.numero_lote} reactivado — ${fmtNum(confirmLote.cantidad_actual, 1)} ${unidad} restituidas al stock total.`,
-                      });
-                    }
-                    editarLote(confirmLote.id, { activo: true, stock_descontado: false });
-                  }
-                }
-                setConfirmLote(null);
-              }}
-            >
-              <Power className="h-3.5 w-3.5 mr-1.5" />
-              {confirmLote?.activo ? "Sí, desactivar" : "Sí, reactivar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Dialog editar lote ── */}
-      <Dialog open={!!editLote} onOpenChange={v => { if (!v) setEditLote(null); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Pencil className="h-4 w-4" /> Editar lote
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-3 py-1">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">N° de lote *</Label>
-                <Input
-                  value={editForm.numero_lote}
-                  onChange={e => setEditForm(f => ({ ...f, numero_lote: e.target.value }))}
-                  className="h-9"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Fecha de vencimiento *</Label>
-                <Input
-                  type="date"
-                  value={editForm.fecha_vencimiento}
-                  onChange={e => setEditForm(f => ({ ...f, fecha_vencimiento: e.target.value }))}
-                  className="h-9"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Fecha de fabricación</Label>
-                <Input
-                  type="date"
-                  value={editForm.fecha_fabricacion}
-                  onChange={e => setEditForm(f => ({ ...f, fecha_fabricacion: e.target.value }))}
-                  className="h-9"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Certificado de origen</Label>
-                <Input
-                  value={editForm.certificado_origen}
-                  onChange={e => setEditForm(f => ({ ...f, certificado_origen: e.target.value }))}
-                  placeholder="ej: SAG-CL-2025-XXX"
-                  className="h-9"
-                />
-              </div>
-            </div>
-
-            {/* Campos personalizados del lote */}
-            {editForm.campos_extra.length > 0 && (
-              <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-3">
-                <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1.5">
-                  <Tag className="h-3 w-3" /> Ficha del lote
-                </p>
-                <div className="hidden grid-cols-2 gap-3">
-                  {editForm.campos_extra.map((c, idx) => (
-                    <div key={c.nombre} className="space-y-1">
-                      <Label className="text-xs">{c.etiqueta || c.nombre}</Label>
-                      {c.tipo === "Sí/No" ? (
-                        <Select value={c.valor} onValueChange={v => setEditForm(f => ({
-                          ...f, campos_extra: f.campos_extra.map((x, i) => i === idx ? { ...x, valor: v } : x),
-                        }))}>
-                          <SelectTrigger className="h-9"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Sí">Sí</SelectItem>
-                            <SelectItem value="No">No</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      ) : c.tipo === "Lista" ? (
-                        <Select value={c.valor} onValueChange={v => setEditForm(f => ({
-                          ...f, campos_extra: f.campos_extra.map((x, i) => i === idx ? { ...x, valor: v } : x),
-                        }))}>
-                          <SelectTrigger className="h-9"><SelectValue placeholder="Seleccionar opción…" /></SelectTrigger>
-                          <SelectContent>
-                            {(c.opciones ?? []).map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Input
-                          type={c.tipo === "Número" ? "number" : c.tipo === "Fecha" ? "date" : "text"}
-                          min={c.tipo === "Número" ? "0" : undefined}
-                          value={c.valor}
-                          onChange={e => setEditForm(f => ({
-                            ...f, campos_extra: f.campos_extra.map((x, i) => i === idx ? { ...x, valor: e.target.value } : x),
-                          }))}
-                          className="h-9"
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <Label className="text-xs">Notas (opcional)</Label>
-              <textarea
-                rows={2}
-                value={editForm.notas}
-                onChange={e => setEditForm(f => ({ ...f, notas: e.target.value }))}
-                className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-            </div>
-
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              La cantidad disponible de este lote ({fmtNum(editLote?.cantidad_actual ?? 0, 1)} {unidad}) no se
-              edita aquí — se ajusta automáticamente con los movimientos de entrada/salida para mantener
-              la trazabilidad del stock.
-            </p>
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => setEditLote(null)}>Cancelar</Button>
-            <Button
-              size="sm"
-              onClick={guardarEdicion}
-              disabled={!editForm.numero_lote.trim() || !editForm.fecha_vencimiento}
-            >
-              Guardar cambios
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
 
 // ─── Detalle Sheet ────────────────────────────────────────────────────────────
 
 function DetalleSheet({
-  productId, open, onClose, onMovimiento, onKardex, onTransferir, onVerHistorialLote,
+  productId, open, onClose, onMovimiento, onKardex, onTransferir,
 }: {
   productId: string | null;
   open: boolean;
@@ -1311,10 +710,8 @@ function DetalleSheet({
   onMovimiento: (id: string, tipo: InvMovimientoTipo) => void;
   onKardex: (id: string) => void;
   onTransferir: (id: string) => void;
-  /** Lleva al usuario al tab "Movimientos" pre-filtrado por producto + lote */
-  onVerHistorialLote: (productoId: string, loteNumero: string) => void;
 }) {
-  const { catalogos, movimientos, getLotesByProducto } = useInventario();
+  const { catalogos, movimientos } = useInventario();
   const p = productId ? catalogos.find(x => x.id === productId) : null;
   const productMovs = useMemo(
     () => productId
@@ -1324,18 +721,10 @@ function DetalleSheet({
       : [],
     [movimientos, productId],
   );
-  const lotesProducto = productId ? getLotesByProducto(productId) : [];
-  const proximoLote = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return [...lotesProducto]
-      .filter(l => l.activo && l.cantidad_actual > 0)
-      .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento))[0] ?? null;
-  }, [lotesProducto]);
-  const [detailTab, setDetailTab] = useState<"lotes" | "kardex" | "datos">("lotes");
+  const [detailTab, setDetailTab] = useState<"kardex" | "datos">("kardex");
 
   useEffect(() => {
-    setDetailTab("lotes");
+    setDetailTab("kardex");
   }, [productId]);
 
   return (
@@ -1364,8 +753,6 @@ function DetalleSheet({
                 bajo: { label: "Bajo", cls: "border-amber-200 bg-amber-50/80 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-400" },
                 critico: { label: "Critico", cls: "border-red-200 bg-red-50/80 text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-400" },
               }[status];
-              const diasProxLote = proximoLote ? diasParaVencer(proximoLote.fecha_vencimiento) : null;
-
               return (
                 <div className="shrink-0 border-b border-border bg-background px-5 py-3">
                   <div className="grid gap-3">
@@ -1396,7 +783,7 @@ function DetalleSheet({
                         <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Riesgo</p>
                         <p className="mt-1 text-sm font-bold">{status === "critico" ? "Reposicion urgente" : status === "bajo" ? "Reponer pronto" : "Controlado"}</p>
                         <p className="mt-1 truncate text-xs text-muted-foreground">
-                          {proximoLote ? `Lote ${proximoLote.numero_lote} / ${diasProxLote! < 0 ? "vencido" : `${diasProxLote}d`}` : "Sin lote activo"}
+                          {status === "ok" ? "Stock bajo control" : "Revisar reposicion"}
                         </p>
                       </div>
 
@@ -1433,7 +820,6 @@ function DetalleSheet({
                     critico: { label: "Critico", cls: "border-red-200 bg-red-50/80 text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-400" },
                   }[status];
                   const ultimoMov = productMovs[0];
-                  const diasProxLote = proximoLote ? diasParaVencer(proximoLote.fecha_vencimiento) : null;
 
                   return (
                     <div className="hidden overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
@@ -1452,7 +838,7 @@ function DetalleSheet({
                               { label: "Valor", value: fmtCurrency(p.cantidad_actual * p.precio_promedio_ponderado), icon: <DollarSign className="h-3.5 w-3.5" /> },
                               { label: "Minimo", value: `${fmtNum(p.cantidad_minima)} ${p.unidad_medida}`, icon: <AlertTriangle className="h-3.5 w-3.5" /> },
                               { label: "Ultimo mov.", value: ultimoMov ? `${ultimoMov.tipo} ${fmtNum(ultimoMov.cantidad, 1)}` : "Sin historial", icon: <History className="h-3.5 w-3.5" /> },
-                              { label: "Prox. lote", value: proximoLote ? (diasProxLote! < 0 ? "Vencido" : `${diasProxLote}d`) : "Sin lote", icon: <CalendarClock className="h-3.5 w-3.5" /> },
+                              { label: "Ultimo mov.", value: ultimoMov ? ultimoMov.fecha : "Sin historial", icon: <CalendarClock className="h-3.5 w-3.5" /> },
                             ].map(item => (
                               <div key={item.label} className="rounded-xl border border-border/70 bg-background/80 px-3 py-2 shadow-sm">
                                 <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1529,9 +915,6 @@ function DetalleSheet({
                                     </p>
                                     <p className="truncate text-[11px] text-muted-foreground">
                                       {m.fecha}
-                                      {m.lote_numero === "Sin lote"
-                                        ? <span className="italic text-muted-foreground/60"> · sin lote</span>
-                                        : m.lote_numero ? ` · lote ${m.lote_numero}` : ""}
                                       {m.registro_origen_tipo ? ` · ${m.registro_origen_tipo}` : ""}
                                     </p>
                                   </div>
@@ -1630,7 +1013,6 @@ function DetalleSheet({
                 {/* Ficha técnica — campos propios del producto */}
                 <div className="flex rounded-xl border border-border bg-muted p-1">
                   {([
-                    { id: "lotes", label: "Lotes", icon: <PackageOpen className="h-4 w-4" />, count: lotesProducto.filter(l => l.activo && l.cantidad_actual > 0).length },
                     { id: "kardex", label: "Kardex", icon: <BookOpen className="h-4 w-4" />, count: productMovs.length },
                     { id: "datos", label: "Datos", icon: <Info className="h-4 w-4" />, count: (p.campos_extra ?? []).filter(c => c.valor).length },
                   ] as const).map(tab => (
@@ -1686,9 +1068,6 @@ function DetalleSheet({
                               <p className="truncate text-sm font-semibold capitalize">{m.tipo} / {fmtSubtipo(m.subtipo)}</p>
                               <p className="truncate text-xs text-muted-foreground">
                                 {m.fecha}
-                                {m.lote_numero === "Sin lote"
-                                  ? <span className="italic text-muted-foreground/60"> / sin lote</span>
-                                  : m.lote_numero ? ` / lote ${m.lote_numero}` : ""}
                                 {m.observaciones ? ` / ${m.observaciones}` : ""}
                               </p>
                             </div>
@@ -1730,16 +1109,6 @@ function DetalleSheet({
                   </div>
                 )}
 
-                {/* Panel de Lotes */}
-                {detailTab === "lotes" && <div className="rounded-xl border border-border bg-card p-4">
-                  <LotesPanel
-                    productoId={p.id}
-                    unidad={p.unidad_medida}
-                    onRegistrarEntrada={() => onMovimiento(p.id, "entrada")}
-                    onUsarLote={() => onMovimiento(p.id, "salida")}
-                    onVerHistorial={numero => onVerHistorialLote(p.id, numero)}
-                  />
-                </div>}
 
               </div>
             </ScrollArea>
@@ -1805,6 +1174,7 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
   const [paso, setPaso]           = useState(1);
   const [unidadTipo, setUnidadTipo] = useState("Masa");
   const [opcionInputs, setOpcionInputs] = useState<Record<number, string>>({});
+  const [busqParam, setBusqParam] = useState("");
   const set = (k: keyof ProductoFormState) => (v: string) => setForm(p => ({ ...p, [k]: v }));
 
   // Campos extra CRUD
@@ -1873,9 +1243,7 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
   const toggleProveedor = (id: string) => {
     setForm(prev => ({
       ...prev,
-      proveedor_ids: prev.proveedor_ids.includes(id)
-        ? prev.proveedor_ids.filter(p => p !== id)
-        : [...prev.proveedor_ids, id],
+      proveedor_ids: prev.proveedor_ids.includes(id) ? [] : [id],
     }));
   };
 
@@ -2109,7 +1477,7 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
                 <Input value={form.ubicacion_fisica} onChange={e => set("ubicacion_fisica")(e.target.value)} className="h-9" />
               </div>
               <div className="space-y-2 sm:col-span-2">
-                <Label className="text-xs">Proveedores autorizados <span className="font-normal text-muted-foreground">(uno o más)</span></Label>
+                <Label className="text-xs">Proveedor autorizado</Label>
                 <div className="flex flex-wrap gap-2">
                   {proveedores.map(prov => {
                     const selected = form.proveedor_ids.includes(prov.id);
@@ -2132,119 +1500,136 @@ function ProductoDialog({ open, onOpenChange, editing }: { open: boolean; onOpen
             </div>
           )}
 
-          {/* PASO 2 — Campos personalizados */}
-          {paso === 2 && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
+          {/* PASO 2 — Campos personalizados desde biblioteca */}
+          {paso === 2 && (() => {
+            const selectedNombres = new Set(form.campos_extra.map(c => c.nombre));
+            const paramsFiltrados = PARAMETROS_LIBRARY.filter(p =>
+              p.activo &&
+              (busqParam === "" ||
+                p.nombre.includes(busqParam.toLowerCase()) ||
+                p.descripcion.toLowerCase().includes(busqParam.toLowerCase()) ||
+                p.codigo.toLowerCase().includes(busqParam.toLowerCase()))
+            );
+            const toggleParam = (p: typeof PARAMETROS_LIBRARY[0]) => {
+              if (selectedNombres.has(p.nombre)) {
+                setForm(f => ({ ...f, campos_extra: f.campos_extra.filter(c => c.nombre !== p.nombre) }));
+              } else {
+                setForm(f => ({
+                  ...f,
+                  campos_extra: [...f.campos_extra, {
+                    nombre: p.nombre,
+                    etiqueta: p.nombre.replace(/_/g, " "),
+                    tipo: (p.tipo_dato as InvCampoTipo) ?? "Texto",
+                    valor: "",
+                  }],
+                }));
+              }
+            };
+            return (
+              <div className="space-y-4">
                 <div>
                   <p className="text-sm font-semibold">Campos de este producto</p>
                   <p className="text-[11px] text-muted-foreground">
-                    Define los campos específicos — lote, vencimiento, pH, etc. Cada producto tiene los suyos.
+                    Selecciona los campos de la biblioteca que aplican a este producto. Cada lote registrará sus valores.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={addCampo}>
-                    <Plus className="h-3.5 w-3.5" /> Agregar campo
-                  </Button>
-                </div>
-              </div>
 
-              {form.campos_extra.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border py-10 text-center">
-                  <p className="text-sm text-muted-foreground">Sin campos personalizados</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Haz clic en «+ Agregar campo» para comenzar.
-                  </p>
+                {/* Buscador */}
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    value={busqParam}
+                    onChange={e => setBusqParam(e.target.value)}
+                    placeholder="Buscar parámetro…"
+                    className="h-8 pl-8 text-xs"
+                  />
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {form.campos_extra.map((c, idx) => (
-                    <div key={idx} className="rounded-xl border border-border bg-card p-4 space-y-3">
-                      <div className="grid grid-cols-[1fr_140px_auto] items-end gap-3">
-                        <div className="space-y-1">
-                          <Label className="text-[10px] text-muted-foreground">Etiqueta (nombre visible)</Label>
-                          <Input value={c.etiqueta} onChange={e => updateCampo(idx, "etiqueta", e.target.value)}
-                            placeholder="ej: Nº de lote" className="h-9" />
-                          {c.nombre && <p className="font-mono text-[9px] text-muted-foreground">key: {c.nombre}</p>}
+
+                {/* Lista de parámetros disponibles */}
+                <div className="rounded-xl border border-border divide-y divide-border/50 max-h-64 overflow-y-auto">
+                  {paramsFiltrados.length === 0 ? (
+                    <div className="py-8 text-center space-y-2">
+                      <p className="text-xs text-muted-foreground">Sin resultados para "{busqParam}"</p>
+                      <button
+                        type="button"
+                        onClick={() => { onOpenChange(false); navigate("/configuracion?tab=formularios&biblioteca=1"); }}
+                        className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                      >
+                        <Plus className="h-3 w-3" /> Crear parámetro en Biblioteca
+                      </button>
+                    </div>
+                  ) : paramsFiltrados.map(p => {
+                    const selected = selectedNombres.has(p.nombre);
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => toggleParam(p)}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40",
+                          selected && "bg-primary/5"
+                        )}
+                      >
+                        <div className={cn(
+                          "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+                          selected ? "border-primary bg-primary text-primary-foreground" : "border-border"
+                        )}>
+                          {selected && <Check className="h-2.5 w-2.5" />}
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-[10px] text-muted-foreground">Tipo de dato</Label>
-                          <Select value={c.tipo} onValueChange={v => updateCampo(idx, "tipo", v as InvCampoTipo)}>
-                            <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              {TIPO_OPTIONS_CAMPO.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium truncate">{p.nombre.replace(/_/g, " ")}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">{p.descripcion}</p>
                         </div>
+                        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[9px] font-mono text-muted-foreground">
+                          {p.tipo_dato}{p.unidad_medida ? ` · ${p.unidad_medida}` : ""}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Link para ir a crear parámetro nuevo */}
+                <div className="px-3 py-2 border-t border-border/50 bg-muted/20">
+                  <button
+                    type="button"
+                    onClick={() => navigate("/configuracion?tab=formularios&biblioteca=1")}
+                    className="text-[11px] text-primary hover:underline inline-flex items-center gap-1"
+                  >
+                    <Plus className="h-3 w-3" /> ¿No encuentras el campo? Créalo en la Biblioteca
+                  </button>
+                </div>
+
+                {/* Campos seleccionados con etiqueta editable */}
+                {form.campos_extra.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                      {form.campos_extra.length} campo{form.campos_extra.length > 1 ? "s" : ""} seleccionado{form.campos_extra.length > 1 ? "s" : ""}
+                    </p>
+                    {form.campos_extra.map((c, idx) => (
+                      <div key={c.nombre} className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-mono text-[9px] text-muted-foreground">{c.nombre}</p>
+                          <Input
+                            value={c.etiqueta}
+                            onChange={e => updateCampo(idx, "etiqueta", e.target.value)}
+                            placeholder="Etiqueta visible…"
+                            className="h-7 mt-0.5 text-xs border-primary/30 bg-background"
+                          />
+                        </div>
+                        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[9px] font-mono text-muted-foreground">
+                          {c.tipo}
+                        </span>
                         <button type="button" onClick={() => removeCampo(idx)}
-                          className="pb-0.5 text-muted-foreground hover:text-destructive">
-                          <X className="h-4 w-4" />
+                          className="text-muted-foreground hover:text-destructive">
+                          <X className="h-3.5 w-3.5" />
                         </button>
                       </div>
-
-                      {/* Opciones de Lista */}
-                      {c.tipo === "Lista" && (
-                        <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">
-                          <Label className="text-[10px] text-muted-foreground">Opciones del desplegable</Label>
-                          {(c.opciones ?? []).length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
-                              {(c.opciones ?? []).map(o => (
-                                <span key={o} className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-[11px]">
-                                  {o}
-                                  <button type="button" onClick={() => removeOpcion(idx, o)}>
-                                    <X className="h-2.5 w-2.5" />
-                                  </button>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          <div className="flex gap-2">
-                            <Input value={opcionInputs[idx] ?? ""}
-                              onChange={e => setOpcionInputs(p => ({ ...p, [idx]: e.target.value }))}
-                              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addOpcion(idx); } }}
-                              placeholder="Nueva opción… (Enter para agregar)"
-                              className="h-8 text-xs flex-1" />
-                            <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => addOpcion(idx)}>
-                              + Agregar
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Valor actual */}
-                      <div className="space-y-1">
-                        <Label className="text-[10px] text-muted-foreground">Valor actual</Label>
-                        {c.tipo === "Sí/No" ? (
-                          <Select value={c.valor} onValueChange={v => updateCampo(idx, "valor", v)}>
-                            <SelectTrigger className="h-9"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Sí">Sí</SelectItem>
-                              <SelectItem value="No">No</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : c.tipo === "Lista" ? (
-                          <Select value={c.valor} onValueChange={v => updateCampo(idx, "valor", v)}>
-                            <SelectTrigger className="h-9"><SelectValue placeholder="Seleccionar opción…" /></SelectTrigger>
-                            <SelectContent>
-                              {(c.opciones ?? []).map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Input
-                            type={c.tipo === "Número" ? "number" : c.tipo === "Fecha" ? "date" : "text"}
-                            min={c.tipo === "Número" ? "0" : undefined}
-                            onKeyDown={c.tipo === "Número" ? blockInvalidNumKey : undefined}
-                            value={c.valor}
-                            onChange={e => updateCampo(idx, "valor", e.target.value)}
-                            className="h-9" />
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {err && <p className="mt-3 text-sm text-destructive">{err}</p>}
         </div>
@@ -2490,13 +1875,10 @@ function CatalogoInline({ canAdmin, onKardex }: { canAdmin: boolean; onKardex: (
 
 const MOV_PAGE_OPTIONS = [5, 10, 20, 100];
 
-function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, onInitialFilterConsumed }: {
+function MovimientosView({ onOpenDetail, onKardex, onMovimiento }: {
   onOpenDetail: (id: string) => void;
   onKardex: (id: string) => void;
   onMovimiento: (id: string, tipo: InvMovimientoTipo) => void;
-  /** Filtro a aplicar al entrar a esta vista (ej. desde "Ver historial" de un lote en el detalle de un producto) */
-  initialFilter?: { productoId: string; loteNumero: string } | null;
-  onInitialFilterConsumed?: () => void;
 }) {
   const { movimientos, catalogos } = useInventario();
   const fecha = new Date().toLocaleDateString("es-CL").replace(/\//g, "-");
@@ -2507,7 +1889,7 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
   const [filterTipo,  setFilterTipo]  = useState("all");
   const [filterProd,  setFilterProd]  = useState("all");
   const [filterOrigen,setFilterOrigen]= useState("all");
-  const [filterLote,  setFilterLote]  = useState<string | null>(null);
+
   const [fechaDesde,  setFechaDesde]  = useState(hoy);   // default: hoy
   const [fechaHasta,  setFechaHasta]  = useState(hoy);   // default: hoy
   const [page,        setPage]        = useState(1);
@@ -2542,36 +1924,6 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
     catalogos.filter(c => c.activo).sort((a, b) => a.nombre.localeCompare(b.nombre)),
   [catalogos]);
 
-  // Lotes disponibles para filtrar — se acotan al producto seleccionado (si hay uno)
-  // para no mezclar números de lote de productos distintos en el desplegable.
-  const loteOpts = useMemo(() => {
-    const set = new Set<string>();
-    movimientos.forEach(m => {
-      if (!m.lote_numero) return;
-      if (filterProd !== "all" && m.catalogo_id !== filterProd) return;
-      set.add(m.lote_numero);
-    });
-    return [...set].sort((a, b) => a.localeCompare(b));
-  }, [movimientos, filterProd]);
-
-  // Si cambia el producto y el lote filtrado ya no aplica, limpiarlo
-  useEffect(() => {
-    if (filterLote && !loteOpts.includes(filterLote)) setFilterLote(null);
-  }, [loteOpts, filterLote]);
-
-  // ── Aplicar filtro inicial recibido (ej. "Ver historial" desde un lote) ────
-  // Se limpia también el rango de fechas (que por defecto muestra solo "hoy")
-  // para no ocultar movimientos antiguos del lote — el usuario vino a ver TODO
-  // su historial, no solo el de hoy.
-  useEffect(() => {
-    if (!initialFilter) return;
-    setFilterProd(initialFilter.productoId);
-    setFilterLote(initialFilter.loteNumero);
-    setFechaDesde("");
-    setFechaHasta("");
-    setPage(1);
-    onInitialFilterConsumed?.();
-  }, [initialFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -2585,7 +1937,7 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
         if (filterOrigen === "auto"          && !m.registro_origen_tipo)                                    return false;
         if (filterOrigen === "manual"        && (!!m.registro_origen_tipo || m.subtipo === "transferencia")) return false;
         if (filterOrigen === "transferencia" && m.subtipo !== "transferencia")                               return false;
-        if (filterLote && m.lote_numero !== filterLote) return false;
+
         if (q) {
           const prod = catalogos.find(c => c.id === m.catalogo_id);
           const match = prod?.nombre.toLowerCase().includes(q) ||
@@ -2595,7 +1947,7 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
         }
         return true;
       });
-  }, [movimientos, catalogos, filterTipo, filterProd, filterOrigen, filterLote, search, fechaDesde, fechaHasta]);
+  }, [movimientos, catalogos, filterTipo, filterProd, filterOrigen, search, fechaDesde, fechaHasta]);
 
   useEffect(() => { setPage(1); }, [pageSize]);
 
@@ -2766,11 +2118,9 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
   if (filterProd !== "all")    activeFilterTags.push({ label: productoOpts.find(p => p.id === filterProd)?.nombre ?? filterProd, clear: () => { setFilterProd("all"); setPage(1); } });
   if (filterTipo !== "all")    activeFilterTags.push({ label: filterTipo, clear: () => { setFilterTipo("all"); setPage(1); } });
   if (filterOrigen !== "all")  activeFilterTags.push({ label: filterOrigen, clear: () => { setFilterOrigen("all"); setPage(1); } });
-  if (filterLote)              activeFilterTags.push({ label: `Lote: ${filterLote}`, clear: () => { setFilterLote(null); setPage(1); } });
-
   const clearAllFilters = () => {
     applyPreset("hoy"); setFilterTipo("all"); setFilterProd("all");
-    setFilterOrigen("all"); setFilterLote(null); setSearch(""); setPage(1);
+    setFilterOrigen("all"); setSearch(""); setPage(1);
   };
 
   return (
@@ -2874,21 +2224,6 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
                 <SelectItem value="transferencia">Transferencias</SelectItem>
               </SelectContent>
             </Select>
-            <Select
-              value={filterLote ?? "all"}
-              onValueChange={v => { setFilterLote(v === "all" ? null : v); setPage(1); }}
-              disabled={loteOpts.length === 0}
-            >
-              <SelectTrigger className={cn("h-8 w-36 text-xs bg-background", filterLote && "border-primary text-primary")}>
-                <Tag className="h-3 w-3 shrink-0 mr-1" />
-                <SelectValue placeholder={loteOpts.length === 0 ? "Sin lotes" : "Lote"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los lotes</SelectItem>
-                {loteOpts.map(lo => <SelectItem key={lo} value={lo} className="font-mono text-xs">{lo}</SelectItem>)}
-              </SelectContent>
-            </Select>
-
             <div className="ml-auto flex items-center gap-2 shrink-0">
               <Button
                 size="sm"
@@ -2929,7 +2264,7 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
         </div>
 
         {/* Sección 3: chips de filtros activos (solo si hay más de 1 — el de período siempre está) */}
-        {(activeFilterTags.length > 1 || filterProd !== "all" || filterTipo !== "all" || filterOrigen !== "all" || filterLote) && (
+        {(activeFilterTags.length > 1 || filterProd !== "all" || filterTipo !== "all" || filterOrigen !== "all") && (
           <div className="border-t border-border/60 px-4 py-2 flex flex-wrap items-center gap-1.5">
             <span className="text-[10px] text-muted-foreground shrink-0">Activos:</span>
             {activeFilterTags.map((tag, i) => (
@@ -2945,7 +2280,7 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
                 )}
               </span>
             ))}
-            {(filterProd !== "all" || filterTipo !== "all" || filterOrigen !== "all" || filterLote || search) && (
+            {(filterProd !== "all" || filterTipo !== "all" || filterOrigen !== "all" || search) && (
               <button onClick={clearAllFilters} className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 ml-1">
                 Limpiar todo
               </button>
@@ -3326,28 +2661,13 @@ function MovimientosView({ onOpenDetail, onKardex, onMovimiento, initialFilter, 
                                   <p className="mt-0.5 text-muted-foreground">{m.observaciones}</p>
                                 </div>
                               )}
-                              {/* Trazabilidad — lote + ubicación + cultivo */}
-                              {(m.lote_numero || m.bloque_ref || m.cultivo_id) && (
+                              {/* Trazabilidad — ubicación + cultivo */}
+                              {(m.bloque_ref || m.cultivo_id) && (
                                 <div className="col-span-2 sm:col-span-4 pt-2 border-t border-border/50">
                                   <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
                                     Trazabilidad
                                   </p>
                                   <div className="flex flex-wrap gap-2">
-                                    {m.lote_numero && (
-                                      m.lote_numero === "Sin lote"
-                                        ? <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-1 text-xs font-mono italic text-muted-foreground/60">
-                                            <Tag className="h-3 w-3" />
-                                            Sin lote
-                                          </span>
-                                        : <button
-                                            onClick={e => { e.stopPropagation(); setFilterLote(m.lote_numero!); setPage(1); }}
-                                            title="Ver solo movimientos de este lote"
-                                            className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-1 text-xs font-mono font-medium hover:border-primary hover:text-primary transition-colors"
-                                          >
-                                            <Tag className="h-3 w-3" />
-                                            Lote: {m.lote_numero}
-                                          </button>
-                                    )}
                                     {m.bloque_ref && (
                                       <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50/60 dark:border-green-800/30 dark:bg-green-900/10 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-400">
                                         <Leaf className="h-3 w-3" />
@@ -4236,7 +3556,6 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
   const [filterTipo, setFilterTipo] = useState<"all" | InvMovimientoTipo>("all");
-  const [filterLote, setFilterLote] = useState("all");
   const [kardexSearch, setKardexSearch] = useState("");
 
   const p = productId ? catalogos.find(x => x.id === productId) : null;
@@ -4266,7 +3585,7 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
   };
 
   type KardexRow = {
-    fecha: string; concepto: string; tipo: InvMovimientoTipo; loteNumero?: string; origen?: string;
+    fecha: string; concepto: string; tipo: InvMovimientoTipo; origen?: string;
     entQ?: number; entP?: number; entTotal?: number;
     salQ?: number; salP?: number; salTotal?: number;
     saldoQ: number; saldoP: number; saldoTotal: number;
@@ -4284,7 +3603,7 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
       ? `${m.registro_origen_tipo} (auto)`
       : m.observaciones ?? fmtSubtipo(m.subtipo);
     return {
-      fecha: m.fecha, concepto, tipo: m.tipo, loteNumero: m.lote_numero, origen: m.registro_origen_tipo,
+      fecha: m.fecha, concepto, tipo: m.tipo, origen: m.registro_origen_tipo,
       entQ:     esEntrada ? qty     : undefined,
       entP:     esEntrada ? p_unit  : undefined,
       entTotal: esEntrada ? qty * p_unit : undefined,
@@ -4296,16 +3615,12 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
   });
 
   // Filtro de fechas — solo para la visualización; el saldo acumulado se mantiene
-  const loteOptions = Array.from(new Set(rows.map(r => r.loteNumero).filter(Boolean) as string[]))
-    .sort((a, b) => a.localeCompare(b));
-
   const rowsFiltrados = rows.filter(r => {
     if (fechaDesde && r.fecha < fechaDesde) return false;
     if (fechaHasta && r.fecha > fechaHasta) return false;
     if (filterTipo !== "all" && r.tipo !== filterTipo) return false;
-    if (filterLote !== "all" && r.loteNumero !== filterLote) return false;
     const q = kardexSearch.trim().toLowerCase();
-    if (q && !`${r.concepto} ${r.origen ?? ""} ${r.loteNumero ?? ""}`.toLowerCase().includes(q)) return false;
+    if (q && !`${r.concepto} ${r.origen ?? ""}`.toLowerCase().includes(q)) return false;
     return true;
   });
 
@@ -4315,7 +3630,7 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
     : null;
 
   const displayRows  = rowsFiltrados;
-  const hayFiltro    = !!(fechaDesde || fechaHasta || filterTipo !== "all" || filterLote !== "all" || kardexSearch.trim());
+  const hayFiltro    = !!(fechaDesde || fechaHasta || filterTipo !== "all" || kardexSearch.trim());
   const activePreset = (() => {
     const hoy = new Date();
     const iso = (d: Date) => d.toISOString().substring(0, 10);
@@ -4484,20 +3799,6 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
                   <SelectItem value="entrada">Entradas</SelectItem>
                   <SelectItem value="salida">Salidas</SelectItem>
                   <SelectItem value="ajuste">Ajustes</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select value={filterLote} onValueChange={setFilterLote}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="Lote" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los lotes</SelectItem>
-                  {loteOptions.length === 0 ? (
-                    <SelectItem value="__none" disabled>Sin lotes asociados</SelectItem>
-                  ) : loteOptions.map(lote => (
-                    <SelectItem key={lote} value={lote}>{lote}</SelectItem>
-                  ))}
                 </SelectContent>
               </Select>
 
@@ -4719,98 +4020,6 @@ function KardexSheet({ productId, onClose }: { productId: string | null; onClose
 
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ─── Buscador global de lotes ─────────────────────────────────────────────────
-// Permite ubicar un número de lote específico en TODO el inventario sin tener
-// que navegar producto por producto — útil ante alertas sanitarias, reclamos
-// de proveedor o trazabilidad regulatoria ("¿en qué producto está el lote X?").
-function BuscadorLotesGlobal({ onSelect }: { onSelect: (productoId: string, loteNumero: string) => void }) {
-  const { lotes, catalogos } = useInventario();
-  const [query, setQuery] = useState("");
-  const [open,  setOpen]  = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-
-  const resultados = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (q.length < 2) return [];
-    return lotes
-      .filter(l => l.numero_lote.toLowerCase().includes(q))
-      .map(l => ({ lote: l, producto: catalogos.find(c => c.id === l.catalogo_id) }))
-      .filter((r): r is { lote: InvLote; producto: InvCatalogo } => !!r.producto)
-      .sort((a, b) => a.lote.numero_lote.localeCompare(b.lote.numero_lote))
-      .slice(0, 8);
-  }, [lotes, catalogos, query]);
-
-  // Cerrar el desplegable al hacer clic fuera
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  const elegir = (productoId: string, loteNumero: string) => {
-    onSelect(productoId, loteNumero);
-    setOpen(false);
-    setQuery("");
-  };
-
-  return (
-    <div ref={wrapRef} className="relative w-full sm:w-64">
-      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        value={query}
-        onChange={e => { setQuery(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
-        placeholder="Buscar lote por número…"
-        className="h-9 pl-8 text-sm"
-      />
-      {open && query.trim().length >= 2 && (
-        <div className="absolute z-50 mt-1 w-full sm:w-80 rounded-lg border border-border bg-popover shadow-lg overflow-hidden">
-          {resultados.length === 0 ? (
-            <p className="px-3 py-4 text-center text-xs text-muted-foreground">
-              Sin coincidencias para «{query}»
-            </p>
-          ) : (
-            <div className="max-h-80 overflow-y-auto">
-              {resultados.map(({ lote, producto }) => {
-                const dias = Math.ceil((new Date(lote.fecha_vencimiento).getTime() - Date.now()) / 86_400_000);
-                return (
-                  <button
-                    key={lote.id}
-                    onClick={() => elegir(producto.id, lote.numero_lote)}
-                    className="flex w-full items-center gap-2.5 border-b border-border/50 px-3 py-2 text-left transition-colors last:border-0 hover:bg-muted/50"
-                  >
-                    <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-mono text-xs font-bold">{lote.numero_lote}</p>
-                      <p className="truncate text-[11px] text-muted-foreground">
-                        {producto.nombre} · {fmtNum(lote.cantidad_actual, 1)} {producto.unidad_medida}
-                        {dias >= 0 ? ` · vence en ${dias}d` : ` · vencido hace ${Math.abs(dias)}d`}
-                      </p>
-                    </div>
-                    <span className={cn(
-                      "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
-                      lote.activo
-                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                        : "bg-muted text-muted-foreground",
-                    )}>
-                      {lote.activo ? "Activo" : "Inactivo"}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <div className="border-t border-border/50 bg-muted/30 px-3 py-1.5 text-[10px] text-muted-foreground">
-            Buscando en {lotes.length} lote{lotes.length !== 1 ? "s" : ""} de todo el inventario
-          </div>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -5155,17 +4364,24 @@ export default function Inventario() {
   const { hierarchyLevel, currentUser } = useRole();
   const {
     getAllProductos, movimientos, getAlertas, getAlertasVencimiento,
-    catalogos, lotes, desactivarProducto, registrarMovimiento, editarProducto,
-    ordenes, proveedores,
+    catalogos, desactivarProducto, registrarMovimiento, editarProducto,
+    proveedores, isVentanaActivaHoy,
   } = useInventario();
   const [searchParams] = useSearchParams();
 
   const isAdmin   = hierarchyLevel >= 4;
-  const userArea  = currentUser?.area_asignada;
+  const { getUserModulos } = useRole();
+  const userModulos = currentUser ? getUserModulos(currentUser) : [];
+  const userArea   = userModulos[0] as string | undefined;
+
+  // Ajuste de stock: super_admin siempre puede; el resto necesita ventana activa
+  const clienteId   = currentUser?.clienteId  ?? 0;
+  const productorId = currentUser?.productorId ?? undefined;
+  const ajusteHabilitado = hierarchyLevel >= 6 || isVentanaActivaHoy(clienteId, productorId);
 
   // Auto-filtrar por área del usuario si es un rol operativo (< productor)
   const moduloParam = searchParams.get("modulo") ??
-    (userArea && hierarchyLevel < 4 ? userArea : "all");
+    (userModulos.length > 0 && hierarchyLevel < 4 ? userModulos[0] : "all");
 
   // ── Tab principal ─────────────────────────────────────────────────────────
   // Lee ?tab= para poder llegar directo a un tab desde fuera (ej. desde la barra
@@ -5175,16 +4391,6 @@ export default function Inventario() {
   const [mainTab, setMainTab] = useState<"stock" | "movimientos" | "conteo" | "proveedores">(
     (TABS_VALIDOS as readonly string[]).includes(tabParam ?? "") ? (tabParam as typeof TABS_VALIDOS[number]) : "stock"
   );
-
-  // ── Navegación: "Ver historial de este lote" desde el detalle de un producto ──
-  // Salta al tab "Movimientos" (la vista que concentra TODO el historial) ya
-  // pre-filtrada por producto + lote, en vez de duplicar la tabla dentro del sheet.
-  const [movFiltroInicial, setMovFiltroInicial] = useState<{ productoId: string; loteNumero: string } | null>(null);
-  const irAHistorialDeLote = (productoId: string, loteNumero: string) => {
-    setMovFiltroInicial({ productoId, loteNumero });
-    setMainTab("movimientos");
-    setDetalleOpen(false);
-  };
 
   // ── Filters (stock tab) ───────────────────────────────────────────────────
   const [search,         setSearch]         = useState("");
@@ -5205,10 +4411,20 @@ export default function Inventario() {
   // Modo carga masiva
   const [bulkMode,        setBulkMode]        = useState(false);
   const [bulkQtys,        setBulkQtys]        = useState<Record<string, string>>({});
+  const [bulkEnabled,     setBulkEnabled]     = useState<Set<string>>(new Set());
   const [bulkTipo,        setBulkTipo]        = useState<"entrada" | "salida">("entrada");
   const [bulkPos,         setBulkPos]         = useState<{ x: number; y: number } | null>(null);
   const [bulkSummaryOpen, setBulkSummaryOpen] = useState(false);
   const bulkDragOffset = useRef<{ dx: number; dy: number } | null>(null);
+
+  function toggleBulkEnabled(id: string, checked: boolean) {
+    setBulkEnabled(prev => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else { next.delete(id); setBulkQtys(q => { const r = { ...q }; delete r[id]; return r; }); }
+      return next;
+    });
+  }
 
   const bulkPendientes = Object.entries(bulkQtys).filter(([, v]) => {
     const n = parseFloat(v.replace(",", "."));
@@ -5226,16 +4442,14 @@ export default function Inventario() {
   const confirmarBulk = () => {
     bulkPendientes.forEach(([id, v]) => {
       const n = parseFloat(v.replace(",", "."));
-      registrarMovimiento(id, bulkTipo, bulkTipo === "entrada" ? "compra" : "uso_produccion", n, {
-        lote_numero: "Sin lote",
-      });
+      registrarMovimiento(id, bulkTipo, bulkTipo === "entrada" ? "compra" : "uso_produccion", n, {});
     });
-    setBulkQtys({});
+    setBulkQtys({}); setBulkEnabled(new Set());
     setBulkMode(false);
     setBulkPos(null);
   };
 
-  const cancelarBulk = () => { setBulkQtys({}); setBulkMode(false); setBulkPos(null); };
+  const cancelarBulk = () => { setBulkQtys({}); setBulkEnabled(new Set()); setBulkMode(false); setBulkPos(null); };
   // Confirmación activar/desactivar
   const [confirmProd,    setConfirmProd]    = useState<InvCatalogo | null>(null);
 
@@ -5404,10 +4618,6 @@ export default function Inventario() {
     () => movimientos.filter(m => m.fecha.startsWith(currentMonth)).length,
     [movimientos, currentMonth],
   );
-  const ordenesPendientes = useMemo(
-    () => ordenes.filter(o => o.estado === "solicitado" || o.estado === "aprobado" || o.estado === "recibido_parcial").length,
-    [ordenes],
-  );
   const valorTotal = useMemo(
     () => allProductos.reduce((s, p) => s + p.cantidad_actual * p.precio_unitario, 0),
     [allProductos],
@@ -5429,32 +4639,15 @@ export default function Inventario() {
   );
   const contextualAlerts = useMemo(() => {
     const active = executiveScope.filter(p => p.activo);
-    const scopeIds = new Set(active.map(p => p.id));
     const reposicion = active.filter(p => {
       const status = getStockStatus(p);
       return status === "critico" || status === "bajo";
     });
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const lotesSemana = lotes
-      .filter(l => l.activo && l.cantidad_actual > 0 && scopeIds.has(l.catalogo_id))
-      .map(l => {
-        const vence = new Date(l.fecha_vencimiento);
-        vence.setHours(0, 0, 0, 0);
-        const dias = Math.ceil((vence.getTime() - today.getTime()) / 86_400_000);
-        return { lote: l, dias };
-      })
-      .filter(x => x.dias <= 7)
-      .sort((a, b) => a.dias - b.dias);
-
     return {
       reposicion,
       reposicionCritica: reposicion.filter(p => getStockStatus(p) === "critico").length,
-      lotesSemana,
-      vencidos: lotesSemana.filter(x => x.dias < 0).length,
     };
-  }, [executiveScope, lotes]);
+  }, [executiveScope]);
 
   const filtered = useMemo(() => {
     const q    = search.toLowerCase();
@@ -5560,31 +4753,24 @@ export default function Inventario() {
 
       {/* Tab switcher */}
       <div className="mb-6 flex gap-1 rounded-xl border border-border bg-muted p-1 w-fit">
-        <button
-          onClick={() => navigate("/inventario/ordenes")}
-          className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ShoppingCart className="h-4 w-4" /> Órdenes de compra
-          {ordenesPendientes > 0 && (
-            <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0 text-[10px] font-bold text-primary">
-              {ordenesPendientes}
-            </span>
-          )}
-        </button>
         {([
           { id: "stock",        label: "Stock",           icon: <Package        className="h-4 w-4" /> },
           { id: "movimientos",  label: "Movimientos",     icon: <History        className="h-4 w-4" /> },
-          { id: "conteo",       label: "Ajuste de stock", icon: <ClipboardCheck className="h-4 w-4" /> },
+          { id: "conteo",       label: "Ajuste de stock", icon: <ClipboardCheck className="h-4 w-4" />, locked: !ajusteHabilitado },
           { id: "proveedores",  label: "Proveedores",     icon: <Building2      className="h-4 w-4" /> },
         ] as const).map(t => (
           <button
             key={t.id}
-            onClick={() => setMainTab(t.id)}
+            disabled={"locked" in t && t.locked}
+            onClick={() => !("locked" in t && t.locked) && setMainTab(t.id)}
+            title={"locked" in t && t.locked ? "Fuera de la ventana de ajuste de stock" : undefined}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
-              mainTab === t.id
-                ? "bg-background shadow text-foreground"
-                : "text-muted-foreground hover:text-foreground",
+              "locked" in t && t.locked
+                ? "opacity-40 cursor-not-allowed text-muted-foreground"
+                : mainTab === t.id
+                  ? "bg-background shadow text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
             )}
           >
             {t.icon} {t.label}
@@ -5631,8 +4817,6 @@ export default function Inventario() {
           onOpenDetail={id => { openDetail(id); }}
           onKardex={id => setKardexId(id)}
           onMovimiento={openMovimiento}
-          initialFilter={movFiltroInicial}
-          onInitialFilterConsumed={() => setMovFiltroInicial(null)}
         />
       )}
 
@@ -5748,7 +4932,7 @@ export default function Inventario() {
               <Button
                 variant="outline" size="sm"
                 className="h-9 gap-1.5 shrink-0 border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-900/20"
-                onClick={() => { setBulkQtys({}); setBulkTipo("entrada"); setBulkMode(true); }}
+                onClick={() => { setBulkQtys({}); setBulkEnabled(new Set()); setBulkTipo("entrada"); setBulkMode(true); }}
               >
                 <Package className="h-4 w-4" />
                 Carga masiva
@@ -5877,7 +5061,7 @@ export default function Inventario() {
             </div>
           )}
 
-          {!showInactivos && (contextualAlerts.reposicion.length > 0 || contextualAlerts.lotesSemana.length > 0) && (
+          {!showInactivos && contextualAlerts.reposicion.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {contextualAlerts.reposicion.length > 0 && (
                 <button
@@ -5896,26 +5080,6 @@ export default function Inventario() {
                 </button>
               )}
 
-              {contextualAlerts.lotesSemana.length > 0 && (() => {
-                const urgente = contextualAlerts.lotesSemana[0];
-                const producto = catalogos.find(p => p.id === urgente.lote.catalogo_id);
-                const vencidos = contextualAlerts.vencidos;
-                return (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (producto) openDetail(producto.id);
-                    }}
-                    className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-red-200 bg-red-50/70 px-3 py-1.5 text-left text-xs font-medium text-red-800 transition-colors hover:bg-red-100 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300"
-                  >
-                    <CalendarClock className="h-4 w-4 shrink-0" />
-                    <span>
-                      <strong>{contextualAlerts.lotesSemana.length}</strong> lote{contextualAlerts.lotesSemana.length !== 1 ? "s" : ""} {vencidos > 0 ? "vencidos o por vencer" : "vence esta semana"}
-                    </span>
-                    {producto && <span className="max-w-[180px] truncate text-[11px] underline underline-offset-2">{producto.nombre}</span>}
-                  </button>
-                );
-              })()}
             </div>
           )}
 
@@ -6004,6 +5168,7 @@ export default function Inventario() {
                         ? "bg-[#e8eaed] dark:bg-muted/70 border-b-2 border-[#bfc0c1] dark:border-border"
                         : "border-b border-border bg-muted/40",
                     )}>
+                      {bulkMode && <th className="w-8 px-2 py-2" />}
                       <th className={cn("px-4 py-2 text-left text-xs font-bold whitespace-nowrap", tableMode ? "text-[#3c4043] dark:text-foreground border border-[#bfc0c1] dark:border-border" : "text-muted-foreground py-2.5")}>Producto</th>
                       <th className={cn("px-3 py-2 text-left text-xs font-bold whitespace-nowrap", tableMode ? "text-[#3c4043] dark:text-foreground border border-[#bfc0c1] dark:border-border" : "text-muted-foreground py-2.5")}>Área</th>
                       <th className={cn("px-3 py-2 text-right text-xs font-bold whitespace-nowrap", tableMode ? "text-[#3c4043] dark:text-foreground border border-[#bfc0c1] dark:border-border" : "text-muted-foreground py-2.5")}>Stock</th>
@@ -6041,6 +5206,7 @@ export default function Inventario() {
                             : "";
                       const bulkHasValue = bulkMode && !!bulkQtys[p.id] && parseFloat(bulkQtys[p.id]) > 0;
                       const EDITABLE_FIELDS = ["nombre", "precio_unitario", "ubicacion_fisica"] as const;
+                      const isCheckedRow = bulkEnabled.has(p.id);
                       return (
                         <tr key={p.id}
                           className={cn(
@@ -6048,9 +5214,23 @@ export default function Inventario() {
                             tableMode ? "" : "border-b border-border/50 last:border-0",
                             inactivo ? "bg-muted/30 hover:bg-muted/50" : cn(tableMode ? "hover:bg-blue-50/50 dark:hover:bg-muted/30" : "cursor-pointer hover:bg-muted/20", rowCls),
                             bulkHasValue && "bg-amber-50/60 dark:bg-amber-900/20 shadow-[inset_0_0_0_1.5px_theme(colors.amber.400)] shadow-amber-300/40",
+                            bulkMode && !inactivo && !isCheckedRow && "opacity-40",
                           )}
                           onClick={() => !inactivo && !bulkMode && !tableMode && openDetail(p.id)}
                         >
+                          {/* Checkbox carga masiva — izquierda del producto */}
+                          {bulkMode && (
+                            <td className="w-8 px-2 py-2" onClick={e => e.stopPropagation()}>
+                              {!inactivo && (
+                                <input
+                                  type="checkbox"
+                                  checked={isCheckedRow}
+                                  onChange={e => toggleBulkEnabled(p.id, e.target.checked)}
+                                  className="h-4 w-4 cursor-pointer accent-primary rounded"
+                                />
+                              )}
+                            </td>
+                          )}
                           {/* Nombre — editable en modo tabla */}
                           <td className="px-4 py-2.5" onClick={e => { if (tableMode && !inactivo) { e.stopPropagation(); startEdit(p.id, "nombre", p.nombre); } }}>
                             {tableMode && !inactivo && editingCell?.id === p.id && editingCell.field === "nombre" ? (
@@ -6145,49 +5325,57 @@ export default function Inventario() {
                           <td className={cn("px-3 py-2.5 text-right text-sm font-bold tabular-nums", inactivo && "opacity-50")}>
                             {fmtCurrency(p.cantidad_actual * p.precio_promedio_ponderado)}
                           </td>
-                          {/* Columna Acciones / Carga masiva — siempre un único td */}
-                          <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
-                            {bulkMode ? (
-                              // ── Modo carga masiva: input de cantidad ──────────
-                              inactivo ? null : (() => {
-                                const bulkVal = bulkQtys[p.id] ? parseFloat(bulkQtys[p.id].replace(",", ".")) : 0;
+                          {/* Columna Acciones / Carga masiva */}
+                          {bulkMode ? (
+                            // ── Modo carga masiva: checkbox + input de cantidad ──
+                            inactivo ? <td /> : (() => {
+                                const isChecked   = isCheckedRow;
+                                const bulkVal     = bulkQtys[p.id] ? parseFloat(bulkQtys[p.id].replace(",", ".")) : 0;
                                 const excedeStock = bulkTipo === "salida" && bulkVal > p.cantidad_actual;
                                 return (
+                                  <>
+                                    <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
                                   <div className="flex flex-col items-end gap-0.5">
                                     <input
                                       type="number"
                                       min="0"
                                       max={bulkTipo === "salida" ? p.cantidad_actual : undefined}
                                       step="any"
+                                      disabled={!isChecked}
                                       value={bulkQtys[p.id] ?? ""}
                                       onChange={e => setBulkQtys(prev => ({ ...prev, [p.id]: e.target.value }))}
                                       onKeyDown={e => {
                                         if (e.key === "Enter") {
                                           const next = (e.currentTarget.closest("tr")?.nextElementSibling as HTMLElement | null)
-                                            ?.querySelector('input[type="number"]') as HTMLInputElement | null;
+                                            ?.querySelector('input[type="number"]:not(:disabled)') as HTMLInputElement | null;
                                           next?.focus();
                                         }
                                       }}
-                                      placeholder={`cant. (${p.unidad_medida})`}
+                                      placeholder={isChecked ? `cant. (${p.unidad_medida})` : "—"}
                                       title={excedeStock ? `Solo hay ${fmtNum(p.cantidad_actual, 1)} ${p.unidad_medida} en stock` : undefined}
                                       className={cn(
                                         "h-8 w-36 rounded-md border bg-background px-2 text-xs text-right focus:outline-none focus:ring-2 transition-colors",
-                                        excedeStock
+                                        !isChecked && "opacity-30 cursor-not-allowed bg-muted",
+                                        isChecked && excedeStock
                                           ? "border-red-500 focus:ring-red-400/40 text-red-600 dark:text-red-400 font-medium"
-                                          : bulkVal > 0
+                                          : isChecked && bulkVal > 0
                                             ? "border-green-400 focus:ring-green-400/40 text-green-700 dark:text-green-400 font-medium"
                                             : "border-border focus:ring-ring",
                                       )}
                                     />
-                                    {excedeStock && (
+                                    {excedeStock && isChecked && (
                                       <span className="text-[10px] text-red-600 dark:text-red-400">
                                         máx. {fmtNum(p.cantidad_actual, 1)}
                                       </span>
                                     )}
                                   </div>
+                                    </td>
+                                  </>
                                 );
                               })()
-                            ) : tableMode ? (
+                            ) : (
+                            <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
+                            {tableMode ? (
                               // ── Modo tabla: campo ubicación editable ──────────
                               inactivo ? null : (
                                 <div
@@ -6297,7 +5485,7 @@ export default function Inventario() {
                                 </Popover>
                               </div>
                             )}
-                          </td>
+                            </td>)}
                           {tableMode && !bulkMode && (
                             <td className="w-10 px-1 py-1 text-center border border-[#d0d1d2] dark:border-border/70" onClick={e => e.stopPropagation()}>
                               {!inactivo && (
@@ -6339,7 +5527,6 @@ export default function Inventario() {
         onMovimiento={openMovimiento}
         onKardex={id => { setKardexId(id); }}
         onTransferir={id => setTransferirId(id)}
-        onVerHistorialLote={irAHistorialDeLote}
       />
       <KardexSheet productId={kardexId} onClose={() => setKardexId(null)} />
       <TransferenciaModal productoId={transferirId} open={!!transferirId} onClose={() => setTransferirId(null)} />

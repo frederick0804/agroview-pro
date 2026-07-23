@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import {
   useRole, hardcodedUsers,
   ALL_MODULES, ALL_ACTIONS,
-  ROLE_LEVELS, CLIENTES_DEMO,
+  ROLE_LEVELS, CLIENTES_DEMO, AREAS_DEMO,
   type UserRole, type ActionPermission,
 } from "@/contexts/RoleContext";
 
@@ -81,7 +81,7 @@ const mockUsers = hardcodedUsers.map(u => ({
   roleKey: u.role,
   nivel: ROLE_LEVELS[u.role],
   clienteId: u.clienteId,
-  area_asignada: u.area_asignada,
+  areas_ids: u.areas_ids,
   empresa: u.clienteId ? CLIENTES_DEMO.find(c => c.id === u.clienteId)?.nombre ?? "—" : "Plataforma",
   estado: "Activo" as const,
   ultimoAcceso: u.id <= 3 ? "Hoy 09:30" : u.id === 4 ? "Hoy 10:00" : u.id === 5 ? "Hoy 07:55" : "Hace 3 días",
@@ -187,11 +187,11 @@ export default function GestionUsuarios() {
                             <p className="text-xs text-muted-foreground flex items-center gap-1">
                               <Mail className="w-3 h-3" /> {user.email}
                             </p>
-                            {user.area_asignada && (
+                            {user.areas_ids?.length ? (
                               <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                                Área: {user.area_asignada}
+                                {user.areas_ids.map(id => AREAS_DEMO.find(a => a.id === id)?.nombre).filter(Boolean).join(", ")}
                               </p>
-                            )}
+                            ) : null}
                           </div>
                         </td>
                         <td className="px-4 py-3 hidden sm:table-cell">
@@ -269,7 +269,7 @@ export default function GestionUsuarios() {
                     <p className="font-medium text-xs text-foreground truncate">{selectedUser.nombre}</p>
                     <p className="text-[10px] text-muted-foreground">
                       {selectedUser.rol} · Nv. {selectedUser.nivel}
-                      {selectedUser.area_asignada && ` · ${selectedUser.area_asignada}`}
+                      {selectedUser.areas_ids?.length ? ` · ${selectedUser.areas_ids.map(id => AREAS_DEMO.find(a => a.id === id)?.nombre).filter(Boolean).join(", ")}` : ""}
                     </p>
                   </div>
                 </div>
@@ -404,11 +404,11 @@ export default function GestionUsuarios() {
                 </div>
                 <span className="text-xs font-medium">{selectedUser.nombre}</span>
                 <span className="text-xs text-muted-foreground">· {selectedUser.rol}</span>
-                {selectedUser.area_asignada && (
+                {selectedUser.areas_ids?.length ? (
                   <span className="ml-auto text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
-                    {selectedUser.area_asignada}
+                    {selectedUser.areas_ids.map(id => AREAS_DEMO.find(a => a.id === id)?.nombre).filter(Boolean).join(", ")}
                   </span>
-                )}
+                ) : null}
               </div>
 
               {/* ── Módulo ── */}

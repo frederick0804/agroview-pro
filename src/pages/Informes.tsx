@@ -58,6 +58,7 @@ import {
   Users,
   User,
   UserPlus,
+  UserCheck,
   ChevronDown,
   Eye,
   Pencil,
@@ -103,6 +104,15 @@ interface Informe {
   hora_envio?: string;
   destinatarios_programados?: string[];
   formato_preferido?: FormatoExport;
+  envio_por_productor?: boolean;
+  configuracion_programacion?: {
+    tipo_envio?: "consolidado" | "por_productor";
+    reglas_por_productor?: Array<{
+      productor_id: string;
+      cultivo_id: string | null;
+      enviar_a: string[];
+    }>;
+  };
   filtros_automaticos?: Record<string, unknown>;
   veces_generado: number;
   ultimo_uso?: string;
@@ -1959,7 +1969,7 @@ interface DetailPanelProps {
   onToggleFavorite: () => void;
   onClose: () => void;
   onConfigure: () => void;
-  onUpdateSchedule?: (changes: Partial<Pick<Informe, "es_programado" | "frecuencia_programacion" | "hora_envio" | "destinatarios_programados" | "formato_preferido" | "filtros_automaticos">>) => void;
+  onUpdateSchedule?: (changes: Partial<Pick<Informe, "es_programado" | "frecuencia_programacion" | "hora_envio" | "destinatarios_programados" | "formato_preferido" | "filtros_automaticos" | "envio_por_productor" | "configuracion_programacion">>) => void;
   onPatchAcceso?: (changes: Partial<Pick<Informe, "nivel_acceso_minimo" | "roles_excluidos">>) => void;
   onDeleteTemplate?: () => void;
   onRestoreVersion?: (snap: InformeSnapshot) => void;
@@ -2282,6 +2292,18 @@ function DetailPanel({
   const isSupervisorOrLector = currentUser?.role === "supervisor" || currentUser?.role === "lector";
   const [schedFormato, setSchedFormato] = useState<FormatoExport>(informe.formato_preferido ?? "pdf");
   const [schedSaved, setSchedSaved] = useState(false);
+  const [envioPorProductor, setEnvioPorProductor] = useState(informe.envio_por_productor ?? false);
+  const [reglasProductor, setReglasProductor] = useState<Array<{
+    productor_id: string;
+    cultivo_id: string | null;
+    enviar_a: string[];
+    expanded: boolean;
+    emailInput: string;
+  }>>(() => {
+    const saved = informe.configuracion_programacion?.reglas_por_productor ?? [];
+    return saved.map((r) => ({ ...r, expanded: false, emailInput: "" }));
+  });
+  const [productorExpandedInputs, setProductorExpandedInputs] = useState<Record<string, string>>({});
 
   const visibleScheduleUsers = useMemo(() =>
     users.filter((u) =>
@@ -2462,6 +2484,17 @@ function DetailPanel({
     // Productor no ve selector de productores (solo el suyo)
     return [];
   }, [currentUser, productoresFiltrados, productores]);
+
+  // Sync reglas when toggle turns on: add missing producers, keep existing config
+  useEffect(() => {
+    if (!envioPorProductor) return;
+    setReglasProductor((prev) => {
+      const existing = new Map(prev.map((r) => [r.productor_id, r]));
+      return productoresDisponibles.map((p) =>
+        existing.get(String(p.id)) ?? { productor_id: String(p.id), cultivo_id: null, enviar_a: [], expanded: false, emailInput: "" }
+      );
+    });
+  }, [envioPorProductor, productoresDisponibles]);
 
   // Cultivos disponibles según permisos del usuario
   const cultivosDisponibles = useMemo(() => {
@@ -2725,12 +2758,21 @@ function DetailPanel({
       };
     }
 
+    const configProgramacion = schedEnabled && envioPorProductor
+      ? {
+          tipo_envio: "por_productor" as const,
+          reglas_por_productor: reglasProductor.map(({ productor_id, cultivo_id, enviar_a }) => ({ productor_id, cultivo_id, enviar_a })),
+        }
+      : { tipo_envio: "consolidado" as const };
+
     onUpdateSchedule?.({
       es_programado: schedEnabled,
       frecuencia_programacion: schedEnabled ? schedFrecuencia : undefined,
       hora_envio: schedEnabled ? schedHora : undefined,
       destinatarios_programados: schedEnabled ? schedDestinatarios : [],
       formato_preferido: schedEnabled ? schedFormato : undefined,
+      envio_por_productor: envioPorProductor,
+      configuracion_programacion: configProgramacion,
       // Incluir filtros configurados
       filtros_automaticos: filtrosAutomaticos,
     });
@@ -4221,8 +4263,8 @@ function DetailPanel({
                   </div>
                 </div>
 
-                {/* ── Destinatarios builder ── */}
-                {(() => {
+                {/* ── Destinatarios builder — solo en modo consolidado ── */}
+                {!envioPorProductor && (() => {
                   // Role config: label, icon color, bg
                   const ROLES_DISPONIBLES: Array<{ key: string; label: string; singular: string; color: string; bg: string; border: string }> = [
                     { key: "supervisor",    label: "Supervisores",     singular: "Supervisor",    color: "text-blue-700 dark:text-blue-300",    bg: "bg-blue-50 dark:bg-blue-950/30",   border: "border-blue-200 dark:border-blue-800" },
@@ -4542,6 +4584,187 @@ function DetailPanel({
                   );
                 })()}
               </div>
+              {/* End of config fields */}
+
+              {/* Modo de envío */}
+              <div className={cn("space-y-3", !schedEnabled && "opacity-40 pointer-events-none")}>
+                <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                  Modo de envío
+                </Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEnvioPorProductor(false)}
+                    className={cn(
+                      "flex flex-col items-start gap-1 p-3 rounded-xl border text-left transition-colors",
+                      !envioPorProductor
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border bg-card text-muted-foreground hover:bg-muted/40",
+                    )}
+                  >
+                    <div className={cn("p-1.5 rounded-lg", !envioPorProductor ? "bg-primary/10" : "bg-muted")}>
+                      <Mail className={cn("w-3.5 h-3.5", !envioPorProductor ? "text-primary" : "text-muted-foreground")} />
+                    </div>
+                    <p className="text-xs font-semibold">Consolidado</p>
+                    <p className="text-[10px] opacity-70 leading-snug">Un informe con todos los datos</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEnvioPorProductor(true)}
+                    className={cn(
+                      "flex flex-col items-start gap-1 p-3 rounded-xl border text-left transition-colors",
+                      envioPorProductor
+                        ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                        : "border-border bg-card text-muted-foreground hover:bg-muted/40",
+                    )}
+                  >
+                    <div className={cn("p-1.5 rounded-lg", envioPorProductor ? "bg-emerald-100" : "bg-muted")}>
+                      <Users className={cn("w-3.5 h-3.5", envioPorProductor ? "text-emerald-600" : "text-muted-foreground")} />
+                    </div>
+                    <p className="text-xs font-semibold">Por productor</p>
+                    <p className="text-[10px] opacity-70 leading-snug">Un informe separado por productor</p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Per-producer configuration */}
+              {envioPorProductor && schedEnabled && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide px-1">
+                    Configuración por productor
+                  </p>
+                  {reglasProductor.length === 0 && (
+                    <p className="text-[11px] text-muted-foreground px-1">No hay productores disponibles.</p>
+                  )}
+                  {reglasProductor.map((regla, idx) => {
+                    const prod = productoresDisponibles.find((p) => String(p.id) === regla.productor_id);
+                    if (!prod) return null;
+                    return (
+                      <div key={regla.productor_id} className="rounded-xl border border-border bg-card overflow-hidden">
+                        {/* Header row */}
+                        <button
+                          type="button"
+                          className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-muted/40 transition-colors text-left"
+                          onClick={() => setReglasProductor((prev) =>
+                            prev.map((r, i) => i === idx ? { ...r, expanded: !r.expanded } : r)
+                          )}
+                        >
+                          <div className="p-1 rounded-md bg-emerald-100">
+                            <Users className="w-3 h-3 text-emerald-600" />
+                          </div>
+                          <span className="text-xs font-semibold flex-1 truncate">{prod.nombre}</span>
+                          <span className="text-[10px] text-muted-foreground mr-1">
+                            {regla.cultivo_id ? cultivosDisponibles.find(c => c.id === regla.cultivo_id)?.nombre ?? regla.cultivo_id : "Todos los cultivos"}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground mr-1">
+                            {regla.enviar_a.length > 0 ? `${regla.enviar_a.length} dest.` : "Sin dest."}
+                          </span>
+                          <ChevronDown className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform", regla.expanded && "rotate-180")} />
+                        </button>
+
+                        {/* Expanded config */}
+                        {regla.expanded && (
+                          <div className="px-3 pb-3 space-y-3 border-t border-border pt-3">
+                            {/* Cultivo selector */}
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-medium text-muted-foreground">Cultivo</p>
+                              <Select
+                                value={regla.cultivo_id ?? "todos"}
+                                onValueChange={(val) => setReglasProductor((prev) =>
+                                  prev.map((r, i) => i === idx ? { ...r, cultivo_id: val === "todos" ? null : val } : r)
+                                )}
+                              >
+                                <SelectTrigger className="h-7 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="todos">Todos sus cultivos</SelectItem>
+                                  {cultivosDisponibles.map((c) => (
+                                    <SelectItem key={c.id} value={c.id}>{c.nombre}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {/* Destinatarios */}
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-medium text-muted-foreground">Destinatarios</p>
+                              <div className="flex flex-wrap gap-1 mb-1">
+                                {regla.enviar_a.map((email) => (
+                                  <span key={email} className="flex items-center gap-1 text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5">
+                                    {email}
+                                    <button
+                                      type="button"
+                                      onClick={() => setReglasProductor((prev) =>
+                                        prev.map((r, i) => i === idx ? { ...r, enviar_a: r.enviar_a.filter((e) => e !== email) } : r)
+                                      )}
+                                      className="hover:text-red-500"
+                                    >
+                                      <X className="w-2.5 h-2.5" />
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="flex gap-1.5">
+                                <input
+                                  type="email"
+                                  placeholder="email@ejemplo.com"
+                                  value={productorExpandedInputs[regla.productor_id] ?? ""}
+                                  onChange={(e) => setProductorExpandedInputs((prev) => ({ ...prev, [regla.productor_id]: e.target.value }))}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === ",") {
+                                      e.preventDefault();
+                                      const val = (productorExpandedInputs[regla.productor_id] ?? "").trim();
+                                      if (val && !regla.enviar_a.includes(val)) {
+                                        setReglasProductor((prev) =>
+                                          prev.map((r, i) => i === idx ? { ...r, enviar_a: [...r.enviar_a, val] } : r)
+                                        );
+                                        setProductorExpandedInputs((prev) => ({ ...prev, [regla.productor_id]: "" }));
+                                      }
+                                    }
+                                  }}
+                                  className="flex-1 h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                                />
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => {
+                                    const val = (productorExpandedInputs[regla.productor_id] ?? "").trim();
+                                    if (val && !regla.enviar_a.includes(val)) {
+                                      setReglasProductor((prev) =>
+                                        prev.map((r, i) => i === idx ? { ...r, enviar_a: [...r.enviar_a, val] } : r)
+                                      );
+                                      setProductorExpandedInputs((prev) => ({ ...prev, [regla.productor_id]: "" }));
+                                    }
+                                  }}
+                                >
+                                  <Plus className="w-3 h-3" />
+                                </Button>
+                              </div>
+                              {/* Also allow selecting from system users */}
+                              {visibleScheduleUsers.filter((u) => !regla.enviar_a.includes(u.email)).slice(0, 5).map((u) => (
+                                <button
+                                  key={u.id}
+                                  type="button"
+                                  onClick={() => setReglasProductor((prev) =>
+                                    prev.map((r, i) => i === idx ? { ...r, enviar_a: [...r.enviar_a, u.email] } : r)
+                                  )}
+                                  className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-full py-0.5"
+                                >
+                                  <UserCheck className="w-3 h-3" />
+                                  <span>{u.nombre}</span>
+                                  <span className="opacity-60">{u.email}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               <Button
                 size="sm"
@@ -4816,9 +5039,10 @@ const Informes = () => {
   const isSupervisorOrLector = ["supervisor", "lector"].includes(role);
 
   // Area restriction for area-bound roles
-  const area = currentUser?.area_asignada as string | undefined;
-  const allowedCategorias = area ? moduleToCategorias[area] ?? [] : [];
-  const isAreaRestricted = !!area && allowedCategorias.length > 0;
+  const { getUserModulos } = useRole();
+  const userModulos = currentUser ? getUserModulos(currentUser) : [];
+  const allowedCategorias = [...new Set(userModulos.flatMap(m => moduleToCategorias[m] ?? []))];
+  const isAreaRestricted = userModulos.length > 0 && allowedCategorias.length > 0;
 
   // ── Acceso global a informes (sin restricción de área) ──
   // Super admin / cliente_admin / productor ven TODO.
