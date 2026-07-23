@@ -24,7 +24,7 @@ import {
   LineChart, Package, Pencil, PieChart, Plus, Save, ShoppingCart,
   Sprout, Trash2, Users,
 } from "lucide-react";
-import type { CampoOpcion, ModDef, ModParam } from "@/config/moduleDefinitions";
+import type { CampoOpcion, ModDef, ModDato, ModParam } from "@/config/moduleDefinitions";
 import {
   AreaChart, Area, BarChart, Bar,
   PieChart as RechartsPieChart, Pie, Cell,
@@ -202,6 +202,116 @@ function buildDefaultTitle(def: ModDef | null, campo: ModParam | null) {
   return `${def.nombre} - ${getFieldLabel(campo)}`;
 }
 
+// ─── Real data computation ────────────────────────────────────────────────────
+
+type RealWidgetData =
+  | { type: "kpi"; value: number; trend: number; trendData: { month: string; value: number }[] }
+  | { type: "serie"; data: { month: string; value: number }[] }
+  | { type: "distribucion"; items: { name: string; value: number; color: string }[]; total: number }
+  | null;
+
+const DIST_COLORS = [
+  "hsl(142,70%,45%)", "hsl(38,92%,50%)", "hsl(0,72%,51%)",
+  "hsl(213,70%,50%)", "hsl(268,65%,55%)", "hsl(187,65%,42%)",
+];
+
+function cutoffDate(dateRange: DateRangeKey): Date {
+  const now = new Date();
+  if (dateRange === "7d")  { const d = new Date(now); d.setDate(d.getDate() - 7);           return d; }
+  if (dateRange === "30d") { const d = new Date(now); d.setDate(d.getDate() - 30);          return d; }
+  if (dateRange === "90d") { const d = new Date(now); d.setDate(d.getDate() - 90);          return d; }
+  // ytd
+  return new Date(now.getFullYear(), 0, 1);
+}
+
+function bucketLabel(fecha: string, dateRange: DateRangeKey): string {
+  const d = new Date(fecha);
+  if (dateRange === "7d")  return DAYS_ES[d.getDay()];
+  if (dateRange === "30d") {
+    const cutoff = cutoffDate("30d");
+    const weekNum = Math.floor((d.getTime() - cutoff.getTime()) / (7 * 86400_000));
+    return `Sem ${Math.min(weekNum + 1, 5)}`;
+  }
+  return MONTHS_ES[d.getMonth()];
+}
+
+function computeWidgetData(
+  widget: WidgetConfig,
+  datos: ModDato[],
+  campo: ModParam | null,
+): RealWidgetData {
+  if (!campo) return null;
+
+  const cutoff = cutoffDate(widget.dateRange);
+  const filtered = datos.filter((d) => {
+    if (d.definicion_id !== widget.definicionId) return false;
+    if (widget.cultivoId !== "all" && d.cultivo_id !== widget.cultivoId) return false;
+    return new Date(d.fecha) >= cutoff;
+  });
+
+  if (filtered.length === 0) return null;
+
+  const campoNombre = campo.nombre;
+
+  if (widget.type === "distribucion") {
+    const counts: Record<string, number> = {};
+    for (const dato of filtered) {
+      let vals: Record<string, unknown>;
+      try { vals = JSON.parse(dato.valores) as Record<string, unknown>; } catch { continue; }
+      const raw = vals[campoNombre];
+      if (raw == null || raw === "") continue;
+      const key = String(raw);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    if (entries.length === 0) return null;
+    const total = entries.reduce((s, [, v]) => s + v, 0);
+    const items = entries.map(([name, value], i) => ({
+      name, value, color: DIST_COLORS[i % DIST_COLORS.length],
+    }));
+    return { type: "distribucion", items, total };
+  }
+
+  if (widget.type === "kpi" || widget.type === "serie") {
+    // Build bucket map
+    const labels = buildTrendLabels(widget.dateRange);
+    const bucketMap = new Map<string, number[]>();
+    for (const lbl of labels) bucketMap.set(lbl, []);
+
+    for (const dato of filtered) {
+      let vals: Record<string, unknown>;
+      try { vals = JSON.parse(dato.valores) as Record<string, unknown>; } catch { continue; }
+      const raw = vals[campoNombre];
+      const num = raw !== null && raw !== undefined && raw !== "" ? Number(raw) : NaN;
+      if (isNaN(num)) continue;
+      const lbl = bucketLabel(dato.fecha, widget.dateRange);
+      if (bucketMap.has(lbl)) bucketMap.get(lbl)!.push(num);
+    }
+
+    const agg = widget.aggregation;
+    const data = labels.map((month) => {
+      const vals2 = bucketMap.get(month) ?? [];
+      let value = 0;
+      if (vals2.length === 0) return { month, value: 0 };
+      if (agg === "sum")     value = vals2.reduce((s, v) => s + v, 0);
+      else if (agg === "avg")value = vals2.reduce((s, v) => s + v, 0) / vals2.length;
+      else if (agg === "count") value = vals2.length;
+      else if (agg === "min")value = Math.min(...vals2);
+      else if (agg === "max")value = Math.max(...vals2);
+      return { month, value: Math.round(value * 100) / 100 };
+    });
+
+    if (widget.type === "serie") return { type: "serie", data };
+
+    const latest = data[data.length - 1].value;
+    const prev   = data[data.length - 2]?.value ?? latest;
+    const trend  = prev !== 0 ? Math.round(((latest - prev) / Math.abs(prev)) * 100) : 0;
+    return { type: "kpi", value: latest, trend, trendData: data };
+  }
+
+  return null;
+}
+
 // ─── StepDot ──────────────────────────────────────────────────────────────────
 
 function StepDot({ num, done, active }: { num: number; done: boolean; active: boolean }) {
@@ -229,65 +339,83 @@ function FieldLabel({ text }: { text: string }) {
 
 function WidgetPreview({
   type, seed, aggregation, color = "hsl(142,45%,28%)", rows = 1,
-  dateRange = "30d", campoLabel = "", opciones,
+  dateRange = "30d", campoLabel = "", opciones, realData,
 }: {
   type: WidgetType; label: string; seed: string; aggregation: AggregationType;
   color?: string; rows?: 1 | 2 | 3;
   dateRange?: DateRangeKey;
   campoLabel?: string;
   opciones?: CampoOpcion[] | null;
+  realData?: RealWidgetData;
 }) {
-  const trendData  = buildTrendData(seed, dateRange);
-  const compData   = buildCompData(seed, opciones);
-  const latest     = trendData[trendData.length - 1].value;
-  const prev       = trendData[trendData.length - 2]?.value ?? latest;
-  const trend      = prev > 0 ? Math.round(((latest - prev) / prev) * 100) : 0;
-  const gradId     = `grad-${seed.replace(/[^a-z0-9]/gi, "").slice(0, 20)}`;
-  const compTotal  = compData.reduce((s, d) => s + d.value, 0) || 1;
   const kpiChartH  = 56  + (rows - 1) * 68;
   const mainChartH = 88  + (rows - 1) * 110;
   const donutSize  = Math.min(mainChartH, 88 + (rows - 1) * 60);
-  // Label corto para tooltips: usa el nombre del campo o fallback genérico
   const metricName = campoLabel || "Valor";
+  const gradId     = `grad-${seed.replace(/[^a-z0-9]/gi, "").slice(0, 20)}`;
 
-  if (type === "kpi") return (
-    <div className="space-y-1">
-      <p className="text-2xl font-bold text-foreground">{latest.toLocaleString("es-EC")}</p>
-      <p className={cn("text-xs font-medium", trend >= 0 ? "text-emerald-600" : "text-rose-500")}>
-        {trend >= 0 ? `+${trend}%` : `${trend}%`} vs periodo anterior
-      </p>
-      {/* Subtítulo: nombre del campo + tipo de agregación */}
-      <p className="text-[10px] text-muted-foreground">
-        {campoLabel ? `${campoLabel} · ` : ""}{AGG_LABELS[aggregation] ?? aggregation}
-      </p>
-      <ResponsiveContainer width="100%" height={kpiChartH}>
-        <AreaChart data={trendData} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
-          <defs>
-            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor={color} stopOpacity={0.25} />
-              <stop offset="95%" stopColor={color} stopOpacity={0}    />
-            </linearGradient>
-          </defs>
-          <Area type="monotone" dataKey="value" stroke={color} strokeWidth={1.5}
-            fill={`url(#${gradId})`} dot={false} />
+  // ── Empty state ──────────────────────────────────────────────────────────
+  if (realData === null) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-4 text-center opacity-50">
+        <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+          <span className="text-lg">📊</span>
+        </div>
+        <p className="text-[10px] text-muted-foreground">Sin datos en el período</p>
+      </div>
+    );
+  }
+
+  // ── KPI ──────────────────────────────────────────────────────────────────
+  if (type === "kpi") {
+    const trendData = realData?.type === "kpi" ? realData.trendData : buildTrendData(seed, dateRange);
+    const latest    = realData?.type === "kpi" ? realData.value : trendData[trendData.length - 1].value;
+    const trend     = realData?.type === "kpi" ? realData.trend
+      : (() => { const p = trendData[trendData.length - 2]?.value ?? latest; return p > 0 ? Math.round(((latest - p) / p) * 100) : 0; })();
+    return (
+      <div className="space-y-1">
+        <p className="text-2xl font-bold text-foreground">{latest.toLocaleString("es-EC")}</p>
+        <p className={cn("text-xs font-medium", trend >= 0 ? "text-emerald-600" : "text-rose-500")}>
+          {trend >= 0 ? `+${trend}%` : `${trend}%`} vs periodo anterior
+        </p>
+        <p className="text-[10px] text-muted-foreground">
+          {campoLabel ? `${campoLabel} · ` : ""}{AGG_LABELS[aggregation] ?? aggregation}
+        </p>
+        <ResponsiveContainer width="100%" height={kpiChartH}>
+          <AreaChart data={trendData} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%"  stopColor={color} stopOpacity={0.25} />
+                <stop offset="95%" stopColor={color} stopOpacity={0}    />
+              </linearGradient>
+            </defs>
+            <Area type="monotone" dataKey="value" stroke={color} strokeWidth={1.5}
+              fill={`url(#${gradId})`} dot={false} />
+            <Tooltip contentStyle={CHART_TT} formatter={(v) => [v, metricName]} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
+  // ── Serie ─────────────────────────────────────────────────────────────────
+  if (type === "serie") {
+    const data = realData?.type === "serie" ? realData.data : buildTrendData(seed, dateRange);
+    return (
+      <ResponsiveContainer width="100%" height={mainChartH}>
+        <BarChart data={data} margin={{ top: 4, right: 0, bottom: 0, left: 0 }} barCategoryGap="28%">
+          <XAxis dataKey="month" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} />
+          <Bar dataKey="value" fill={color} radius={[3, 3, 0, 0]} opacity={0.85} />
           <Tooltip contentStyle={CHART_TT} formatter={(v) => [v, metricName]} />
-        </AreaChart>
+        </BarChart>
       </ResponsiveContainer>
-    </div>
-  );
+    );
+  }
 
-  if (type === "serie") return (
-    <ResponsiveContainer width="100%" height={mainChartH}>
-      <BarChart data={trendData} margin={{ top: 4, right: 0, bottom: 0, left: 0 }} barCategoryGap="28%">
-        <XAxis dataKey="month" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} />
-        <Bar dataKey="value" fill={color} radius={[3, 3, 0, 0]} opacity={0.85} />
-        {/* Tooltip muestra el nombre del campo como etiqueta de la serie */}
-        <Tooltip contentStyle={CHART_TT} formatter={(v) => [v, metricName]} />
-      </BarChart>
-    </ResponsiveContainer>
-  );
-
-  // distribución → donut + leyenda con nombres reales del campo
+  // ── Distribución ──────────────────────────────────────────────────────────
+  const compData  = realData?.type === "distribucion" ? realData.items : buildCompData(seed, opciones);
+  const compTotal = realData?.type === "distribucion" ? realData.total
+    : compData.reduce((s, d) => s + d.value, 0) || 1;
   return (
     <div className="flex items-center gap-4">
       <ResponsiveContainer width={donutSize} height={donutSize}>
@@ -323,6 +451,7 @@ function WidgetCard({
   cultivoOpts,
   activeDefs,
   parametros,
+  datos,
   isDragging,
   isDragOver,
   isResizing,
@@ -336,6 +465,7 @@ function WidgetCard({
   cultivoOpts: { id: string; nombre: string }[];
   activeDefs: ModDef[];
   parametros: ModParam[];
+  datos: ModDato[];
   isDragging: boolean;
   isDragOver: boolean;
   isResizing: boolean;
@@ -353,10 +483,9 @@ function WidgetCard({
   const modLabel   = modOpt?.label ?? widget.moduloId;
   const dateLbl    = DATE_RANGES.find((r) => r.value === widget.dateRange)?.label ?? widget.dateRange;
   const cultivoLbl = cultivoOpts.find((c) => c.id === widget.cultivoId)?.nombre;
-  // Etiqueta del campo (para tooltip y subtítulo del KPI)
   const campoLabel  = campo ? (campo.etiqueta_personalizada?.trim() || campo.nombre) : "";
-  // Opciones del campo (para distribución — tipo Lista)
   const campoOpciones = campo?.opciones ?? null;
+  const realData   = computeWidgetData(widget, datos, campo);
 
   return (
     <div className={cn(
@@ -416,6 +545,7 @@ function WidgetCard({
           dateRange={widget.dateRange}
           campoLabel={campoLabel}
           opciones={campoOpciones}
+          realData={realData}
         />
       </div>
 
@@ -492,7 +622,7 @@ function AddWidgetCard({ onClick }: { onClick: () => void }) {
 // ─── DashboardBuilderContent ──────────────────────────────────────────────────
 
 export function DashboardBuilderContent({ inlineMode = false, defaultTab, onAfterSave }: { inlineMode?: boolean; defaultTab?: DashboardTab; onAfterSave?: () => void }) {
-  const { definiciones, parametros, cultivos } = useConfig();
+  const { definiciones, parametros, cultivos, datos } = useConfig();
 
   const activeDefs = useMemo(
     () => definiciones.filter((d) => d.estado !== "archivado"),
@@ -866,6 +996,7 @@ export function DashboardBuilderContent({ inlineMode = false, defaultTab, onAfte
                   cultivoOpts={cultivoOpts}
                   activeDefs={activeDefs}
                   parametros={parametros}
+                  datos={datos}
                   isDragging={dragId === widget.id}
                   isDragOver={dragOverId === widget.id}
                   isResizing={resizing?.id === widget.id}

@@ -90,6 +90,81 @@ export interface DefinicionAccesoUsuario {
   created_at:       string;   // ISO timestamp
 }
 
+// ─── Inventario — Configuración de ventana de ajuste de stock ────────────────
+// Regla recurrente por cliente/productor. El sistema computa automáticamente
+// si la ventana está activa según la fecha actual y los días configurados.
+
+export interface ConfigVentanaAjuste {
+  id:            string;
+  cliente_id:    number;          // ref → clientes.id
+  productor_id?: number;          // undefined = aplica a todos los productores del cliente
+  dias_apertura: number;          // días antes del fin de mes en que se abre (ej. 5 → abre el día 26 en mes de 30)
+  dias_cierre:   number;          // días antes del fin de mes para cerrar; 0 = fin de mes; -1 = inicio del mes siguiente
+  activa:        boolean;         // regla habilitada o no
+  notas?:        string;
+  created_at:    string;
+  updated_at:    string;
+}
+
+export interface ConteoFisico {
+  id:                string;
+  ventana_config_id: string;        // ref → ConfigVentanaAjuste.id
+  periodo:           string;        // "YYYY-MM" — mes del conteo
+  catalogo_id:       string;        // ref → inventario_catalogo.id
+  cantidad_sistema:  number;
+  cantidad_contada:  number;
+  diferencia:        number;
+  movimiento_id?:    string;
+  contado_por:       string;
+  created_at:        string;
+}
+
+export const CONFIG_VENTANAS_DEMO: ConfigVentanaAjuste[] = [
+  {
+    id: "cv-1", cliente_id: 1,
+    dias_apertura: 5, dias_cierre: 1,
+    activa: true,
+    created_at: "2026-05-01T10:00:00Z", updated_at: "2026-05-01T10:00:00Z",
+  },
+  {
+    id: "cv-2", cliente_id: 2,
+    dias_apertura: 3, dias_cierre: -1,
+    activa: true,
+    created_at: "2026-06-01T09:00:00Z", updated_at: "2026-06-01T09:00:00Z",
+  },
+];
+
+// ─── AlcanceRegistro — definicion_registros_alcance ───────────────────────────
+// Asigna un formulario (definicion_registro) a un cliente y/o productor específico.
+// Si productor_id es undefined → aplica a todos los productores del cliente.
+
+export interface AlcanceRegistro {
+  id:                    string;
+  definicion_id:         string;    // ref → ModDef.id
+  cliente_id:            number;    // ref → clientes.id
+  productor_id?:         number;    // ref → productores.id; undefined = todos del cliente
+  cultivo_id?:           string;    // ref → cultivos.id; undefined = todos los cultivos
+  nombre?:               string;    // nombre personalizado (override del formulario)
+  activo:                boolean;
+  nivel_minimo_override?: number;   // override del nivel_minimo de la def
+  orden:                 number;
+}
+
+export const ALCANCES_DEMO: AlcanceRegistro[] = [
+  // Formulario "Registro de Propagación" → AgroPro Chile (todos los productores)
+  { id: "alc-1", definicion_id: "v-1", cliente_id: 1, activo: true, orden: 1 },
+  // Formulario "Control Fitosanitario Vivero" (v-2) → AgroPro Chile (todos)
+  { id: "alc-2", definicion_id: "v-2", cliente_id: 1, activo: true, orden: 1 },
+  // Formulario "Estructura de Campo" (1) → AgroPro Chile, productor 1
+  { id: "alc-3", definicion_id: "1",   cliente_id: 1, productor_id: 1, activo: true, orden: 1 },
+  // Formulario "Estructura de Campo" (1) → Frutas del Valle (todos)
+  { id: "alc-4", definicion_id: "1",   cliente_id: 2, activo: true, orden: 2 },
+  // Formulario "Ficha de Personal" (3) → AgroPro Chile (todos)
+  { id: "alc-5", definicion_id: "3",   cliente_id: 1, activo: true, orden: 1 },
+  // Formulario "Análisis de Laboratorio" (5) → Frutas del Valle, productor 3
+  { id: "alc-6", definicion_id: "5",   cliente_id: 2, productor_id: 3, activo: true, orden: 1 },
+];
+
 export const ACCESOS_DEFINICION_DEMO: DefinicionAccesoUsuario[] = [
   // Usuario 4 (Supervisor) puede acceder a "Ficha de Personal" aunque su rol esté excluido
   {
@@ -163,6 +238,8 @@ export interface ModParam {
   etiqueta_personalizada?:   string;
   valor_default?:            string;
   opciones?:                 CampoOpcion[] | null;
+  /** Clave de fuente vinculada para tipo Lista. Si está presente, las opciones se resuelven dinámicamente desde la config del cultivo. */
+  lista_data_source?:        string | null;
   validaciones_adicionales?: CampoValidaciones | null;
   dependencias?:             CampoDependencia | null;
   /** Fórmula que referencia otros campos. Ej: "produccion / area" */
@@ -342,7 +419,7 @@ export const DEFINICIONES: ModDef[] = [
     version: "1.0", modulo: "laboratorio", estado: "activo",
     // Acceso abierto: cualquier rol puede consultar resultados
     nivel_minimo: 1, roles_excluidos: [],
-    cliente_id: 1, productor_id: 1,
+    cliente_id: 1,
     updated_at: "2025-01-28T11:30:00Z", updated_by: "Carlos Ruiz",
   },
   {
@@ -730,192 +807,213 @@ export const DATOS_DEMO: ModDato[] = [
 
   // def 4 — Asistencia — semana 2026-06-02 al 2026-06-06 (lun–vie), 3 marcas por empleado/día
   // ── Lunes 02-jun ──────────────────────────────────────────────────────────────
-  { id: "att-0602-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",    fecha:"2026-06-02",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:38","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0602-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",   fecha:"2026-06-02",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
-  { id: "att-0602-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",     fecha:"2026-06-02",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:12","ubicacion_gps":"Portería"}' },
-  { id: "att-0602-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",   fecha:"2026-06-02",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:45","ubicacion_gps":"Bloque 2"}' },
-  { id: "att-0602-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",  fecha:"2026-06-02",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0602-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",    fecha:"2026-06-02",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:20","ubicacion_gps":"Portería"}' },
-  { id: "att-0602-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",   fecha:"2026-06-02",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"07:55","ubicacion_gps":"Oficina"}' },
-  { id: "att-0602-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",  fecha:"2026-06-02",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0602-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",    fecha:"2026-06-02",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:30","ubicacion_gps":"Portería"}' },
-  { id: "att-0602-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / entrada",    fecha:"2026-06-02",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"entrada", "hora":"08:02","ubicacion_gps":"Laboratorio"}' },
-  { id: "att-0602-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / colación",   fecha:"2026-06-02",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"colacion","hora":"12:15","ubicacion_gps":"Comedor"}' },
-  { id: "att-0602-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / salida",     fecha:"2026-06-02",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"salida",  "hora":"17:05","ubicacion_gps":"Portería"}' },
-  { id: "att-0602-13",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-06-02",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:30","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0602-14",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-06-02",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"11:55","ubicacion_gps":"Comedor"}' },
-  { id: "att-0602-15",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida",fecha:"2026-06-02",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
-  { id: "att-0602-16",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada",fecha:"2026-06-02",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:42","ubicacion_gps":"Bloque 3"}' },
-  { id: "att-0602-17",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-06-02",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:10","ubicacion_gps":"Comedor"}' },
-  { id: "att-0602-18",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida", fecha:"2026-06-02",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:15","ubicacion_gps":"Portería"}' },
-  { id: "att-0602-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada",fecha:"2026-06-02",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:50","ubicacion_gps":"Bloque 2"}' },
-  { id: "att-0602-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-06-02",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:30","ubicacion_gps":"Comedor"}' },
-  { id: "att-0602-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida", fecha:"2026-06-02",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"18:00","ubicacion_gps":"Portería"}' },
-  { id: "att-0602-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada",fecha:"2026-06-02",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
-  { id: "att-0602-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-06-02",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0602-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida", fecha:"2026-06-02",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
-  { id: "att-0602-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada", fecha:"2026-06-02",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"07:58","ubicacion_gps":"Vivero"}' },
-  { id: "att-0602-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación",fecha:"2026-06-02",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:20","ubicacion_gps":"Comedor"}' },
-  { id: "att-0602-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",  fecha:"2026-06-02",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:30","ubicacion_gps":"Portería"}' },
-  { id: "att-0602-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada",fecha:"2026-06-02",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:35","ubicacion_gps":"Bloque 4"}' },
-  { id: "att-0602-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-06-02",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0602-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida", fecha:"2026-06-02",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"16:55","ubicacion_gps":"Portería"}' },
-  { id: "att-0602-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",   fecha:"2026-06-02",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:40","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0602-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",  fecha:"2026-06-02",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
-  { id: "att-0602-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",    fecha:"2026-06-02",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:10","ubicacion_gps":"Portería"}' },
-  { id: "att-0602-34",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-06-02",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:05","ubicacion_gps":"Laboratorio"}' },
-  { id: "att-0602-35",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-06-02",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:10","ubicacion_gps":"Comedor"}' },
-  { id: "att-0602-36",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-06-02",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:45","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",    fecha:"2026-07-01",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:38","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0602-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",   fecha:"2026-07-01",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",     fecha:"2026-07-01",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:12","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",   fecha:"2026-07-01",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:45","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0602-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",  fecha:"2026-07-01",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",    fecha:"2026-07-01",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:20","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",   fecha:"2026-07-01",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"07:55","ubicacion_gps":"Oficina"}' },
+  { id: "att-0602-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",  fecha:"2026-07-01",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",    fecha:"2026-07-01",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:30","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / entrada",    fecha:"2026-07-01",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"entrada", "hora":"08:02","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0602-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / colación",   fecha:"2026-07-01",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"colacion","hora":"12:15","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / salida",     fecha:"2026-07-01",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"salida",  "hora":"17:05","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-13",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-07-01",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:30","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0602-14",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-07-01",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"11:55","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-15",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida",fecha:"2026-07-01",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-16",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada",fecha:"2026-07-01",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:42","ubicacion_gps":"Bloque 3"}' },
+  { id: "att-0602-17",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-07-01",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:10","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-18",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida", fecha:"2026-07-01",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:15","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada",fecha:"2026-07-01",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:50","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0602-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-07-01",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:30","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida", fecha:"2026-07-01",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"18:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada",fecha:"2026-07-01",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
+  { id: "att-0602-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-07-01",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida", fecha:"2026-07-01",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada", fecha:"2026-07-01",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"07:58","ubicacion_gps":"Vivero"}' },
+  { id: "att-0602-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación",fecha:"2026-07-01",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:20","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",  fecha:"2026-07-01",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:30","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada",fecha:"2026-07-01",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:35","ubicacion_gps":"Bloque 4"}' },
+  { id: "att-0602-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-07-01",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida", fecha:"2026-07-01",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"16:55","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",   fecha:"2026-07-01",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:40","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0602-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",  fecha:"2026-07-01",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",    fecha:"2026-07-01",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:10","ubicacion_gps":"Portería"}' },
+  { id: "att-0602-34",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-07-01",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:05","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0602-35",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-07-01",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:10","ubicacion_gps":"Comedor"}' },
+  { id: "att-0602-36",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-07-01",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:45","ubicacion_gps":"Portería"}' },
   // ── Martes 03-jun ─────────────────────────────────────────────────────────────
-  { id: "att-0603-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",     fecha:"2026-06-03",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:41","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0603-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",    fecha:"2026-06-03",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0603-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",      fecha:"2026-06-03",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:08","ubicacion_gps":"Portería"}' },
-  { id: "att-0603-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",    fecha:"2026-06-03",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:52","ubicacion_gps":"Bloque 2"}' },
-  { id: "att-0603-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",   fecha:"2026-06-03",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:10","ubicacion_gps":"Comedor"}' },
-  { id: "att-0603-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",     fecha:"2026-06-03",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:22","ubicacion_gps":"Portería"}' },
-  { id: "att-0603-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",    fecha:"2026-06-03",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
-  { id: "att-0603-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",   fecha:"2026-06-03",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0603-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",     fecha:"2026-06-03",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:15","ubicacion_gps":"Portería"}' },
-  { id: "att-0603-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-06-03",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:29","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0603-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-06-03",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"11:58","ubicacion_gps":"Comedor"}' },
-  { id: "att-0603-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida", fecha:"2026-06-03",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:02","ubicacion_gps":"Portería"}' },
-  { id: "att-0603-13",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada", fecha:"2026-06-03",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:47","ubicacion_gps":"Bloque 3"}' },
-  { id: "att-0603-14",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-06-03",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
-  { id: "att-0603-15",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida",  fecha:"2026-06-03",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:18","ubicacion_gps":"Portería"}' },
-  { id: "att-0603-16",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada", fecha:"2026-06-03",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:55","ubicacion_gps":"Bloque 2"}' },
-  { id: "att-0603-17",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-06-03",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:35","ubicacion_gps":"Comedor"}' },
-  { id: "att-0603-18",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida",  fecha:"2026-06-03",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"18:05","ubicacion_gps":"Portería"}' },
-  { id: "att-0603-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada", fecha:"2026-06-03",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
-  { id: "att-0603-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-06-03",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0603-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida",  fecha:"2026-06-03",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
-  { id: "att-0603-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada",  fecha:"2026-06-03",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"08:01","ubicacion_gps":"Vivero"}' },
-  { id: "att-0603-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación", fecha:"2026-06-03",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:25","ubicacion_gps":"Comedor"}' },
-  { id: "att-0603-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",   fecha:"2026-06-03",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:35","ubicacion_gps":"Portería"}' },
-  { id: "att-0603-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada", fecha:"2026-06-03",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:33","ubicacion_gps":"Bloque 4"}' },
-  { id: "att-0603-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-06-03",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:02","ubicacion_gps":"Comedor"}' },
-  { id: "att-0603-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida",  fecha:"2026-06-03",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"16:58","ubicacion_gps":"Portería"}' },
-  { id: "att-0603-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",    fecha:"2026-06-03",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:44","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0603-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",   fecha:"2026-06-03",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:08","ubicacion_gps":"Comedor"}' },
-  { id: "att-0603-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",     fecha:"2026-06-03",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:12","ubicacion_gps":"Portería"}' },
-  { id: "att-0603-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-06-03",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:03","ubicacion_gps":"Laboratorio"}' },
-  { id: "att-0603-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-06-03",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:05","ubicacion_gps":"Comedor"}' },
-  { id: "att-0603-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-06-03",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:50","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",     fecha:"2026-07-02",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:41","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0603-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",    fecha:"2026-07-02",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",      fecha:"2026-07-02",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:08","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",    fecha:"2026-07-02",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:52","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0603-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",   fecha:"2026-07-02",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:10","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",     fecha:"2026-07-02",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:22","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",    fecha:"2026-07-02",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
+  { id: "att-0603-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",   fecha:"2026-07-02",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",     fecha:"2026-07-02",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:15","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-07-02",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:29","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0603-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-07-02",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"11:58","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida", fecha:"2026-07-02",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:02","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-13",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada", fecha:"2026-07-02",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:47","ubicacion_gps":"Bloque 3"}' },
+  { id: "att-0603-14",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-07-02",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-15",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida",  fecha:"2026-07-02",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:18","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-16",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada", fecha:"2026-07-02",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:55","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0603-17",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-07-02",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:35","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-18",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida",  fecha:"2026-07-02",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"18:05","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada", fecha:"2026-07-02",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
+  { id: "att-0603-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-07-02",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida",  fecha:"2026-07-02",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada",  fecha:"2026-07-02",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"08:01","ubicacion_gps":"Vivero"}' },
+  { id: "att-0603-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación", fecha:"2026-07-02",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:25","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",   fecha:"2026-07-02",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:35","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada", fecha:"2026-07-02",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:33","ubicacion_gps":"Bloque 4"}' },
+  { id: "att-0603-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-07-02",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:02","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida",  fecha:"2026-07-02",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"16:58","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",    fecha:"2026-07-02",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:44","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0603-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",   fecha:"2026-07-02",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:08","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",     fecha:"2026-07-02",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:12","ubicacion_gps":"Portería"}' },
+  { id: "att-0603-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-07-02",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:03","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0603-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-07-02",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0603-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-07-02",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:50","ubicacion_gps":"Portería"}' },
   // ── Miércoles 04-jun ──────────────────────────────────────────────────────────
-  { id: "att-0604-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",     fecha:"2026-06-04",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:36","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0604-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",    fecha:"2026-06-04",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0604-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",      fecha:"2026-06-04",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:05","ubicacion_gps":"Portería"}' },
-  { id: "att-0604-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",    fecha:"2026-06-04",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:48","ubicacion_gps":"Bloque 2"}' },
-  { id: "att-0604-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",   fecha:"2026-06-04",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:12","ubicacion_gps":"Comedor"}' },
-  { id: "att-0604-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",     fecha:"2026-06-04",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:25","ubicacion_gps":"Portería"}' },
-  { id: "att-0604-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",    fecha:"2026-06-04",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"07:58","ubicacion_gps":"Oficina"}' },
-  { id: "att-0604-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",   fecha:"2026-06-04",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0604-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",     fecha:"2026-06-04",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:20","ubicacion_gps":"Portería"}' },
-  { id: "att-0604-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-06-04",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:31","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0604-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-06-04",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0604-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida", fecha:"2026-06-04",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
-  { id: "att-0604-13",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada", fecha:"2026-06-04",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:50","ubicacion_gps":"Bloque 3"}' },
-  { id: "att-0604-14",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-06-04",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:08","ubicacion_gps":"Comedor"}' },
-  { id: "att-0604-15",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida",  fecha:"2026-06-04",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:10","ubicacion_gps":"Portería"}' },
-  { id: "att-0604-16",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada", fecha:"2026-06-04",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:52","ubicacion_gps":"Bloque 2"}' },
-  { id: "att-0604-17",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-06-04",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:30","ubicacion_gps":"Comedor"}' },
-  { id: "att-0604-18",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida",  fecha:"2026-06-04",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"17:58","ubicacion_gps":"Portería"}' },
-  { id: "att-0604-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada", fecha:"2026-06-04",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
-  { id: "att-0604-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-06-04",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0604-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida",  fecha:"2026-06-04",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
-  { id: "att-0604-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada",  fecha:"2026-06-04",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"07:59","ubicacion_gps":"Vivero"}' },
-  { id: "att-0604-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación", fecha:"2026-06-04",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:22","ubicacion_gps":"Comedor"}' },
-  { id: "att-0604-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",   fecha:"2026-06-04",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:28","ubicacion_gps":"Portería"}' },
-  { id: "att-0604-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada", fecha:"2026-06-04",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:37","ubicacion_gps":"Bloque 4"}' },
-  { id: "att-0604-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-06-04",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0604-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida",  fecha:"2026-06-04",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"16:52","ubicacion_gps":"Portería"}' },
-  { id: "att-0604-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",    fecha:"2026-06-04",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:43","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0604-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",   fecha:"2026-06-04",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
-  { id: "att-0604-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",     fecha:"2026-06-04",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:15","ubicacion_gps":"Portería"}' },
-  { id: "att-0604-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / entrada",     fecha:"2026-06-04",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"entrada", "hora":"08:04","ubicacion_gps":"Laboratorio"}' },
-  { id: "att-0604-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / colación",    fecha:"2026-06-04",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"colacion","hora":"12:20","ubicacion_gps":"Comedor"}' },
-  { id: "att-0604-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / salida",      fecha:"2026-06-04",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"salida",  "hora":"17:10","ubicacion_gps":"Portería"}' },
-  { id: "att-0604-34",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-06-04",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:06","ubicacion_gps":"Laboratorio"}' },
-  { id: "att-0604-35",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-06-04",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:08","ubicacion_gps":"Comedor"}' },
-  { id: "att-0604-36",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-06-04",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:48","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",     fecha:"2026-07-03",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:36","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0604-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",    fecha:"2026-07-03",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",      fecha:"2026-07-03",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:05","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",    fecha:"2026-07-03",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:48","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0604-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",   fecha:"2026-07-03",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:12","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",     fecha:"2026-07-03",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:25","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",    fecha:"2026-07-03",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"07:58","ubicacion_gps":"Oficina"}' },
+  { id: "att-0604-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",   fecha:"2026-07-03",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",     fecha:"2026-07-03",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:20","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-07-03",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:31","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0604-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-07-03",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida", fecha:"2026-07-03",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-13",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada", fecha:"2026-07-03",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:50","ubicacion_gps":"Bloque 3"}' },
+  { id: "att-0604-14",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-07-03",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:08","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-15",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida",  fecha:"2026-07-03",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:10","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-16",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada", fecha:"2026-07-03",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:52","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0604-17",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-07-03",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:30","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-18",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida",  fecha:"2026-07-03",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"17:58","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada", fecha:"2026-07-03",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
+  { id: "att-0604-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-07-03",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida",  fecha:"2026-07-03",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada",  fecha:"2026-07-03",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"07:59","ubicacion_gps":"Vivero"}' },
+  { id: "att-0604-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación", fecha:"2026-07-03",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:22","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",   fecha:"2026-07-03",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:28","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada", fecha:"2026-07-03",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:37","ubicacion_gps":"Bloque 4"}' },
+  { id: "att-0604-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-07-03",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida",  fecha:"2026-07-03",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"16:52","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",    fecha:"2026-07-03",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:43","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0604-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",   fecha:"2026-07-03",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",     fecha:"2026-07-03",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:15","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / entrada",     fecha:"2026-07-03",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"entrada", "hora":"08:04","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0604-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / colación",    fecha:"2026-07-03",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"colacion","hora":"12:20","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / salida",      fecha:"2026-07-03",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"salida",  "hora":"17:10","ubicacion_gps":"Portería"}' },
+  { id: "att-0604-34",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-07-03",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:06","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0604-35",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-07-03",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:08","ubicacion_gps":"Comedor"}' },
+  { id: "att-0604-36",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-07-03",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:48","ubicacion_gps":"Portería"}' },
   // ── Jueves 05-jun ─────────────────────────────────────────────────────────────
-  { id: "att-0605-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",     fecha:"2026-06-05",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:39","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0605-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",    fecha:"2026-06-05",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:03","ubicacion_gps":"Comedor"}' },
-  { id: "att-0605-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",      fecha:"2026-06-05",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
-  { id: "att-0605-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",    fecha:"2026-06-05",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:46","ubicacion_gps":"Bloque 2"}' },
-  { id: "att-0605-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",   fecha:"2026-06-05",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:08","ubicacion_gps":"Comedor"}' },
-  { id: "att-0605-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",     fecha:"2026-06-05",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:18","ubicacion_gps":"Portería"}' },
-  { id: "att-0605-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",    fecha:"2026-06-05",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"08:02","ubicacion_gps":"Oficina"}' },
-  { id: "att-0605-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",   fecha:"2026-06-05",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0605-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",     fecha:"2026-06-05",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:10","ubicacion_gps":"Portería"}' },
-  { id: "att-0605-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-06-05",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:28","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0605-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-06-05",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"11:55","ubicacion_gps":"Comedor"}' },
-  { id: "att-0605-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida", fecha:"2026-06-05",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:05","ubicacion_gps":"Portería"}' },
-  { id: "att-0605-13",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada", fecha:"2026-06-05",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:44","ubicacion_gps":"Bloque 3"}' },
-  { id: "att-0605-14",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-06-05",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
-  { id: "att-0605-15",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida",  fecha:"2026-06-05",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:12","ubicacion_gps":"Portería"}' },
-  { id: "att-0605-16",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada", fecha:"2026-06-05",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:48","ubicacion_gps":"Bloque 2"}' },
-  { id: "att-0605-17",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-06-05",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:28","ubicacion_gps":"Comedor"}' },
-  { id: "att-0605-18",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida",  fecha:"2026-06-05",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"18:02","ubicacion_gps":"Portería"}' },
-  { id: "att-0605-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada", fecha:"2026-06-05",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
-  { id: "att-0605-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-06-05",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0605-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida",  fecha:"2026-06-05",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
-  { id: "att-0605-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada",  fecha:"2026-06-05",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"07:57","ubicacion_gps":"Vivero"}' },
-  { id: "att-0605-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación", fecha:"2026-06-05",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:18","ubicacion_gps":"Comedor"}' },
-  { id: "att-0605-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",   fecha:"2026-06-05",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:32","ubicacion_gps":"Portería"}' },
-  { id: "att-0605-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada", fecha:"2026-06-05",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:34","ubicacion_gps":"Bloque 4"}' },
-  { id: "att-0605-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-06-05",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0605-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida",  fecha:"2026-06-05",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
-  { id: "att-0605-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",    fecha:"2026-06-05",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:41","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0605-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",   fecha:"2026-06-05",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:06","ubicacion_gps":"Comedor"}' },
-  { id: "att-0605-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",     fecha:"2026-06-05",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:08","ubicacion_gps":"Portería"}' },
-  { id: "att-0605-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / entrada",     fecha:"2026-06-05",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Laboratorio"}' },
-  { id: "att-0605-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / colación",    fecha:"2026-06-05",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"colacion","hora":"12:18","ubicacion_gps":"Comedor"}' },
-  { id: "att-0605-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / salida",      fecha:"2026-06-05",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"salida",  "hora":"17:05","ubicacion_gps":"Portería"}' },
-  { id: "att-0605-34",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-06-05",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:07","ubicacion_gps":"Laboratorio"}' },
-  { id: "att-0605-35",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-06-05",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:12","ubicacion_gps":"Comedor"}' },
-  { id: "att-0605-36",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-06-05",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:55","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",     fecha:"2026-07-07",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:39","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0605-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",    fecha:"2026-07-07",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:03","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",      fecha:"2026-07-07",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",    fecha:"2026-07-07",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:46","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0605-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",   fecha:"2026-07-07",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:08","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",     fecha:"2026-07-07",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:18","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",    fecha:"2026-07-07",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"08:02","ubicacion_gps":"Oficina"}' },
+  { id: "att-0605-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",   fecha:"2026-07-07",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",     fecha:"2026-07-07",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:10","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-07-07",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:28","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0605-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-07-07",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"11:55","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida", fecha:"2026-07-07",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:05","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-13",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada", fecha:"2026-07-07",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:44","ubicacion_gps":"Bloque 3"}' },
+  { id: "att-0605-14",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-07-07",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-15",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida",  fecha:"2026-07-07",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:12","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-16",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada", fecha:"2026-07-07",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:48","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0605-17",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-07-07",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:28","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-18",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida",  fecha:"2026-07-07",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"18:02","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada", fecha:"2026-07-07",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
+  { id: "att-0605-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-07-07",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida",  fecha:"2026-07-07",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada",  fecha:"2026-07-07",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"07:57","ubicacion_gps":"Vivero"}' },
+  { id: "att-0605-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación", fecha:"2026-07-07",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:18","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",   fecha:"2026-07-07",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:32","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada", fecha:"2026-07-07",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:34","ubicacion_gps":"Bloque 4"}' },
+  { id: "att-0605-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-07-07",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida",  fecha:"2026-07-07",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",    fecha:"2026-07-07",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:41","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0605-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",   fecha:"2026-07-07",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:06","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",     fecha:"2026-07-07",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:08","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / entrada",     fecha:"2026-07-07",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0605-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / colación",    fecha:"2026-07-07",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"colacion","hora":"12:18","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / salida",      fecha:"2026-07-07",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"salida",  "hora":"17:05","ubicacion_gps":"Portería"}' },
+  { id: "att-0605-34",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-07-07",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:07","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0605-35",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-07-07",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:12","ubicacion_gps":"Comedor"}' },
+  { id: "att-0605-36",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-07-07",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:55","ubicacion_gps":"Portería"}' },
   // ── Viernes 06-jun ────────────────────────────────────────────────────────────
-  { id: "att-0606-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",     fecha:"2026-06-06",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:40","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0606-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",    fecha:"2026-06-06",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0606-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",      fecha:"2026-06-06",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:02","ubicacion_gps":"Portería"}' },
-  { id: "att-0606-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",    fecha:"2026-06-06",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:50","ubicacion_gps":"Bloque 2"}' },
-  { id: "att-0606-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",   fecha:"2026-06-06",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:10","ubicacion_gps":"Comedor"}' },
-  { id: "att-0606-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",     fecha:"2026-06-06",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:20","ubicacion_gps":"Portería"}' },
-  { id: "att-0606-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",    fecha:"2026-06-06",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"07:58","ubicacion_gps":"Oficina"}' },
-  { id: "att-0606-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",   fecha:"2026-06-06",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0606-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",     fecha:"2026-06-06",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:05","ubicacion_gps":"Portería"}' },
-  { id: "att-0606-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-06-06",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:32","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0606-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-06-06",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0606-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida", fecha:"2026-06-06",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
-  { id: "att-0606-13",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada", fecha:"2026-06-06",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:45","ubicacion_gps":"Bloque 3"}' },
-  { id: "att-0606-14",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-06-06",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
-  { id: "att-0606-15",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida",  fecha:"2026-06-06",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:15","ubicacion_gps":"Portería"}' },
-  { id: "att-0606-16",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada", fecha:"2026-06-06",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:53","ubicacion_gps":"Bloque 2"}' },
-  { id: "att-0606-17",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-06-06",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:32","ubicacion_gps":"Comedor"}' },
-  { id: "att-0606-18",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida",  fecha:"2026-06-06",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"17:55","ubicacion_gps":"Portería"}' },
-  { id: "att-0606-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada", fecha:"2026-06-06",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
-  { id: "att-0606-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-06-06",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0606-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida",  fecha:"2026-06-06",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
-  { id: "att-0606-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada",  fecha:"2026-06-06",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Vivero"}' },
-  { id: "att-0606-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación", fecha:"2026-06-06",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:20","ubicacion_gps":"Comedor"}' },
-  { id: "att-0606-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",   fecha:"2026-06-06",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:25","ubicacion_gps":"Portería"}' },
-  { id: "att-0606-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada", fecha:"2026-06-06",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:36","ubicacion_gps":"Bloque 4"}' },
-  { id: "att-0606-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-06-06",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
-  { id: "att-0606-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida",  fecha:"2026-06-06",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"16:50","ubicacion_gps":"Portería"}' },
-  { id: "att-0606-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",    fecha:"2026-06-06",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:42","ubicacion_gps":"Bloque 1"}' },
-  { id: "att-0606-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",   fecha:"2026-06-06",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:07","ubicacion_gps":"Comedor"}' },
-  { id: "att-0606-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",     fecha:"2026-06-06",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:10","ubicacion_gps":"Portería"}' },
-  { id: "att-0606-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / entrada",     fecha:"2026-06-06",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"entrada", "hora":"08:01","ubicacion_gps":"Laboratorio"}' },
-  { id: "att-0606-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / colación",    fecha:"2026-06-06",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"colacion","hora":"12:15","ubicacion_gps":"Comedor"}' },
-  { id: "att-0606-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / salida",      fecha:"2026-06-06",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"salida",  "hora":"17:08","ubicacion_gps":"Portería"}' },
-  { id: "att-0606-34",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-06-06",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:05","ubicacion_gps":"Laboratorio"}' },
-  { id: "att-0606-35",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-06-06",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:10","ubicacion_gps":"Comedor"}' },
-  { id: "att-0606-36",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-06-06",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:45","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-01",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / entrada",     fecha:"2026-07-10",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"entrada", "hora":"07:40","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0606-02",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / colación",    fecha:"2026-07-10",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-03",definicion_id:"4",cultivo_id:"c-01",referencia:"Pedro Soto / salida",      fecha:"2026-07-10",valores:'{"empleado_id":"12.345.678-9","tipo_marca":"salida",  "hora":"17:02","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-04",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / entrada",    fecha:"2026-07-10",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"entrada", "hora":"07:50","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0606-05",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / colación",   fecha:"2026-07-10",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"colacion","hora":"12:10","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-06",definicion_id:"4",cultivo_id:"c-01",referencia:"Carmen Díaz / salida",     fecha:"2026-07-10",valores:'{"empleado_id":"11.222.333-4","tipo_marca":"salida",  "hora":"17:20","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-07",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / entrada",    fecha:"2026-07-10",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"entrada", "hora":"07:58","ubicacion_gps":"Oficina"}' },
+  { id: "att-0606-08",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / colación",   fecha:"2026-07-10",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-09",definicion_id:"4",cultivo_id:"c-01",referencia:"Luis Vargas / salida",     fecha:"2026-07-10",valores:'{"empleado_id":"14.567.890-2","tipo_marca":"salida",  "hora":"18:05","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-10",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / entrada",fecha:"2026-07-10",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"entrada", "hora":"07:32","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0606-11",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / colación",fecha:"2026-07-10",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-12",definicion_id:"4",cultivo_id:"c-01",referencia:"Roberto Fuentes / salida", fecha:"2026-07-10",valores:'{"empleado_id":"13.456.789-1","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-13",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / entrada", fecha:"2026-07-10",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"entrada", "hora":"07:45","ubicacion_gps":"Bloque 3"}' },
+  { id: "att-0606-14",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / colación",fecha:"2026-07-10",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"colacion","hora":"12:05","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-15",definicion_id:"4",cultivo_id:"c-01",referencia:"María González / salida",  fecha:"2026-07-10",valores:'{"empleado_id":"16.789.012-4","tipo_marca":"salida",  "hora":"17:15","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-16",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / entrada", fecha:"2026-07-10",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"entrada", "hora":"07:53","ubicacion_gps":"Bloque 2"}' },
+  { id: "att-0606-17",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / colación",fecha:"2026-07-10",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"colacion","hora":"12:32","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-18",definicion_id:"4",cultivo_id:"c-01",referencia:"Jorge Espinoza / salida",  fecha:"2026-07-10",valores:'{"empleado_id":"17.890.123-5","tipo_marca":"salida",  "hora":"17:55","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-19",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / entrada", fecha:"2026-07-10",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Oficina"}' },
+  { id: "att-0606-20",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / colación",fecha:"2026-07-10",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"colacion","hora":"13:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-21",definicion_id:"4",cultivo_id:"c-01",referencia:"Sandra Morales / salida",  fecha:"2026-07-10",valores:'{"empleado_id":"18.901.234-6","tipo_marca":"salida",  "hora":"17:00","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-22",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / entrada",  fecha:"2026-07-10",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"entrada", "hora":"08:00","ubicacion_gps":"Vivero"}' },
+  { id: "att-0606-23",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / colación", fecha:"2026-07-10",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"colacion","hora":"12:20","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-24",definicion_id:"4",cultivo_id:"c-01",referencia:"Felipe Castro / salida",   fecha:"2026-07-10",valores:'{"empleado_id":"19.012.345-7","tipo_marca":"salida",  "hora":"17:25","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-25",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / entrada", fecha:"2026-07-10",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"entrada", "hora":"07:36","ubicacion_gps":"Bloque 4"}' },
+  { id: "att-0606-26",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / colación",fecha:"2026-07-10",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"colacion","hora":"12:00","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-27",definicion_id:"4",cultivo_id:"c-01",referencia:"Patricia Rojas / salida",  fecha:"2026-07-10",valores:'{"empleado_id":"20.123.456-8","tipo_marca":"salida",  "hora":"16:50","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-28",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / entrada",    fecha:"2026-07-10",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"entrada", "hora":"07:42","ubicacion_gps":"Bloque 1"}' },
+  { id: "att-0606-29",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / colación",   fecha:"2026-07-10",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"colacion","hora":"12:07","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-30",definicion_id:"4",cultivo_id:"c-01",referencia:"Miguel Soto / salida",     fecha:"2026-07-10",valores:'{"empleado_id":"21.234.567-9","tipo_marca":"salida",  "hora":"17:10","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-31",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / entrada",     fecha:"2026-07-10",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"entrada", "hora":"08:01","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0606-32",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / colación",    fecha:"2026-07-10",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"colacion","hora":"12:15","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-33",definicion_id:"4",cultivo_id:"c-01",referencia:"Ana Torres / salida",      fecha:"2026-07-10",valores:'{"empleado_id":"15.678.901-3","tipo_marca":"salida",  "hora":"17:08","ubicacion_gps":"Portería"}' },
+  { id: "att-0606-34",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / entrada",fecha:"2026-07-10",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"entrada", "hora":"08:05","ubicacion_gps":"Laboratorio"}' },
+  { id: "att-0606-35",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / colación",fecha:"2026-07-10",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"colacion","hora":"13:10","ubicacion_gps":"Comedor"}' },
+  { id: "att-0606-36",definicion_id:"4",cultivo_id:"c-01",referencia:"Valentina Herrera / salida",fecha:"2026-07-10",valores:'{"empleado_id":"22.345.678-0","tipo_marca":"salida",  "hora":"17:45","ubicacion_gps":"Portería"}' },
   // def 5 — Laboratorio (global) — etiquetados por cultivo del análisis
   { id: "d9",  definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0112", fecha: "2025-01-28", valores: '{"muestra":"LAB-0112","tipo_prueba":"Brix","cultivo":"Fresas","resultado":"12.5","unidad":"°Brix","estado":"Completado"}' },
   { id: "d10", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0113", fecha: "2025-01-28", valores: '{"muestra":"LAB-0113","tipo_prueba":"pH Suelo","cultivo":"Fresas","resultado":"6.2","unidad":"pH","estado":"Completado"}' },
   { id: "d11", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0114", fecha: "2025-01-29", valores: '{"muestra":"LAB-0114","tipo_prueba":"Conductividad","cultivo":"Arándanos","resultado":"1.8","unidad":"dS/m","estado":"Completado"}' },
   { id: "d12", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0115", fecha: "2025-01-30", valores: '{"muestra":"LAB-0115","tipo_prueba":"Firmeza","cultivo":"Arándanos","resultado":"3.2","unidad":"N","estado":"En proceso"}' },
+  // ── Laboratorio — registros julio 2026 (dentro del rango 30d y 7d) ───────────
+  { id: "lab-2607-01", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0201", fecha: "2026-06-20", valores: '{"muestra":"LAB-0201","tipo_prueba":"Brix","cultivo":"Fresas","resultado":"11.8","unidad":"°Brix","estado":"Completado"}' },
+  { id: "lab-2607-02", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0202", fecha: "2026-06-20", valores: '{"muestra":"LAB-0202","tipo_prueba":"pH Suelo","cultivo":"Fresas","resultado":"6.4","unidad":"pH","estado":"Completado"}' },
+  { id: "lab-2607-03", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0203", fecha: "2026-06-22", valores: '{"muestra":"LAB-0203","tipo_prueba":"Conductividad","cultivo":"Arándanos","resultado":"2.1","unidad":"dS/m","estado":"Completado"}' },
+  { id: "lab-2607-04", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0204", fecha: "2026-06-22", valores: '{"muestra":"LAB-0204","tipo_prueba":"Firmeza","cultivo":"Arándanos","resultado":"3.8","unidad":"N","estado":"En proceso"}' },
+  { id: "lab-2607-05", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0205", fecha: "2026-06-25", valores: '{"muestra":"LAB-0205","tipo_prueba":"Brix","cultivo":"Fresas","resultado":"13.1","unidad":"°Brix","estado":"Completado"}' },
+  { id: "lab-2607-06", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0206", fecha: "2026-06-25", valores: '{"muestra":"LAB-0206","tipo_prueba":"pH Suelo","cultivo":"Fresas","resultado":"6.0","unidad":"pH","estado":"Pendiente"}' },
+  { id: "lab-2607-07", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0207", fecha: "2026-06-28", valores: '{"muestra":"LAB-0207","tipo_prueba":"Conductividad","cultivo":"Fresas","resultado":"1.5","unidad":"dS/m","estado":"Completado"}' },
+  { id: "lab-2607-08", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0208", fecha: "2026-06-28", valores: '{"muestra":"LAB-0208","tipo_prueba":"Brix","cultivo":"Arándanos","resultado":"14.2","unidad":"°Brix","estado":"Completado"}' },
+  { id: "lab-2607-09", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0209", fecha: "2026-07-01", valores: '{"muestra":"LAB-0209","tipo_prueba":"pH Suelo","cultivo":"Fresas","resultado":"6.3","unidad":"pH","estado":"Completado"}' },
+  { id: "lab-2607-10", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0210", fecha: "2026-07-01", valores: '{"muestra":"LAB-0210","tipo_prueba":"Firmeza","cultivo":"Arándanos","resultado":"4.1","unidad":"N","estado":"En proceso"}' },
+  { id: "lab-2607-11", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0211", fecha: "2026-07-03", valores: '{"muestra":"LAB-0211","tipo_prueba":"Brix","cultivo":"Fresas","resultado":"12.9","unidad":"°Brix","estado":"Completado"}' },
+  { id: "lab-2607-12", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0212", fecha: "2026-07-03", valores: '{"muestra":"LAB-0212","tipo_prueba":"Conductividad","cultivo":"Arándanos","resultado":"1.9","unidad":"dS/m","estado":"Pendiente"}' },
+  { id: "lab-2607-13", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0213", fecha: "2026-07-07", valores: '{"muestra":"LAB-0213","tipo_prueba":"pH Suelo","cultivo":"Fresas","resultado":"5.9","unidad":"pH","estado":"Completado"}' },
+  { id: "lab-2607-14", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0214", fecha: "2026-07-07", valores: '{"muestra":"LAB-0214","tipo_prueba":"Brix","cultivo":"Fresas","resultado":"13.4","unidad":"°Brix","estado":"Completado"}' },
+  { id: "lab-2607-15", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0215", fecha: "2026-07-10", valores: '{"muestra":"LAB-0215","tipo_prueba":"Firmeza","cultivo":"Arándanos","resultado":"3.6","unidad":"N","estado":"Completado"}' },
+  { id: "lab-2607-16", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0216", fecha: "2026-07-10", valores: '{"muestra":"LAB-0216","tipo_prueba":"Brix","cultivo":"Arándanos","resultado":"15.0","unidad":"°Brix","estado":"En proceso"}' },
+  { id: "lab-2607-17", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0217", fecha: "2026-07-12", valores: '{"muestra":"LAB-0217","tipo_prueba":"Conductividad","cultivo":"Fresas","resultado":"1.6","unidad":"dS/m","estado":"Completado"}' },
+  { id: "lab-2607-18", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0218", fecha: "2026-07-12", valores: '{"muestra":"LAB-0218","tipo_prueba":"pH Suelo","cultivo":"Fresas","resultado":"6.5","unidad":"pH","estado":"Pendiente"}' },
+  { id: "lab-2607-19", definicion_id: "5", cultivo_id: "c-02", referencia: "LAB-0219", fecha: "2026-07-14", valores: '{"muestra":"LAB-0219","tipo_prueba":"Brix","cultivo":"Arándanos","resultado":"14.7","unidad":"°Brix","estado":"Completado"}' },
+  { id: "lab-2607-20", definicion_id: "5", cultivo_id: "c-01", referencia: "LAB-0220", fecha: "2026-07-14", valores: '{"muestra":"LAB-0220","tipo_prueba":"pH Suelo","cultivo":"Fresas","resultado":"6.1","unidad":"pH","estado":"Completado"}' },
   // def 6 — Calibres Fresa (específico c-01)
   { id: "d13", definicion_id: "6", referencia: "Premium",  fecha: "2025-01-10", valores: '{"nombre":"Premium","mm_minimo":28,"mm_maximo":32,"peso_g_minimo":18}' },
   { id: "d14", definicion_id: "6", referencia: "Selecta",  fecha: "2025-01-10", valores: '{"nombre":"Selecta","mm_minimo":24,"mm_maximo":28,"peso_g_minimo":14}' },
@@ -1066,12 +1164,164 @@ export interface BloqueLayout {
 // Permite que un cultivo tenga estructuras físicas distintas según el módulo
 // (ej: vivero con mesa/bandeja, laboratorio con cámara/estante, vs. campo con bloque/hilera).
 
+export type ModoEstructura = 'propio' | 'compartido' | 'ninguno';
+
 export interface MapaCultivo {
-  id:          string;
-  modulo:      string;           // clave del módulo: "vivero", "laboratorio", etc.
-  label:       string;           // ej: "Mapa de invernadero", "Mapa de laboratorio"
-  estructura:  NivelEstructura[];
-  layout_mapa: BloqueLayout[];
+  id:                 string;
+  modulo:             string;           // clave del módulo: "vivero", "laboratorio", etc.
+  label:              string;           // ej: "Mapa de invernadero", "Mapa de laboratorio"
+  estructura:         NivelEstructura[];
+  layout_mapa:        BloqueLayout[];
+  modo_estructura?:   ModoEstructura;   // 'propio' (default) | 'compartido' | 'ninguno'
+  modulo_compartido?: string;           // si modo='compartido', qué módulo se usa ('cultivo' | 'vivero' | ...)
+}
+
+// ─── Cosecha ──────────────────────────────────────────────────────────────────
+
+export type UnidadCosecha = "kg" | "ton" | "cajas" | "bandejas" | "unidades";
+
+export interface IndicesMadurez {
+  brix_min?:        number;   // sólidos solubles mínimos (°Brix)
+  brix_max?:        number;
+  firmeza_min?:     number;   // firmeza mínima (kg/cm²)
+  firmeza_max?:     number;
+  color?:           string;   // descripción del color de cosecha
+  calibre_min_mm?:  number;
+  calibre_max_mm?:  number;
+  otras?:           string;   // otros criterios (acidez, aroma, etc.)
+}
+
+export interface VentanaCosecha {
+  id:            string;
+  nombre:        string;      // ej. "Temporada principal", "Segunda cosecha"
+  mes_inicio:    number;      // 1-12
+  mes_fin:       number;
+  semana_inicio?: number;     // semana del año (1-52) opcional
+  semana_fin?:    number;
+  rendimiento_esperado?: number;
+  unidad: UnidadCosecha;
+  observaciones?: string;
+}
+
+export interface ConfigCosecha {
+  unidad_principal:     UnidadCosecha;
+  rendimiento_base?:    number;       // rendimiento esperado por unidad de superficie
+  indices_madurez:      IndicesMadurez;
+  dias_desde_floracion?: number;      // días aproximados desde floración hasta cosecha
+  horas_frio?:          number;       // horas frío requeridas (frutales)
+  ventanas:             VentanaCosecha[];
+  instrucciones?:       string;       // instrucciones generales de cosecha
+  condiciones_manejo?:  string;       // temperatura, humedad relativa post-cosecha
+}
+
+// ─── Plan de Podas ────────────────────────────────────────────────────────────
+
+export type TipoPoda = "formacion" | "sanitaria" | "produccion" | "aclareo" | "renovacion";
+
+export interface PlanPoda {
+  id:                  string;
+  nombre:              string;
+  tipo:                TipoPoda;
+  etapas:              string[];   // EtapaCiclo.id del cultivo, o "todas"
+  frecuencia_dias?:    number;
+  herramientas?:       string;
+  instrucciones:       string;
+  personal_requerido?: string;
+  activo:              boolean;
+}
+
+// ─── Plan de Nutrición ────────────────────────────────────────────────────────
+
+export type MetodoFertilizacion = "fertiriego" | "foliar" | "suelo" | "inyeccion" | "otro";
+
+export interface ProductoNutricional {
+  nombre:  string;
+  dosis:   string;
+  unidad:  string;
+  npk?:    string;   // ej. "10-10-10"
+}
+
+export interface PlanNutricion {
+  id:               string;
+  nombre:           string;
+  etapas:           string[];   // EtapaCiclo.id del cultivo, o "todas"
+  metodo:           MetodoFertilizacion;
+  frecuencia_dias:  number;
+  objetivo?:        string;
+  productos:        ProductoNutricional[];
+  observaciones?:   string;
+  activo:           boolean;
+}
+
+// ─── Plan de Riego ────────────────────────────────────────────────────────────
+
+export type SistemaRiego = "goteo" | "aspersion" | "microaspersion" | "gravedad" | "manual" | "otro";
+
+export interface EtapaRiego {
+  etapa:             string;   // EtapaCiclo.id del cultivo
+  frecuencia_dias:   number;   // cada cuántos días regar
+  duracion_min:      number;   // minutos por riego
+  volumen_lha?:      number;   // litros/ha por riego
+  observaciones?:    string;
+}
+
+export interface ConfigRiego {
+  sistema:               SistemaRiego;
+  emisores_por_planta?:  number;
+  caudal_emisor_lh?:     number;   // L/h por emisor
+  etapas:                EtapaRiego[];
+  observaciones?:        string;
+}
+
+// ─── PlanAplicacion ───────────────────────────────────────────────────────────
+
+export type TipoAplicacion = "preventiva" | "curativa" | "choque" | "otra";
+export type MetodoAplicacion = "foliar" | "drench" | "fertiriego" | "inyeccion" | "granulado" | "otro";
+
+export interface AplicacionProducto {
+  nombre:     string;
+  dosis:      string;
+  unidad:     string;   // "L/ha", "kg/ha", "mL/100L", etc.
+}
+
+export interface PlanAplicacion {
+  id:                string;
+  nombre:            string;           // ej. "Control preventivo Botrytis"
+  tipo:              TipoAplicacion;
+  metodo:            MetodoAplicacion;
+  etapas:            string[];         // EtapaCiclo.id del cultivo, o "todas"
+  objetivos:         string[];         // IDs o nombres de plagas/enfermedades objetivo
+  productos:         AplicacionProducto[];
+  intervalo_dias:    number;           // cada cuántos días repetir
+  carencia_dias?:    number;           // días de carencia antes de cosecha (PHI)
+  reingreso_horas?:  number;           // horas de reingreso al campo
+  observaciones?:    string;
+  activo:            boolean;
+}
+
+// ─── PlagaEnfermedad ──────────────────────────────────────────────────────────
+
+export type TipoPlaga = "plaga" | "enfermedad" | "hongo" | "bacteria" | "virus" | "otro";
+export type EtapaFito = "vivero" | "trasplante" | "vegetativo" | "floracion" | "fructificacion" | "cosecha" | "todas";
+
+export interface ProductoRecomendado {
+  nombre:     string;
+  dosis?:     string;
+  intervalo?: string;
+}
+
+export interface PlagaEnfermedad {
+  id:                    string;
+  nombre:                string;
+  nombreCientifico?:     string;
+  tipo:                  TipoPlaga;
+  etapas:                string[];   // EtapaCiclo.id del cultivo, o "todas"
+  sintomas:              string;
+  umbralAccion?:         string;
+  productosRecomendados: ProductoRecomendado[];
+  medidasPreventivas?:   string;
+  imagenes?:             string[];   // data URLs de imágenes de referencia
+  activo:                boolean;
 }
 
 // ─── Cultivo ──────────────────────────────────────────────────────────────────
@@ -1110,6 +1360,18 @@ export interface Cultivo {
   layout_mapa?: BloqueLayout[];
   // Mapas adicionales para otros módulos (vivero, laboratorio, etc.)
   mapas_extra?: MapaCultivo[];
+  // Plagas y Enfermedades
+  plagasEnfermedades?: PlagaEnfermedad[];
+  // Plan de Aplicaciones fitosanitarias
+  planAplicaciones?: PlanAplicacion[];
+  // Configuración de cosecha
+  cosecha?: ConfigCosecha;
+  // Plan de Podas
+  planPodas?: PlanPoda[];
+  // Plan de Nutrición
+  planNutricion?: PlanNutricion[];
+  // Plan de Riego
+  riego?: ConfigRiego;
 }
 
 // ─── Variedad — CAT_VARIEDADES ────────────────────────────────────────────────
@@ -1284,6 +1546,185 @@ export const CULTIVOS: Cultivo[] = [
         ],
       },
     ],
+    plagasEnfermedades: [
+      { id: "pe-fre-1", nombre: "Botrytis", nombreCientifico: "Botrytis cinerea", tipo: "hongo",
+        etapas: ["e-c01-4", "e-c01-5", "e-c01-6"],
+        sintomas: "Manchas pardas acuosas en flores y frutos. Micelio gris en condiciones de alta humedad.",
+        umbralAccion: "Presencia de síntomas en >5% de plantas del bloque",
+        productosRecomendados: [
+          { nombre: "Iprodione 50%", dosis: "1.5 L/ha", intervalo: "7-10 días" },
+          { nombre: "Switch 62.5 WG", dosis: "0.8 kg/ha", intervalo: "10-14 días" },
+        ],
+        medidasPreventivas: "Manejo de humedad. Ventilación adecuada. Eliminar tejido afectado.",
+        activo: true },
+      { id: "pe-fre-2", nombre: "Araña Roja", nombreCientifico: "Tetranychus urticae", tipo: "plaga",
+        etapas: ["e-c01-3", "e-c01-4", "e-c01-5"],
+        sintomas: "Punteado amarillento en hojas. Bronceado del haz. Telarañas finas en envés.",
+        umbralAccion: "3 ácaros móviles por leaflet o 30% de hojas infestadas",
+        productosRecomendados: [
+          { nombre: "Abamectina 1.8%", dosis: "0.75 L/ha", intervalo: "10 días" },
+          { nombre: "Bifenazate 24%", dosis: "0.5 L/ha", intervalo: "14 días" },
+        ],
+        medidasPreventivas: "Monitoreo semanal. Evitar estrés hídrico. Conservar fauna benéfica.",
+        activo: true },
+      { id: "pe-fre-3", nombre: "Trips", nombreCientifico: "Frankliniella occidentalis", tipo: "plaga",
+        etapas: ["e-c01-4", "e-c01-5"],
+        sintomas: "Plateado en pétalos. Deformación de frutos. Punteado plateado en hojas.",
+        umbralAccion: "1 trips/flor en floración o 5/flor en prefloración",
+        productosRecomendados: [
+          { nombre: "Spinosad 48%", dosis: "0.3 L/ha", intervalo: "7 días" },
+          { nombre: "Imidacloprid 35%", dosis: "0.25 L/ha", intervalo: "14 días" },
+        ],
+        medidasPreventivas: "Trampas pegajosas azules. Monitoreo semanal de flores.",
+        activo: true },
+      { id: "pe-fre-4", nombre: "Oídio", nombreCientifico: "Podosphaera aphanis", tipo: "hongo",
+        etapas: ["e-c01-3", "e-c01-4"],
+        sintomas: "Polvo blanco en haz y envés de hojas. Enrollamiento de hojas jóvenes.",
+        umbralAccion: "Presencia en >3% de plantas monitoreadas",
+        productosRecomendados: [
+          { nombre: "Azufre mojable 80%", dosis: "3 kg/ha", intervalo: "7-10 días" },
+          { nombre: "Miclobutanil 12.5%", dosis: "0.4 L/ha", intervalo: "10-14 días" },
+        ],
+        medidasPreventivas: "Buena aireación. Evitar exceso de nitrógeno. No mojar follaje.",
+        activo: true },
+      { id: "pe-fre-5", nombre: "Mosca Blanca", nombreCientifico: "Trialeurodes vaporariorum", tipo: "plaga",
+        etapas: ["todas"],
+        sintomas: "Adultos blancos al agitar la planta. Melaza y fumagina en hojas.",
+        umbralAccion: "1 adulto/planta o 2 ninfas/cm² en hoja muestreada",
+        productosRecomendados: [
+          { nombre: "Buprofezin 25%", dosis: "1 L/ha", intervalo: "14 días" },
+        ],
+        medidasPreventivas: "Trampas pegajosas amarillas. Control de malezas. Mallas antiinsectos.",
+        activo: true },
+    ],
+    planAplicaciones: [
+      { id: "ap-fre-1", nombre: "Preventivo Botrytis — Floración",
+        tipo: "preventiva", metodo: "foliar",
+        etapas: ["e-c01-4", "e-c01-5"],
+        objetivos: ["pe-fre-1"],
+        productos: [{ nombre: "Switch 62.5 WG", dosis: "0.8", unidad: "kg/ha" }],
+        intervalo_dias: 10, carencia_dias: 3, reingreso_horas: 24,
+        observaciones: "Aplicar en horas frescas. Rotar modo de acción para evitar resistencia.",
+        activo: true },
+      { id: "ap-fre-2", nombre: "Control Araña Roja",
+        tipo: "curativa", metodo: "foliar",
+        etapas: ["e-c01-3", "e-c01-4", "e-c01-5"],
+        objetivos: ["pe-fre-2"],
+        productos: [{ nombre: "Abamectina 1.8%", dosis: "0.75", unidad: "L/ha" }],
+        intervalo_dias: 10, carencia_dias: 7, reingreso_horas: 48,
+        observaciones: "Cubrir bien envés de hojas. Aplicar en horas de baja temperatura.",
+        activo: true },
+      { id: "ap-fre-3", nombre: "Control Trips en Floración",
+        tipo: "preventiva", metodo: "foliar",
+        etapas: ["e-c01-4"],
+        objetivos: ["pe-fre-3"],
+        productos: [{ nombre: "Spinosad 48%", dosis: "0.3", unidad: "L/ha" }],
+        intervalo_dias: 7, carencia_dias: 1, reingreso_horas: 4,
+        observaciones: "Aplicar en la mañana temprano para proteger polinizadores.",
+        activo: true },
+      { id: "ap-fre-4", nombre: "Preventivo Oídio",
+        tipo: "preventiva", metodo: "foliar",
+        etapas: ["e-c01-3", "e-c01-4"],
+        objetivos: ["pe-fre-4"],
+        productos: [{ nombre: "Azufre mojable 80%", dosis: "3", unidad: "kg/ha" }],
+        intervalo_dias: 10, carencia_dias: 5, reingreso_horas: 24,
+        observaciones: "No aplicar con temperaturas > 32°C. No mezclar con aceites.",
+        activo: true },
+    ],
+    cosecha: {
+      unidad_principal: "kg",
+      rendimiento_base: 30000,
+      indices_madurez: {
+        brix_min: 7, brix_max: 9,
+        firmeza_min: 250, firmeza_max: 400,
+        color: "Rojo brillante uniforme (>80% superficie)",
+        calibre_min_mm: 20, calibre_max_mm: 35,
+      },
+      dias_desde_floracion: 30,
+      ventanas: [
+        { id: "vc-fre-1", nombre: "Cosecha Primavera", mes_inicio: 9, mes_fin: 11,
+          semana_inicio: 37, semana_fin: 48,
+          rendimiento_esperado: 18000, unidad: "kg",
+          observaciones: "Producción principal. Alta temperatura puede reducir calibre." },
+        { id: "vc-fre-2", nombre: "Cosecha Otoño", mes_inicio: 3, mes_fin: 5,
+          semana_inicio: 10, semana_fin: 22,
+          rendimiento_esperado: 12000, unidad: "kg",
+          observaciones: "Producción secundaria. Mayor concentración de azúcares." },
+      ],
+      instrucciones: "Cosechar en horas frescas (antes de 10 AM). Manipulación cuidadosa para evitar daño mecánico. Cadena de frío inmediata.",
+      condiciones_manejo: "Temperatura: 0-2°C. Humedad relativa: 90-95%. No almacenar con productos que emitan etileno.",
+    },
+    planPodas: [
+      { id: "po-fre-1", nombre: "Formación inicial", tipo: "formacion",
+        etapas: ["e-c01-1", "e-c01-2"],
+        herramientas: "Tijeras desinfectadas",
+        instrucciones: "Eliminar estolones y hojas dañadas al trasplante. Dejar 3-4 hojas funcionales por planta.",
+        personal_requerido: "1 operario / 1.000 plantas·día", activo: true },
+      { id: "po-fre-2", nombre: "Poda sanitaria semanal", tipo: "sanitaria",
+        etapas: ["e-c01-3", "e-c01-4", "e-c01-5"],
+        frecuencia_dias: 7, herramientas: "Tijeras desinfectadas con hipoclorito 2%",
+        instrucciones: "Retirar hojas senescentes, dañadas y con síntomas de enfermedad. Desinfectar herramientas entre plantas.",
+        personal_requerido: "1 operario / 0.5 ha", activo: true },
+      { id: "po-fre-3", nombre: "Aclareo de flores y frutos", tipo: "aclareo",
+        etapas: ["e-c01-4", "e-c01-5"],
+        frecuencia_dias: 14, herramientas: "Tijeras finas",
+        instrucciones: "Eliminar flores deformadas y frutos pequeños para concentrar producción en frutos de calidad.",
+        activo: true },
+      { id: "po-fre-4", nombre: "Eliminación de estolones", tipo: "produccion",
+        etapas: ["e-c01-3", "e-c01-4", "e-c01-5"],
+        frecuencia_dias: 14, herramientas: "Tijeras o mano",
+        instrucciones: "Eliminar todos los estolones para redirigir energía a la producción de frutos.",
+        activo: true },
+    ],
+    planNutricion: [
+      { id: "nu-fre-1", nombre: "Arranque vegetativo", metodo: "fertiriego",
+        etapas: ["e-c01-2", "e-c01-3"], frecuencia_dias: 7,
+        objetivo: "Establecimiento de raíces y follaje",
+        productos: [
+          { nombre: "Nitrato de calcio", dosis: "3", unidad: "kg/ha", npk: "15.5-0-0" },
+          { nombre: "Fosfato monoamónico", dosis: "1.5", unidad: "kg/ha", npk: "12-61-0" },
+        ],
+        observaciones: "pH solución nutritiva: 5.8–6.2. EC: 1.2–1.5 mS/cm.", activo: true },
+      { id: "nu-fre-2", nombre: "Inducción floral", metodo: "fertiriego",
+        etapas: ["e-c01-4"], frecuencia_dias: 7,
+        objetivo: "Mayor cuajado de frutos",
+        productos: [
+          { nombre: "Nitrato de potasio", dosis: "3", unidad: "kg/ha", npk: "13-0-46" },
+          { nombre: "Sulfato de magnesio", dosis: "1", unidad: "kg/ha" },
+          { nombre: "Boro agrícola", dosis: "0.2", unidad: "kg/ha" },
+        ],
+        observaciones: "Reducir nitrógeno amoniacal. Aumentar potasio.", activo: true },
+      { id: "nu-fre-3", nombre: "Engrosamiento de fruto", metodo: "fertiriego",
+        etapas: ["e-c01-5"], frecuencia_dias: 7,
+        objetivo: "Calibre y calidad organoléptica",
+        productos: [
+          { nombre: "Nitrato de potasio", dosis: "4", unidad: "kg/ha", npk: "13-0-46" },
+          { nombre: "Nitrato de calcio", dosis: "2", unidad: "kg/ha", npk: "15.5-0-0" },
+        ],
+        observaciones: "Mantener Ca alto para firmeza. EC: 1.8–2.2 mS/cm.", activo: true },
+      { id: "nu-fre-4", nombre: "Foliar microelementos", metodo: "foliar",
+        etapas: ["e-c01-3", "e-c01-4", "e-c01-5"], frecuencia_dias: 14,
+        objetivo: "Corregir deficiencias y mejorar cuajado",
+        productos: [
+          { nombre: "Quelato de hierro EDDHA 6%", dosis: "0.5", unidad: "kg/ha" },
+          { nombre: "Quelato de zinc 14%", dosis: "0.3", unidad: "kg/ha" },
+        ],
+        observaciones: "Aplicar en horas de baja temperatura. No mezclar con fungicidas cúpricos.", activo: true },
+    ],
+    riego: {
+      sistema: "goteo",
+      emisores_por_planta: 1,
+      caudal_emisor_lh: 2,
+      etapas: [
+        { etapa: "e-c01-1", frecuencia_dias: 1, duracion_min: 10, volumen_lha: 2000 },
+        { etapa: "e-c01-2", frecuencia_dias: 1, duracion_min: 15, volumen_lha: 3000 },
+        { etapa: "e-c01-3", frecuencia_dias: 1, duracion_min: 20, volumen_lha: 4000 },
+        { etapa: "e-c01-4", frecuencia_dias: 1, duracion_min: 20, volumen_lha: 4500 },
+        { etapa: "e-c01-5", frecuencia_dias: 1, duracion_min: 25, volumen_lha: 5000 },
+        { etapa: "e-c01-6", frecuencia_dias: 2, duracion_min: 20, volumen_lha: 3500, observaciones: "Reducir riego para concentrar azúcares" },
+      ],
+      observaciones: "pH agua: 5.5–6.5. Fertirrigación integrada en ciclos de riego.",
+    },
   },
   // Arándanos → solo cliente 1; productor 1
   {
@@ -1393,6 +1834,89 @@ export const CULTIVOS: Cultivo[] = [
         ],
       },
     ],
+    plagasEnfermedades: [
+      { id: "pe-ara-1", nombre: "Mummia berry", nombreCientifico: "Monilinia vaccinii-corymbosi", tipo: "hongo",
+        etapas: ["e-c02-3", "e-c02-4"],
+        sintomas: "Flores pardas y marchitas. Frutos momificados de color salmón.",
+        umbralAccion: "Presencia de síntomas en >2% de flores",
+        productosRecomendados: [{ nombre: "Cyprodinil + Fludioxonil", dosis: "0.8 kg/ha", intervalo: "10-14 días" }],
+        medidasPreventivas: "Aplicar fungicidas en inicio de floración. Eliminar restos de cosecha.", activo: true },
+      { id: "pe-ara-2", nombre: "Phytophthora", nombreCientifico: "Phytophthora cinnamomi", tipo: "otro",
+        etapas: ["e-c02-1", "e-c02-2"],
+        sintomas: "Clorosis y decaimiento. Raíces negras y podridas. Muerte de plantas.",
+        umbralAccion: "Muerte o decaimiento de >2% de plantas en bloque",
+        productosRecomendados: [{ nombre: "Metalaxil-M + Mancozeb", dosis: "2.5 kg/ha", intervalo: "21 días" }],
+        medidasPreventivas: "Buen drenaje. pH suelo 4.5-5.5. No reutilizar sustratos.", activo: true },
+      { id: "pe-ara-3", nombre: "Mosca de la fruta", nombreCientifico: "Drosophila suzukii", tipo: "plaga",
+        etapas: ["e-c02-4", "e-c02-5"],
+        sintomas: "Larvas en frutos maduros. Orificio de oviposición visible. Frutos blandos y fermentados.",
+        umbralAccion: "1 adulto/trampa/semana durante maduración",
+        productosRecomendados: [{ nombre: "Spinosad 48%", dosis: "0.3 L/ha", intervalo: "7 días" }],
+        medidasPreventivas: "Trampas con atrayente. Cosecha frecuente. Red antiinsectos.", activo: true },
+      { id: "pe-ara-4", nombre: "Trips del Arándano", nombreCientifico: "Frankliniella sp.", tipo: "plaga",
+        etapas: ["e-c02-3", "e-c02-4"],
+        sintomas: "Deformación de flores y frutos. Escamas negras en frutos.",
+        umbralAccion: "2 trips/flor en prefloración",
+        productosRecomendados: [{ nombre: "Spinosad 48%", dosis: "0.3 L/ha", intervalo: "7 días" }],
+        medidasPreventivas: "Monitoreo semanal con trampas azules.", activo: true },
+    ],
+    planPodas: [
+      { id: "po-ara-1", nombre: "Poda de renovación invernal", tipo: "renovacion",
+        etapas: ["e-c02-6"],
+        herramientas: "Sierra de poda y tijeras desinfectadas",
+        instrucciones: "Eliminar ramas de más de 6 años. Mantener 3-5 tallos principales productivos. Aclarar el centro de la planta.",
+        personal_requerido: "1 operario / 200 plantas·día", activo: true },
+      { id: "po-ara-2", nombre: "Poda de formación (plantas jóvenes)", tipo: "formacion",
+        etapas: ["e-c02-1", "e-c02-2"],
+        herramientas: "Tijeras de poda",
+        instrucciones: "1er año: eliminar flores para establecer estructura. 2do año: seleccionar 4-6 brotes vigorosos.",
+        activo: true },
+      { id: "po-ara-3", nombre: "Poda sanitaria", tipo: "sanitaria",
+        etapas: ["e-c02-2", "e-c02-3", "e-c02-4", "e-c02-5"],
+        frecuencia_dias: 14, herramientas: "Tijeras desinfectadas",
+        instrucciones: "Eliminar ramas secas, enfermas o con daño de helada. Retirar del campo.",
+        activo: true },
+    ],
+    planNutricion: [
+      { id: "nu-ara-1", nombre: "Brotación y crecimiento", metodo: "fertiriego",
+        etapas: ["e-c02-1", "e-c02-2"], frecuencia_dias: 10,
+        objetivo: "Impulso de brotes y hojas",
+        productos: [
+          { nombre: "Sulfato de amonio 21%", dosis: "40", unidad: "kg/ha", npk: "21-0-0" },
+          { nombre: "Fosfato monoamónico", dosis: "20", unidad: "kg/ha", npk: "12-61-0" },
+        ],
+        observaciones: "pH solución: 4.5–5.0. EC: 0.8–1.2 mS/cm.", activo: true },
+      { id: "nu-ara-2", nombre: "Floración y cuaje", metodo: "foliar",
+        etapas: ["e-c02-3"], frecuencia_dias: 14,
+        objetivo: "Maximizar cuajado y uniformidad",
+        productos: [
+          { nombre: "Boro 15%", dosis: "1.5", unidad: "kg/ha" },
+          { nombre: "Calcio quelado 10%", dosis: "1", unidad: "kg/ha" },
+        ],
+        observaciones: "Aplicar al inicio y plenitud de floración.", activo: true },
+      { id: "nu-ara-3", nombre: "Engrosamiento y maduración", metodo: "fertiriego",
+        etapas: ["e-c02-4", "e-c02-5"], frecuencia_dias: 10,
+        objetivo: "Calibre, firmeza y color",
+        productos: [
+          { nombre: "Nitrato de potasio", dosis: "30", unidad: "kg/ha", npk: "13-0-46" },
+          { nombre: "Sulfato de magnesio", dosis: "15", unidad: "kg/ha" },
+        ],
+        observaciones: "Aumentar K para antocianos y firmeza. pH: 4.5–5.0.", activo: true },
+    ],
+    riego: {
+      sistema: "microaspersion",
+      emisores_por_planta: 1,
+      caudal_emisor_lh: 40,
+      etapas: [
+        { etapa: "e-c02-1", frecuencia_dias: 2, duracion_min: 20, volumen_lha: 1500, observaciones: "Post-poda, suelo húmedo" },
+        { etapa: "e-c02-2", frecuencia_dias: 2, duracion_min: 30, volumen_lha: 2500 },
+        { etapa: "e-c02-3", frecuencia_dias: 2, duracion_min: 30, volumen_lha: 2500, observaciones: "Evitar mojar flores" },
+        { etapa: "e-c02-4", frecuencia_dias: 1, duracion_min: 35, volumen_lha: 3500 },
+        { etapa: "e-c02-5", frecuencia_dias: 1, duracion_min: 30, volumen_lha: 3000, observaciones: "Reducir antes de cosecha" },
+        { etapa: "e-c02-6", frecuencia_dias: 7, duracion_min: 20, volumen_lha: 800, observaciones: "Mantener suelo húmedo en reposo" },
+      ],
+      observaciones: "Agua de bajo pH (4.5-5.5). Sistema antiheladas en floración.",
+    },
   },
   // Frambuesas → solo cliente 2; productor 3
   {

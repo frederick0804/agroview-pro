@@ -16,7 +16,7 @@ const fmtCurrency = (n: number) =>
  * entre páginas.
  */
 export function InventarioKpiCards() {
-  const { catalogos, lotes, movimientos } = useInventario();
+  const { catalogos, movimientos } = useInventario();
   const { currentUser } = useRole();
 
   const visibleCatalogos = useMemo(() => {
@@ -34,24 +34,15 @@ export function InventarioKpiCards() {
   const kpis = useMemo(() => {
     const active = visibleCatalogos.filter(p => p.activo);
     const scopeIds = new Set(visibleCatalogos.map(p => p.id));
-    const activeIds = new Set(active.map(p => p.id));
-    const activeLotProductIds = new Set(
-      lotes
-        .filter(l => l.activo && l.cantidad_actual > 0 && activeIds.has(l.catalogo_id))
-        .map(l => l.catalogo_id),
-    );
-    const productosSinLote = active.filter(p => !activeLotProductIds.has(p.id)).length;
     const productosInactivos = visibleCatalogos.filter(p => !p.activo).length;
 
     return {
       valor: active.reduce((s, p) => s + p.cantidad_actual * p.precio_promedio_ponderado, 0),
       movimientosMes: movimientos.filter(m => m.fecha.startsWith(currentMonth) && scopeIds.has(m.catalogo_id)).length,
-      pendientes: productosInactivos + productosSinLote,
       productosInactivos,
-      productosSinLote,
       productosActivos: active.length,
     };
-  }, [visibleCatalogos, lotes, movimientos, currentMonth]);
+  }, [visibleCatalogos, movimientos, currentMonth]);
 
   const cards = [
     {
@@ -69,11 +60,11 @@ export function InventarioKpiCards() {
       cls: "border-blue-200 bg-blue-50/70 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-400",
     },
     {
-      label: "Inactivos o sin lote",
-      value: kpis.pendientes,
-      hint: `${kpis.productosInactivos} inactivos · ${kpis.productosSinLote} sin lote`,
+      label: "Productos inactivos",
+      value: kpis.productosInactivos,
+      hint: `${kpis.productosActivos} activos`,
       icon: <PackageOpen className="h-4 w-4" />,
-      cls: kpis.pendientes > 0
+      cls: kpis.productosInactivos > 0
         ? "border-slate-300 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300"
         : "border-border bg-card text-muted-foreground",
     },

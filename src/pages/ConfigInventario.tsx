@@ -15,7 +15,9 @@ import { useState, useMemo } from "react";
 import {
   GitBranch, Plus, Pencil, Power, Trash2, Zap,
   Package, Hash, ArrowRight, CheckCircle2, AlertCircle,
+  CalendarClock, Lock, Unlock, ChevronDown, X, Settings2,
 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button }  from "@/components/ui/button";
 import { Input }   from "@/components/ui/input";
 import { Label }   from "@/components/ui/label";
@@ -37,7 +39,8 @@ import { useInventario } from "@/contexts/InventarioContext";
 import { useConfig }     from "@/contexts/ConfigContext";
 import { getStockStatus } from "@/contexts/InventarioContext";
 import type { InvFormularioMapa, InvMovimientoTipo, InvMovimientoSubtipo } from "@/contexts/InventarioContext";
-import type { ModParam } from "@/config/moduleDefinitions";
+import type { ModParam, ConfigVentanaAjuste } from "@/config/moduleDefinitions";
+import { useRole } from "@/contexts/RoleContext";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -223,10 +226,10 @@ function FormulaBuilder({
 // ─── Form state ───────────────────────────────────────────────────────────────
 
 interface ReglaForm {
-  def_id:          string;   // ID del ModDef seleccionado (solo para cargar params)
-  tabla_origen:    string;   // nombre del ModDef → clave en la regla
-  catalogo_id:     string;   // ID del producto fijo del inventario
-  campo_cantidad:  string;   // nombre del campo del formulario con la cantidad
+  def_id:          string;
+  tabla_origen:    string;
+  catalogo_id:     string;
+  campo_cantidad:  string;
   tipo_movimiento: InvMovimientoTipo;
   subtipo:         InvMovimientoSubtipo;
   formula_cantidad: string;
@@ -251,6 +254,8 @@ function ReglaDialog({
 }) {
   const { agregarRegla, editarRegla, catalogos } = useInventario();
   const { definiciones, parametros }             = useConfig();
+  // Step navigation for the new 2-panel wizard
+  const [step, setStep] = useState<1 | 2>(1);
 
   // Formularios vinculables a inventario: los que tienen "Tabla de insumos"
   // (mueven varios productos por fila) O al menos un campo "Número"
@@ -265,6 +270,9 @@ function ReglaDialog({
 
   const [form, setForm] = useState<ReglaForm>(EMPTY_FORM);
   const [err,  setErr]  = useState("");
+
+  // Reset step when dialog opens/closes
+  useMemo(() => { if (!open) setStep(1); }, [open]);
 
   useMemo(() => {
     if (!open) return;
@@ -340,293 +348,416 @@ function ReglaDialog({
   // ── Derived for preview ──────────────────────────────────────────────────────
   const selectedDef      = definiciones.find(d => d.id === form.def_id);
   const selectedProducto = catalogos.find(c => c.id === form.catalogo_id);
-  const selectedCampo    = defParams.find(p => p.nombre === form.campo_cantidad);
   const esTablaInsumos   = formularioEsTablaInsumos;
-  // Para TablaInsumos no se necesita producto fijo — el producto viene de cada fila
   const canPreview       = !!(form.tabla_origen && (form.campo_cantidad || form.formula_cantidad) && (esTablaInsumos || form.catalogo_id));
 
   const stockStatus = selectedProducto ? getStockStatus(selectedProducto) : null;
   const stockColor  = stockStatus === "critico" ? "text-red-600" : stockStatus === "bajo" ? "text-amber-600" : "text-green-600";
 
+  // ── Step 1: pick form + quantity field; Step 2: pick product + movement ──
+  const step1Valid = !!(form.tabla_origen && (form.campo_cantidad || form.formula_cantidad));
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <GitBranch className="h-4 w-4 text-amber-500" />
-            {editing ? "Editar regla" : "Nueva regla de movimiento"}
-          </DialogTitle>
-          <p className="text-xs text-muted-foreground pt-0.5">
-            Conecta un formulario con un producto del inventario.
-            Al guardar el formulario, el stock se actualiza automáticamente.
-          </p>
-        </DialogHeader>
-
-        <div className="space-y-5 py-1">
-
-          {/* ── Bloque 1: Formulario ── */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold flex items-center gap-1.5">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold">1</span>
-              ¿Qué formulario dispara el movimiento?
-            </Label>
-            <Select value={form.def_id} onValueChange={handleDefChange}>
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="Seleccionar formulario…" />
-              </SelectTrigger>
-              <SelectContent>
-                {defsVinculables.length === 0 ? (
-                  <SelectItem value="__none" disabled>
-                    Sin formularios con campos numéricos o de "Tabla de insumos"
-                  </SelectItem>
-                ) : (
-                  defsVinculables.map(d => {
-                    const esTI = parametros.some(p => p.definicion_id === d.id && p.tipo_dato === "TablaInsumos");
-                    return (
-                      <SelectItem key={d.id} value={d.id}>
-                        <span className="flex items-center gap-2">
-                          <span>{d.nombre}</span>
-                          <span className="text-[10px] text-muted-foreground capitalize">{d.modulo}</span>
-                          <span className={cn("rounded px-1 py-0 text-[10px] font-medium",
-                            esTI ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400"
-                                 : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400")}>
-                            {esTI ? "Tabla de insumos" : "Producto fijo"}
-                          </span>
-                        </span>
-                      </SelectItem>
-                    );
-                  })
-                )}
-              </SelectContent>
-            </Select>
-            {defsVinculables.length === 0 && (
-              <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                ⚠ Solo aparecen formularios que tienen un campo tipo "Tabla de insumos" o "Número".
-                Ve a <strong>Configuración → Formularios</strong> y agrega uno de esos campos al formulario que quieras vincular.
-              </p>
-            )}
-            {selectedDef && (
-              <p className="text-[11px] text-muted-foreground">
-                Módulo: <strong className="capitalize">{selectedDef.modulo}</strong>
-                {defParams.length > 0 && <> · {defParams.length} campos disponibles</>}
-              </p>
-            )}
+      <DialogContent className="sm:max-w-[640px] max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden">
+        {/* Header */}
+        <div className="px-5 pt-5 pb-3 border-b border-border">
+          <div className="flex items-center gap-2">
+            <GitBranch className="h-4 w-4 text-amber-500 shrink-0" />
+            <DialogTitle className="text-base">
+              {editing ? "Editar regla" : "Nueva regla de movimiento"}
+            </DialogTitle>
           </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Cuando se guarda un registro del formulario, el stock se actualiza automáticamente.
+          </p>
+          {/* Step indicator */}
+          <div className="flex items-center gap-2 mt-3">
+            {([
+              { n: 1, label: "Formulario y campo" },
+              { n: 2, label: "Producto y movimiento" },
+            ] as { n: 1|2; label: string }[]).map(({ n, label }) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => { if (n === 2 && !step1Valid) return; setStep(n); setErr(""); }}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
+                  step === n
+                    ? "bg-primary text-primary-foreground border-transparent"
+                    : step1Valid || n === 1
+                    ? "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                    : "border-border/40 text-muted-foreground/40 cursor-not-allowed",
+                )}
+              >
+                <span className={cn(
+                  "flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold",
+                  step === n ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted",
+                )}>{n}</span>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
 
-          {/* ── Bloque 2: Producto (solo si NO es TablaInsumos) ── */}
-          {!esTablaInsumos && (
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold flex items-center gap-1.5">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold">2</span>
-                ¿Qué producto del inventario se mueve?
-              </Label>
-              <Select value={form.catalogo_id} onValueChange={v => setForm(p => ({ ...p, catalogo_id: v }))}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Seleccionar producto…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {catalogos.filter(c => c.activo).map(c => (
-                    <SelectItem key={c.id} value={c.id}>
-                      <span className="flex items-center gap-2">
-                        <Package className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span>{c.nombre}</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {c.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })} {c.unidad_medida}
-                        </span>
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedProducto && (
-                <div className="flex items-center gap-2 text-[11px]">
-                  <span className="text-muted-foreground">Stock actual:</span>
-                  <span className={cn("font-semibold", stockColor)}>
-                    {selectedProducto.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })} {selectedProducto.unidad_medida}
-                  </span>
-                  <span className="text-muted-foreground">· {selectedProducto.categoria}</span>
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
+          {/* ══ STEP 1: Formulario + campo de cantidad ══ */}
+          {step === 1 && (
+            <div className="space-y-4">
+              {/* Formulario */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Formulario de origen
+                </Label>
+                <Select value={form.def_id} onValueChange={handleDefChange}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Seleccionar formulario…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {defsVinculables.length === 0 ? (
+                      <SelectItem value="__none" disabled>Sin formularios con campos numéricos</SelectItem>
+                    ) : defsVinculables.map(d => {
+                      const esTI = parametros.some(p => p.definicion_id === d.id && p.tipo_dato === "TablaInsumos");
+                      return (
+                        <SelectItem key={d.id} value={d.id}>
+                          <span className="flex items-center gap-2">
+                            <span>{d.nombre}</span>
+                            <span className="text-[10px] text-muted-foreground capitalize">{d.modulo}</span>
+                            {esTI && (
+                              <span className="rounded px-1 py-0 text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+                                Tabla de insumos
+                              </span>
+                            )}
+                          </span>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+                {defsVinculables.length === 0 && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                    ⚠ Solo aparecen formularios con campos tipo "Número" o "Tabla de insumos".
+                    Ve a <strong>Configuración → Formularios</strong> y agrega uno.
+                  </p>
+                )}
+              </div>
+
+              {/* Campos del formulario — chips seleccionables */}
+              {form.def_id && (
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Campo que aporta la cantidad
+                  </Label>
+
+                  {esTablaInsumos ? (
+                    // TablaInsumos: campo(s) automáticos
+                    tablaInsumosParams.length === 1 ? (
+                      <div
+                        className="flex items-center gap-2.5 rounded-xl border border-green-300 bg-green-50/70 px-3 py-2.5 cursor-default dark:border-green-800/40 dark:bg-green-900/10"
+                      >
+                        <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-green-800 dark:text-green-300">
+                            {tablaInsumosParams[0].etiqueta_personalizada ?? tablaInsumosParams[0].nombre}
+                          </p>
+                          <p className="text-[10px] text-green-700/70 dark:text-green-400/70">
+                            Tabla de insumos · producto y cantidad se leen de cada fila
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {tablaInsumosParams.map(p => {
+                          const sel = form.campo_cantidad === p.nombre;
+                          return (
+                            <button
+                              key={p.nombre} type="button"
+                              onClick={() => setForm(prev => ({ ...prev, campo_cantidad: p.nombre, formula_cantidad: "" }))}
+                              className={cn(
+                                "flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition-colors",
+                                sel
+                                  ? "border-violet-400 bg-violet-100 text-violet-800 dark:border-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
+                                  : "border-border bg-background text-muted-foreground hover:border-violet-300 hover:bg-violet-50/50",
+                              )}
+                            >
+                              {sel && <CheckCircle2 className="h-3.5 w-3.5 text-violet-600" />}
+                              <span>{paramLabel(p)}</span>
+                              <span className="rounded bg-violet-100 px-1 text-[10px] text-violet-600 dark:bg-violet-900/40 dark:text-violet-400">
+                                Tabla insumos
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )
+                  ) : numericParams.length === 0 ? (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-400">
+                      Este formulario no tiene campos numéricos.
+                      Ve a <strong>Configuración → Formularios</strong> y agrega uno (ej. "cantidad", "dosis", "kilos").
+                    </div>
+                  ) : (
+                    // Campos numéricos — chips clicables
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        {numericParams.map(p => {
+                          const sel = form.campo_cantidad === p.nombre && !form.formula_cantidad;
+                          return (
+                            <button
+                              key={p.nombre} type="button"
+                              onClick={() => setForm(prev => ({ ...prev, campo_cantidad: p.nombre, formula_cantidad: "" }))}
+                              className={cn(
+                                "flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition-all",
+                                sel
+                                  ? "border-primary bg-primary/10 text-primary shadow-sm"
+                                  : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:bg-primary/5",
+                              )}
+                            >
+                              {sel
+                                ? <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                                : <Hash className="h-3.5 w-3.5 opacity-50" />
+                              }
+                              <span className="font-medium">{paramLabel(p)}</span>
+                              <span className="font-mono text-[10px] opacity-60">{p.nombre}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Toggle fórmula */}
+                      <div className="rounded-xl border border-border bg-muted/10">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (form.formula_cantidad) {
+                              setForm(p => ({ ...p, formula_cantidad: "" }));
+                            } else {
+                              setForm(p => ({ ...p, formula_cantidad: " ", campo_cantidad: "" }));
+                            }
+                          }}
+                          className="w-full flex items-center justify-between px-3 py-2.5 text-left"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-muted-foreground">Usar fórmula</span>
+                            <span className="text-[10px] text-muted-foreground/60">combina varios campos</span>
+                          </div>
+                          <Switch
+                            checked={form.formula_cantidad !== ""}
+                            onCheckedChange={() => {}}
+                            className="pointer-events-none scale-75 origin-right"
+                          />
+                        </button>
+                        {form.formula_cantidad !== "" && (
+                          <div className="px-3 pb-3 pt-0 border-t border-border space-y-2">
+                            <FormulaBuilder
+                              value={form.formula_cantidad}
+                              onChange={v => setForm(p => ({ ...p, formula_cantidad: v, campo_cantidad: v ? "" : p.campo_cantidad }))}
+                              variables={numericParams}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Vista previa del paso 1 */}
+              {step1Valid && selectedDef && (
+                <div className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5">
+                  <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
+                  <p className="text-xs text-foreground/80">
+                    <strong>{selectedDef.nombre}</strong>
+                    <span className="text-muted-foreground"> · campo </span>
+                    <code className="rounded bg-primary/10 px-1 font-mono text-primary text-[11px]">
+                      {form.formula_cantidad || form.campo_cantidad}
+                    </code>
+                    <span className="text-muted-foreground"> → define producto y movimiento en el paso 2</span>
+                  </p>
                 </div>
               )}
             </div>
           )}
-          {esTablaInsumos && (
-            <div className="flex items-start gap-2 rounded-lg border border-violet-200 bg-violet-50/60 px-3 py-2.5 text-xs dark:border-violet-800/40 dark:bg-violet-900/10">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-violet-200 text-violet-700 text-[10px] font-bold shrink-0 dark:bg-violet-800 dark:text-violet-300">2</span>
-              <p className="text-violet-800 dark:text-violet-300">
-                <strong>Tabla de insumos detectada.</strong> El producto se leerá de cada fila que el operario complete en el formulario. No es necesario especificar un producto fijo.
-              </p>
-            </div>
-          )}
 
-          {/* ── Bloque 3: Cantidad ── */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold flex items-center gap-1.5">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold">3</span>
-              ¿Cómo se calcula la cantidad a mover?
-            </Label>
+          {/* ══ STEP 2: Producto + tipo de movimiento ══ */}
+          {step === 2 && (
+            <div className="space-y-4">
 
-            {!form.def_id ? (
-              <p className="text-[11px] text-muted-foreground rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2">
-                Selecciona un formulario en el paso 1 para ver sus campos disponibles.
-              </p>
-            ) : esTablaInsumos ? (
-              // ── Caso A: formulario con Tabla de insumos → producto y cantidad vienen de cada fila ──
-              tablaInsumosParams.length === 1 ? (
-                <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50/60 px-3 py-2.5 dark:border-green-800/40 dark:bg-green-900/10">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
-                  <div>
-                    <p className="text-xs font-medium text-green-800 dark:text-green-300">
-                      Campo detectado automáticamente:
-                      <span className="ml-1 font-mono">{tablaInsumosParams[0].etiqueta_personalizada ?? tablaInsumosParams[0].nombre}</span>
-                    </p>
-                    <p className="text-[10px] text-green-700/70 dark:text-green-400/70">
-                      Los productos y cantidades se leerán de cada fila de la tabla al guardar
-                    </p>
-                  </div>
+              {/* Resumen del paso 1 (read-only) */}
+              <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2.5">
+                <GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <p className="text-xs text-muted-foreground">
+                  <strong className="text-foreground">{selectedDef?.nombre ?? form.tabla_origen}</strong>
+                  <span> · </span>
+                  <code className="rounded bg-muted px-1 font-mono text-[11px]">
+                    {form.formula_cantidad || form.campo_cantidad}
+                  </code>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  className="ml-auto text-[10px] text-primary hover:underline shrink-0"
+                >Cambiar</button>
+              </div>
+
+              {/* Producto */}
+              {!esTablaInsumos ? (
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Producto del inventario
+                  </Label>
+                  <Select value={form.catalogo_id} onValueChange={v => setForm(p => ({ ...p, catalogo_id: v }))}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Seleccionar producto…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {catalogos.filter(c => c.activo).map(c => (
+                        <SelectItem key={c.id} value={c.id}>
+                          <span className="flex items-center gap-2">
+                            <Package className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span>{c.nombre}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {c.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })} {c.unidad_medida}
+                            </span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedProducto && (
+                    <div className="flex items-center gap-3 rounded-lg bg-muted/30 px-3 py-2">
+                      <Package className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold">{selectedProducto.nombre}</p>
+                        <p className="text-[10px] text-muted-foreground">{selectedProducto.categoria}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className={cn("text-xs font-bold tabular-nums", stockColor)}>
+                          {selectedProducto.cantidad_actual.toLocaleString("es-CL", { maximumFractionDigits: 1 })}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">{selectedProducto.unidad_medida}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
-                // Múltiples campos TablaInsumos → selector
-                <div className="space-y-1.5">
-                  <Select value={form.campo_cantidad} onValueChange={v => setForm(p => ({ ...p, campo_cantidad: v, formula_cantidad: "" }))}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="Seleccionar campo de insumos…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {tablaInsumosParams.map(p => (
-                        <SelectItem key={p.nombre} value={p.nombre}>
-                          <span className="flex items-center gap-2">
-                            {paramLabel(p)}
-                            <span className={cn("rounded px-1 py-0 text-[10px] font-medium", TIPO_DATO_BADGE["TablaInsumos"] ?? "bg-violet-100 text-violet-700")}>
-                              Tabla de insumos
-                            </span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="flex items-start gap-2 rounded-xl border border-violet-200 bg-violet-50/60 px-3 py-2.5 dark:border-violet-800/40 dark:bg-violet-900/10">
+                  <CheckCircle2 className="h-4 w-4 text-violet-600 shrink-0 mt-0.5" />
+                  <p className="text-xs text-violet-800 dark:text-violet-300">
+                    <strong>Tabla de insumos.</strong> El producto se lee de cada fila del formulario — no se requiere producto fijo.
+                  </p>
                 </div>
-              )
-            ) : numericParams.length === 0 ? (
-              <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-400">
-                Este formulario no tiene campos numéricos. Ve a{" "}
-                <strong>Configuración → Formularios</strong> y agrega uno (ej. "cantidad", "dosis", "kilos").
+              )}
+
+              {/* Tipo de movimiento */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Tipo de movimiento
+                </Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["entrada", "salida"] as InvMovimientoTipo[]).map(t => (
+                    <button
+                      key={t} type="button"
+                      onClick={() => handleTipoChange(t)}
+                      className={cn(
+                        "rounded-xl border px-3 py-2.5 text-xs font-medium transition-all text-left",
+                        form.tipo_movimiento === t
+                          ? TIPO_COLORS[t] + " border-transparent shadow-sm"
+                          : "border-border bg-background hover:bg-muted",
+                      )}
+                    >
+                      <p className="text-sm mb-0.5">
+                        {t === "entrada" ? "📥" : t === "salida" ? "📤" : "⚖"}
+                        {" "}{t.charAt(0).toUpperCase() + t.slice(1)}
+                      </p>
+                      <p className="text-[10px] font-normal opacity-70">
+                        {t === "entrada" ? "Suma al stock" : t === "salida" ? "Resta del stock" : "Valor absoluto"}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+                <Select value={form.subtipo} onValueChange={v => setForm(p => ({ ...p, subtipo: v as InvMovimientoSubtipo }))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {SUBTIPOS[form.tipo_movimiento].map(s => (
+                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            ) : (
-              // ── Caso B: formulario simple (producto fijo) → elegir campo numérico Y/O escribir fórmula ──
-              <div className="space-y-2.5">
-                <div className="space-y-1">
-                  <p className="text-[11px] text-muted-foreground">
-                    Campo numérico que trae la cantidad (se usa si no hay fórmula, o como respaldo):
-                  </p>
-                  <Select value={form.campo_cantidad} onValueChange={v => setForm(p => ({ ...p, campo_cantidad: v }))}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="Seleccionar campo numérico…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {numericParams.map(p => (
-                        <SelectItem key={p.nombre} value={p.nombre}>
-                          <span className="flex items-center gap-2">
-                            {paramLabel(p)}
-                            <span className={cn("rounded px-1 py-0 text-[10px] font-medium", TIPO_DATO_BADGE["Número"])}>
-                              {p.nombre}
-                            </span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
 
-                <div className="space-y-1.5">
-                  <p className="text-[11px] text-muted-foreground">
-                    O, si la cantidad real se calcula combinando varios campos, arma una <strong>fórmula</strong> tocando los chips (opcional):
-                  </p>
-                  <FormulaBuilder
-                    value={form.formula_cantidad}
-                    onChange={v => setForm(p => ({ ...p, formula_cantidad: v }))}
-                    variables={numericParams}
-                  />
+              {/* Activo */}
+              <div className="flex items-center justify-between rounded-xl border border-border bg-muted/20 px-3 py-2.5">
+                <div>
+                  <Label className="text-xs font-medium cursor-pointer">Regla activa</Label>
+                  <p className="text-[10px] text-muted-foreground">Si está inactiva no se disparará al guardar</p>
                 </div>
+                <Switch checked={form.activo} onCheckedChange={v => setForm(p => ({ ...p, activo: v }))} />
               </div>
-            )}
-          </div>
 
-          {/* ── Bloque 4: Tipo movimiento ── */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold flex items-center gap-1.5">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold">4</span>
-              ¿Qué tipo de movimiento genera?
-            </Label>
-            <div className="grid grid-cols-3 gap-2">
-              {(["entrada", "salida", "ajuste"] as InvMovimientoTipo[]).map(t => (
-                <button
-                  key={t}
-                  onClick={() => handleTipoChange(t)}
-                  className={cn(
-                    "rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
-                    form.tipo_movimiento === t
-                      ? TIPO_COLORS[t] + " border-transparent"
-                      : "border-border hover:bg-muted",
-                  )}
-                >
-                  {t === "entrada" ? "📥 Entrada" : t === "salida" ? "📤 Salida" : "⚖ Ajuste"}
-                  <p className="mt-0.5 text-[10px] font-normal opacity-70">
-                    {t === "entrada" ? "suma stock" : t === "salida" ? "resta stock" : "valor abs."}
+              {/* Preview de la regla completa */}
+              {canPreview && (
+                <div className="rounded-xl border border-green-200 bg-green-50/60 px-4 py-3 dark:border-green-800/40 dark:bg-green-900/10 space-y-2">
+                  <p className="text-[10px] font-semibold text-green-700 dark:text-green-400 uppercase tracking-wide">
+                    Vista previa de la regla
                   </p>
-                </button>
-              ))}
-            </div>
-            <Select value={form.subtipo} onValueChange={v => setForm(p => ({ ...p, subtipo: v as InvMovimientoSubtipo }))}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {SUBTIPOS[form.tipo_movimiento].map(s => (
-                  <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Activo */}
-          <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2.5">
-            <div>
-              <Label className="text-xs cursor-pointer">Regla activa</Label>
-              <p className="text-[11px] text-muted-foreground">Si está inactiva no se disparará al guardar</p>
-            </div>
-            <Switch checked={form.activo} onCheckedChange={v => setForm(p => ({ ...p, activo: v }))} />
-          </div>
-
-          {/* Preview */}
-          {canPreview && (
-            <div className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50/60 px-3 py-2.5 dark:border-green-800/40 dark:bg-green-900/10">
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 mt-0.5" />
-              <p className="text-xs text-green-800 dark:text-green-400 leading-relaxed">
-                Al guardar un registro de <strong>{selectedDef?.nombre ?? form.tabla_origen}</strong>,
-                el sistema {form.formula_cantidad ? "calculará la cantidad con la fórmula" : "tomará"}{" "}
-                <code className="font-mono bg-green-100 dark:bg-green-900/40 px-1 rounded">
-                  {form.formula_cantidad
-                    ? form.formula_cantidad
-                    : selectedCampo ? paramLabel(selectedCampo) : form.campo_cantidad}
-                </code>{" "}
-                {!form.formula_cantidad && selectedCampo?.tipo_dato === "Número" && selectedProducto &&
-                  <span>({selectedCampo.etiqueta_personalizada ?? selectedCampo.nombre}, en {selectedProducto.unidad_medida})</span>}
-                {" "}→ registrará una{" "}
-                <strong>{TIPO_LABELS[form.tipo_movimiento]}</strong> en{" "}
-                <strong>{selectedProducto?.nombre ?? "—"}</strong>.
-              </p>
+                  <div className="flex items-center gap-2 flex-wrap text-xs text-green-800 dark:text-green-300">
+                    <span className="rounded-lg bg-white/70 border border-green-200 dark:bg-green-900/30 dark:border-green-800/40 px-2 py-1 font-medium">
+                      {selectedDef?.nombre ?? form.tabla_origen}
+                    </span>
+                    <ArrowRight className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                    <code className="rounded bg-white/70 border border-green-200 dark:bg-green-900/30 dark:border-green-800/40 px-2 py-1 font-mono text-[11px]">
+                      {form.formula_cantidad || form.campo_cantidad}
+                    </code>
+                    <ArrowRight className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium border", TIPO_COLORS[form.tipo_movimiento])}>
+                      {TIPO_LABELS[form.tipo_movimiento]}
+                    </span>
+                    {selectedProducto && (
+                      <>
+                        <span className="text-green-600 dark:text-green-500">en</span>
+                        <span className="rounded-lg bg-white/70 border border-green-200 dark:bg-green-900/30 dark:border-green-800/40 px-2 py-1 font-medium">
+                          {selectedProducto.nombre}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
 
+        {/* Footer */}
         {err && (
-          <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="mx-5 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             <AlertCircle className="h-4 w-4 shrink-0" /> {err}
           </div>
         )}
-
-        <DialogFooter className="gap-2">
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button size="sm" onClick={handleSave}>{editing ? "Guardar cambios" : "Crear regla"}</Button>
-        </DialogFooter>
+        <div className="px-5 py-3 border-t border-border flex items-center justify-between gap-2">
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <div className="flex gap-2">
+            {step === 2 && (
+              <Button variant="outline" size="sm" onClick={() => { setStep(1); setErr(""); }}>
+                ← Atrás
+              </Button>
+            )}
+            {step === 1 ? (
+              <Button
+                size="sm"
+                disabled={!step1Valid}
+                onClick={() => { if (step1Valid) { setStep(2); setErr(""); } }}
+              >
+                Siguiente →
+              </Button>
+            ) : (
+              <Button size="sm" onClick={handleSave}>
+                {editing ? "Guardar cambios" : "Crear regla"}
+              </Button>
+            )}
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -813,22 +944,307 @@ function ReglasSection() {
   );
 }
 
+// ─── VentanasAjusteSection ────────────────────────────────────────────────────
+
+function diasAperturaLabel(dias: number) {
+  return `Abre ${dias}d antes del fin de mes`;
+}
+
+function diasCierreLabel(dias: number) {
+  if (dias === -1) return "cierra al inicio del mes siguiente";
+  if (dias === 0)  return "cierra el último día del mes";
+  return `cierra ${dias}d antes del fin de mes`;
+}
+
+function computeEstadoHoy(cfg: ConfigVentanaAjuste): "en_ventana" | "fuera_ventana" {
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth();
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  const day = today.getDate();
+  const openDay = lastDay - cfg.dias_apertura;
+  let closeY = y, closeM = m, closeD: number;
+  if (cfg.dias_cierre === -1) {
+    closeD = 1; closeM += 1;
+    if (closeM > 11) { closeM = 0; closeY++; }
+  } else {
+    closeD = lastDay - cfg.dias_cierre;
+  }
+  const isIn = day >= openDay && new Date(y, m, day) <= new Date(closeY, closeM, closeD);
+  return isIn ? "en_ventana" : "fuera_ventana";
+}
+
+const EMPTY_CONFIG_FORM = { cliente_id: "", productor_id: "", dias_apertura: "5", dias_cierre: "1", cierre_inicio_mes: false, notas: "" };
+
+function VentanasAjusteSection() {
+  const { configVentanas, crearConfigVentana, editarConfigVentana, eliminarConfigVentana, toggleConfigVentana } = useInventario();
+  const { clientes, productores } = useRole();
+
+  const [showForm,   setShowForm]   = useState(false);
+  const [editId,     setEditId]     = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
+  const [form, setForm] = useState(EMPTY_CONFIG_FORM);
+  const [err,  setErr]  = useState("");
+
+  const productoresFiltrados = useMemo(() =>
+    form.cliente_id ? productores.filter(p => p.clienteId === Number(form.cliente_id)) : [],
+    [form.cliente_id, productores],
+  );
+
+  function openCreate() {
+    setEditId(null);
+    setForm(EMPTY_CONFIG_FORM);
+    setErr("");
+    setShowForm(true);
+  }
+
+  function openEdit(v: ConfigVentanaAjuste) {
+    setEditId(v.id);
+    setForm({
+      cliente_id:        String(v.cliente_id),
+      productor_id:      v.productor_id ? String(v.productor_id) : "",
+      dias_apertura:     String(v.dias_apertura),
+      dias_cierre:       v.dias_cierre === -1 ? "1" : String(v.dias_cierre),
+      cierre_inicio_mes: v.dias_cierre === -1,
+      notas:             v.notas ?? "",
+    });
+    setErr("");
+    setShowForm(true);
+  }
+
+  function handleSave() {
+    if (!form.cliente_id) { setErr("Selecciona un cliente."); return; }
+    const dA = Number(form.dias_apertura);
+    const dC = form.cierre_inicio_mes ? -1 : Number(form.dias_cierre);
+    if (isNaN(dA) || dA < 1) { setErr("Los días de apertura deben ser ≥ 1."); return; }
+    if (!form.cierre_inicio_mes && (isNaN(Number(form.dias_cierre)) || Number(form.dias_cierre) < 0)) {
+      setErr("Los días de cierre deben ser ≥ 0."); return;
+    }
+    const payload: Omit<ConfigVentanaAjuste, "id" | "created_at" | "updated_at"> = {
+      cliente_id:    Number(form.cliente_id),
+      productor_id:  form.productor_id ? Number(form.productor_id) : undefined,
+      dias_apertura: dA,
+      dias_cierre:   dC,
+      activa:        true,
+      notas:         form.notas || undefined,
+    };
+    if (editId) {
+      editarConfigVentana(editId, payload);
+    } else {
+      crearConfigVentana(payload);
+    }
+    setShowForm(false);
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex-1 min-w-0">
+          <h2 className="flex items-center gap-2 text-base font-semibold">
+            <CalendarClock className="h-4 w-4 text-primary/70" />
+            Ventanas de ajuste de stock
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5 max-w-xl">
+            Regla recurrente por cliente. El sistema activa y desactiva la ventana automáticamente
+            cada mes según los días configurados — sin intervención manual.
+          </p>
+        </div>
+        <Button size="sm" className="h-8 text-xs gap-1.5 shrink-0" onClick={openCreate}>
+          <Plus className="h-3.5 w-3.5" /> Nueva regla
+        </Button>
+      </div>
+
+      {/* Lista */}
+      {configVentanas.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-10 text-center border border-dashed rounded-xl border-border/60">
+          <CalendarClock className="h-8 w-8 text-muted-foreground/30 mb-2" />
+          <p className="text-sm font-medium text-muted-foreground">Sin reglas configuradas</p>
+          <p className="text-xs text-muted-foreground/60 mt-0.5">Crea una regla para habilitar el ajuste de stock al fin de mes</p>
+        </div>
+      ) : (
+        <div className="border border-border rounded-xl overflow-hidden divide-y divide-border">
+          {configVentanas.map(v => {
+            const cliente   = clientes.find(c => c.id === v.cliente_id);
+            const productor = v.productor_id ? productores.find(p => p.id === v.productor_id) : null;
+            const estado    = v.activa ? computeEstadoHoy(v) : null;
+            return (
+              <div key={v.id} className={cn("flex items-center gap-3 px-4 py-3 transition-colors group", v.activa ? "hover:bg-muted/20" : "opacity-50 hover:bg-muted/10")}>
+                {/* Toggle activa */}
+                <Switch
+                  checked={v.activa}
+                  onCheckedChange={() => toggleConfigVentana(v.id)}
+                  className="shrink-0"
+                />
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold">{cliente?.nombre ?? `Cliente ${v.cliente_id}`}</span>
+                    {productor && <span className="text-xs text-muted-foreground/70">· {productor.nombre}</span>}
+                    {v.activa && estado && (
+                      <span className={cn(
+                        "text-[10px] font-medium px-1.5 py-0.5 rounded-full border",
+                        estado === "en_ventana"
+                          ? "bg-success/15 text-success border-success/30"
+                          : "bg-muted text-muted-foreground border-border",
+                      )}>
+                        {estado === "en_ventana" ? "En ventana" : "Fuera de ventana"}
+                      </span>
+                    )}
+                    {!v.activa && (
+                      <span className="text-[10px] text-muted-foreground/50 italic">Inactiva</span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {diasAperturaLabel(v.dias_apertura)} · {diasCierreLabel(v.dias_cierre)}
+                    {v.notas && <span className="ml-2 text-muted-foreground/50">· {v.notas}</span>}
+                  </p>
+                </div>
+
+                {/* Acciones */}
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                    onClick={() => openEdit(v)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => setConfirmDel(v.id)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Dialog crear/editar */}
+      <Dialog open={showForm} onOpenChange={o => { if (!o) setShowForm(false); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editId ? "Editar regla de ventana" : "Nueva regla de ventana"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 space-y-1.5">
+                <Label className="text-xs">Cliente *</Label>
+                <Select value={form.cliente_id} onValueChange={v => setForm(p => ({ ...p, cliente_id: v, productor_id: "" }))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Seleccionar cliente" /></SelectTrigger>
+                  <SelectContent>
+                    {clientes.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.nombre}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              {productoresFiltrados.length > 0 && (
+                <div className="col-span-2 space-y-1.5">
+                  <Label className="text-xs">Productor <span className="text-muted-foreground">(vacío = todos)</span></Label>
+                  <Select value={form.productor_id || "_all"} onValueChange={v => setForm(p => ({ ...p, productor_id: v === "_all" ? "" : v }))}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Todos los productores" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_all">Todos los productores</SelectItem>
+                      {productoresFiltrados.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.nombre}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Abre</Label>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    type="number" min="1" max="28"
+                    value={form.dias_apertura}
+                    onChange={e => setForm(p => ({ ...p, dias_apertura: e.target.value }))}
+                    className="h-8 text-xs w-16"
+                  />
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">días antes del fin</span>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Cierra</Label>
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2">
+                    <input type="radio" id="cierre-dias" checked={!form.cierre_inicio_mes}
+                      onChange={() => setForm(p => ({ ...p, cierre_inicio_mes: false }))} className="accent-primary" />
+                    <label htmlFor="cierre-dias" className="text-xs text-muted-foreground">días antes del fin</label>
+                    {!form.cierre_inicio_mes && (
+                      <Input type="number" min="0" max="28" value={form.dias_cierre}
+                        onChange={e => setForm(p => ({ ...p, dias_cierre: e.target.value }))}
+                        className="h-7 text-xs w-14" />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input type="radio" id="cierre-inicio" checked={form.cierre_inicio_mes}
+                      onChange={() => setForm(p => ({ ...p, cierre_inicio_mes: true }))} className="accent-primary" />
+                    <label htmlFor="cierre-inicio" className="text-xs text-muted-foreground">al inicio del mes siguiente</label>
+                  </div>
+                </div>
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label className="text-xs">Notas <span className="text-muted-foreground">(opcional)</span></Label>
+                <Input value={form.notas} onChange={e => setForm(p => ({ ...p, notas: e.target.value }))}
+                  placeholder="Cierre contable, auditoría…" className="h-8 text-xs" />
+              </div>
+            </div>
+            {err && <p className="text-xs text-destructive">{err}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setShowForm(false)}>Cancelar</Button>
+            <Button size="sm" onClick={handleSave}>{editId ? "Guardar cambios" : "Crear regla"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm delete */}
+      <AlertDialog open={!!confirmDel} onOpenChange={o => { if (!o) setConfirmDel(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar regla?</AlertDialogTitle>
+            <AlertDialogDescription>Se eliminará la configuración de ventana para este cliente. No se puede deshacer.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive hover:bg-destructive/90"
+              onClick={() => { if (confirmDel) eliminarConfigVentana(confirmDel); setConfirmDel(null); }}>
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 // ─── TabInventario ─────────────────────────────────────────────────────────────
 
 export function TabInventario() {
   return (
-    <div className="space-y-2">
-      <div className="mb-5 space-y-1">
-        <h2 className="flex items-center gap-2 text-base font-semibold">
-          <Zap className="h-4 w-4 text-amber-500" />
-          Reglas de movimiento automático
-        </h2>
-        <p className="max-w-2xl text-xs text-muted-foreground">
-          Conectan un formulario del sistema con el inventario. Al guardar un registro,
-          el stock del producto vinculado se actualiza automáticamente — sin intervención del operario.
-        </p>
-      </div>
-      <ReglasSection />
-    </div>
+    <Tabs defaultValue="reglas" className="space-y-4">
+      <TabsList className="h-9">
+        <TabsTrigger value="reglas" className="gap-1.5 text-xs">
+          <Zap className="h-3.5 w-3.5" /> Reglas de movimiento
+        </TabsTrigger>
+        <TabsTrigger value="ventanas" className="gap-1.5 text-xs">
+          <CalendarClock className="h-3.5 w-3.5" /> Ventanas de ajuste
+        </TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="reglas" className="space-y-2 mt-0">
+        <div className="mb-5 space-y-1">
+          <h2 className="flex items-center gap-2 text-base font-semibold">
+            <Zap className="h-4 w-4 text-amber-500" />
+            Reglas de movimiento automático
+          </h2>
+          <p className="max-w-2xl text-xs text-muted-foreground">
+            Conectan un formulario del sistema con el inventario. Al guardar un registro,
+            el stock del producto vinculado se actualiza automáticamente — sin intervención del operario.
+          </p>
+        </div>
+        <ReglasSection />
+      </TabsContent>
+
+      <TabsContent value="ventanas" className="mt-0">
+        <VentanasAjusteSection />
+      </TabsContent>
+    </Tabs>
   );
 }

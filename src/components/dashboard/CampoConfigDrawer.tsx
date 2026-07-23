@@ -7,7 +7,7 @@ import { Label }    from "@/components/ui/label";
 import { Button }   from "@/components/ui/button";
 import { Switch }   from "@/components/ui/switch";
 import { Badge }    from "@/components/ui/badge";
-import { Settings2, Plus, X, Trash2, Link2, Calculator, Table2, SlidersHorizontal, Search, ArrowUpDown, Sparkles, Camera, Info, Database, Brain, Eye, Hash } from "lucide-react";
+import { Settings2, Plus, X, Trash2, Link2, Calculator, Table2, SlidersHorizontal, Search, ArrowUpDown, Sparkles, Camera, Info, Database, Brain, Eye, Hash, List, GitBranch } from "lucide-react";
 import type {
   ModParam, CampoValidaciones, CampoDependencia, CampoOpcion,
 } from "@/config/moduleDefinitions";
@@ -25,6 +25,27 @@ interface CampoConfigDrawerProps {
 
 type CalculoCampoRef = NonNullable<ModParam["calculo_campos"]>[number];
 type RelacionOperacion = NonNullable<ModParam["relacion_origen_operacion"]>;
+
+// ─── Fuentes vinculadas para tipo Lista ──────────────────────────────────────
+
+interface ListaSource {
+  key: string;
+  label: string;
+  desc: string;
+  icon: string;
+  cultivoOnly: boolean; // requiere que la def tenga cultivo_id
+}
+
+const LISTA_DATA_SOURCES: ListaSource[] = [
+  { key: "calibres",          label: "Calibres",              desc: "Calibres configurados del cultivo (Premium, Extra, Estándar…)",        icon: "⚖️", cultivoOnly: true  },
+  { key: "estructura",        label: "Estructura",            desc: "Niveles de estructura del cultivo (Bloque, Nave, Hilera…)",            icon: "🏗️", cultivoOnly: true  },
+  { key: "etapas_ciclo",      label: "Etapas del ciclo",      desc: "Etapas del ciclo de vida del cultivo (Germinación, Floración…)",       icon: "🔄", cultivoOnly: true  },
+  { key: "variedades",        label: "Variedades",            desc: "Variedades registradas del cultivo",                                    icon: "🌿", cultivoOnly: true  },
+  { key: "plagasEnfermedades",label: "Plagas y Enfermedades", desc: "Catálogo fitosanitario: nombre de cada plaga o enfermedad registrada", icon: "🛡️", cultivoOnly: true  },
+  { key: "planAplicaciones",  label: "Plan de Aplicaciones",  desc: "Nombre de cada plan de aplicación fitosanitaria del cultivo",          icon: "💊", cultivoOnly: true  },
+  { key: "planPodas",         label: "Plan de Podas",         desc: "Nombre de cada plan de poda registrado",                               icon: "✂️", cultivoOnly: true  },
+  { key: "planNutricion",     label: "Plan de Nutrición",     desc: "Nombre de cada plan de nutrición del cultivo",                         icon: "🌱", cultivoOnly: true  },
+];
 
 const parseValores = (raw: string): Record<string, string> => {
   try {
@@ -46,6 +67,7 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
   const [validaciones, setValidaciones] = useState<CampoValidaciones>({});
   const [opciones, setOpciones]         = useState<CampoOpcion[]>([]);
   const [newOpcion, setNewOpcion]       = useState("");
+  const [listaDataSource, setListaDataSource] = useState<string>("");
   const [dependencia, setDependencia]   = useState<CampoDependencia | null>(null);
   const [filtrableRango,    setFiltrableRango]    = useState(false);
   const [filtrableBusqueda, setFiltrableBusqueda] = useState(false);
@@ -59,7 +81,6 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
   // Relación
   const [relacionDefId,      setRelacionDefId]      = useState<string>("");
   const [relacionCampoLabel, setRelacionCampoLabel] = useState<string>("");
-  const [relacionCampoValor, setRelacionCampoValor] = useState<string>("");
   const [relacionFiltrosComunes, setRelacionFiltrosComunes] = useState<string[]>([]);
   const [relacionAgruparPor, setRelacionAgruparPor] = useState<string>("");
   const [relacionOperacion, setRelacionOperacion] = useState<RelacionOperacion>("valores_unicos");
@@ -79,6 +100,7 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
     setObligatorio(campo.obligatorio);
     setValidaciones(campo.validaciones_adicionales ?? {});
     setOpciones(campo.opciones ?? []);
+    setListaDataSource(campo.lista_data_source ?? "");
     setDependencia(campo.dependencias ?? null);
     setFiltrableRango(campo.filtrable_rango ?? false);
     setFiltrableBusqueda(campo.filtrable_busqueda ?? false);
@@ -90,7 +112,7 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
     setMlCampoImagen(campo.ml_campo_imagen ?? "");
     setRelacionDefId(campo.relacion_def_id ?? "");
     setRelacionCampoLabel(campo.relacion_campo_label ?? "");
-    setRelacionCampoValor(campo.relacion_campo_valor ?? "");
+
     setRelacionFiltrosComunes(campo.relacion_filtros_comunes ?? []);
     setRelacionAgruparPor(campo.relacion_agrupar_por ?? "");
     setRelacionOperacion(campo.relacion_origen_operacion ?? "valores_unicos");
@@ -119,7 +141,7 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
 
   // Para el config de relación: campos disponibles en la definición fuente
   const defFuente = definiciones.find(d => d.id === relacionDefId);
-  const campoValorEfectivo = relacionCampoValor || relacionCampoLabel;
+  const campoValorEfectivo = relacionCampoLabel;
   const camposFuente = defFuente
     ? parametros
         .filter(p => p.definicion_id === defFuente.id && !(defFuente.id === campo.definicion_id && p.id === campo.id))
@@ -238,7 +260,8 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
       validaciones_adicionales: (showNumValidations || showTextValidations)
         ? Object.keys(validaciones).length > 0 ? validaciones : null
         : null,
-      opciones: showOpciones && opciones.length > 0 ? opciones : null,
+      opciones: showOpciones && !listaDataSource && opciones.length > 0 ? opciones : null,
+      lista_data_source: showOpciones && listaDataSource ? listaDataSource : null,
       dependencias: dependencia,
       filtrable_rango: showFiltrableRango ? filtrableRango || undefined : undefined,
       filtrable_busqueda: showFiltrableBusqueda ? filtrableBusqueda || undefined : undefined,
@@ -250,7 +273,7 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
       ml_campo_imagen: isMl && mlCampoImagen  ? mlCampoImagen  : null,
       relacion_def_id:      showRelacion && relacionDefId      ? relacionDefId      : null,
       relacion_campo_label: showRelacion && relacionCampoLabel ? relacionCampoLabel : null,
-      relacion_campo_valor: showRelacion && relacionCampoValor ? relacionCampoValor : null,
+
       relacion_filtros_comunes: showRelacion && relacionDefId && relacionFiltrosComunesValidos.length > 0
         ? relacionFiltrosComunesValidos
         : null,
@@ -328,6 +351,10 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                   />
                   <span className="text-sm text-muted-foreground">{valorDefault === "true" ? "Sí" : "No"}</span>
                 </div>
+              ) : tipo === "Lista" && listaDataSource ? (
+                <p className="text-xs text-muted-foreground italic px-1">
+                  Las opciones son dinámicas — el valor por defecto se configura en el formulario.
+                </p>
               ) : tipo === "Lista" && opciones.length > 0 ? (
                 <select
                   className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
@@ -453,31 +480,120 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
           {/* ── Opciones (Lista) ── */}
           {showOpciones && (
             <section className="space-y-4">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Opciones de la lista</h4>
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <List className="w-3.5 h-3.5" /> Opciones de la lista
+              </h4>
 
-              <div className="space-y-2">
-                {opciones.map(o => (
-                  <div key={o.value} className="flex items-center justify-between bg-muted/40 rounded-lg px-3 py-2 border border-border">
-                    <span className="text-sm">{o.label}</span>
-                    <button onClick={() => removeOpcion(o.value)} className="text-muted-foreground hover:text-destructive transition-colors">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
+              {/* Selector de modo */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setListaDataSource("")}
+                  className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border text-xs font-medium transition-colors ${
+                    !listaDataSource
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  }`}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Opciones manuales
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { if (!listaDataSource) setListaDataSource(LISTA_DATA_SOURCES[0].key); }}
+                  className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border text-xs font-medium transition-colors ${
+                    !!listaDataSource
+                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                      : "border-border text-muted-foreground hover:border-emerald-500/40 hover:text-foreground"
+                  }`}
+                >
+                  <GitBranch className="w-3.5 h-3.5" />
+                  Vinculado al cultivo
+                </button>
+              </div>
+
+              {/* Modo manual */}
+              {!listaDataSource && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    {opciones.map(o => (
+                      <div key={o.value} className="flex items-center justify-between bg-muted/40 rounded-lg px-3 py-2 border border-border">
+                        <span className="text-sm">{o.label}</span>
+                        <button onClick={() => removeOpcion(o.value)} className="text-muted-foreground hover:text-destructive transition-colors">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                  <div className="flex gap-2">
+                    <Input
+                      value={newOpcion}
+                      onChange={e => setNewOpcion(e.target.value)}
+                      placeholder="Nueva opción..."
+                      onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addOpcion(); } }}
+                      className="flex-1"
+                    />
+                    <Button variant="outline" size="sm" onClick={addOpcion} disabled={!newOpcion.trim()}>
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
 
-              <div className="flex gap-2">
-                <Input
-                  value={newOpcion}
-                  onChange={e => setNewOpcion(e.target.value)}
-                  placeholder="Nueva opción..."
-                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addOpcion(); } }}
-                  className="flex-1"
-                />
-                <Button variant="outline" size="sm" onClick={addOpcion} disabled={!newOpcion.trim()}>
-                  <Plus className="w-4 h-4" />
-                </Button>
-              </div>
+              {/* Modo vinculado */}
+              {!!listaDataSource && (
+                <div className="space-y-3 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-500/5 p-3">
+                  <div className="flex items-start gap-2 text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 rounded-md px-2.5 py-2 border border-emerald-200 dark:border-emerald-800">
+                    <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <span>
+                      Las opciones se cargan en tiempo real desde la configuración del cultivo activo. No se guardan como lista fija.
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Fuente de datos</Label>
+                    <div className="space-y-1.5">
+                      {LISTA_DATA_SOURCES.map(src => (
+                        <button
+                          key={src.key}
+                          type="button"
+                          onClick={() => setListaDataSource(src.key)}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
+                            listaDataSource === src.key
+                              ? "border-emerald-500 bg-emerald-500/10"
+                              : "border-border bg-background hover:border-emerald-500/40 hover:bg-muted/30"
+                          }`}
+                        >
+                          <span className="text-base leading-none">{src.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs font-medium ${listaDataSource === src.key ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
+                              {src.label}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground truncate">{src.desc}</p>
+                          </div>
+                          {listaDataSource === src.key && (
+                            <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Preview */}
+                  {listaDataSource && (() => {
+                    const src = LISTA_DATA_SOURCES.find(s => s.key === listaDataSource);
+                    return src ? (
+                      <div className="rounded-md bg-background border border-border px-3 py-2 text-[11px] space-y-0.5">
+                        <p className="font-medium text-emerald-700 dark:text-emerald-300">Vista previa del campo</p>
+                        <p className="text-muted-foreground">
+                          Al registrar, el usuario verá un desplegable con{" "}
+                          <strong>{src.label.toLowerCase()}</strong> del cultivo vinculado al formulario.
+                        </p>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              )}
             </section>
           )}
 
@@ -510,7 +626,6 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
 
                       if (!nextDefId) {
                         setRelacionCampoLabel("");
-                        setRelacionCampoValor("");
                         setRelacionFiltrosComunes([]);
                         setRelacionAgruparPor("");
                         setRelacionOperacion("valores_unicos");
@@ -527,7 +642,6 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                       const commonNames = nextCamposComunes.map((c) => c.nombre);
 
                       setRelacionCampoLabel(defaultLabelField);
-                      setRelacionCampoValor(defaultLabelField);
                       setRelacionFiltrosComunes(commonNames);
                       setRelacionAgruparPor(pickDefaultGroupField(nextCamposComunes));
                       setRelacionOperacion(defaultTipo === "Número" ? "suma" : "valores_unicos");
@@ -556,15 +670,13 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                       onChange={e => {
                         const nextLabel = e.target.value;
                         setRelacionCampoLabel(nextLabel);
-                        if (!relacionCampoValor) {
-                          const sourceField = camposFuente.find((p) => p.nombre === nextLabel);
-                          if (sourceField?.tipo_dato === "Número") {
-                            if (!["suma", "promedio", "maximo", "minimo", "valores_unicos"].includes(relacionOperacionNormalizada)) {
-                              setRelacionOperacion("suma");
-                            }
-                          } else if (["suma", "promedio", "maximo", "minimo"].includes(relacionOperacionNormalizada)) {
-                            setRelacionOperacion("valores_unicos");
+                        const sourceField = camposFuente.find((p) => p.nombre === nextLabel);
+                        if (sourceField?.tipo_dato === "Número") {
+                          if (!["suma", "promedio", "maximo", "minimo", "valores_unicos"].includes(relacionOperacionNormalizada)) {
+                            setRelacionOperacion("suma");
                           }
+                        } else if (["suma", "promedio", "maximo", "minimo"].includes(relacionOperacionNormalizada)) {
+                          setRelacionOperacion("valores_unicos");
                         }
                       }}
                     >
@@ -577,41 +689,6 @@ export function CampoConfigDrawer({ open, campo, hermanos, onSave, onClose }: Ca
                     </select>
                     <p className="text-[10px] text-muted-foreground">
                       Qué dato del registro se muestra en el desplegable.
-                    </p>
-                  </div>
-                )}
-
-                {/* Campo valor */}
-                {relacionDefId && relacionCampoLabel && (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Campo a guardar como valor</Label>
-                    <select
-                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                      value={relacionCampoValor}
-                      onChange={e => {
-                        const nextCampoValor = e.target.value;
-                        setRelacionCampoValor(nextCampoValor);
-                        const fieldName = nextCampoValor || relacionCampoLabel;
-                        const sourceField = camposFuente.find((p) => p.nombre === fieldName);
-                        if (sourceField?.tipo_dato === "Número") {
-                          if (!["suma", "promedio", "maximo", "minimo", "valores_unicos"].includes(relacionOperacionNormalizada)) {
-                            setRelacionOperacion("suma");
-                          }
-                        } else if (["suma", "promedio", "maximo", "minimo"].includes(relacionOperacionNormalizada)) {
-                          setRelacionOperacion("valores_unicos");
-                        }
-                        setRelacionValorEspecifico("");
-                      }}
-                    >
-                      <option value="">— Igual que etiqueta —</option>
-                      {camposFuente.map(p => (
-                        <option key={p.id} value={p.nombre}>
-                          {p.etiqueta_personalizada || p.nombre.replace(/_/g, " ")}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[10px] text-muted-foreground">
-                      Qué campo se guarda en el registro. Por defecto es el mismo que la etiqueta.
                     </p>
                   </div>
                 )}

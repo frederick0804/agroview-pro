@@ -398,7 +398,8 @@ export function RoleNotifications({
   title = "Notificaciones",
   maxItems = 4,
 }: RoleNotificationsProps) {
-  const { role, currentUser } = useRole();
+  const { role, currentUser, getUserModulos } = useRole();
+  const primaryModulo = currentUser ? getUserModulos(currentUser)[0] : undefined;
   const navigate = useNavigate();
   const { getStockCritico, getAlertas, getAlertasVencimiento } = useInventario();
 
@@ -410,8 +411,8 @@ export function RoleNotifications({
   const alertasVencimiento = useMemo(() => getAlertasVencimiento(), [getAlertasVencimiento]);
 
   const roleNotifications = useMemo(
-    () => getNotificationsByRole(role, currentUser?.area_asignada).slice(0, maxItems),
-    [role, currentUser?.area_asignada, maxItems],
+    () => getNotificationsByRole(role, primaryModulo).slice(0, maxItems),
+    [role, primaryModulo, maxItems],
   );
 
   const totalAlertas = stockCritico.length + alertasVencimiento.filter(a => a.estado !== "proximo").length;

@@ -28,7 +28,7 @@ import {
   Upload, X, Plus,
   Trash2, Info, CheckCircle2, Check, Clock, Archive, Leaf, Search, Copy, History,
   ChevronDown, ChevronUp, RotateCcw, Power, XCircle, LayoutList, ArrowLeftRight, Lock, CheckSquare, Square, ListFilter, Zap,
-  Ruler, Scale, Network, ChevronRight, ArrowUp, ArrowDown, Map as MapIcon, Tag,
+  Ruler, Scale, Network, ChevronRight, ArrowUp, ArrowDown, Map as MapIcon, Tag, Wifi, WifiOff,
   Hash, ToggleLeft, Image as ImageIcon, Link2, UserX, UserCheck, SlidersHorizontal,
   LayoutDashboard,
 } from "lucide-react";
@@ -38,14 +38,20 @@ import {
   useRole,
   PRODUCER_DASHBOARD_MODULES,
   ALL_MODULES, ALL_ACTIONS, ACTIONS_BY_ROLE,
-  ROLE_LEVELS,
+  ROLE_LEVELS, AREAS_DEMO, AREA_MODULOS_DEMO,
   type UserRole as UserRoleT, type ActionPermission, type ProducerDashboardModuleKey,
 } from "@/contexts/RoleContext";
 import {
   tipoBadgeColor, tipoLabels, estadoBadge,
   type ModDef, type ModParam, type Parametro,
   type TipoConfig, type TipoDato, type EstadoDef,
-  type Cultivo, type Variedad, type Calibre, type NivelEstructura, type BloqueLayout, type MapaCultivo, type EtapaCiclo,
+  type Cultivo, type Variedad, type Calibre, type NivelEstructura, type BloqueLayout, type MapaCultivo, type ModoEstructura, type EtapaCiclo,
+  type PlagaEnfermedad, type TipoPlaga, type EtapaFito,
+  type PlanAplicacion, type TipoAplicacion, type MetodoAplicacion,
+  type ConfigCosecha, type VentanaCosecha, type UnidadCosecha,
+  type PlanPoda, type TipoPoda,
+  type PlanNutricion, type MetodoFertilizacion, type ProductoNutricional,
+  type ConfigRiego, type SistemaRiego, type EtapaRiego,
 } from "@/config/moduleDefinitions";
 import { VersionDiffDialog } from "@/components/dashboard/VersionDiffDialog";
 import { CampoConfigDrawer } from "@/components/dashboard/CampoConfigDrawer";
@@ -53,7 +59,7 @@ import { CampoMapaEditor } from "@/components/cultivo/CampoMapaEditor";
 import { DashboardBuilderContent } from "./DashboardBuilder";
 import { TabInventario }            from "./ConfigInventario";
 import {
-  Shield, ShieldCheck, Sprout as SproutIcon, Briefcase, Eye,
+  Shield, ShieldCheck, Sprout as SproutIcon, Droplets, Briefcase, Eye,
   BookOpen as BookOpenAlt, Mail, Calendar,
   ShieldAlert, AlertTriangle, Users2, Building2, Tractor, Pencil, Globe, FileText, MapPin,
   Timer, GripVertical, Bell, BellOff,
@@ -672,16 +678,19 @@ function TabFormularios({
   onPendingChange,
   highlightDefId,
   autoOpenCreateModal,
+  autoOpenBiblioteca,
 }: {
   onPendingChange?: (v: boolean) => void;
   highlightDefId?: string;
   autoOpenCreateModal?: boolean;
+  autoOpenBiblioteca?: boolean;
 }) {
   const {
     definiciones, allDefiniciones, parametros, datos, cultivos, allCultivos, parametrosLib,
     addDef, addEvento, updDef, delDef, dupDef, copyDefToClient,
     addPar, updParFull, delParByIdx,
     getDefAccesos, addDefAcceso, removeDefAcceso,
+    getDefAlcances, addAlcance, updAlcance, removeAlcance,
   } = useConfig();
   const { role, clientes, productores, users: allUsers, empresaCtxId } = useRole();
   const isSuperAdmin = role === "super_admin";
@@ -692,8 +701,17 @@ function TabFormularios({
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
   const [expandedEventos, setExpandedEventos] = useState<Set<string>>(new Set());
   const [expandedAcceso,  setExpandedAcceso]  = useState<Set<string>>(new Set());
+  const [expandedAlcance, setExpandedAlcance] = useState<Set<string>>(new Set());
+  const [addAlcanceFor,   setAddAlcanceFor]   = useState<string | null>(null); // defId
+  const [newAlcCliente,   setNewAlcCliente]   = useState<string>("");
+  const [newAlcProductor, setNewAlcProductor] = useState<string>("");
+  const [newAlcCultivo,   setNewAlcCultivo]   = useState<string>("");
   const [viewMode, setViewMode]               = useState<"card" | "list">("list");
   const [listExpandedRows, setListExpandedRows] = useState<Set<string>>(new Set());
+  const [offlineFormIds, setOfflineFormIds]     = useState<Set<string>>(new Set());
+  const [sensibleFormIds, setSensibleFormIds]   = useState<Set<string>>(new Set());
+  const [offlineConfirm, setOfflineConfirm]     = useState<{ rootId: string; enabling: boolean } | null>(null);
+  const [sensibleConfirm, setSensibleConfirm]   = useState<{ rootId: string; enabling: boolean } | null>(null);
   const toggleListRow = (id: string) => setListExpandedRows(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const [configCampoId,   setConfigCampoId]   = useState<string | null>(null);
   const [showBiblioteca,  setShowBiblioteca]  = useState(false);
@@ -910,6 +928,13 @@ function TabFormularios({
     openNewDefModal();
     autoOpenCreateHandledRef.current = true;
   }, [autoOpenCreateModal]);
+
+  const autoOpenBibliotecaHandledRef = useRef(false);
+  useEffect(() => {
+    if (!autoOpenBiblioteca || autoOpenBibliotecaHandledRef.current) return;
+    setShowBiblioteca(true);
+    autoOpenBibliotecaHandledRef.current = true;
+  }, [autoOpenBiblioteca]);
 
   const openAccesosModal = (defId: string) => {
     setAccesosModal(defId);
@@ -1556,6 +1581,43 @@ function TabFormularios({
                         {productores.find(p => p.id === latest.productor_id)?.nombre ?? `#${latest.productor_id}`}
                       </span>
                     )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOfflineConfirm({ rootId, enabling: !offlineFormIds.has(rootId) });
+                      }}
+                      title={offlineFormIds.has(rootId) ? "Disponible offline — click para desactivar" : "Activar disponibilidad offline"}
+                      className={cn(
+                        "inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border transition-colors shrink-0",
+                        offlineFormIds.has(rootId)
+                          ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-400"
+                          : "bg-muted border-border text-muted-foreground hover:bg-muted/80",
+                      )}
+                    >
+                      <WifiOff className={cn("w-2.5 h-2.5", offlineFormIds.has(rootId) && "hidden")} />
+                      <Wifi className={cn("w-2.5 h-2.5", !offlineFormIds.has(rootId) && "hidden")} />
+                      {offlineFormIds.has(rootId) ? "offline ✓" : "offline"}
+                    </button>
+                    {offlineFormIds.has(rootId) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSensibleConfirm({ rootId, enabling: !sensibleFormIds.has(rootId) });
+                        }}
+                        title={sensibleFormIds.has(rootId) ? "Datos sensibles — cifrado activado (requiereCifrado: true)" : "Marcar como datos sensibles — activar cifrado offline"}
+                        className={cn(
+                          "inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border transition-colors shrink-0",
+                          sensibleFormIds.has(rootId)
+                            ? "bg-violet-50 border-violet-200 text-violet-700 hover:bg-violet-100 dark:bg-violet-900/20 dark:border-violet-800 dark:text-violet-400"
+                            : "bg-muted border-border text-muted-foreground hover:bg-muted/80",
+                        )}
+                      >
+                        {sensibleFormIds.has(rootId)
+                          ? <ShieldCheck className="w-2.5 h-2.5" />
+                          : <Shield className="w-2.5 h-2.5" />}
+                        {sensibleFormIds.has(rootId) ? "cifrado ✓" : "sensible"}
+                      </button>
+                    )}
                     <ChevronDown className={cn(
                       "w-3.5 h-3.5 text-muted-foreground/40 shrink-0 transition-transform duration-200 group-hover/row:text-muted-foreground",
                       isExpanded && "rotate-180",
@@ -1713,50 +1775,58 @@ function TabFormularios({
                     className="font-semibold text-foreground leading-snug w-full bg-transparent outline-none placeholder:italic placeholder:text-muted-foreground hover:bg-muted/30 focus:bg-background focus:px-1.5 focus:rounded focus:border focus:border-primary/40 transition-all text-sm mt-2"
                   />
 
-                  {/* Módulo ? Cultivo */}
-                  <div className="flex items-center gap-1.5 mt-1 text-[11px] text-muted-foreground flex-wrap" onClick={e => e.stopPropagation()}>
+                  {/* Módulo */}
+                  <div className="flex items-center gap-1.5 mt-1 text-[11px] text-muted-foreground" onClick={e => e.stopPropagation()}>
                     <span className="shrink-0">{MODULO_OPTIONS.find(m => m.value === latest.modulo)?.label ?? latest.modulo}</span>
-                    <span>·</span>
-                    <select
-                      value={latest.cultivo_id ?? ""}
-                      onChange={e => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "cultivo_id", e.target.value || undefined); }}
-                      onClick={e => e.stopPropagation()}
-                      title="Alcance del formulario"
-                      className={cn(
-                        "text-[10px] font-medium px-1.5 py-0.5 rounded-full border cursor-pointer outline-none transition-colors",
-                        latest.cultivo_id ? "bg-primary/10 text-primary border-primary/20 hover:bg-primary/20" : "bg-muted text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
-                      )}
-                    >
-                      <option value="">Global - todos los cultivos</option>
-                      {cardCultivos.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                    </select>
                   </div>
 
-                  {/* Control de acceso — colapsable */}
+                  {/* Control de acceso — fila fija, sin expansión */}
                   <div className="mt-2.5 pt-2 border-t border-border/40" onClick={e => e.stopPropagation()}>
-                    {/* Fila resumen — siempre visible */}
-                    <div className="flex items-center gap-1.5 w-full group/acc hover:bg-primary/5 rounded-md px-1.5 py-1 transition-colors cursor-pointer"
-                      onClick={() => toggleExpandAcceso(rootId)}
-                    >
+                    <div className="flex items-center gap-1.5 px-1.5 py-1 flex-wrap">
                       <Lock className="w-2.5 h-2.5 text-muted-foreground/50 shrink-0" />
-                      <span className={cn(
-                        "text-[10px] font-medium px-1.5 py-0.5 rounded-full border shrink-0",
-                        latest.nivel_minimo > 1
-                          ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800"
-                          : "bg-muted text-muted-foreground border-border",
-                      )}>
-                        {accesoLabel}
-                      </span>
-                      {rolesExcluidosCount > 0 && (
-                        <span className="text-[10px] text-destructive/70 font-medium shrink-0">
-                          {rolesExcluidosCount} rol{rolesExcluidosCount > 1 ? "es" : ""} excluido{rolesExcluidosCount > 1 ? "s" : ""}
-                        </span>
-                      )}
-                      {accesosCount > 0 && (
-                        <span className="text-[10px] text-primary/70 font-medium shrink-0">
-                          {accesosCount} ajuste{accesosCount > 1 ? "s" : ""}
-                        </span>
-                      )}
+                      <select
+                        value={latest.nivel_minimo}
+                        onChange={e => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "nivel_minimo", Number(e.target.value)); }}
+                        onClick={e => e.stopPropagation()}
+                        title="Nivel de acceso mínimo"
+                        className={cn(
+                          "text-[10px] font-medium px-1.5 py-0.5 rounded-full border cursor-pointer outline-none transition-colors shrink-0",
+                          latest.nivel_minimo > 1
+                            ? "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800"
+                            : "bg-muted text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
+                        )}
+                      >
+                        {NIVEL_ACCESS_OPTIONS.map(n => <option key={n.value} value={n.value}>{n.icon} {n.label} (Nv.{n.value})</option>)}
+                      </select>
+                      {(latest.roles_excluidos ?? []).map(r => {
+                        const rOpt = ROLE_ACCESS_OPTIONS.find(x => x.value === r);
+                        return (
+                          <span key={r} className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 shrink-0">
+                            {rOpt?.short ?? r}
+                            <button
+                              onClick={() => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "roles_excluidos", (latest.roles_excluidos ?? []).filter(x => x !== r)); }}
+                              className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity leading-none"
+                              title={`Quitar exclusión de ${rOpt?.label ?? r}`}
+                            >x</button>
+                          </span>
+                        );
+                      })}
+                      {(() => {
+                        const excluded = latest.roles_excluidos ?? [];
+                        const available = ROLE_ACCESS_OPTIONS.filter(r => !excluded.includes(r.value));
+                        if (available.length === 0) return null;
+                        return (
+                          <select
+                            value=""
+                            onChange={e => { if (!e.target.value) return; const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "roles_excluidos", [...excluded, e.target.value]); }}
+                            onClick={e => e.stopPropagation()}
+                            className="text-[9px] px-1.5 py-0.5 rounded-full border border-dashed border-border cursor-pointer outline-none text-muted-foreground hover:border-destructive/50 hover:text-destructive transition-colors bg-transparent shrink-0"
+                          >
+                            <option value="">+ excluir rol</option>
+                            {available.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                          </select>
+                        );
+                      })()}
                       <button
                         onClick={e => { e.stopPropagation(); openAccesosModal(latest.id); }}
                         className="ml-auto text-[10px] font-medium px-2 py-0.5 rounded-md border border-primary/25 bg-primary/5 text-primary hover:bg-primary/15 transition-colors shrink-0 flex items-center gap-1"
@@ -1764,73 +1834,130 @@ function TabFormularios({
                         <Lock className="w-2.5 h-2.5" />
                         Accesos
                       </button>
-                      <ChevronDown className={cn(
-                        "w-3 h-3 text-muted-foreground/40 transition-transform duration-200 shrink-0",
-                        isExpAcceso && "rotate-180",
-                      )} />
                     </div>
+                  </div>
 
-                    {/* Controles expandidos */}
-                    {isExpAcceso && (
-                      <div className={cn(
-                        "mt-2 space-y-2 pt-2 border-t border-border/30",
-                        isListRow && "ml-4 border-l-2 border-l-blue-300/50 pl-3 bg-blue-50/20 rounded-r-md" // Indentación especial para acceso en lista
-                      )}>
-                        {/* Nivel mínimo + roles excluidos */}
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <select
-                            value={latest.nivel_minimo}
-                            onChange={e => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "nivel_minimo", Number(e.target.value)); }}
-                            title="Nivel de acceso mínimo"
-                            className={cn(
-                              "text-[10px] font-medium px-1.5 py-0.5 rounded-full border cursor-pointer outline-none transition-colors",
-                              latest.nivel_minimo > 1 ? "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800" : "bg-muted text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
-                            )}
-                          >
-                            {NIVEL_ACCESS_OPTIONS.map(n => <option key={n.value} value={n.value}>{n.icon} {n.label} (Nv.{n.value})</option>)}
-                          </select>
-                          {(latest.roles_excluidos ?? []).map(r => {
-                            const rOpt = ROLE_ACCESS_OPTIONS.find(x => x.value === r);
+                  {/* Alcance de visibilidad — siempre visible, filas compactas */}
+                  {isSuperAdmin && (() => {
+                    const defAlcances = getDefAlcances(rootId);
+                    const isAddingAlc = addAlcanceFor === rootId;
+                    const filteredProductores = productores.filter(p => p.clienteId === Number(newAlcCliente));
+                    return (
+                      <div className="mt-2.5 pt-2 border-t border-border/40" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5 px-1.5 mb-1">
+                          <Globe className="w-2.5 h-2.5 text-muted-foreground/50 shrink-0" />
+                          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">Alcance</span>
+                          {defAlcances.length === 0 && !isAddingAlc && (
+                            <span className="text-[10px] text-muted-foreground/40 italic">Global</span>
+                          )}
+                        </div>
+
+                        <div className="space-y-0.5 pl-2">
+                          {defAlcances.map(alc => {
+                            const cliente   = clientes.find(c => c.id === alc.cliente_id);
+                            const productor = alc.productor_id ? productores.find(p => p.id === alc.productor_id) : null;
+                            const cultivo   = alc.cultivo_id   ? cultivos.find(c => c.id === alc.cultivo_id)     : null;
                             return (
-                              <span key={r} className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 shrink-0">
-                                {rOpt?.short ?? r}
-                                <button onClick={() => { const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "roles_excluidos", (latest.roles_excluidos ?? []).filter(x => x !== r)); }} className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity leading-none" title={`Quitar exclusión de ${rOpt?.label ?? r}`}>x</button>
-                              </span>
+                              <div key={alc.id} className="flex items-center gap-1.5 px-1.5 py-0.5 rounded-md hover:bg-muted/30 group/alc-row">
+                                <button
+                                  onClick={() => updAlcance(alc.id, { activo: !alc.activo })}
+                                  title={alc.activo ? "Activo — clic para desactivar" : "Inactivo — clic para activar"}
+                                  className={cn("w-1.5 h-1.5 rounded-full shrink-0 transition-colors", alc.activo ? "bg-success" : "bg-muted-foreground/30")}
+                                />
+                                <span className="text-[10px] text-foreground truncate flex-1 min-w-0">
+                                  {cliente?.nombre ?? `Cliente ${alc.cliente_id}`}
+                                  {productor && <span className="text-muted-foreground"> · {productor.nombre}</span>}
+                                  {cultivo   && <span className="text-muted-foreground"> · {cultivo.nombre}</span>}
+                                </span>
+                                <button
+                                  onClick={() => removeAlcance(alc.id)}
+                                  className="opacity-0 group-hover/alc-row:opacity-100 transition-opacity text-destructive/60 hover:text-destructive shrink-0"
+                                  title="Quitar asignación"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
                             );
                           })}
-                          {(() => {
-                            const excluded = latest.roles_excluidos ?? [];
-                            const available = ROLE_ACCESS_OPTIONS.filter(r => !excluded.includes(r.value));
-                            if (available.length === 0) return null;
-                            return (
-                              <select value="" onChange={e => { if (!e.target.value) return; const idx = definiciones.findIndex(d => d.id === latest.id); if (idx !== -1) updDef(idx, "roles_excluidos", [...excluded, e.target.value]); }} className="text-[9px] px-1.5 py-0.5 rounded-full border border-dashed border-border cursor-pointer outline-none text-muted-foreground hover:border-destructive/50 hover:text-destructive transition-colors bg-transparent shrink-0">
-                                <option value="">+ excluir rol</option>
-                                {available.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                              </select>
-                            );
-                          })()}
-                        </div>
-                        {/* Overrides */}
-                        {(() => {
-                          const accesos = getDefAccesos(latest.id);
-                          const nAllow = accesos.filter(a => a.habilitado).length;
-                          const nBlock = accesos.filter(a => !a.habilitado).length;
-                          return (
-                            <div className="flex items-center gap-1.5">
-                              <Users2 className="w-2.5 h-2.5 text-muted-foreground/60 shrink-0" />
-                              {accesos.length === 0
-                                ? <span className="text-[9px] text-muted-foreground/50 italic">Sin ajustes</span>
-                                : <>
-                                    {nAllow > 0 && <span className="text-[9px] font-medium text-success">{nAllow} permitido{nAllow > 1 ? "s" : ""}</span>}
-                                    {nBlock > 0 && <span className="text-[9px] font-medium text-destructive">{nBlock} bloqueado{nBlock > 1 ? "s" : ""}</span>}
-                                  </>
-                              }
+
+                          {isAddingAlc ? (
+                            <div
+                              className="mt-1 rounded-md border border-border/60 bg-muted/20 p-2 space-y-2"
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <div className="grid grid-cols-[1fr_1fr] gap-1.5">
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider px-0.5">Cliente</span>
+                                  <select
+                                    value={newAlcCliente}
+                                    onChange={e => { setNewAlcCliente(e.target.value); setNewAlcProductor(""); setNewAlcCultivo(""); }}
+                                    className="text-[10px] px-2 py-1 rounded-md border border-border bg-background outline-none focus:border-primary/50 transition-colors w-full"
+                                  >
+                                    <option value="">— Seleccionar —</option>
+                                    {clientes.map(c => <option key={c.id} value={String(c.id)}>{c.nombre}</option>)}
+                                  </select>
+                                </div>
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider px-0.5">Productor</span>
+                                  <select
+                                    value={newAlcProductor}
+                                    onChange={e => setNewAlcProductor(e.target.value)}
+                                    disabled={!newAlcCliente || filteredProductores.length === 0}
+                                    className="text-[10px] px-2 py-1 rounded-md border border-border bg-background outline-none focus:border-primary/50 transition-colors w-full disabled:opacity-40"
+                                  >
+                                    <option value="">Todos</option>
+                                    {filteredProductores.map(p => <option key={p.id} value={String(p.id)}>{p.nombre}</option>)}
+                                  </select>
+                                </div>
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider px-0.5">Cultivo</span>
+                                  <select
+                                    value={newAlcCultivo}
+                                    onChange={e => setNewAlcCultivo(e.target.value)}
+                                    disabled={!newAlcCliente}
+                                    className="text-[10px] px-2 py-1 rounded-md border border-border bg-background outline-none focus:border-primary/50 transition-colors w-full disabled:opacity-40"
+                                  >
+                                    <option value="">Todos</option>
+                                    {cultivos.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                  </select>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 pt-0.5">
+                                <button
+                                  disabled={!newAlcCliente}
+                                  onClick={() => {
+                                    if (!newAlcCliente) return;
+                                    const clienteId   = Number(newAlcCliente);
+                                    const productorId = newAlcProductor ? Number(newAlcProductor) : undefined;
+                                    const cultivoId   = newAlcCultivo || undefined;
+                                    const isDup = defAlcances.some(a => a.cliente_id === clienteId && a.productor_id === productorId && a.cultivo_id === cultivoId);
+                                    if (!isDup) addAlcance({ definicion_id: rootId, cliente_id: clienteId, productor_id: productorId, cultivo_id: cultivoId, activo: true, orden: defAlcances.length + 1 });
+                                    setAddAlcanceFor(null); setNewAlcCliente(""); setNewAlcProductor(""); setNewAlcCultivo("");
+                                  }}
+                                  className="text-[10px] font-medium px-3 py-1 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
+                                >
+                                  Guardar
+                                </button>
+                                <button
+                                  onClick={() => { setAddAlcanceFor(null); setNewAlcCliente(""); setNewAlcProductor(""); setNewAlcCultivo(""); }}
+                                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
                             </div>
-                          );
-                        })()}
+                          ) : (
+                            <button
+                              onClick={() => { setAddAlcanceFor(rootId); setNewAlcCliente(""); setNewAlcProductor(""); setNewAlcCultivo(""); }}
+                              className="text-[10px] text-muted-foreground/60 hover:text-primary transition-colors flex items-center gap-1 py-0.5 px-1 mt-0.5"
+                            >
+                              <Plus className="w-3 h-3" /> Nueva asignación
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </div>
+                    );
+                  })()}
 
                 </div>}
 
@@ -4369,6 +4496,101 @@ function TabFormularios({
         onClose={() => setConfigCampoId(null)}
       />
 
+      {/* -- AlertDialog: confirmar activar/desactivar disponibilidad offline -- */}
+      <AlertDialog open={!!offlineConfirm} onOpenChange={(v) => !v && setOfflineConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              {offlineConfirm?.enabling
+                ? <><Wifi className="w-4 h-4 text-emerald-600" /> Activar disponibilidad offline</>
+                : <><WifiOff className="w-4 h-4 text-muted-foreground" /> Desactivar disponibilidad offline</>}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                {offlineConfirm?.enabling ? (
+                  <>
+                    <p>Este formulario se almacenará en el dispositivo del usuario y estará disponible para completar sin conexión.</p>
+                    <p className="text-muted-foreground">Los datos ingresados offline se guardan en una cola local y se sincronizan automáticamente al reconectarse.</p>
+                  </>
+                ) : (
+                  <>
+                    <p>Este formulario dejará de estar disponible offline. El cache local se eliminará en el próximo logout de cada usuario.</p>
+                    {offlineConfirm && sensibleFormIds.has(offlineConfirm.rootId) && (
+                      <p className="text-violet-700 font-medium">También se desactivará el cifrado de datos sensibles para este formulario.</p>
+                    )}
+                  </>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setOfflineConfirm(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className={offlineConfirm?.enabling ? "" : "bg-destructive hover:bg-destructive/90"}
+              onClick={() => {
+                if (!offlineConfirm) return;
+                setOfflineFormIds(prev => {
+                  const next = new Set(prev);
+                  offlineConfirm.enabling ? next.add(offlineConfirm.rootId) : next.delete(offlineConfirm.rootId);
+                  return next;
+                });
+                if (!offlineConfirm.enabling) {
+                  setSensibleFormIds(prev => { const next = new Set(prev); next.delete(offlineConfirm.rootId); return next; });
+                }
+                setOfflineConfirm(null);
+              }}
+            >
+              {offlineConfirm?.enabling ? "Activar" : "Desactivar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* -- AlertDialog: confirmar marcar/desmarcar datos sensibles (cifrado) -- */}
+      <AlertDialog open={!!sensibleConfirm} onOpenChange={(v) => !v && setSensibleConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              {sensibleConfirm?.enabling
+                ? <><ShieldCheck className="w-4 h-4 text-violet-600" /> Activar cifrado de datos sensibles</>
+                : <><Shield className="w-4 h-4 text-muted-foreground" /> Desactivar cifrado</>}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                {sensibleConfirm?.enabling ? (
+                  <>
+                    <p>Los datos de este formulario se protegerán con cifrado antes de guardarse en el dispositivo. Solo el usuario autenticado podrá acceder a ellos.</p>
+                    <p className="text-muted-foreground">Recomendado para formularios con información comercial, de RR.HH. o cualquier dato sensible que no debería quedar expuesto si el dispositivo se pierde o es robado.</p>
+                  </>
+                ) : (
+                  <>
+                    <p>Los datos de este formulario dejarán de cifrarse al guardarse localmente. El cache existente se actualizará sin cifrado en la próxima sincronización.</p>
+                    <p className="text-amber-600 font-medium text-xs">Solo desactivar si los datos de este formulario ya no requieren protección adicional.</p>
+                  </>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setSensibleConfirm(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className={sensibleConfirm?.enabling ? "bg-violet-600 hover:bg-violet-700" : "bg-destructive hover:bg-destructive/90"}
+              onClick={() => {
+                if (!sensibleConfirm) return;
+                setSensibleFormIds(prev => {
+                  const next = new Set(prev);
+                  sensibleConfirm.enabling ? next.add(sensibleConfirm.rootId) : next.delete(sensibleConfirm.rootId);
+                  return next;
+                });
+                setSensibleConfirm(null);
+              }}
+            >
+              {sensibleConfirm?.enabling ? "Activar cifrado" : "Desactivar cifrado"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* -- Dialog: Gestión masiva de accesos de usuario por formulario ------- */}
       {(() => {
         const selectedDef = accesosModal ? definiciones.find(d => d.id === accesosModal) : null;
@@ -5326,6 +5548,2085 @@ function CicloTabContent({ cultivo, canEdit, updCultivo }: {
   );
 }
 
+// ─── TabPodas ─────────────────────────────────────────────────────────────────
+
+const TIPO_PODA_LABELS: Record<TipoPoda, string> = {
+  formacion:  "Formación",
+  sanitaria:  "Sanitaria",
+  produccion: "Producción",
+  aclareo:    "Aclareo",
+  renovacion: "Renovación",
+};
+const TIPO_PODA_COLORS: Record<TipoPoda, string> = {
+  formacion:  "bg-lime-100 text-lime-700",
+  sanitaria:  "bg-orange-100 text-orange-700",
+  produccion: "bg-green-100 text-green-700",
+  aclareo:    "bg-yellow-100 text-yellow-700",
+  renovacion: "bg-purple-100 text-purple-700",
+};
+const ALL_TIPOS_PODA: TipoPoda[] = ["formacion", "sanitaria", "produccion", "aclareo", "renovacion"];
+
+const EMPTY_PODA: Omit<PlanPoda, "id"> = {
+  nombre: "", tipo: "sanitaria", etapas: [], frecuencia_dias: undefined,
+  herramientas: "", instrucciones: "", personal_requerido: "", activo: true,
+};
+
+function TabPodas({ cultivo, canEdit, onUpdate }: { cultivo: Cultivo; canEdit: boolean; onUpdate: (items: PlanPoda[]) => void }) {
+  const items = cultivo.planPodas ?? [];
+  const [editForm, setEditForm] = useState<(PlanPoda & { _isNew?: boolean }) | null>(null);
+  const [viewItem, setViewItem] = useState<PlanPoda | null>(null);
+  const [search, setSearch] = useState("");
+
+  const filtered = items.filter(p => !search || p.nombre.toLowerCase().includes(search.toLowerCase()));
+  const openNew  = () => setEditForm({ ...EMPTY_PODA, id: `po-${Date.now()}`, _isNew: true });
+  const openEdit = (p: PlanPoda) => setEditForm({ ...p });
+  const close    = () => setEditForm(null);
+  const save = () => {
+    if (!editForm?.nombre.trim()) return;
+    const { _isNew, ...item } = editForm;
+    onUpdate(_isNew ? [...items, item] : items.map(p => p.id === item.id ? item : p));
+    close();
+  };
+  const del          = (id: string) => { onUpdate(items.filter(p => p.id !== id)); if (editForm?.id === id) close(); };
+  const toggleActivo = (id: string) => onUpdate(items.map(p => p.id === id ? { ...p, activo: !p.activo } : p));
+  const toggleEtapaPoda = (id: string) => {
+    if (!editForm) return;
+    if (id === "todas") { setEditForm(f => ({ ...f!, etapas: f!.etapas.includes("todas") ? [] : ["todas"] })); return; }
+    const next = editForm.etapas.includes(id)
+      ? editForm.etapas.filter(e => e !== id && e !== "todas")
+      : [...editForm.etapas.filter(e => e !== "todas"), id];
+    setEditForm(f => ({ ...f!, etapas: next }));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-lime-600" />
+            <h3 className="text-sm font-semibold">Plan de Podas</h3>
+            <span className="text-[10px] text-muted-foreground">Manejo vegetativo para {cultivo.nombre}</span>
+          </div>
+          {canEdit && (
+            <Button size="sm" className="h-8 text-xs gap-1.5" onClick={openNew}>
+              <Plus className="w-3.5 h-3.5" />Agregar
+            </Button>
+          )}
+        </div>
+        <div className="px-4 py-2.5 border-b bg-muted/20">
+          <div className="relative max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar poda…" className="pl-8 h-8 text-xs" />
+          </div>
+        </div>
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+            <Layers className="w-8 h-8 text-muted-foreground/30" />
+            <p className="text-sm font-medium text-muted-foreground">{items.length === 0 ? "Sin podas registradas" : "Sin resultados"}</p>
+            {items.length === 0 && canEdit && <p className="text-xs text-muted-foreground/70">Carga la plantilla o agrega manualmente</p>}
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {filtered.map(p => (
+              <div key={p.id} onClick={() => setViewItem(p)}
+                className={cn("flex items-start gap-3 px-4 py-3 group hover:bg-muted/20 cursor-pointer", !p.activo && "opacity-50")}>
+                <span className={cn("mt-0.5 shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full", TIPO_PODA_COLORS[p.tipo])}>
+                  {TIPO_PODA_LABELS[p.tipo]}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold">{p.nombre}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{p.instrucciones}</p>
+                  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                    {p.etapas.map(e => <span key={e} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{getEtapaLabel(e, cultivo.ciclo_vida ?? [])}</span>)}
+                    {p.frecuencia_dias && <span className="text-[9px] px-1.5 py-0.5 rounded bg-lime-50 text-lime-700 border border-lime-100">Cada {p.frecuencia_dias}d</span>}
+                    {p.herramientas && <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{p.herramientas}</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {canEdit && (
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                      <button onClick={e => { e.stopPropagation(); toggleActivo(p.id); }} className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"><Power className="w-3.5 h-3.5" /></button>
+                      <button onClick={e => { e.stopPropagation(); openEdit(p); }} className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={e => { e.stopPropagation(); del(p.id); }} className="h-7 w-7 flex items-center justify-center rounded hover:bg-destructive/10 text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  )}
+                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Modal de vista */}
+      <Dialog open={viewItem !== null} onOpenChange={open => { if (!open) setViewItem(null); }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          {viewItem && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", TIPO_PODA_COLORS[viewItem.tipo])}>
+                    {TIPO_PODA_LABELS[viewItem.tipo]}
+                  </span>
+                  {!viewItem.activo && <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">Inactivo</span>}
+                </div>
+                <DialogTitle className="text-base mt-1">{viewItem.nombre}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                {viewItem.etapas.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Etapas</p>
+                    <div className="flex flex-wrap gap-1">
+                      {viewItem.etapas.map(e => (
+                        <span key={e} className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                          {getEtapaLabel(e, cultivo.ciclo_vida ?? [])}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-3">
+                  {viewItem.frecuencia_dias && (
+                    <div className="bg-lime-50 rounded-lg px-3 py-2 text-center border border-lime-100">
+                      <p className="text-[10px] text-lime-600">Frecuencia</p>
+                      <p className="text-sm font-semibold text-lime-700">Cada {viewItem.frecuencia_dias}d</p>
+                    </div>
+                  )}
+                  {viewItem.herramientas && (
+                    <div className="col-span-2 bg-muted/40 rounded-lg px-3 py-2">
+                      <p className="text-[10px] text-muted-foreground mb-0.5">Herramientas</p>
+                      <p className="text-sm">{viewItem.herramientas}</p>
+                    </div>
+                  )}
+                </div>
+                {viewItem.instrucciones && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Instrucciones</p>
+                    <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-line">{viewItem.instrucciones}</p>
+                  </div>
+                )}
+                {viewItem.personal_requerido && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Personal requerido</p>
+                    <p className="text-sm text-foreground/80">{viewItem.personal_requerido}</p>
+                  </div>
+                )}
+              </div>
+              {canEdit && (
+                <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                  <Button variant="outline" size="sm" onClick={() => { setViewItem(null); openEdit(viewItem); }}>
+                    <Pencil className="w-3.5 h-3.5 mr-1.5" />Editar
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Sheet open={editForm !== null} onOpenChange={open => { if (!open) close(); }}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto flex flex-col">
+          <SheetHeader className="shrink-0">
+            <SheetTitle className="flex items-center gap-2 text-base"><Layers className="w-4 h-4 text-lime-600" />{editForm?._isNew ? "Nueva Poda" : "Editar poda"}</SheetTitle>
+          </SheetHeader>
+          {editForm && (
+            <div className="flex-1 overflow-y-auto space-y-4 py-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Nombre *</label>
+                <Input value={editForm.nombre} onChange={e => setEditForm(f => ({ ...f!, nombre: e.target.value }))} placeholder="ej. Poda sanitaria semanal" className="h-8 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Tipo</label>
+                  <select value={editForm.tipo} onChange={e => setEditForm(f => ({ ...f!, tipo: e.target.value as TipoPoda }))}
+                    className="h-8 w-full text-sm border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+                    {ALL_TIPOS_PODA.map(t => <option key={t} value={t}>{TIPO_PODA_LABELS[t]}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Frecuencia (días)</label>
+                  <Input type="number" min={1} value={editForm.frecuencia_dias ?? ""}
+                    onChange={e => setEditForm(f => ({ ...f!, frecuencia_dias: e.target.value ? Number(e.target.value) : undefined }))}
+                    placeholder="— (única vez)" className="h-8 text-sm" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Etapas</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {etapaIds(cultivo.ciclo_vida ?? []).map(id => (
+                    <button key={id} type="button" onClick={() => toggleEtapaPoda(id)}
+                      className={cn("text-xs px-2.5 py-1 rounded-full border transition-colors",
+                        editForm.etapas.includes(id) ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border text-muted-foreground hover:bg-muted")}>
+                      {getEtapaLabel(id, cultivo.ciclo_vida ?? [])}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Instrucciones</label>
+                <textarea value={editForm.instrucciones} onChange={e => setEditForm(f => ({ ...f!, instrucciones: e.target.value }))}
+                  rows={3} placeholder="Describe el procedimiento paso a paso…"
+                  className="w-full text-sm border border-input rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Herramientas</label>
+                <Input value={editForm.herramientas ?? ""} onChange={e => setEditForm(f => ({ ...f!, herramientas: e.target.value }))}
+                  placeholder="ej. Tijeras desinfectadas" className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Personal requerido</label>
+                <Input value={editForm.personal_requerido ?? ""} onChange={e => setEditForm(f => ({ ...f!, personal_requerido: e.target.value }))}
+                  placeholder="ej. 1 operario por 0.5 ha" className="h-8 text-sm" />
+              </div>
+              <div className="flex items-center justify-between py-2 border-t border-border">
+                <p className="text-sm font-medium">Activo</p>
+                <Switch checked={editForm.activo} onCheckedChange={v => setEditForm(f => ({ ...f!, activo: v }))} />
+              </div>
+            </div>
+          )}
+          <div className="shrink-0 border-t pt-4 flex justify-end gap-2">
+            <Button variant="outline" onClick={close} className="h-9 text-sm">Cancelar</Button>
+            <Button onClick={save} disabled={!editForm?.nombre.trim()} className="h-9 text-sm gap-1.5">
+              <CheckCircle2 className="w-4 h-4" />{editForm?._isNew ? "Crear" : "Guardar"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
+// ─── TabNutricion ─────────────────────────────────────────────────────────────
+
+const METODO_FERT_LABELS: Record<MetodoFertilizacion, string> = {
+  fertiriego: "Fertiriego", foliar: "Foliar", suelo: "Suelo",
+  inyeccion: "Inyección", otro: "Otro",
+};
+const METODO_FERT_COLORS: Record<MetodoFertilizacion, string> = {
+  fertiriego: "bg-teal-100 text-teal-700", foliar: "bg-green-100 text-green-700",
+  suelo: "bg-amber-100 text-amber-700", inyeccion: "bg-blue-100 text-blue-700",
+  otro: "bg-slate-100 text-slate-600",
+};
+const ALL_METODOS_FERT: MetodoFertilizacion[] = ["fertiriego", "foliar", "suelo", "inyeccion", "otro"];
+
+const EMPTY_NUTR: Omit<PlanNutricion, "id"> = {
+  nombre: "", metodo: "fertiriego", etapas: [], frecuencia_dias: 7,
+  objetivo: "", productos: [], observaciones: "", activo: true,
+};
+
+function TabNutricion({ cultivo, canEdit, onUpdate }: { cultivo: Cultivo; canEdit: boolean; onUpdate: (items: PlanNutricion[]) => void }) {
+  const items = cultivo.planNutricion ?? [];
+  const [editForm, setEditForm] = useState<(PlanNutricion & { _isNew?: boolean }) | null>(null);
+  const [search, setSearch] = useState("");
+  const [filtroMetodo, setFiltroMetodo] = useState<MetodoFertilizacion | "todos">("todos");
+  const [nuevoProducto, setNuevoProducto] = useState<{ nombre: string; dosis: string; unidad: string; npk: string }>({ nombre: "", dosis: "", unidad: "kg/ha", npk: "" });
+
+  const filtered = items.filter(n => {
+    if (filtroMetodo !== "todos" && n.metodo !== filtroMetodo) return false;
+    if (search && !n.nombre.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const openNew  = () => setEditForm({ ...EMPTY_NUTR, id: `nu-${Date.now()}`, _isNew: true });
+  const openEdit = (n: PlanNutricion) => setEditForm({ ...n });
+  const close    = () => { setEditForm(null); setNuevoProducto({ nombre: "", dosis: "", unidad: "kg/ha", npk: "" }); };
+  const save = () => {
+    if (!editForm?.nombre.trim()) return;
+    const { _isNew, ...item } = editForm;
+    onUpdate(_isNew ? [...items, item] : items.map(n => n.id === item.id ? item : n));
+    close();
+  };
+  const del          = (id: string) => { onUpdate(items.filter(n => n.id !== id)); if (editForm?.id === id) close(); };
+  const toggleActivo = (id: string) => onUpdate(items.map(n => n.id === id ? { ...n, activo: !n.activo } : n));
+  const addProducto  = () => {
+    if (!nuevoProducto.nombre.trim() || !editForm) return;
+    const prod: ProductoNutricional = { nombre: nuevoProducto.nombre, dosis: nuevoProducto.dosis, unidad: nuevoProducto.unidad };
+    if (nuevoProducto.npk) prod.npk = nuevoProducto.npk;
+    setEditForm(f => ({ ...f!, productos: [...f!.productos, prod] }));
+    setNuevoProducto({ nombre: "", dosis: "", unidad: "kg/ha", npk: "" });
+  };
+  const toggleEtapaNutr = (id: string) => {
+    if (!editForm) return;
+    if (id === "todas") { setEditForm(f => ({ ...f!, etapas: f!.etapas.includes("todas") ? [] : ["todas"] })); return; }
+    const next = editForm.etapas.includes(id)
+      ? editForm.etapas.filter(e => e !== id && e !== "todas")
+      : [...editForm.etapas.filter(e => e !== "todas"), id];
+    setEditForm(f => ({ ...f!, etapas: next }));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <SproutIcon className="w-4 h-4 text-teal-600" />
+            <h3 className="text-sm font-semibold">Plan de Nutrición</h3>
+            <span className="text-[10px] text-muted-foreground">Programa nutricional para {cultivo.nombre}</span>
+          </div>
+          {canEdit && (
+            <Button size="sm" className="h-8 text-xs gap-1.5" onClick={openNew}>
+              <Plus className="w-3.5 h-3.5" />Agregar
+            </Button>
+          )}
+        </div>
+        <div className="px-4 py-2.5 border-b bg-muted/20 flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[160px] max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar…" className="pl-8 h-8 text-xs" />
+          </div>
+          <div className="flex gap-1 flex-wrap">
+            {(["todos", ...ALL_METODOS_FERT] as const).map(m => (
+              <button key={m} onClick={() => setFiltroMetodo(m === filtroMetodo ? "todos" : m as any)}
+                className={cn("text-[10px] px-2.5 py-1 rounded-full border transition-colors",
+                  filtroMetodo === m ? "bg-foreground text-background border-foreground" : "bg-background border-border text-muted-foreground hover:bg-muted")}>
+                {m === "todos" ? "Todos" : METODO_FERT_LABELS[m as MetodoFertilizacion]}
+              </button>
+            ))}
+          </div>
+        </div>
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+            <SproutIcon className="w-8 h-8 text-muted-foreground/30" />
+            <p className="text-sm font-medium text-muted-foreground">{items.length === 0 ? "Sin programas nutricionales" : "Sin resultados"}</p>
+            {items.length === 0 && canEdit && <p className="text-xs text-muted-foreground/70">Carga la plantilla o agrega manualmente</p>}
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {filtered.map(n => (
+              <div key={n.id} className={cn("flex items-start gap-3 px-4 py-3 group hover:bg-muted/20", !n.activo && "opacity-50")}>
+                <span className={cn("mt-0.5 shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full", METODO_FERT_COLORS[n.metodo])}>
+                  {METODO_FERT_LABELS[n.metodo]}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold">{n.nombre}</p>
+                  {n.objetivo && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{n.objetivo}</p>}
+                  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                    {n.etapas.map(e => <span key={e} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{getEtapaLabel(e, cultivo.ciclo_vida ?? [])}</span>)}
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-100">Cada {n.frecuencia_dias}d</span>
+                    {n.productos.length > 0 && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-100">
+                        {n.productos.length} producto{n.productos.length > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {canEdit && (
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 shrink-0">
+                    <button onClick={() => toggleActivo(n.id)} className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"><Power className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => openEdit(n)} className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"><Pencil className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => del(n.id)} className="h-7 w-7 flex items-center justify-center rounded hover:bg-destructive/10 text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <Sheet open={editForm !== null} onOpenChange={open => { if (!open) close(); }}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto flex flex-col">
+          <SheetHeader className="shrink-0">
+            <SheetTitle className="flex items-center gap-2 text-base"><SproutIcon className="w-4 h-4 text-teal-600" />{editForm?._isNew ? "Nuevo Programa Nutricional" : "Editar programa"}</SheetTitle>
+          </SheetHeader>
+          {editForm && (
+            <div className="flex-1 overflow-y-auto space-y-4 py-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Nombre *</label>
+                <Input value={editForm.nombre} onChange={e => setEditForm(f => ({ ...f!, nombre: e.target.value }))} placeholder="ej. Engrosamiento de fruto" className="h-8 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Método</label>
+                  <select value={editForm.metodo} onChange={e => setEditForm(f => ({ ...f!, metodo: e.target.value as MetodoFertilizacion }))}
+                    className="h-8 w-full text-sm border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+                    {ALL_METODOS_FERT.map(m => <option key={m} value={m}>{METODO_FERT_LABELS[m]}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Frecuencia (días)</label>
+                  <Input type="number" min={1} value={editForm.frecuencia_dias}
+                    onChange={e => setEditForm(f => ({ ...f!, frecuencia_dias: Number(e.target.value) }))}
+                    className="h-8 text-sm" />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Objetivo</label>
+                <Input value={editForm.objetivo ?? ""} onChange={e => setEditForm(f => ({ ...f!, objetivo: e.target.value }))}
+                  placeholder="ej. Engrosamiento de fruto, maduración…" className="h-8 text-sm" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Etapas</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {etapaIds(cultivo.ciclo_vida ?? []).map(id => (
+                    <button key={id} type="button" onClick={() => toggleEtapaNutr(id)}
+                      className={cn("text-xs px-2.5 py-1 rounded-full border transition-colors",
+                        editForm.etapas.includes(id) ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border text-muted-foreground hover:bg-muted")}>
+                      {getEtapaLabel(id, cultivo.ciclo_vida ?? [])}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Productos</label>
+                {editForm.productos.map((pr, idx) => (
+                  <div key={idx} className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-2 text-xs">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{pr.nombre}{pr.npk && <span className="ml-1 text-muted-foreground font-normal">({pr.npk})</span>}</p>
+                      <p className="text-muted-foreground">{pr.dosis} {pr.unidad}</p>
+                    </div>
+                    <button onClick={() => setEditForm(f => ({ ...f!, productos: f!.productos.filter((_, i) => i !== idx) }))} className="text-destructive shrink-0"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                ))}
+                <div className="bg-muted/20 rounded-lg p-3 space-y-2 border border-dashed border-border">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase">Agregar producto</p>
+                  <Input value={nuevoProducto.nombre} onChange={e => setNuevoProducto(p => ({ ...p, nombre: e.target.value }))} placeholder="Nombre del fertilizante" className="h-7 text-xs" />
+                  <div className="grid grid-cols-3 gap-2">
+                    <Input value={nuevoProducto.dosis} onChange={e => setNuevoProducto(p => ({ ...p, dosis: e.target.value }))} placeholder="Dosis" className="h-7 text-xs" />
+                    <select value={nuevoProducto.unidad} onChange={e => setNuevoProducto(p => ({ ...p, unidad: e.target.value }))}
+                      className="h-7 text-xs border border-input rounded-md px-1.5 bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+                      {["kg/ha", "L/ha", "g/ha", "mL/ha", "kg/1000L"].map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                    <Input value={nuevoProducto.npk} onChange={e => setNuevoProducto(p => ({ ...p, npk: e.target.value }))} placeholder="NPK" className="h-7 text-xs" />
+                  </div>
+                  <Button size="sm" variant="outline" className="h-7 text-xs w-full gap-1.5" onClick={addProducto} disabled={!nuevoProducto.nombre.trim()}>
+                    <Plus className="w-3 h-3" />Agregar
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Observaciones</label>
+                <textarea value={editForm.observaciones ?? ""} onChange={e => setEditForm(f => ({ ...f!, observaciones: e.target.value }))}
+                  rows={2} placeholder="pH, EC, condiciones de aplicación…"
+                  className="w-full text-sm border border-input rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+              </div>
+              <div className="flex items-center justify-between py-2 border-t border-border">
+                <p className="text-sm font-medium">Activo</p>
+                <Switch checked={editForm.activo} onCheckedChange={v => setEditForm(f => ({ ...f!, activo: v }))} />
+              </div>
+            </div>
+          )}
+          <div className="shrink-0 border-t pt-4 flex justify-end gap-2">
+            <Button variant="outline" onClick={close} className="h-9 text-sm">Cancelar</Button>
+            <Button onClick={save} disabled={!editForm?.nombre.trim()} className="h-9 text-sm gap-1.5">
+              <CheckCircle2 className="w-4 h-4" />{editForm?._isNew ? "Crear" : "Guardar"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
+// ─── TabRiego ─────────────────────────────────────────────────────────────────
+
+const SISTEMA_RIEGO_LABELS: Record<SistemaRiego, string> = {
+  goteo: "Goteo", aspersion: "Aspersión", microaspersion: "Microaspersión",
+  gravedad: "Gravedad", manual: "Manual", otro: "Otro",
+};
+const ALL_SISTEMAS_RIEGO: SistemaRiego[] = ["goteo", "aspersion", "microaspersion", "gravedad", "manual", "otro"];
+
+function mkDefaultRiego(ciclo: EtapaCiclo[]): ConfigRiego {
+  return {
+    sistema: "goteo",
+    emisores_por_planta: 1,
+    caudal_emisor_lh: 2,
+    etapas: ciclo.map(e => ({ etapa: e.id, frecuencia_dias: 1, duracion_min: 20, volumen_lha: 3000 })),
+    observaciones: "",
+  };
+}
+
+function TabRiego({ cultivo, canEdit, onUpdate }: { cultivo: Cultivo; canEdit: boolean; onUpdate: (cfg: ConfigRiego) => void }) {
+  const cfg = cultivo.riego ?? null;
+  const [form, setForm] = useState<ConfigRiego | null>(cfg ? { ...cfg } : null);
+  const [dirty, setDirty] = useState(false);
+
+  const upd = <K extends keyof ConfigRiego>(key: K, val: ConfigRiego[K]) => {
+    setForm(f => f ? { ...f, [key]: val } : f);
+    setDirty(true);
+  };
+  const updEtapa = (etapaId: string, field: keyof EtapaRiego, val: any) => {
+    if (!form) return;
+    const next = form.etapas.map(e => e.etapa === etapaId ? { ...e, [field]: val || undefined } : e);
+    upd("etapas", next);
+  };
+  const save = () => { if (!form) return; onUpdate(form); setDirty(false); };
+  const init = () => {
+    const d = mkDefaultRiego(cultivo.ciclo_vida ?? []);
+    setForm(d); onUpdate(d); setDirty(false);
+  };
+
+  if (!form) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
+        <Droplets className="w-10 h-10 text-muted-foreground/30" />
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">Sin configuración de riego</p>
+          <p className="text-xs text-muted-foreground/70 mt-1">Define el sistema y los parámetros por etapa</p>
+        </div>
+        {canEdit && (
+          <Button size="sm" className="gap-1.5" onClick={init}>
+            <Plus className="w-3.5 h-3.5" />Configurar riego
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Sistema */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Droplets className="w-4 h-4 text-cyan-500" />
+            <h3 className="text-sm font-semibold">Sistema de riego</h3>
+          </div>
+          {canEdit && dirty && (
+            <Button size="sm" className="h-7 text-xs gap-1.5" onClick={save}>
+              <CheckCircle2 className="w-3.5 h-3.5" />Guardar
+            </Button>
+          )}
+        </div>
+        <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Sistema</label>
+            <select value={form.sistema} onChange={e => upd("sistema", e.target.value as SistemaRiego)}
+              disabled={!canEdit}
+              className="h-8 w-full text-sm border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50">
+              {ALL_SISTEMAS_RIEGO.map(s => <option key={s} value={s}>{SISTEMA_RIEGO_LABELS[s]}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Emisores / planta</label>
+            <Input type="number" min={1} value={form.emisores_por_planta ?? ""}
+              onChange={e => upd("emisores_por_planta", e.target.value ? Number(e.target.value) : undefined)}
+              placeholder="—" className="h-8 text-sm" readOnly={!canEdit} disabled={!canEdit} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Caudal emisor (L/h)</label>
+            <Input type="number" step="0.5" min={0} value={form.caudal_emisor_lh ?? ""}
+              onChange={e => upd("caudal_emisor_lh", e.target.value ? Number(e.target.value) : undefined)}
+              placeholder="—" className="h-8 text-sm" readOnly={!canEdit} disabled={!canEdit} />
+          </div>
+        </div>
+      </div>
+
+      {/* Parámetros por etapa */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-cyan-500" />
+            Parámetros por etapa
+          </h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="text-left px-4 py-2.5 font-medium text-muted-foreground uppercase tracking-wider text-[10px]">Etapa</th>
+                <th className="text-center px-3 py-2.5 font-medium text-muted-foreground uppercase tracking-wider text-[10px]">Cada (días)</th>
+                <th className="text-center px-3 py-2.5 font-medium text-muted-foreground uppercase tracking-wider text-[10px]">Duración (min)</th>
+                <th className="text-center px-3 py-2.5 font-medium text-muted-foreground uppercase tracking-wider text-[10px]">Volumen (L/ha)</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground uppercase tracking-wider text-[10px]">Observaciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {form.etapas.map(er => (
+                <tr key={er.etapa} className="hover:bg-muted/20">
+                  <td className="px-4 py-2">
+                    <span className="font-semibold text-foreground">{getEtapaLabel(er.etapa, cultivo.ciclo_vida ?? [])}</span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <Input type="number" min={1} value={er.frecuencia_dias}
+                      onChange={e => updEtapa(er.etapa, "frecuencia_dias", Number(e.target.value))}
+                      className="h-7 text-xs text-center w-16 mx-auto" readOnly={!canEdit} disabled={!canEdit} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Input type="number" min={1} value={er.duracion_min}
+                      onChange={e => updEtapa(er.etapa, "duracion_min", Number(e.target.value))}
+                      className="h-7 text-xs text-center w-16 mx-auto" readOnly={!canEdit} disabled={!canEdit} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Input type="number" min={0} value={er.volumen_lha ?? ""}
+                      onChange={e => updEtapa(er.etapa, "volumen_lha", e.target.value ? Number(e.target.value) : undefined)}
+                      placeholder="—" className="h-7 text-xs text-center w-20 mx-auto" readOnly={!canEdit} disabled={!canEdit} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Input value={er.observaciones ?? ""}
+                      onChange={e => updEtapa(er.etapa, "observaciones", e.target.value)}
+                      placeholder="Notas…" className="h-7 text-xs" readOnly={!canEdit} disabled={!canEdit} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Observaciones generales */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <h3 className="text-sm font-semibold">Observaciones generales</h3>
+        </div>
+        <div className="p-4 space-y-3">
+          <textarea value={form.observaciones ?? ""} onChange={e => upd("observaciones", e.target.value)}
+            rows={2} placeholder="Calidad del agua, fertirrigación combinada, alertas de estrés hídrico…"
+            readOnly={!canEdit} disabled={!canEdit}
+            className="w-full text-sm border border-input rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50" />
+          {canEdit && dirty && (
+            <div className="flex justify-end">
+              <Button size="sm" className="h-8 text-xs gap-1.5" onClick={save}>
+                <CheckCircle2 className="w-3.5 h-3.5" />Guardar cambios
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── TabCosecha ───────────────────────────────────────────────────────────────
+
+const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const ALL_UNIDADES_COSECHA: UnidadCosecha[] = ["kg", "ton", "cajas", "bandejas", "unidades"];
+
+const DEFAULT_COSECHA: ConfigCosecha = {
+  unidad_principal: "kg",
+  rendimiento_base: undefined,
+  indices_madurez: {},
+  dias_desde_floracion: undefined,
+  horas_frio: undefined,
+  ventanas: [],
+  instrucciones: "",
+  condiciones_manejo: "",
+};
+
+const COSECHA_FRESAS: ConfigCosecha = {
+  unidad_principal: "kg",
+  rendimiento_base: 40000,
+  indices_madurez: {
+    brix_min: 7, brix_max: 12,
+    firmeza_min: 0.8, firmeza_max: 2.0,
+    color: "Rojo uniforme ≥ 75% de la superficie",
+    calibre_min_mm: 22,
+    otras: "Acidez titulable: 0.6–1.0 g/100mL. Ausencia de deformaciones y daños mecánicos.",
+  },
+  dias_desde_floracion: 30,
+  horas_frio: undefined,
+  ventanas: [
+    {
+      id: "v-1", nombre: "Temporada principal", mes_inicio: 9, mes_fin: 12,
+      rendimiento_esperado: 28000, unidad: "kg",
+      observaciones: "Cosechar 3-4 veces por semana en horario fresco (6-10 am).",
+    },
+    {
+      id: "v-2", nombre: "Segunda temporada", mes_inicio: 1, mes_fin: 4,
+      rendimiento_esperado: 12000, unidad: "kg",
+      observaciones: "Mayor presión de Botrytis. Aumentar frecuencia de cosecha.",
+    },
+  ],
+  instrucciones: "Cosechar con el pedúnculo. Colocar en bandejas sin apilar. Mantener cadena de frío desde el campo.",
+  condiciones_manejo: "Temperatura: 0–2 °C · Humedad relativa: 90–95% · Vida útil: 5–7 días",
+};
+
+function TabCosecha({
+  cultivo, canEdit, onUpdate,
+}: { cultivo: Cultivo; canEdit: boolean; onUpdate: (cfg: ConfigCosecha) => void }) {
+  const cfg = cultivo.cosecha ?? null;
+
+  const [form, setForm] = useState<ConfigCosecha | null>(cfg ? { ...cfg } : null);
+  const [ventanaForm, setVentanaForm] = useState<(VentanaCosecha & { _isNew?: boolean }) | null>(null);
+  const [dirty, setDirty] = useState(false);
+
+  const upd = <K extends keyof ConfigCosecha>(key: K, val: ConfigCosecha[K]) => {
+    setForm(f => f ? { ...f, [key]: val } : f);
+    setDirty(true);
+  };
+  const updIdx = <K extends keyof ConfigCosecha["indices_madurez"]>(key: K, val: any) => {
+    setForm(f => f ? { ...f, indices_madurez: { ...f.indices_madurez, [key]: val || undefined } } : f);
+    setDirty(true);
+  };
+
+  const init = (plantilla?: ConfigCosecha) => {
+    const base = plantilla ?? DEFAULT_COSECHA;
+    setForm({ ...base });
+    onUpdate({ ...base });
+    setDirty(false);
+  };
+
+  const save = () => {
+    if (!form) return;
+    onUpdate(form);
+    setDirty(false);
+  };
+
+  const saveVentana = () => {
+    if (!ventanaForm || !form) return;
+    const { _isNew, ...v } = ventanaForm;
+    const next = _isNew
+      ? [...form.ventanas, v]
+      : form.ventanas.map(x => x.id === v.id ? v : x);
+    upd("ventanas", next);
+    setVentanaForm(null);
+  };
+
+  const delVentana = (id: string) => {
+    if (!form) return;
+    upd("ventanas", form.ventanas.filter(v => v.id !== id));
+  };
+
+  if (!form) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
+        <Archive className="w-10 h-10 text-muted-foreground/30" />
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">Sin configuración de cosecha</p>
+          <p className="text-xs text-muted-foreground/70 mt-1">Define índices de madurez, ventanas y parámetros de calidad</p>
+        </div>
+        {canEdit && (
+          <Button size="sm" className="gap-1.5" onClick={() => init()}>
+            <Plus className="w-3.5 h-3.5" />
+            Configurar
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+
+      {/* Parámetros generales */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Archive className="w-4 h-4 text-yellow-600" />
+            <h3 className="text-sm font-semibold">Parámetros generales</h3>
+          </div>
+          {canEdit && dirty && (
+            <Button size="sm" className="h-7 text-xs gap-1.5" onClick={save}>
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Guardar cambios
+            </Button>
+          )}
+        </div>
+        <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Unidad principal</label>
+            <select value={form.unidad_principal}
+              onChange={e => upd("unidad_principal", e.target.value as UnidadCosecha)}
+              disabled={!canEdit}
+              className="h-8 w-full text-sm border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50">
+              {ALL_UNIDADES_COSECHA.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+              Rendimiento base ({form.unidad_principal}/ha)
+            </label>
+            <Input type="number" min={0} value={form.rendimiento_base ?? ""}
+              onChange={e => upd("rendimiento_base", e.target.value ? Number(e.target.value) : undefined)}
+              placeholder="ej. 40000" className="h-8 text-sm" readOnly={!canEdit} disabled={!canEdit} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Días desde floración</label>
+            <Input type="number" min={0} value={form.dias_desde_floracion ?? ""}
+              onChange={e => upd("dias_desde_floracion", e.target.value ? Number(e.target.value) : undefined)}
+              placeholder="ej. 30" className="h-8 text-sm" readOnly={!canEdit} disabled={!canEdit} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Horas frío requeridas</label>
+            <Input type="number" min={0} value={form.horas_frio ?? ""}
+              onChange={e => upd("horas_frio", e.target.value ? Number(e.target.value) : undefined)}
+              placeholder="— (opcional)" className="h-8 text-sm" readOnly={!canEdit} disabled={!canEdit} />
+          </div>
+        </div>
+      </div>
+
+      {/* Índices de madurez */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            Índices de madurez
+          </h3>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Brix mín (°Bx)</label>
+              <Input type="number" step="0.1" value={form.indices_madurez.brix_min ?? ""}
+                onChange={e => updIdx("brix_min", e.target.value ? Number(e.target.value) : undefined)}
+                placeholder="—" className="h-8 text-sm" readOnly={!canEdit} disabled={!canEdit} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Brix máx (°Bx)</label>
+              <Input type="number" step="0.1" value={form.indices_madurez.brix_max ?? ""}
+                onChange={e => updIdx("brix_max", e.target.value ? Number(e.target.value) : undefined)}
+                placeholder="—" className="h-8 text-sm" readOnly={!canEdit} disabled={!canEdit} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Firmeza mín (kg/cm²)</label>
+              <Input type="number" step="0.1" value={form.indices_madurez.firmeza_min ?? ""}
+                onChange={e => updIdx("firmeza_min", e.target.value ? Number(e.target.value) : undefined)}
+                placeholder="—" className="h-8 text-sm" readOnly={!canEdit} disabled={!canEdit} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Firmeza máx (kg/cm²)</label>
+              <Input type="number" step="0.1" value={form.indices_madurez.firmeza_max ?? ""}
+                onChange={e => updIdx("firmeza_max", e.target.value ? Number(e.target.value) : undefined)}
+                placeholder="—" className="h-8 text-sm" readOnly={!canEdit} disabled={!canEdit} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Calibre mín (mm)</label>
+              <Input type="number" value={form.indices_madurez.calibre_min_mm ?? ""}
+                onChange={e => updIdx("calibre_min_mm", e.target.value ? Number(e.target.value) : undefined)}
+                placeholder="—" className="h-8 text-sm" readOnly={!canEdit} disabled={!canEdit} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Calibre máx (mm)</label>
+              <Input type="number" value={form.indices_madurez.calibre_max_mm ?? ""}
+                onChange={e => updIdx("calibre_max_mm", e.target.value ? Number(e.target.value) : undefined)}
+                placeholder="—" className="h-8 text-sm" readOnly={!canEdit} disabled={!canEdit} />
+            </div>
+            <div className="col-span-2 space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Color de cosecha</label>
+              <Input value={form.indices_madurez.color ?? ""}
+                onChange={e => updIdx("color", e.target.value)}
+                placeholder="ej. Rojo uniforme ≥ 75% de la superficie" className="h-8 text-sm" readOnly={!canEdit} disabled={!canEdit} />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Otros criterios</label>
+            <textarea value={form.indices_madurez.otras ?? ""}
+              onChange={e => updIdx("otras", e.target.value)}
+              rows={2} placeholder="Acidez, aroma, presión, índice de almidón…"
+              readOnly={!canEdit} disabled={!canEdit}
+              className="w-full text-sm border border-input rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50" />
+          </div>
+        </div>
+      </div>
+
+      {/* Ventanas de cosecha */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-blue-500" />
+            Ventanas de cosecha
+            {form.ventanas.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">{form.ventanas.length}</span>
+            )}
+          </h3>
+          {canEdit && (
+            <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5"
+              onClick={() => setVentanaForm({ id: `v-${Date.now()}`, nombre: "", mes_inicio: 1, mes_fin: 3, unidad: form.unidad_principal, _isNew: true })}>
+              <Plus className="w-3 h-3" />
+              Agregar ventana
+            </Button>
+          )}
+        </div>
+        {form.ventanas.length === 0 ? (
+          <div className="py-8 text-center text-xs text-muted-foreground">Sin ventanas registradas</div>
+        ) : (
+          <div className="divide-y divide-border">
+            {form.ventanas.map(v => (
+              <div key={v.id} className="flex items-start gap-3 px-4 py-3 group hover:bg-muted/20">
+                {/* Mini calendario de meses */}
+                <div className="shrink-0 flex gap-0.5 mt-0.5">
+                  {MESES.map((m, i) => (
+                    <div key={i} className={cn(
+                      "w-4 h-4 rounded-sm text-[7px] flex items-center justify-center font-bold",
+                      (v.mes_inicio <= v.mes_fin
+                        ? i + 1 >= v.mes_inicio && i + 1 <= v.mes_fin
+                        : i + 1 >= v.mes_inicio || i + 1 <= v.mes_fin)
+                        ? "bg-yellow-400 text-yellow-900"
+                        : "bg-muted text-muted-foreground/40"
+                    )}>
+                      {m[0]}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold">{v.nombre}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {MESES[v.mes_inicio - 1]} → {MESES[v.mes_fin - 1]}
+                    {v.rendimiento_esperado != null && ` · ${v.rendimiento_esperado.toLocaleString()} ${v.unidad}`}
+                  </p>
+                  {v.observaciones && <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{v.observaciones}</p>}
+                </div>
+                {canEdit && (
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button onClick={() => setVentanaForm({ ...v })}
+                      className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => delVentana(v.id)}
+                      className="h-7 w-7 flex items-center justify-center rounded hover:bg-destructive/10 text-destructive">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Instrucciones y manejo */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <h3 className="text-sm font-semibold">Instrucciones y condiciones de manejo</h3>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Instrucciones de cosecha</label>
+            <textarea value={form.instrucciones ?? ""}
+              onChange={e => upd("instrucciones", e.target.value)}
+              rows={3} placeholder="Método de corte, herramientas, recipientes, cuidados durante la cosecha…"
+              readOnly={!canEdit} disabled={!canEdit}
+              className="w-full text-sm border border-input rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Condiciones de manejo post-cosecha</label>
+            <textarea value={form.condiciones_manejo ?? ""}
+              onChange={e => upd("condiciones_manejo", e.target.value)}
+              rows={2} placeholder="Temperatura, humedad relativa, atmósfera controlada, vida útil esperada…"
+              readOnly={!canEdit} disabled={!canEdit}
+              className="w-full text-sm border border-input rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50" />
+          </div>
+          {canEdit && dirty && (
+            <div className="flex justify-end pt-1">
+              <Button size="sm" className="h-8 text-xs gap-1.5" onClick={save}>
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Guardar cambios
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Sheet ventana */}
+      <Sheet open={ventanaForm !== null} onOpenChange={open => { if (!open) setVentanaForm(null); }}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto flex flex-col">
+          <SheetHeader className="shrink-0">
+            <SheetTitle className="flex items-center gap-2 text-base">
+              <Calendar className="w-4 h-4 text-blue-500" />
+              {ventanaForm?._isNew ? "Nueva ventana de cosecha" : "Editar ventana"}
+            </SheetTitle>
+          </SheetHeader>
+          {ventanaForm && (
+            <div className="flex-1 overflow-y-auto space-y-4 py-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Nombre *</label>
+                <Input value={ventanaForm.nombre}
+                  onChange={e => setVentanaForm(f => ({ ...f!, nombre: e.target.value }))}
+                  placeholder="ej. Temporada principal" className="h-8 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Mes inicio</label>
+                  <select value={ventanaForm.mes_inicio}
+                    onChange={e => setVentanaForm(f => ({ ...f!, mes_inicio: Number(e.target.value) }))}
+                    className="h-8 w-full text-sm border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+                    {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Mes fin</label>
+                  <select value={ventanaForm.mes_fin}
+                    onChange={e => setVentanaForm(f => ({ ...f!, mes_fin: Number(e.target.value) }))}
+                    className="h-8 w-full text-sm border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+                    {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+                  </select>
+                </div>
+              </div>
+              {/* Vista previa de meses */}
+              <div className="flex gap-1 flex-wrap">
+                {MESES.map((m, i) => (
+                  <div key={i} className={cn(
+                    "px-2 py-1 rounded text-[10px] font-semibold border",
+                    (ventanaForm.mes_inicio <= ventanaForm.mes_fin
+                      ? i + 1 >= ventanaForm.mes_inicio && i + 1 <= ventanaForm.mes_fin
+                      : i + 1 >= ventanaForm.mes_inicio || i + 1 <= ventanaForm.mes_fin)
+                      ? "bg-yellow-100 border-yellow-300 text-yellow-800"
+                      : "bg-muted border-border text-muted-foreground/50"
+                  )}>{m}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Rend. esperado</label>
+                  <Input type="number" min={0} value={ventanaForm.rendimiento_esperado ?? ""}
+                    onChange={e => setVentanaForm(f => ({ ...f!, rendimiento_esperado: e.target.value ? Number(e.target.value) : undefined }))}
+                    placeholder="—" className="h-8 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Unidad</label>
+                  <select value={ventanaForm.unidad}
+                    onChange={e => setVentanaForm(f => ({ ...f!, unidad: e.target.value as UnidadCosecha }))}
+                    className="h-8 w-full text-sm border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+                    {ALL_UNIDADES_COSECHA.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Observaciones</label>
+                <textarea value={ventanaForm.observaciones ?? ""}
+                  onChange={e => setVentanaForm(f => ({ ...f!, observaciones: e.target.value }))}
+                  rows={2} placeholder="Frecuencia de cosecha, condiciones especiales…"
+                  className="w-full text-sm border border-input rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+              </div>
+            </div>
+          )}
+          <div className="shrink-0 border-t pt-4 flex items-center justify-end gap-2">
+            <Button variant="outline" onClick={() => setVentanaForm(null)} className="h-9 text-sm">Cancelar</Button>
+            <Button onClick={saveVentana} disabled={!ventanaForm?.nombre.trim()} className="h-9 text-sm gap-1.5">
+              <CheckCircle2 className="w-4 h-4" />
+              {ventanaForm?._isNew ? "Crear" : "Guardar"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
+// ─── TabPlanAplicaciones ──────────────────────────────────────────────────────
+
+const TIPO_APLIC_LABELS: Record<TipoAplicacion, string> = {
+  preventiva: "Preventiva",
+  curativa:   "Curativa",
+  choque:     "De choque",
+  otra:       "Otra",
+};
+
+const TIPO_APLIC_COLORS: Record<TipoAplicacion, string> = {
+  preventiva: "bg-blue-100 text-blue-700",
+  curativa:   "bg-amber-100 text-amber-700",
+  choque:     "bg-red-100 text-red-700",
+  otra:       "bg-slate-100 text-slate-600",
+};
+
+const METODO_LABELS: Record<MetodoAplicacion, string> = {
+  foliar:     "Foliar",
+  drench:     "Drench",
+  fertiriego: "Fertiriego",
+  inyeccion:  "Inyección",
+  granulado:  "Granulado",
+  otro:       "Otro",
+};
+
+const ALL_TIPOS_APLIC: TipoAplicacion[]    = ["preventiva", "curativa", "choque", "otra"];
+const ALL_METODOS_APLIC: MetodoAplicacion[] = ["foliar", "drench", "fertiriego", "inyeccion", "granulado", "otro"];
+
+const _PLANTILLA_APLICACIONES_FRESAS_UNUSED: PlanAplicacion[] = [
+  {
+    id: "ap-1",
+    nombre: "Control preventivo Botrytis",
+    tipo: "preventiva",
+    metodo: "foliar",
+    etapas: ["floracion", "fructificacion"],
+    objetivos: ["Botrytis", "Oidio"],
+    productos: [
+      { nombre: "Iprodione 50 WP", dosis: "1.5", unidad: "kg/ha" },
+      { nombre: "Azufre mojable 80 WP", dosis: "3", unidad: "kg/ha" },
+    ],
+    intervalo_dias: 7,
+    carencia_dias: 3,
+    reingreso_horas: 24,
+    observaciones: "Aplicar en las primeras horas de la mañana. Rotar principios activos cada 2 aplicaciones.",
+    activo: true,
+  },
+  {
+    id: "ap-2",
+    nombre: "Control Araña Roja",
+    tipo: "curativa",
+    metodo: "foliar",
+    etapas: ["vegetativo", "floracion", "fructificacion"],
+    objetivos: ["Araña Roja"],
+    productos: [
+      { nombre: "Abamectina 1.8 EC", dosis: "0.5", unidad: "L/ha" },
+    ],
+    intervalo_dias: 14,
+    carencia_dias: 7,
+    reingreso_horas: 48,
+    observaciones: "Asegurar buena cobertura del envés de las hojas. No aplicar con temperaturas superiores a 30°C.",
+    activo: true,
+  },
+  {
+    id: "ap-3",
+    nombre: "Control de Trips",
+    tipo: "curativa",
+    metodo: "foliar",
+    etapas: ["floracion", "fructificacion"],
+    objetivos: ["Trips"],
+    productos: [
+      { nombre: "Spinosad 45 SC", dosis: "0.15", unidad: "L/ha" },
+    ],
+    intervalo_dias: 7,
+    carencia_dias: 3,
+    reingreso_horas: 4,
+    observaciones: "Aplicar cuando se supere el umbral de acción. Rotar con productos de diferente modo de acción.",
+    activo: true,
+  },
+  {
+    id: "ap-4",
+    nombre: "Control de emergencia Mosca Blanca",
+    tipo: "choque",
+    metodo: "foliar",
+    etapas: ["vegetativo", "floracion"],
+    objetivos: ["Mosca Blanca"],
+    productos: [
+      { nombre: "Thiamethoxam 25 WG", dosis: "0.15", unidad: "kg/ha" },
+      { nombre: "Piriproxyfen 10 EC", dosis: "0.5", unidad: "L/ha" },
+    ],
+    intervalo_dias: 10,
+    carencia_dias: 7,
+    reingreso_horas: 12,
+    observaciones: "Usar solo ante presencia confirmada. Combinar adyuvante para mejor cobertura.",
+    activo: true,
+  },
+];
+
+const EMPTY_APLIC: Omit<PlanAplicacion, "id"> = {
+  nombre: "", tipo: "preventiva", metodo: "foliar", etapas: [],
+  objetivos: [], productos: [], intervalo_dias: 7,
+  carencia_dias: undefined, reingreso_horas: undefined,
+  observaciones: "", activo: true,
+};
+
+function TabPlanAplicaciones({
+  cultivo, canEdit, onUpdate,
+}: { cultivo: Cultivo; canEdit: boolean; onUpdate: (items: PlanAplicacion[]) => void }) {
+  const items = cultivo.planAplicaciones ?? [];
+  const plagas = cultivo.plagasEnfermedades ?? [];
+
+  const [search, setSearch]         = useState("");
+  const [filtroTipo, setFiltroTipo] = useState<TipoAplicacion | "todos">("todos");
+  const [editForm, setEditForm]     = useState<(PlanAplicacion & { _isNew?: boolean }) | null>(null);
+  const [viewItem, setViewItem]     = useState<PlanAplicacion | null>(null);
+  const [nuevoProducto, setNuevoProducto] = useState({ nombre: "", dosis: "", unidad: "L/ha" });
+
+  const filtered = items.filter(a => {
+    if (filtroTipo !== "todos" && a.tipo !== filtroTipo) return false;
+    if (search && !a.nombre.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const openNew  = () => setEditForm({ ...EMPTY_APLIC, id: `ap-${Date.now()}`, _isNew: true });
+  const openEdit = (a: PlanAplicacion) => setEditForm({ ...a });
+  const close    = () => { setEditForm(null); setNuevoProducto({ nombre: "", dosis: "", unidad: "L/ha" }); };
+
+  const save = () => {
+    if (!editForm?.nombre.trim()) return;
+    const { _isNew, ...item } = editForm;
+    if (_isNew) onUpdate([...items, item]);
+    else        onUpdate(items.map(a => a.id === item.id ? item : a));
+    close();
+  };
+
+  const del          = (id: string) => { onUpdate(items.filter(a => a.id !== id)); if (editForm?.id === id) close(); };
+  const toggleActivo = (id: string) => onUpdate(items.map(a => a.id === id ? { ...a, activo: !a.activo } : a));
+
+  const addProducto = () => {
+    if (!nuevoProducto.nombre.trim() || !editForm) return;
+    setEditForm(f => ({ ...f!, productos: [...f!.productos, { ...nuevoProducto }] }));
+    setNuevoProducto({ nombre: "", dosis: "", unidad: "L/ha" });
+  };
+
+  const toggleEtapaAplic = (id: string) => {
+    if (!editForm) return;
+    if (id === "todas") {
+      setEditForm(f => ({ ...f!, etapas: f!.etapas.includes("todas") ? [] : ["todas"] }));
+      return;
+    }
+    const next = editForm.etapas.includes(id)
+      ? editForm.etapas.filter(e => e !== id && e !== "todas")
+      : [...editForm.etapas.filter(e => e !== "todas"), id];
+    setEditForm(f => ({ ...f!, etapas: next }));
+  };
+
+  const toggleObjetivo = (nombre: string) => {
+    if (!editForm) return;
+    const has  = editForm.objetivos.includes(nombre);
+    setEditForm(f => ({
+      ...f!,
+      objetivos: has ? f!.objetivos.filter(o => o !== nombre) : [...f!.objetivos, nombre],
+    }));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        {/* Header */}
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-emerald-500" />
+            <h3 className="text-sm font-semibold">Plan de Aplicaciones</h3>
+            <span className="text-[10px] text-muted-foreground">
+              Programa fitosanitario para {cultivo.nombre || "este cultivo"}
+            </span>
+          </div>
+          {canEdit && (
+            <Button size="sm" className="h-8 text-xs gap-1.5" onClick={openNew}>
+              <Plus className="w-3.5 h-3.5" />
+              Agregar
+            </Button>
+          )}
+        </div>
+
+        {/* Filtros */}
+        <div className="px-4 py-2.5 border-b bg-muted/20 flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[160px] max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar aplicación…" className="pl-8 h-8 text-xs" />
+          </div>
+          <div className="flex items-center gap-1 flex-wrap">
+            {(["todos", ...ALL_TIPOS_APLIC] as const).map(t => (
+              <button key={t} onClick={() => setFiltroTipo(t === filtroTipo ? "todos" : t as any)}
+                className={cn("text-[10px] px-2.5 py-1 rounded-full border transition-colors",
+                  filtroTipo === t
+                    ? "bg-foreground text-background border-foreground"
+                    : "bg-background border-border text-muted-foreground hover:bg-muted"
+                )}>
+                {t === "todos" ? "Todas" : TIPO_APLIC_LABELS[t as TipoAplicacion]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Lista */}
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+            <Zap className="w-8 h-8 text-muted-foreground/30" />
+            <p className="text-sm font-medium text-muted-foreground">
+              {items.length === 0 ? "Sin aplicaciones registradas" : "Sin resultados"}
+            </p>
+            {items.length === 0 && canEdit && (
+              <p className="text-xs text-muted-foreground/70">Carga la plantilla base o agrega manualmente</p>
+            )}
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {filtered.map(a => (
+              <div key={a.id} onClick={() => setViewItem(a)}
+                className={cn("flex items-start gap-3 px-4 py-3 group transition-colors hover:bg-muted/20 cursor-pointer", !a.activo && "opacity-50")}>
+                <div className="mt-0.5 shrink-0">
+                  <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", TIPO_APLIC_COLORS[a.tipo])}>
+                    {TIPO_APLIC_LABELS[a.tipo]}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-2">
+                    <p className="text-sm font-semibold">{a.nombre}</p>
+                    <span className="text-[10px] text-muted-foreground">{METODO_LABELS[a.metodo]}</span>
+                  </div>
+                  {a.objetivos.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Objetivo: {a.objetivos.join(", ")}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    {a.etapas.map(e => (
+                      <span key={e} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{getEtapaLabel(e, cultivo.ciclo_vida ?? [])}</span>
+                    ))}
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">
+                      Cada {a.intervalo_dias}d
+                    </span>
+                    {a.productos.length > 0 && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">
+                        {a.productos.length} producto{a.productos.length > 1 ? "s" : ""}
+                      </span>
+                    )}
+                    {a.carencia_dias != null && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 border border-orange-100">
+                        Cosechar en ≥{a.carencia_dias}d
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {canEdit && (
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={e => { e.stopPropagation(); toggleActivo(a.id); }} title={a.activo ? "Desactivar" : "Activar"}
+                        className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground">
+                        <Power className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); openEdit(a); }}
+                        className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); del(a.id); }}
+                        className="h-7 w-7 flex items-center justify-center rounded hover:bg-destructive/10 text-destructive">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Modal de vista */}
+      <Dialog open={viewItem !== null} onOpenChange={open => { if (!open) setViewItem(null); }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          {viewItem && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", TIPO_APLIC_COLORS[viewItem.tipo])}>
+                    {TIPO_APLIC_LABELS[viewItem.tipo]}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">{METODO_LABELS[viewItem.metodo]}</span>
+                  {!viewItem.activo && <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">Inactivo</span>}
+                </div>
+                <DialogTitle className="text-base mt-1">{viewItem.nombre}</DialogTitle>
+                {viewItem.objetivos.length > 0 && (
+                  <DialogDescription className="text-xs">Objetivo: {viewItem.objetivos.join(", ")}</DialogDescription>
+                )}
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                {viewItem.etapas.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Etapas</p>
+                    <div className="flex flex-wrap gap-1">
+                      {viewItem.etapas.map(e => (
+                        <span key={e} className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                          {getEtapaLabel(e, cultivo.ciclo_vida ?? [])}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-muted/40 rounded-lg px-3 py-2 text-center">
+                    <p className="text-[10px] text-muted-foreground flex items-center justify-center gap-0.5">
+                      Intervalo
+                      <span title="Días mínimos entre aplicaciones consecutivas del mismo producto para evitar resistencia y respetar la dosis máxima acumulada."
+                        className="inline-flex items-center justify-center w-3 h-3 rounded-full bg-muted-foreground/20 text-muted-foreground text-[8px] font-bold cursor-help leading-none shrink-0">?</span>
+                    </p>
+                    <p className="text-sm font-semibold">{viewItem.intervalo_dias}d</p>
+                  </div>
+                  {viewItem.carencia_dias != null && (
+                    <div className="bg-orange-50 rounded-lg px-3 py-2 text-center border border-orange-100">
+                      <p className="text-[10px] text-orange-600 flex items-center justify-center gap-0.5">
+                        Pre-cosecha
+                        <span title="Días mínimos que deben transcurrir entre la última aplicación y la cosecha para que el producto no deje residuos en el fruto."
+                          className="inline-flex items-center justify-center w-3 h-3 rounded-full bg-orange-200 text-orange-600 text-[8px] font-bold cursor-help leading-none shrink-0">?</span>
+                      </p>
+                      <p className="text-sm font-semibold text-orange-700">{viewItem.carencia_dias}d mín.</p>
+                    </div>
+                  )}
+                  {viewItem.reingreso_horas != null && (
+                    <div className="bg-muted/40 rounded-lg px-3 py-2 text-center">
+                      <p className="text-[10px] text-muted-foreground flex items-center justify-center gap-0.5">
+                        Reingreso
+                        <span title="Horas mínimas que deben pasar tras la aplicación antes de que personas puedan ingresar al cultivo sin riesgo de exposición al producto."
+                          className="inline-flex items-center justify-center w-3 h-3 rounded-full bg-muted-foreground/20 text-muted-foreground text-[8px] font-bold cursor-help leading-none shrink-0">?</span>
+                      </p>
+                      <p className="text-sm font-semibold">{viewItem.reingreso_horas}h mín.</p>
+                    </div>
+                  )}
+                  {viewItem.dosis_ha && (
+                    <div className="bg-muted/40 rounded-lg px-3 py-2 text-center">
+                      <p className="text-[10px] text-muted-foreground">Dosis/ha</p>
+                      <p className="text-sm font-semibold">{viewItem.dosis_ha}</p>
+                    </div>
+                  )}
+                  {viewItem.volumen_agua_ha && (
+                    <div className="bg-muted/40 rounded-lg px-3 py-2 text-center">
+                      <p className="text-[10px] text-muted-foreground">Vol. agua/ha</p>
+                      <p className="text-sm font-semibold">{viewItem.volumen_agua_ha} L</p>
+                    </div>
+                  )}
+                </div>
+                {viewItem.productos.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Productos</p>
+                    <div className="space-y-1.5">
+                      {viewItem.productos.map((pr, i) => (
+                        <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm">
+                          <span className="font-medium flex-1">{pr.nombre}</span>
+                          {pr.dosis && <span className="text-xs text-muted-foreground">{pr.dosis} {pr.unidad}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {viewItem.equipo && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Equipo</p>
+                    <p className="text-sm text-foreground/80">{viewItem.equipo}</p>
+                  </div>
+                )}
+                {viewItem.observaciones && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Observaciones</p>
+                    <p className="text-sm text-foreground/80">{viewItem.observaciones}</p>
+                  </div>
+                )}
+              </div>
+              {canEdit && (
+                <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                  <Button variant="outline" size="sm" onClick={() => { setViewItem(null); openEdit(viewItem); }}>
+                    <Pencil className="w-3.5 h-3.5 mr-1.5" />Editar
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Sheet de edición */}
+      <Sheet open={editForm !== null} onOpenChange={open => { if (!open) close(); }}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto flex flex-col">
+          <SheetHeader className="shrink-0">
+            <SheetTitle className="flex items-center gap-2 text-base">
+              <Zap className="w-4 h-4 text-emerald-500" />
+              {editForm?._isNew ? "Nueva Aplicación" : "Editar aplicación"}
+            </SheetTitle>
+            <SheetDescription className="text-xs">Programa fitosanitario para {cultivo.nombre}.</SheetDescription>
+          </SheetHeader>
+
+          {editForm && (
+            <div className="flex-1 overflow-y-auto space-y-5 py-4">
+
+              {/* Nombre */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Nombre *</label>
+                <Input value={editForm.nombre} onChange={e => setEditForm(f => ({ ...f!, nombre: e.target.value }))}
+                  placeholder="ej. Control preventivo Botrytis" className="h-8 text-sm" />
+              </div>
+
+              {/* Tipo + Método */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Tipo</label>
+                  <select value={editForm.tipo} onChange={e => setEditForm(f => ({ ...f!, tipo: e.target.value as TipoAplicacion }))}
+                    className="h-8 w-full text-sm border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+                    {ALL_TIPOS_APLIC.map(t => <option key={t} value={t}>{TIPO_APLIC_LABELS[t]}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Método</label>
+                  <select value={editForm.metodo} onChange={e => setEditForm(f => ({ ...f!, metodo: e.target.value as MetodoAplicacion }))}
+                    className="h-8 w-full text-sm border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+                    {ALL_METODOS_APLIC.map(m => <option key={m} value={m}>{METODO_LABELS[m]}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Etapas */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Etapas del cultivo</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {etapaIds(cultivo.ciclo_vida ?? []).map(id => (
+                    <button key={id} type="button" onClick={() => toggleEtapaAplic(id)}
+                      className={cn("text-xs px-2.5 py-1 rounded-full border transition-colors",
+                        editForm.etapas.includes(id)
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background border-border text-muted-foreground hover:bg-muted"
+                      )}>
+                      {getEtapaLabel(id, cultivo.ciclo_vida ?? [])}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Objetivos — vinculado a plagas registradas */}
+              {plagas.length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    Plagas / Enfermedades objetivo
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {plagas.filter(p => p.activo).map(p => (
+                      <button key={p.id} type="button" onClick={() => toggleObjetivo(p.nombre)}
+                        className={cn("text-xs px-2.5 py-1 rounded-full border transition-colors",
+                          editForm.objetivos.includes(p.nombre)
+                            ? "bg-red-600 text-white border-red-600"
+                            : "bg-background border-border text-muted-foreground hover:bg-muted"
+                        )}>
+                        {p.nombre}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Intervalo + Carencia + Reingreso */}
+              <div className="grid grid-cols-3 gap-3 items-end">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                    Intervalo (días)
+                    <span title="Días mínimos entre aplicaciones consecutivas del mismo producto para evitar resistencia y respetar la dosis máxima acumulada."
+                      className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-muted text-muted-foreground text-[9px] font-bold cursor-help leading-none normal-case tracking-normal shrink-0">?</span>
+                  </label>
+                  <Input type="number" min={1} value={editForm.intervalo_dias}
+                    onChange={e => setEditForm(f => ({ ...f!, intervalo_dias: Number(e.target.value) }))}
+                    className="h-8 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                    Pre-cosecha (días)
+                    <span title="Días mínimos que deben transcurrir entre la última aplicación y la cosecha para que el producto no deje residuos en el fruto."
+                      className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-muted text-muted-foreground text-[9px] font-bold cursor-help leading-none normal-case tracking-normal shrink-0">?</span>
+                  </label>
+                  <Input type="number" min={0} value={editForm.carencia_dias ?? ""}
+                    onChange={e => setEditForm(f => ({ ...f!, carencia_dias: e.target.value ? Number(e.target.value) : undefined }))}
+                    placeholder="—" className="h-8 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                    Reingreso (h)
+                    <span title="Horas mínimas que deben pasar tras la aplicación antes de que personas puedan ingresar al cultivo sin riesgo de exposición al producto."
+                      className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-muted text-muted-foreground text-[9px] font-bold cursor-help leading-none normal-case tracking-normal shrink-0">?</span>
+                  </label>
+                  <Input type="number" min={0} value={editForm.reingreso_horas ?? ""}
+                    onChange={e => setEditForm(f => ({ ...f!, reingreso_horas: e.target.value ? Number(e.target.value) : undefined }))}
+                    placeholder="—" className="h-8 text-sm" />
+                </div>
+              </div>
+
+              {/* Productos */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Productos</label>
+                {editForm.productos.map((pr, idx) => (
+                  <div key={idx} className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-2 text-xs">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{pr.nombre}</p>
+                      <p className="text-muted-foreground">{pr.dosis} {pr.unidad}</p>
+                    </div>
+                    <button onClick={() => setEditForm(f => ({ ...f!, productos: f!.productos.filter((_, i) => i !== idx) }))}
+                      className="text-destructive hover:text-destructive/80 shrink-0">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <div className="bg-muted/20 rounded-lg p-3 space-y-2 border border-dashed border-border">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase">Agregar producto</p>
+                  <Input value={nuevoProducto.nombre} onChange={e => setNuevoProducto(p => ({ ...p, nombre: e.target.value }))}
+                    placeholder="Nombre del producto" className="h-7 text-xs" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input value={nuevoProducto.dosis} onChange={e => setNuevoProducto(p => ({ ...p, dosis: e.target.value }))}
+                      placeholder="Dosis (ej. 1.5)" className="h-7 text-xs" />
+                    <select value={nuevoProducto.unidad} onChange={e => setNuevoProducto(p => ({ ...p, unidad: e.target.value }))}
+                      className="h-7 text-xs border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+                      {["L/ha", "mL/ha", "kg/ha", "g/ha", "mL/100L", "g/100L", "cc/ha"].map(u => (
+                        <option key={u} value={u}>{u}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <Button size="sm" variant="outline" className="h-7 text-xs w-full gap-1.5" onClick={addProducto} disabled={!nuevoProducto.nombre.trim()}>
+                    <Plus className="w-3 h-3" />
+                    Agregar producto
+                  </Button>
+                </div>
+              </div>
+
+              {/* Observaciones */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Observaciones</label>
+                <textarea value={editForm.observaciones ?? ""} onChange={e => setEditForm(f => ({ ...f!, observaciones: e.target.value }))}
+                  rows={2} placeholder="Condiciones de aplicación, rotación de productos…"
+                  className="w-full text-sm border border-input rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+              </div>
+
+              {/* Activo */}
+              <div className="flex items-center justify-between py-2 border-t border-border">
+                <div>
+                  <p className="text-sm font-medium">Activo</p>
+                  <p className="text-xs text-muted-foreground">Visible en el programa de aplicaciones</p>
+                </div>
+                <Switch checked={editForm.activo} onCheckedChange={v => setEditForm(f => ({ ...f!, activo: v }))} />
+              </div>
+            </div>
+          )}
+
+          <div className="shrink-0 border-t pt-4 flex items-center justify-end gap-2">
+            <Button variant="outline" onClick={close} className="h-9 text-sm">Cancelar</Button>
+            <Button onClick={save} disabled={!editForm?.nombre.trim()} className="h-9 text-sm gap-1.5">
+              <CheckCircle2 className="w-4 h-4" />
+              {editForm?._isNew ? "Crear" : "Guardar"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
+// ─── TabPlagasEnfermedades ────────────────────────────────────────────────────
+
+const TIPO_PLAGA_LABELS: Record<TipoPlaga, string> = {
+  plaga:      "Plaga",
+  enfermedad: "Enfermedad",
+  hongo:      "Hongo",
+  bacteria:   "Bacteria",
+  virus:      "Virus",
+  otro:       "Otro",
+};
+
+const TIPO_PLAGA_COLORS: Record<TipoPlaga, string> = {
+  plaga:      "bg-red-100 text-red-700",
+  enfermedad: "bg-orange-100 text-orange-700",
+  hongo:      "bg-purple-100 text-purple-700",
+  bacteria:   "bg-yellow-100 text-yellow-700",
+  virus:      "bg-pink-100 text-pink-700",
+  otro:       "bg-slate-100 text-slate-600",
+};
+
+// Helpers dinámicos: usan el ciclo_vida real del cultivo en lugar de un enum fijo
+function getEtapaLabel(id: string, ciclo: EtapaCiclo[]): string {
+  if (id === "todas") return "Todas";
+  return ciclo.find(e => e.id === id)?.nombre ?? id;
+}
+function getEtapaColor(id: string, ciclo: EtapaCiclo[]): string {
+  if (id === "todas") return "#94a3b8";
+  return ciclo.find(e => e.id === id)?.color ?? "#94a3b8";
+}
+function etapaIds(ciclo: EtapaCiclo[]): string[] {
+  return [...ciclo.map(e => e.id), "todas"];
+}
+const ALL_TIPOS_PLAGA: TipoPlaga[] = ["plaga", "enfermedad", "hongo", "bacteria", "virus", "otro"];
+
+const EMPTY_PLAGA: Omit<PlagaEnfermedad, "id"> = {
+  nombre: "", nombreCientifico: "", tipo: "plaga", etapas: [],
+  sintomas: "", umbralAccion: "", productosRecomendados: [], medidasPreventivas: "", imagenes: [], activo: true,
+};
+
+function TabPlagasEnfermedades({
+  cultivo, canEdit, onUpdate,
+}: { cultivo: Cultivo; canEdit: boolean; onUpdate: (items: PlagaEnfermedad[]) => void }) {
+  const items = cultivo.plagasEnfermedades ?? [];
+  const [search, setSearch]         = useState("");
+  const [filtroTipo, setFiltroTipo] = useState<TipoPlaga | "todos">("todos");
+  const [editForm, setEditForm]     = useState<(PlagaEnfermedad & { _isNew?: boolean }) | null>(null);
+  const [viewItem, setViewItem]     = useState<PlagaEnfermedad | null>(null);
+  const [nuevoProducto, setNuevoProducto] = useState({ nombre: "", dosis: "", intervalo: "" });
+
+  const filtered = items.filter(p => {
+    if (filtroTipo !== "todos" && p.tipo !== filtroTipo) return false;
+    if (search && !p.nombre.toLowerCase().includes(search.toLowerCase()) &&
+        !(p.nombreCientifico ?? "").toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const openNew  = () => setEditForm({ ...EMPTY_PLAGA, id: `pl-${Date.now()}`, _isNew: true });
+  const openEdit = (p: PlagaEnfermedad) => setEditForm({ ...p });
+  const close    = () => { setEditForm(null); setNuevoProducto({ nombre: "", dosis: "", intervalo: "" }); };
+
+  const save = () => {
+    if (!editForm?.nombre.trim()) return;
+    const { _isNew, ...item } = editForm;
+    if (_isNew) onUpdate([...items, item]);
+    else        onUpdate(items.map(p => p.id === item.id ? item : p));
+    close();
+  };
+
+  const del         = (id: string) => { onUpdate(items.filter(p => p.id !== id)); if (editForm?.id === id) close(); };
+  const toggleActivo = (id: string) => onUpdate(items.map(p => p.id === id ? { ...p, activo: !p.activo } : p));
+
+  const addProducto = () => {
+    if (!nuevoProducto.nombre.trim() || !editForm) return;
+    setEditForm(f => ({ ...f!, productosRecomendados: [...f!.productosRecomendados, { ...nuevoProducto }] }));
+    setNuevoProducto({ nombre: "", dosis: "", intervalo: "" });
+  };
+
+  const toggleEtapa = (id: string) => {
+    if (!editForm) return;
+    if (id === "todas") {
+      setEditForm(f => ({ ...f!, etapas: f!.etapas.includes("todas") ? [] : ["todas"] }));
+      return;
+    }
+    const has  = editForm.etapas.includes(id);
+    const next = has
+      ? editForm.etapas.filter(e => e !== id && e !== "todas")
+      : [...editForm.etapas.filter(e => e !== "todas"), id];
+    setEditForm(f => ({ ...f!, etapas: next }));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        {/* Header */}
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-red-500" />
+            <h3 className="text-sm font-semibold">Plagas y Enfermedades</h3>
+            <span className="text-[10px] text-muted-foreground">
+              Catálogo fitosanitario para {cultivo.nombre || "este cultivo"}
+            </span>
+          </div>
+          {canEdit && (
+            <Button size="sm" className="h-8 text-xs gap-1.5" onClick={openNew}>
+              <Plus className="w-3.5 h-3.5" />
+              Agregar
+            </Button>
+          )}
+        </div>
+
+        {/* Filtros */}
+        <div className="px-4 py-2.5 border-b bg-muted/20 flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[160px] max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar…" className="pl-8 h-8 text-xs" />
+          </div>
+          <div className="flex items-center gap-1 flex-wrap">
+            {(["todos", ...ALL_TIPOS_PLAGA] as const).map(t => (
+              <button key={t} onClick={() => setFiltroTipo(t === filtroTipo ? "todos" : t as any)}
+                className={cn("text-[10px] px-2.5 py-1 rounded-full border transition-colors",
+                  filtroTipo === t
+                    ? "bg-foreground text-background border-foreground"
+                    : "bg-background border-border text-muted-foreground hover:bg-muted"
+                )}>
+                {t === "todos" ? "Todos" : TIPO_PLAGA_LABELS[t as TipoPlaga]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Lista */}
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+            <ShieldAlert className="w-8 h-8 text-muted-foreground/30" />
+            <p className="text-sm font-medium text-muted-foreground">
+              {items.length === 0 ? "Sin registros aún" : "Sin resultados"}
+            </p>
+            {items.length === 0 && canEdit && (
+              <p className="text-xs text-muted-foreground/70">Carga la plantilla base o agrega manualmente</p>
+            )}
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {filtered.map(p => (
+              <div key={p.id} onClick={() => setViewItem(p)}
+                className={cn("flex items-start gap-3 px-4 py-3 group transition-colors hover:bg-muted/20 cursor-pointer", !p.activo && "opacity-50")}>
+                <div className="mt-0.5 shrink-0">
+                  <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", TIPO_PLAGA_COLORS[p.tipo])}>
+                    {TIPO_PLAGA_LABELS[p.tipo]}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-2">
+                    <p className="text-sm font-semibold">{p.nombre}</p>
+                    {p.nombreCientifico && <p className="text-[10px] text-muted-foreground italic truncate">{p.nombreCientifico}</p>}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{p.sintomas}</p>
+                  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                    {p.etapas.map(e => (
+                      <span key={e} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{getEtapaLabel(e, cultivo.ciclo_vida ?? [])}</span>
+                    ))}
+                    {p.productosRecomendados.length > 0 && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-100">
+                        {p.productosRecomendados.length} producto{p.productosRecomendados.length > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {canEdit && (
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={e => { e.stopPropagation(); toggleActivo(p.id); }} title={p.activo ? "Desactivar" : "Activar"}
+                        className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground">
+                        <Power className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); openEdit(p); }}
+                        className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); del(p.id); }}
+                        className="h-7 w-7 flex items-center justify-center rounded hover:bg-destructive/10 text-destructive">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Modal de vista */}
+      <Dialog open={viewItem !== null} onOpenChange={open => { if (!open) setViewItem(null); }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          {viewItem && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", TIPO_PLAGA_COLORS[viewItem.tipo])}>
+                    {TIPO_PLAGA_LABELS[viewItem.tipo]}
+                  </span>
+                  {!viewItem.activo && <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">Inactivo</span>}
+                </div>
+                <DialogTitle className="text-base mt-1">{viewItem.nombre}</DialogTitle>
+                {viewItem.nombreCientifico && (
+                  <DialogDescription className="italic text-xs">{viewItem.nombreCientifico}</DialogDescription>
+                )}
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                {viewItem.etapas.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Etapas afectadas</p>
+                    <div className="flex flex-wrap gap-1">
+                      {viewItem.etapas.map(e => (
+                        <span key={e} className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                          {getEtapaLabel(e, cultivo.ciclo_vida ?? [])}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {viewItem.sintomas && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Síntomas</p>
+                    <p className="text-sm text-foreground/80 leading-relaxed">{viewItem.sintomas}</p>
+                  </div>
+                )}
+                {viewItem.condicionesFavorables && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Condiciones favorables</p>
+                    <p className="text-sm text-foreground/80 leading-relaxed">{viewItem.condicionesFavorables}</p>
+                  </div>
+                )}
+                {viewItem.umbralAccion && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Umbral de acción</p>
+                    <p className="text-sm text-foreground/80">{viewItem.umbralAccion}</p>
+                  </div>
+                )}
+                {viewItem.productosRecomendados.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Productos recomendados</p>
+                    <div className="space-y-1.5">
+                      {viewItem.productosRecomendados.map((pr, i) => (
+                        <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm">
+                          <span className="font-medium flex-1">{pr.nombre}</span>
+                          {pr.dosis && <span className="text-xs text-muted-foreground">{pr.dosis}</span>}
+                          {pr.intervalo && <span className="text-[11px] text-muted-foreground border-l border-border pl-2">Intervalo: {pr.intervalo}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {viewItem.mediosBiologicos && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Control biológico</p>
+                    <p className="text-sm text-foreground/80">{viewItem.mediosBiologicos}</p>
+                  </div>
+                )}
+                {viewItem.observaciones && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Observaciones</p>
+                    <p className="text-sm text-foreground/80">{viewItem.observaciones}</p>
+                  </div>
+                )}
+                {(viewItem.imagenes ?? []).length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Imágenes de referencia</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(viewItem.imagenes ?? []).map((src, idx) => (
+                        <img key={idx} src={src} alt={`${viewItem.nombre}-${idx}`}
+                          className="w-full aspect-video object-cover rounded-lg border border-border cursor-zoom-in"
+                          onClick={() => window.open(src, "_blank")}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {canEdit && (
+                <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                  <Button variant="outline" size="sm" onClick={() => { setViewItem(null); openEdit(viewItem); }}>
+                    <Pencil className="w-3.5 h-3.5 mr-1.5" />Editar
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Sheet de edición */}
+      <Sheet open={editForm !== null} onOpenChange={open => { if (!open) close(); }}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto flex flex-col">
+          <SheetHeader className="shrink-0">
+            <SheetTitle className="flex items-center gap-2 text-base">
+              <ShieldAlert className="w-4 h-4 text-red-500" />
+              {editForm?._isNew ? "Nueva Plaga / Enfermedad" : "Editar entrada"}
+            </SheetTitle>
+            <SheetDescription className="text-xs">Datos fitosanitarios para {cultivo.nombre}.</SheetDescription>
+          </SheetHeader>
+
+          {editForm && (
+            <div className="flex-1 overflow-y-auto space-y-5 py-4">
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2 space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Nombre *</label>
+                  <Input value={editForm.nombre} onChange={e => setEditForm(f => ({ ...f!, nombre: e.target.value }))}
+                    placeholder="ej. Botrytis, Araña roja…" className="h-8 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Nombre científico</label>
+                  <Input value={editForm.nombreCientifico ?? ""} onChange={e => setEditForm(f => ({ ...f!, nombreCientifico: e.target.value }))}
+                    placeholder="ej. Botrytis cinerea" className="h-8 text-sm italic" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Tipo</label>
+                  <select value={editForm.tipo} onChange={e => setEditForm(f => ({ ...f!, tipo: e.target.value as TipoPlaga }))}
+                    className="h-8 w-full text-sm border border-input rounded-md px-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+                    {ALL_TIPOS_PLAGA.map(t => <option key={t} value={t}>{TIPO_PLAGA_LABELS[t]}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Etapas afectadas</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {etapaIds(cultivo.ciclo_vida ?? []).map(id => (
+                    <button key={id} type="button" onClick={() => toggleEtapa(id)}
+                      className={cn("text-xs px-2.5 py-1 rounded-full border transition-colors",
+                        editForm.etapas.includes(id)
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background border-border text-muted-foreground hover:bg-muted"
+                      )}>
+                      {getEtapaLabel(id, cultivo.ciclo_vida ?? [])}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Síntomas</label>
+                <textarea value={editForm.sintomas} onChange={e => setEditForm(f => ({ ...f!, sintomas: e.target.value }))}
+                  rows={3} placeholder="Señales visuales de daño…"
+                  className="w-full text-sm border border-input rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Umbral de acción</label>
+                <Input value={editForm.umbralAccion ?? ""} onChange={e => setEditForm(f => ({ ...f!, umbralAccion: e.target.value }))}
+                  placeholder="ej. 5 insectos por hoja o 10% plantas afectadas" className="h-8 text-sm" />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Productos recomendados</label>
+                {editForm.productosRecomendados.map((pr, idx) => (
+                  <div key={idx} className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-2 text-xs">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{pr.nombre}</p>
+                      {(pr.dosis || pr.intervalo) && (
+                        <p className="text-muted-foreground">
+                          {pr.dosis && `Dosis: ${pr.dosis}`}{pr.dosis && pr.intervalo && " · "}{pr.intervalo && `Intervalo: ${pr.intervalo}`}
+                        </p>
+                      )}
+                    </div>
+                    <button onClick={() => setEditForm(f => ({ ...f!, productosRecomendados: f!.productosRecomendados.filter((_, i) => i !== idx) }))}
+                      className="text-destructive hover:text-destructive/80 shrink-0">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <div className="bg-muted/20 rounded-lg p-3 space-y-2 border border-dashed border-border">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase">Agregar producto</p>
+                  <Input value={nuevoProducto.nombre} onChange={e => setNuevoProducto(p => ({ ...p, nombre: e.target.value }))}
+                    placeholder="Nombre del producto" className="h-7 text-xs" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input value={nuevoProducto.dosis} onChange={e => setNuevoProducto(p => ({ ...p, dosis: e.target.value }))}
+                      placeholder="Dosis (ej. 1 L/ha)" className="h-7 text-xs" />
+                    <Input value={nuevoProducto.intervalo} onChange={e => setNuevoProducto(p => ({ ...p, intervalo: e.target.value }))}
+                      placeholder="Intervalo (ej. 7 días)" className="h-7 text-xs" />
+                  </div>
+                  <Button size="sm" variant="outline" className="h-7 text-xs w-full gap-1.5" onClick={addProducto} disabled={!nuevoProducto.nombre.trim()}>
+                    <Plus className="w-3 h-3" />
+                    Agregar producto
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Medidas preventivas</label>
+                <textarea value={editForm.medidasPreventivas ?? ""} onChange={e => setEditForm(f => ({ ...f!, medidasPreventivas: e.target.value }))}
+                  rows={2} placeholder="Prácticas culturales, monitoreo, control biológico…"
+                  className="w-full text-sm border border-input rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+              </div>
+
+              {/* Imágenes de referencia */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Imágenes de referencia</label>
+                {(editForm.imagenes ?? []).length > 0 && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {(editForm.imagenes ?? []).map((src, idx) => (
+                      <div key={idx} className="relative group aspect-square rounded-lg overflow-hidden border border-border">
+                        <img src={src} alt={`ref-${idx}`} className="w-full h-full object-cover" />
+                        <button
+                          onClick={() => setEditForm(f => ({ ...f!, imagenes: (f!.imagenes ?? []).filter((_, i) => i !== idx) }))}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <label className={cn(
+                  "flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 border-dashed cursor-pointer transition-colors text-xs text-muted-foreground",
+                  "border-border hover:border-primary/40 hover:text-primary hover:bg-primary/5"
+                )}>
+                  <ImageIcon className="w-4 h-4 shrink-0" />
+                  <span>Cargar imágenes (jpg, png, webp)</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={e => {
+                      const files = Array.from(e.target.files ?? []);
+                      files.forEach(file => {
+                        const reader = new FileReader();
+                        reader.onload = ev => {
+                          const dataUrl = ev.target?.result as string;
+                          setEditForm(f => ({ ...f!, imagenes: [...(f!.imagenes ?? []), dataUrl] }));
+                        };
+                        reader.readAsDataURL(file);
+                      });
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between py-2 border-t border-border">
+                <div>
+                  <p className="text-sm font-medium">Activo</p>
+                  <p className="text-xs text-muted-foreground">Visible en listas y formularios</p>
+                </div>
+                <Switch checked={editForm.activo} onCheckedChange={v => setEditForm(f => ({ ...f!, activo: v }))} />
+              </div>
+            </div>
+          )}
+
+          <div className="shrink-0 border-t pt-4 flex items-center justify-end gap-2">
+            <Button variant="outline" onClick={close} className="h-9 text-sm">Cancelar</Button>
+            <Button onClick={save} disabled={!editForm?.nombre.trim()} className="h-9 text-sm gap-1.5">
+              <CheckCircle2 className="w-4 h-4" />
+              {editForm?._isNew ? "Crear" : "Guardar"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
 // --- Hub de Cultivos ----------------------------------------------------------
 
 function TabCultivos() {
@@ -5398,10 +7699,11 @@ function TabCultivos() {
   const cultivoVars  = variedades.filter(v => v.cultivo_id === selectedId);
 
   // Tab interno para simplificar la UI de configuración
-  const [cultivoTab, setCultivoTab] = useState<"general" | "medidas" | "calibres" | "estructura" | "ciclo">("general");
+  const [cultivoTab, setCultivoTab] = useState<"general" | "medidas" | "calibres" | "estructura" | "ciclo" | "plagas" | "aplicaciones" | "cosecha" | "podas" | "nutricion" | "riego">("general");
   const [confirmToggleActivo, setConfirmToggleActivo] = useState<{ id: string; nombre: string; next: boolean } | null>(null);
   const [estructuraModulo, setEstructuraModulo] = useState<string>("cultivo");
   const [showEstructuraPanel, setShowEstructuraPanel] = useState(true);
+  const [pendingModoEstructura, setPendingModoEstructura] = useState<{ modo: ModoEstructura; moduloId: string } | null>(null);
 
   const filteredCultivos = cultivosList.filter(c =>
     !searchCultivo || c.nombre.toLowerCase().includes(searchCultivo.toLowerCase()) ||
@@ -5544,8 +7846,8 @@ function TabCultivos() {
         ) : (
           <div className="space-y-4 min-w-0">
             {/* -- Header del cultivo con tabs -------------------------------- */}
-            <div className="bg-card rounded-xl border border-border overflow-hidden">
-              <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center justify-between">
+            <div className="bg-card rounded-xl border border-border">
+              <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center justify-between rounded-t-xl">
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
                   <Leaf className="w-4 h-4 text-primary" />
                   {cultivo.nombre || "Cultivo"}
@@ -5571,7 +7873,7 @@ function TabCultivos() {
 
               {/* Tabs internos simplificados */}
               <Tabs value={cultivoTab} onValueChange={(v: any) => setCultivoTab(v)} className="w-full">
-                <TabsList className="w-full justify-start rounded-none border-b bg-muted/30 h-10 px-4">
+                <TabsList className="flex w-full justify-start rounded-none border-b bg-muted/30 h-10 px-4 overflow-x-scroll flex-nowrap [&>*]:shrink-0 [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent">
                   <TabsTrigger value="general" className="text-xs">
                     <FileText className="w-3.5 h-3.5 mr-1.5" />
                     General
@@ -5605,6 +7907,56 @@ function TabCultivos() {
                       <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded-full bg-violet-100 text-violet-700">
                         {(cultivo.ciclo_vida ?? []).length}
                       </span>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="plagas" className="text-xs">
+                    <ShieldAlert className="w-3.5 h-3.5 mr-1.5" />
+                    Plagas y Enf.
+                    {(cultivo.plagasEnfermedades ?? []).filter(p => p.activo).length > 0 && (
+                      <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded-full bg-red-100 text-red-700">
+                        {(cultivo.plagasEnfermedades ?? []).filter(p => p.activo).length}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="aplicaciones" className="text-xs">
+                    <Zap className="w-3.5 h-3.5 mr-1.5" />
+                    Plan de Aplic.
+                    {(cultivo.planAplicaciones ?? []).filter(a => a.activo).length > 0 && (
+                      <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                        {(cultivo.planAplicaciones ?? []).filter(a => a.activo).length}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="cosecha" className="text-xs">
+                    <Archive className="w-3.5 h-3.5 mr-1.5" />
+                    Cosecha
+                    {cultivo.cosecha && (
+                      <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded-full bg-yellow-100 text-yellow-700">✓</span>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="podas" className="text-xs">
+                    <Layers className="w-3.5 h-3.5 mr-1.5" />
+                    Podas
+                    {(cultivo.planPodas ?? []).filter(p => p.activo).length > 0 && (
+                      <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded-full bg-lime-100 text-lime-700">
+                        {(cultivo.planPodas ?? []).filter(p => p.activo).length}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="nutricion" className="text-xs">
+                    <SproutIcon className="w-3.5 h-3.5 mr-1.5" />
+                    Nutrición
+                    {(cultivo.planNutricion ?? []).filter(n => n.activo).length > 0 && (
+                      <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded-full bg-teal-100 text-teal-700">
+                        {(cultivo.planNutricion ?? []).filter(n => n.activo).length}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="riego" className="text-xs">
+                    <Droplets className="w-3.5 h-3.5 mr-1.5" />
+                    Riego
+                    {cultivo.riego && (
+                      <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded-full bg-cyan-100 text-cyan-700">✓</span>
                     )}
                   </TabsTrigger>
                 </TabsList>
@@ -5801,35 +8153,6 @@ function TabCultivos() {
                   </div>
                 </div>
 
-                {/* Unidad de producción */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                    Unidad de producción
-                  </label>
-                  <div className="flex rounded-lg border border-border overflow-hidden">
-                    {(["kg", "ton", "cajas"] as const).map((opt) => {
-                      const titles: Record<string, string> = { kg: "Kilogramos", ton: "Toneladas", cajas: "Cajas" };
-                      const active = (cultivo.unidad_produccion ?? "kg") === opt;
-                      return (
-                        <button
-                          key={opt}
-                          disabled={!canEditCultivo}
-                          onClick={() => updCultivo(cultivo.id, "unidad_produccion", opt)}
-                          title={titles[opt]}
-                          className={cn(
-                            "flex-1 py-2 text-xs font-medium border-r last:border-r-0 border-border transition-colors",
-                            active
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-card text-muted-foreground hover:bg-muted/60",
-                            !canEditCultivo && "cursor-default",
-                          )}
-                        >
-                          {opt}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
 
                 {/* Marco de plantación */}
                 <div className="space-y-1.5 sm:col-span-2">
@@ -6179,6 +8502,21 @@ function TabCultivos() {
         {activeModulo !== "cultivo" && (() => {
           const mapa = extraModulos.find(m => m.modulo === activeModulo);
           if (!mapa) return null;
+          const modo: ModoEstructura = mapa.modo_estructura ?? 'propio';
+
+          // Módulos disponibles para compartir (todos excepto el actual, que tengan estructura)
+          const modulosParaCompartir: { value: string; label: string }[] = [
+            ...(cultivo.estructura ?? []).length > 0 ? [{ value: 'cultivo', label: 'Cultivo' }] : [],
+            ...extraModulos
+              .filter(m => m.modulo !== activeModulo && m.estructura.length > 0 && (m.modo_estructura ?? 'propio') === 'propio')
+              .map(m => ({ value: m.modulo, label: MODULO_LABELS[m.modulo] ?? m.label })),
+          ];
+          const moduloCompartido = mapa.modulo_compartido ?? (modulosParaCompartir[0]?.value ?? 'cultivo');
+          const estructuraFuente = moduloCompartido === 'cultivo'
+            ? (cultivo.estructura ?? [])
+            : (extraModulos.find(m => m.modulo === moduloCompartido)?.estructura ?? []);
+          const estructuraActiva = modo === 'compartido' ? estructuraFuente : mapa.estructura;
+
           const updMapa = (field: keyof MapaCultivo, val: unknown) => {
             const updated = extraModulos.map(m =>
               m.modulo === activeModulo ? { ...m, [field]: val } : m
@@ -6189,144 +8527,157 @@ function TabCultivos() {
             const updated = mapa.estructura.map((n, i) => i === nivelIdx ? { ...n, [field]: val } : n);
             updMapa("estructura", updated);
           };
+          const applyModo = (newModo: ModoEstructura) => {
+            updMapa("modo_estructura", newModo);
+          };
+
+          const MODO_OPTIONS: { value: ModoEstructura; label: string; desc: string }[] = [
+            { value: 'propio',      label: 'Propia',         desc: 'Estructura de niveles independiente para este módulo' },
+            { value: 'compartido',  label: 'Compartida',     desc: 'Comparte la estructura de otro módulo' },
+            { value: 'ninguno',     label: 'Sin estructura',  desc: 'Este módulo no utiliza jerarquía de campo' },
+          ];
+
           return (
             <div className="space-y-4 min-w-0">
-              {/* Estructura de niveles */}
+              {/* Diálogo de confirmación cambio de modo */}
+              {pendingModoEstructura?.moduloId === mapa.modulo && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+                  <div className="bg-card border border-border rounded-xl shadow-xl w-80 p-5 space-y-4">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-foreground">Cambiar modo de estructura</p>
+                      <p className="text-xs text-muted-foreground">
+                        {pendingModoEstructura.modo === 'ninguno'
+                          ? 'Este módulo dejará de usar jerarquía de campo.'
+                          : pendingModoEstructura.modo === 'compartido'
+                          ? 'Este módulo usará la estructura de otro módulo.'
+                          : 'Este módulo tendrá su propia estructura independiente.'}
+                        {' '}¿Confirmar?
+                      </p>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => setPendingModoEstructura(null)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-muted-foreground hover:bg-muted/40 transition-colors"
+                      >Cancelar</button>
+                      <button
+                        onClick={() => {
+                          applyModo(pendingModoEstructura.modo);
+                          setPendingModoEstructura(null);
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-sky-600 text-white hover:bg-sky-700 transition-colors"
+                      >Confirmar</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Selector de modo de estructura */}
               <div className="bg-card rounded-xl border border-border overflow-hidden">
                 <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                      <Network className="w-4 h-4 text-sky-600" />
+                    <Network className="w-4 h-4 text-sky-600" />
+                    <h3 className="text-sm font-semibold text-foreground">
                       Estructura de {MODULO_LABELS[mapa.modulo] ?? mapa.label}
                     </h3>
-                    <span className="text-[10px] text-muted-foreground">Define los niveles jerárquicos</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {canEditCultivo && (
-                      <>
-                        {mapa.estructura.length === 0 && (
-                          <button
-                            onClick={() => {
-                              const plantilla: NivelEstructura[] = [
-                                { nivel: 1, label: "Invernadero", abrev: "IN", activo: true },
-                                { nivel: 2, label: "Mesa",        abrev: "MS", activo: true },
-                                { nivel: 3, label: "Bandeja",     abrev: "BD", activo: true },
-                              ];
-                              updMapa("estructura", plantilla);
-                            }}
-                            className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground border border-dashed border-border px-2 py-1 rounded-md hover:border-primary/40 transition-colors"
-                          >
-                            <ListFilter className="w-3.5 h-3.5" /> Cargar plantilla
-                          </button>
-                        )}
-                        <button
-                          onClick={() => {
-                            const nuevoNivel: NivelEstructura = { nivel: mapa.estructura.length + 1, label: "", abrev: "", activo: true };
-                            updMapa("estructura", [...mapa.estructura, nuevoNivel]);
-                          }}
-                          className="flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/70 transition-colors"
-                        >
-                          <Plus className="w-3.5 h-3.5" /> Agregar nivel
-                        </button>
-                        <button
-                          onClick={() => {
-                            updCultivo(cultivo.id, "mapas_extra", extraModulos.filter(m => m.modulo !== activeModulo));
-                            setEstructuraModulo("cultivo");
-                          }}
-                          className="text-muted-foreground hover:text-destructive transition-colors ml-1"
-                          title="Eliminar módulo"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </>
-                    )}
-                  </div>
+                  {canEditCultivo && (
+                    <button
+                      onClick={() => {
+                        updCultivo(cultivo.id, "mapas_extra", extraModulos.filter(m => m.modulo !== activeModulo));
+                        setEstructuraModulo("cultivo");
+                      }}
+                      className="text-muted-foreground hover:text-destructive transition-colors"
+                      title="Eliminar módulo"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <div className="px-4 py-3 flex items-center gap-2 flex-wrap border-b border-border bg-muted/10">
+                  {MODO_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      disabled={!canEditCultivo}
+                      onClick={() => {
+                        if (opt.value === modo) return;
+                        setPendingModoEstructura({ modo: opt.value, moduloId: mapa.modulo });
+                      }}
+                      title={opt.desc}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg text-xs font-medium border transition-all",
+                        modo === opt.value
+                          ? "bg-sky-600 text-white border-transparent shadow-sm"
+                          : "bg-background text-muted-foreground border-border hover:border-sky-400/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                      )}
+                    >{opt.label}</button>
+                  ))}
                 </div>
 
-                {mapa.estructura.length === 0 ? (
-                  <div className="px-4 py-8 text-center space-y-2">
+                {/* Ninguno */}
+                {modo === 'ninguno' && (
+                  <div className="px-4 py-8 text-center space-y-1">
                     <Network className="w-7 h-7 mx-auto text-muted-foreground/20" />
-                    <p className="text-xs text-muted-foreground">Sin estructura configurada.</p>
-                    {canEditCultivo && (
-                      <p className="text-[10px] text-muted-foreground/60">Usa "Cargar plantilla" para la jerarquía estándar.</p>
-                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Este módulo no usa jerarquía de campo.
+                    </p>
                   </div>
-                ) : (
-                  <div>
-                    <div className="divide-y divide-border">
-                      {mapa.estructura.map((nivel, idx) => (
-                        <div
-                          key={idx}
-                          className={cn("group flex items-center gap-3 px-4 py-2.5 transition-colors",
-                            nivel.activo ? "hover:bg-muted/20" : "opacity-50 hover:opacity-70"
-                          )}
-                        >
-                          <Switch
-                            checked={nivel.activo}
-                            onCheckedChange={v => updNivelMapa(idx, "activo", v)}
-                            disabled={!canEditCultivo}
-                            className="scale-75 origin-left shrink-0"
-                          />
-                          <span className={cn("w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0",
-                            nivel.activo ? "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300" : "bg-muted text-muted-foreground"
-                          )}>
-                            {idx + 1}
-                          </span>
-                          <input
-                            value={nivel.label}
-                            onChange={e => updNivelMapa(idx, "label", e.target.value)}
-                            readOnly={!canEditCultivo}
-                            disabled={!canEditCultivo}
-                            placeholder="Nombre del nivel"
-                            className="flex-1 text-sm font-medium bg-transparent border-0 focus:outline-none disabled:opacity-60 min-w-0"
-                          />
-                          <input
-                            value={nivel.abrev}
-                            onChange={e => updNivelMapa(idx, "abrev", e.target.value.toUpperCase().slice(0, 4))}
-                            readOnly={!canEditCultivo}
-                            disabled={!canEditCultivo}
-                            placeholder="AB"
-                            maxLength={4}
-                            className="w-10 text-[10px] font-mono text-center bg-muted/40 rounded-md px-1.5 py-1 border border-transparent focus:border-primary/50 focus:bg-background focus:outline-none disabled:opacity-60 uppercase transition-colors"
-                          />
-                          {canEditCultivo && (
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              <div className="flex flex-col gap-0.5">
-                                <button
-                                  onClick={() => {
-                                    if (idx === 0) return;
-                                    const r = [...mapa.estructura];
-                                    [r[idx - 1], r[idx]] = [r[idx], r[idx - 1]];
-                                    updMapa("estructura", r.map((n, i) => ({ ...n, nivel: i + 1 })));
-                                  }}
-                                  disabled={idx === 0}
-                                  className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
-                                ><ArrowUp className="w-3 h-3" /></button>
-                                <button
-                                  onClick={() => {
-                                    if (idx === mapa.estructura.length - 1) return;
-                                    const r = [...mapa.estructura];
-                                    [r[idx], r[idx + 1]] = [r[idx + 1], r[idx]];
-                                    updMapa("estructura", r.map((n, i) => ({ ...n, nivel: i + 1 })));
-                                  }}
-                                  disabled={idx === mapa.estructura.length - 1}
-                                  className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
-                                ><ArrowDown className="w-3 h-3" /></button>
-                              </div>
-                              <button
-                                onClick={() => updMapa("estructura", mapa.estructura.filter((_, i) => i !== idx).map((n, i) => ({ ...n, nivel: i + 1 })))}
-                                className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
-                              ><X className="w-3 h-3" /></button>
-                            </div>
-                          )}
+                )}
+
+                {/* Compartido — selector de módulo fuente + preview */}
+                {modo === 'compartido' && (
+                  <>
+                    <div className="px-4 py-3 border-b border-border bg-muted/5 flex items-center gap-3">
+                      <span className="text-xs text-muted-foreground shrink-0">Compartir estructura de:</span>
+                      {modulosParaCompartir.length === 0 ? (
+                        <span className="text-xs text-amber-500">
+                          No hay otros módulos con estructura configurada.
+                        </span>
+                      ) : (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {modulosParaCompartir.map(opt => (
+                            <button
+                              key={opt.value}
+                              disabled={!canEditCultivo}
+                              onClick={() => updMapa("modulo_compartido", opt.value)}
+                              className={cn(
+                                "px-2.5 py-1 rounded-md text-xs font-medium border transition-all",
+                                moduloCompartido === opt.value
+                                  ? "bg-emerald-600 text-white border-transparent"
+                                  : "bg-background text-muted-foreground border-border hover:border-emerald-400/60 disabled:opacity-50"
+                              )}
+                            >{opt.label}</button>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
-                    {mapa.estructura.some(n => n.activo) && (
+                    {estructuraFuente.length === 0 ? (
+                      <div className="px-4 py-6 text-center">
+                        <p className="text-xs text-muted-foreground">
+                          El módulo seleccionado aún no tiene estructura configurada.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-border opacity-70 pointer-events-none select-none">
+                        {estructuraFuente.map((nivel, idx) => (
+                          <div
+                            key={nivel.nivel}
+                            className={cn("flex items-center gap-3 px-4 py-2.5", !nivel.activo && "opacity-40")}
+                          >
+                            <span className={cn(
+                              "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0",
+                              nivel.activo ? "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300" : "bg-muted text-muted-foreground"
+                            )}>{idx + 1}</span>
+                            <span className="flex-1 text-sm font-medium text-foreground/70">{nivel.label || "—"}</span>
+                            <span className="w-10 text-[10px] font-mono text-center text-muted-foreground">{nivel.abrev}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {estructuraActiva.some(n => n.activo) && (
                       <div className="mx-4 mb-4 mt-3 px-3 py-2.5 rounded-lg bg-sky-50 border border-sky-100 dark:bg-sky-950/20 dark:border-sky-900/40">
                         <p className="text-[10px] font-semibold text-sky-700 dark:text-sky-400 uppercase tracking-wider mb-2">Jerarquía activa</p>
                         <div className="flex items-center gap-1 flex-wrap">
-                          {mapa.estructura.filter(n => n.activo).map((n, i, arr) => (
+                          {estructuraActiva.filter(n => n.activo).map((n, i, arr) => (
                             <span key={n.nivel} className="flex items-center gap-1">
                               <span className="text-xs font-semibold text-sky-700 dark:text-sky-300 bg-sky-100 dark:bg-sky-900/40 px-2 py-0.5 rounded-md">{n.label}</span>
                               <span className="text-[9px] font-mono text-sky-400 dark:text-sky-600">{n.abrev}</span>
@@ -6336,12 +8687,143 @@ function TabCultivos() {
                         </div>
                       </div>
                     )}
-                  </div>
+                  </>
+                )}
+
+                {/* Propio — estructura editable independiente */}
+                {modo === 'propio' && (
+                  <>
+                    <div className="px-4 py-2 border-b border-border flex items-center justify-end gap-2">
+                      {canEditCultivo && (
+                        <>
+                          {mapa.estructura.length === 0 && (
+                            <button
+                              onClick={() => {
+                                const plantilla: NivelEstructura[] = [
+                                  { nivel: 1, label: "Invernadero", abrev: "IN", activo: true },
+                                  { nivel: 2, label: "Mesa",        abrev: "MS", activo: true },
+                                  { nivel: 3, label: "Bandeja",     abrev: "BD", activo: true },
+                                ];
+                                updMapa("estructura", plantilla);
+                              }}
+                              className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground border border-dashed border-border px-2 py-1 rounded-md hover:border-primary/40 transition-colors"
+                            >
+                              <ListFilter className="w-3.5 h-3.5" /> Cargar plantilla
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              const nuevoNivel: NivelEstructura = { nivel: mapa.estructura.length + 1, label: "", abrev: "", activo: true };
+                              updMapa("estructura", [...mapa.estructura, nuevoNivel]);
+                            }}
+                            className="flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/70 transition-colors"
+                          >
+                            <Plus className="w-3.5 h-3.5" /> Agregar nivel
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {mapa.estructura.length === 0 ? (
+                      <div className="px-4 py-8 text-center space-y-2">
+                        <Network className="w-7 h-7 mx-auto text-muted-foreground/20" />
+                        <p className="text-xs text-muted-foreground">Sin estructura configurada.</p>
+                        {canEditCultivo && (
+                          <p className="text-[10px] text-muted-foreground/60">Usa "Cargar plantilla" para la jerarquía estándar.</p>
+                        )}
+                      </div>
+                    ) : (
+                      <div>
+                        <div className="divide-y divide-border">
+                          {mapa.estructura.map((nivel, idx) => (
+                            <div
+                              key={idx}
+                              className={cn("group flex items-center gap-3 px-4 py-2.5 transition-colors",
+                                nivel.activo ? "hover:bg-muted/20" : "opacity-50 hover:opacity-70"
+                              )}
+                            >
+                              <Switch
+                                checked={nivel.activo}
+                                onCheckedChange={v => updNivelMapa(idx, "activo", v)}
+                                disabled={!canEditCultivo}
+                                className="scale-75 origin-left shrink-0"
+                              />
+                              <span className={cn("w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0",
+                                nivel.activo ? "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300" : "bg-muted text-muted-foreground"
+                              )}>
+                                {idx + 1}
+                              </span>
+                              <input
+                                value={nivel.label}
+                                onChange={e => updNivelMapa(idx, "label", e.target.value)}
+                                readOnly={!canEditCultivo}
+                                disabled={!canEditCultivo}
+                                placeholder="Nombre del nivel"
+                                className="flex-1 text-sm font-medium bg-transparent border-0 focus:outline-none disabled:opacity-60 min-w-0"
+                              />
+                              <input
+                                value={nivel.abrev}
+                                onChange={e => updNivelMapa(idx, "abrev", e.target.value.toUpperCase().slice(0, 4))}
+                                readOnly={!canEditCultivo}
+                                disabled={!canEditCultivo}
+                                placeholder="AB"
+                                maxLength={4}
+                                className="w-10 text-[10px] font-mono text-center bg-muted/40 rounded-md px-1.5 py-1 border border-transparent focus:border-primary/50 focus:bg-background focus:outline-none disabled:opacity-60 uppercase transition-colors"
+                              />
+                              {canEditCultivo && (
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  <div className="flex flex-col gap-0.5">
+                                    <button
+                                      onClick={() => {
+                                        if (idx === 0) return;
+                                        const r = [...mapa.estructura];
+                                        [r[idx - 1], r[idx]] = [r[idx], r[idx - 1]];
+                                        updMapa("estructura", r.map((n, i) => ({ ...n, nivel: i + 1 })));
+                                      }}
+                                      disabled={idx === 0}
+                                      className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                                    ><ArrowUp className="w-3 h-3" /></button>
+                                    <button
+                                      onClick={() => {
+                                        if (idx === mapa.estructura.length - 1) return;
+                                        const r = [...mapa.estructura];
+                                        [r[idx], r[idx + 1]] = [r[idx + 1], r[idx]];
+                                        updMapa("estructura", r.map((n, i) => ({ ...n, nivel: i + 1 })));
+                                      }}
+                                      disabled={idx === mapa.estructura.length - 1}
+                                      className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                                    ><ArrowDown className="w-3 h-3" /></button>
+                                  </div>
+                                  <button
+                                    onClick={() => updMapa("estructura", mapa.estructura.filter((_, i) => i !== idx).map((n, i) => ({ ...n, nivel: i + 1 })))}
+                                    className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                                  ><X className="w-3 h-3" /></button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {mapa.estructura.some(n => n.activo) && (
+                          <div className="mx-4 mb-4 mt-3 px-3 py-2.5 rounded-lg bg-sky-50 border border-sky-100 dark:bg-sky-950/20 dark:border-sky-900/40">
+                            <p className="text-[10px] font-semibold text-sky-700 dark:text-sky-400 uppercase tracking-wider mb-2">Jerarquía activa</p>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {mapa.estructura.filter(n => n.activo).map((n, i, arr) => (
+                                <span key={n.nivel} className="flex items-center gap-1">
+                                  <span className="text-xs font-semibold text-sky-700 dark:text-sky-300 bg-sky-100 dark:bg-sky-900/40 px-2 py-0.5 rounded-md">{n.label}</span>
+                                  <span className="text-[9px] font-mono text-sky-400 dark:text-sky-600">{n.abrev}</span>
+                                  {i < arr.length - 1 && <ChevronRight className="w-3.5 h-3.5 text-sky-400 mx-0.5" />}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
-              {/* Mapa visual */}
-              {mapa.estructura.some(n => n.activo) && (
+              {/* Mapa visual — solo si hay estructura activa */}
+              {estructuraActiva.some(n => n.activo) && modo !== 'ninguno' && (
                 <div className="rounded-lg border bg-card text-card-foreground overflow-hidden min-w-0">
                   <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
                     <div className="flex items-center gap-2">
@@ -6353,10 +8835,10 @@ function TabCultivos() {
                   <div className="p-2 md:p-2.5 xl:p-3">
                     <CampoMapaEditor
                       key={`mapa-extra-${mapa.id}`}
-                      estructura={mapa.estructura}
+                      estructura={estructuraActiva}
                       layout={mapa.layout_mapa}
                       onLayoutChange={newLayout => updMapa("layout_mapa", newLayout)}
-                      readOnly={!canEditCultivo}
+                      readOnly={!canEditCultivo || modo === 'compartido'}
                     />
                   </div>
                 </div>
@@ -6372,6 +8854,54 @@ function TabCultivos() {
                 {/* TAB: Ciclo de vida */}
                 <TabsContent value="ciclo" className="p-4 m-0">
                   <CicloTabContent cultivo={cultivo} canEdit={canEditCultivo} updCultivo={updCultivo} />
+                </TabsContent>
+
+                <TabsContent value="plagas" className="p-4 m-0">
+                  <TabPlagasEnfermedades
+                    cultivo={cultivo}
+                    canEdit={canEditCultivo}
+                    onUpdate={(items) => updCultivo(cultivo.id, "plagasEnfermedades", items)}
+                  />
+                </TabsContent>
+
+                <TabsContent value="aplicaciones" className="p-4 m-0">
+                  <TabPlanAplicaciones
+                    cultivo={cultivo}
+                    canEdit={canEditCultivo}
+                    onUpdate={(items) => updCultivo(cultivo.id, "planAplicaciones", items)}
+                  />
+                </TabsContent>
+
+                <TabsContent value="cosecha" className="p-4 m-0">
+                  <TabCosecha
+                    cultivo={cultivo}
+                    canEdit={canEditCultivo}
+                    onUpdate={(cfg) => updCultivo(cultivo.id, "cosecha", cfg)}
+                  />
+                </TabsContent>
+
+                <TabsContent value="podas" className="p-4 m-0">
+                  <TabPodas
+                    cultivo={cultivo}
+                    canEdit={canEditCultivo}
+                    onUpdate={(items) => updCultivo(cultivo.id, "planPodas", items)}
+                  />
+                </TabsContent>
+
+                <TabsContent value="nutricion" className="p-4 m-0">
+                  <TabNutricion
+                    cultivo={cultivo}
+                    canEdit={canEditCultivo}
+                    onUpdate={(items) => updCultivo(cultivo.id, "planNutricion", items)}
+                  />
+                </TabsContent>
+
+                <TabsContent value="riego" className="p-4 m-0">
+                  <TabRiego
+                    cultivo={cultivo}
+                    canEdit={canEditCultivo}
+                    onUpdate={(cfg) => updCultivo(cultivo.id, "riego", cfg)}
+                  />
                 </TabsContent>
 
               </Tabs>
@@ -7526,6 +10056,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
     addOverride, removeOverride, getUserOverrides, getRoleBasePermissions,
     clientes, productores, users: contextUsers, addUser, updUser, toggleUserActive,
     currentUser, role: currentRole_ctx, currentClienteId, empresaCtxId,
+    getUserModulos, getUserAreaNames,
   } = useRole();
   const { definiciones, getDefAccesos, addDefAcceso, removeDefAcceso } = useConfig();
 
@@ -7555,7 +10086,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
         clienteId:    u.clienteId,
         productorId:  u.productorId,
         activo:       u.activo !== false,
-        area_asignada: u.area_asignada,
+        areas_ids: u.areas_ids,
         empresa:      u.clienteId ? clientes.find(c => c.id === u.clienteId)?.nombre ?? "N/D" : "Plataforma",
         estado:       (u.activo !== false ? "Activo" : "Inactivo") as "Activo" | "Inactivo",
         ultimoAcceso: "N/D",
@@ -7585,15 +10116,9 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
   const [formRole, setFormRole] = useState<UserRoleT>("lector");
   const [formClienteId, setFormClienteId] = useState<number | "">("");
   const [formProductorId, setFormProductorId] = useState<number | "">("");
-  const [formAreaAsignada, setFormAreaAsignada] = useState("");
+  const [formAreasIds, setFormAreasIds] = useState<number[]>([]);
   const [formActivo, setFormActivo] = useState(true);
-  const [formModulosActivos, setFormModulosActivos] = useState<Set<string>>(new Set());
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
-
-  // Módulos disponibles para el rol seleccionado
-  const formRoleModulos = useMemo(() =>
-    ALL_MODULES.filter(m => getRoleBasePermissions(formRole, m.value).length > 0),
-  [formRole, getRoleBasePermissions]);
 
   // Productores filtrados por cliente seleccionado en el form
   const formProductores = useMemo(
@@ -7613,9 +10138,6 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
     if (!canCreateUsers) return;
     const defaultRole = assignableRoles.length > 0 ? assignableRoles[0][0] : "lector";
     // Inicializar con todos los módulos que el rol tiene por defecto
-    const defaultMods = new Set(
-      ALL_MODULES.filter(m => getRoleBasePermissions(defaultRole, m.value).length > 0).map(m => m.value)
-    );
     setEditingUserId(null);
     setFormNombre("");
     setFormEmail("");
@@ -7623,9 +10145,8 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
     setFormRole(defaultRole);
     setFormClienteId(isClienteAdmin ? (currentClienteId ?? "") : "");
     setFormProductorId("");
-    setFormAreaAsignada("");
+    setFormAreasIds([]);
     setFormActivo(true);
-    setFormModulosActivos(defaultMods);
     setUserModal(true);
   };
 
@@ -7640,16 +10161,6 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
     if (!canManageUserAccounts) return;
     const u = contextUsers.find(x => x.id === userId);
     if (!u) return;
-    // Calcular módulos activos: los que tiene el rol menos los bloqueados por override
-    const userOvs = getUserOverrides(userId);
-    const blockedMods = new Set(
-      userOvs.filter(ov => !ov.habilitado && ov.accion === "ver").map(ov => ov.modulo)
-    );
-    const activeMods = new Set(
-      ALL_MODULES
-        .filter(m => getRoleBasePermissions(u.role, m.value).length > 0 && !blockedMods.has(m.value))
-        .map(m => m.value)
-    );
     setEditingUserId(userId);
     setFormNombre(u.nombre);
     setFormEmail(u.email);
@@ -7657,16 +10168,14 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
     setFormRole(u.role);
     setFormClienteId(u.clienteId ?? "");
     setFormProductorId(u.productorId ?? "");
-    setFormAreaAsignada(u.area_asignada ?? "");
+    setFormAreasIds(u.areas_ids ?? []);
     setFormActivo(u.activo !== false);
-    setFormModulosActivos(activeMods);
     setUserModal(true);
   };
 
   const handleSaveUser = () => {
     if (!formNombre.trim() || !formEmail.trim()) return;
     if (!editingUserId && !formPassword.trim()) return;
-    if (formModulosActivos.size === 0) return;
 
     const payload: Omit<import("@/contexts/RoleContext").HardcodedUser, "id"> = {
       nombre: formNombre.trim(),
@@ -7677,7 +10186,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
       role: formRole,
       clienteId: formClienteId || undefined,
       productorId: formProductorId || undefined,
-      area_asignada: formAreaAsignada.trim() || undefined,
+      areas_ids: formAreasIds.length ? formAreasIds : undefined,
       activo: formActivo,
     };
 
@@ -7689,39 +10198,6 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
       if (!canCreateUsers) return;
       const created = addUser(payload);
       userId = created.id;
-    }
-
-    // Crear overrides: bloquear TODAS las acciones de módulos desactivados
-    // Primero limpiar overrides anteriores de módulos que este flujo gestiona
-    const existingOvs = getUserOverrides(userId);
-    const allRoleMods = ALL_MODULES.filter(m => getRoleBasePermissions(formRole, m.value).length > 0);
-
-    for (const mod of allRoleMods) {
-      const permsDelRol = getRoleBasePermissions(formRole, mod.value);
-      const isDisabled = !formModulosActivos.has(mod.value);
-
-      for (const accion of permsDelRol) {
-        const existingOv = existingOvs.find(o => o.modulo === mod.value && o.accion === accion);
-
-        if (isDisabled) {
-          // Módulo desactivado ? bloquear cada acción
-          if (!existingOv || existingOv.habilitado) {
-            if (existingOv) removeOverride(existingOv.id);
-            addOverride({
-              userId,
-              modulo: mod.value,
-              accion,
-              habilitado: false,
-              justificacion: "Módulo restringido al crear/editar usuario",
-            });
-          }
-        } else {
-          // Módulo activado ? quitar bloqueos previos de este flujo
-          if (existingOv && !existingOv.habilitado && existingOv.justificacion === "Módulo restringido al crear/editar usuario") {
-            removeOverride(existingOv.id);
-          }
-        }
-      }
     }
 
     setUserModal(false);
@@ -8284,6 +10760,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
               .flatMap(d => getDefAccesos(d.id).filter(a => a.usuario_id === selectedUser.id));
             const totalOverrides    = userOverrides.length + accesosDelUsuario.length;
             const q = panelSearch.toLowerCase();
+            const userModulosSet    = new Set(getUserModulos(selectedUser as any));
 
             return (
               <>
@@ -8320,6 +10797,22 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
                       </span>
                     </span>
                   </div>
+
+                  {/* Áreas asignadas */}
+                  {(() => {
+                    const areaNames = getUserAreaNames(selectedUser as any);
+                    if (areaNames.length === 0) return null;
+                    return (
+                      <div className="flex flex-wrap gap-1">
+                        {areaNames.map(name => (
+                          <span key={name} className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md bg-muted/60 text-muted-foreground border border-border/50">
+                            <Building2 className="w-2.5 h-2.5" />
+                            {name}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
 
                   {/* Resumen de overrides */}
                   {totalOverrides > 0 ? (
@@ -8390,11 +10883,21 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
                     const hasModOverrides = userOverrides.some(o => o.modulo === mod.value);
                     if (modDefs.length === 0 && !hasModOverrides) return null;
 
+                    const hasAreaAccess = userModulosSet.size === 0 || userModulosSet.has(mod.value);
+
                     return (
                       <div key={mod.value} className="border-b border-border last:border-b-0">
                         {/* Cabecera de módulo */}
-                        <div className="px-4 py-2.5 bg-muted/30 flex items-center gap-3">
-                          <p className="text-[11px] font-bold text-foreground/70 uppercase tracking-wider flex-1">{mod.label}</p>
+                        <div className={cn("px-4 py-2.5 flex items-center gap-3", hasAreaAccess ? "bg-muted/30" : "bg-muted/10")}>
+                          <p className={cn("text-[11px] font-bold uppercase tracking-wider flex-1", hasAreaAccess ? "text-foreground/70" : "text-muted-foreground/40")}>{mod.label}</p>
+                          {userModulosSet.size > 0 && (
+                            <span
+                              className={cn("text-[9px] font-medium px-1.5 py-0.5 rounded", hasAreaAccess ? "bg-success/15 text-success/80" : "bg-muted text-muted-foreground/40")}
+                              title={hasAreaAccess ? "Módulo habilitado por área" : "Sin área con acceso a este módulo"}
+                            >
+                              {hasAreaAccess ? "área ✓" : "sin área"}
+                            </span>
+                          )}
                           {/* Botones de acción del módulo */}
                           <div className="flex gap-1" title="Clic para ajustar permiso del módulo">
                             {ALL_ACTIONS.map(a => {
@@ -8948,51 +11451,6 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
                     </p>
                   </div>
 
-                  {/* Módulos habilitados */}
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium flex items-center gap-1.5">
-                      Módulos habilitados
-                      <span className="text-muted-foreground font-normal ml-auto text-[10px]">
-                        {formModulosActivos.size}/{formRoleModulos.length}
-                      </span>
-                    </Label>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {formRoleModulos.map(mod => {
-                        const isActive = formModulosActivos.has(mod.value);
-                        return (
-                          <label
-                            key={mod.value}
-                            className={cn(
-                              "flex items-center gap-2 px-2.5 py-1.5 rounded-md border cursor-pointer select-none transition-all",
-                              isActive
-                                ? "border-primary/40 bg-primary/5 hover:bg-primary/10"
-                                : "border-border bg-muted/20 opacity-50 hover:opacity-70",
-                            )}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isActive}
-                              onChange={() => {
-                                setFormModulosActivos(prev => {
-                                  const next = new Set(prev);
-                                  if (next.has(mod.value)) next.delete(mod.value);
-                                  else next.add(mod.value);
-                                  return next;
-                                });
-                              }}
-                              className="rounded border-border text-primary focus:ring-primary h-3 w-3 shrink-0"
-                            />
-                            <span className={cn("text-[11px] font-medium flex-1 truncate", isActive ? "text-foreground" : "text-muted-foreground")}>
-                              {mod.label}
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                    {formModulosActivos.size === 0 && formRoleModulos.length > 0 && (
-                      <p className="text-[10px] text-destructive">Debes habilitar al menos un módulo.</p>
-                    )}
-                  </div>
                 </div>
 
                 {/* Sección 3: Empresa y área */}
@@ -9058,17 +11516,25 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
                     </div>
                   )}
 
-                  {/* área asignada */}
+                  {/* áreas asignadas */}
                   <div className="space-y-1.5">
-                    <Label htmlFor="usr-area" className="text-xs font-medium">Descripción del área asignada</Label>
-                    <Input
-                      id="usr-area"
-                      value={formAreaAsignada}
-                      onChange={e => setFormAreaAsignada(e.target.value)}
-                      placeholder="Ej: Área de Cosecha, Laboratorio, Campo Norte"
-                      className="h-9"
-                    />
-                    <p className="text-[10px] text-muted-foreground">Indica el departamento o sección donde trabaja el usuario</p>
+                    <Label className="text-xs font-medium">Áreas asignadas</Label>
+                    <div className="grid grid-cols-2 gap-1.5 rounded-md border border-input bg-background p-2">
+                      {AREAS_DEMO.map(area => (
+                        <label key={area.id} className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            className="rounded border-input accent-primary"
+                            checked={formAreasIds.includes(area.id)}
+                            onChange={e => setFormAreasIds(prev =>
+                              e.target.checked ? [...prev, area.id] : prev.filter(id => id !== area.id)
+                            )}
+                          />
+                          <span className="text-xs">{area.nombre}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">Departamentos o secciones donde trabaja el usuario</p>
                   </div>
 
                   {/* Estado activo */}
@@ -9140,35 +11606,17 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
                         </div>
                       )}
 
-                      {formAreaAsignada.trim() && (
+                      {formAreasIds.length > 0 && (
                         <div className="flex items-center gap-2">
                           <Briefcase className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">área</span>
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Áreas</span>
                           <span className="ml-auto text-xs font-medium truncate">
-                            {formAreaAsignada}
+                            {formAreasIds.map(id => AREAS_DEMO.find(a => a.id === id)?.nombre).filter(Boolean).join(", ")}
                           </span>
                         </div>
                       )}
                     </div>
 
-                    {/* Módulos */}
-                    {formModulosActivos.size > 0 && (
-                      <div className="px-4 pb-3 border-t pt-2.5">
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                          Módulos ({formModulosActivos.size})
-                        </p>
-                        <div className="flex flex-wrap gap-1">
-                          {Array.from(formModulosActivos).map(modKey => {
-                            const mod = formRoleModulos.find(m => m.value === modKey);
-                            return mod ? (
-                              <span key={modKey} className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-                                {mod.label}
-                              </span>
-                            ) : null;
-                          })}
-                        </div>
-                      </div>
-                    )}
                   </div>
 
                   {/* Validación visual */}
@@ -9177,7 +11625,6 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
                       { ok: formNombre.trim(), label: "Nombre completo" },
                       { ok: formEmail.trim() && formEmail.includes("@"), label: "Email válido" },
                       { ok: editingUserId || formPassword.trim().length >= 6, label: "Contraseña (mín. 6 caracteres)" },
-                      { ok: formModulosActivos.size > 0 || formRoleModulos.length === 0, label: "Al menos 1 módulo activo" },
                       { ok: formRole !== "productor" || !formProductores.length || formProductorId, label: "Productor asignado" },
                     ].map((item, i) => (
                       <div key={i} className="flex items-center gap-2">
@@ -9207,8 +11654,7 @@ function TabUsuarios({ autoOpenCreateModal }: { autoOpenCreateModal?: boolean })
                 !formEmail.trim() ||
                 (!editingUserId && !canCreateUsers) ||
                 (!editingUserId && !formPassword.trim()) ||
-                (formRole === "productor" && formProductores.length > 0 && !formProductorId) ||
-                (formModulosActivos.size === 0 && formRoleModulos.length > 0)
+                (formRole === "productor" && formProductores.length > 0 && !formProductorId)
               }
               onClick={handleSaveUser}
             >
@@ -9299,6 +11745,7 @@ const Configuracion = () => {
   const autoOpenFormCreate = actionParam === "create-form" || actionParam === "crear-formulario";
   const autoOpenUserCreate = (actionParam === "add-user" || actionParam === "create-user" || actionParam === "agregar-usuario") && role === "super_admin";
   const highlightDefId = searchParams.get("def") ?? undefined;
+  const autoOpenBiblioteca = searchParams.get("biblioteca") === "1";
   const [activeTab, setActiveTab] = useState(initialTab);
   const { hasPendingChanges: hasPending, setHasPendingChanges: setHasPending } = useConfig();
 
@@ -9384,6 +11831,7 @@ const Configuracion = () => {
             onPendingChange={setHasPending}
             highlightDefId={highlightDefId}
             autoOpenCreateModal={autoOpenFormCreate}
+            autoOpenBiblioteca={autoOpenBiblioteca}
           />
         </TabsContent>
         <TabsContent value="empresas">

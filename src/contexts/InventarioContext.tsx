@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRole, ROLE_LEVELS } from "@/contexts/RoleContext";
+import { type ConfigVentanaAjuste, CONFIG_VENTANAS_DEMO } from "@/config/moduleDefinitions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,57 +27,6 @@ export interface InvProveedor {
   updated_at:  string;
 }
 
-// ─── Orden de compra ──────────────────────────────────────────────────────────
-
-export type InvOrdenEstado = "solicitado" | "aprobado" | "recibido_parcial" | "recibido" | "cancelado";
-
-export interface InvLineaOrden {
-  id:                string;
-  producto_id:       string;
-  cantidad:          number;
-  precio_unitario:   number;
-  estado:            "aprobado" | "sin_aprobar";
-  cantidad_recibida: number;
-}
-
-export interface InvOrdenCompra {
-  id:            string;
-  numero:        string;
-  cliente_id:    string;   // empresa (agrupador en tabla)
-  proveedor_id:  string;
-  solicitado_por: string;
-  aprobado_por?:  string;
-  estado:         InvOrdenEstado;
-  fecha_pedido:   string;  // ISO date
-  lineas:         InvLineaOrden[];
-  notas?:         string;
-  created_at:     string;
-  updated_at:     string;
-}
-
-// ─── Lote ─────────────────────────────────────────────────────────────────────
-
-export interface InvLote {
-  id:                  string;
-  catalogo_id:         string;
-  numero_lote:         string;
-  fecha_fabricacion?:  string;   // ISO date, opcional
-  fecha_vencimiento:   string;   // ISO date, obligatorio
-  certificado_origen?: string;
-  proveedor_id?:       string;
-  orden_linea_id?:     string;   // línea de InvOrdenCompra que generó este lote (si vino de una recepción)
-  precio_unitario?:    number;
-  cantidad_inicial:    number;
-  cantidad_actual:     number;
-  campos_extra?:       InvCampoConValor[]; // valores de los campos personalizados del producto, capturados para ESTE lote
-  notas?:              string;
-  /** true si, al desactivarse, su cantidad fue excluida del stock total disponible
-   *  (mediante un movimiento de merma) — se usa para restituirla automáticamente al reactivar,
-   *  SIN tocar la cantidad propia del lote (que se conserva como registro). */
-  stock_descontado?:   boolean;
-  activo:              boolean;
-  created_at:          string;
-}
 
 export type InvMovimientoTipo    = "entrada" | "salida" | "ajuste";
 export type InvMovimientoSubtipo =
@@ -138,14 +88,9 @@ export interface InvMovimiento {
   modulo_origen?:    string;
   modulo_destino?:   string;
   transfer_pair_id?: string;
-  // Trazabilidad por lote
-  lote_id?:          string;
-  lote_numero?:      string;
   // Trazabilidad por ubicación de campo
   bloque_ref?:       string;   // ej: "Bloque A-1", "Nave 3", "Sector Norte" — extraído del formulario
   cultivo_id?:       string;   // FK → Cultivos — qué cultivo se estaba tratando
-  // Trazabilidad por orden de compra
-  orden_linea_id?:   string;   // línea de InvOrdenCompra que generó esta entrada (si vino de una recepción)
 }
 
 // ─── Tipo para campos personalizados por producto ─────────────────────────────
@@ -473,54 +418,44 @@ const DEMO_MOVIMIENTOS: InvMovimiento[] = [
   { id: "MOV-011", catalogo_id: "INV-003", cliente_id: "1", productor_id: "1",
     tipo: "entrada",  subtipo: "compra",           cantidad: 80,  cantidad_anterior: 0,    cantidad_nueva: 80,
     precio_unitario: 45.00, proveedor_id: "AgroquímPro S.A.",
-    lote_id: "LOT-001", lote_numero: "AZX-2024-089",
     fecha: shiftDate("2026-05-01"), usuario_id: "1", created_at: shiftDateTime("2026-05-01T08:00:00Z") },
   { id: "MOV-012", catalogo_id: "INV-003", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 8,   cantidad_anterior: 80,   cantidad_nueva: 72,
     registro_origen_tipo: "APLICACION_FITOSANITARIA", observaciones: "Aplicación bloques B1-B3",
-    lote_id: "LOT-001", lote_numero: "AZX-2024-089",
     fecha: shiftDate("2026-05-05"), usuario_id: "4", created_at: shiftDateTime("2026-05-05T07:00:00Z") },
   { id: "MOV-013", catalogo_id: "INV-003", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 3.5, cantidad_anterior: 72,   cantidad_nueva: 68.5,
     registro_origen_tipo: "APLICACION_FITOSANITARIA", observaciones: "Aplicación bloque B4",
-    lote_id: "LOT-001", lote_numero: "AZX-2024-089",
     fecha: shiftDate("2026-05-10"), usuario_id: "4", created_at: shiftDateTime("2026-05-10T07:30:00Z") },
   { id: "MOV-014", catalogo_id: "INV-003", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 2,   cantidad_anterior: 68.5, cantidad_nueva: 66.5,
     registro_origen_tipo: "APLICACION_FITOSANITARIA", observaciones: "Aplicación preventiva sector C",
-    lote_id: "LOT-001", lote_numero: "AZX-2024-089",
     fecha: shiftDate("2026-05-17"), usuario_id: "4", created_at: shiftDateTime("2026-05-17T06:45:00Z") },
   { id: "MOV-015", catalogo_id: "INV-003", cliente_id: "1", productor_id: "1",
     tipo: "ajuste",   subtipo: "conteo_fisico",     cantidad: 66.5, cantidad_anterior: 66.5, cantidad_nueva: 66.5,
     observaciones: "Conteo físico mensual — sin diferencias",
-    lote_id: "LOT-001", lote_numero: "AZX-2024-089",
     fecha: shiftDate("2026-05-22"), usuario_id: "1", created_at: shiftDateTime("2026-05-22T16:00:00Z") },
 
   // INV-004 Fertilizante NPK
   { id: "MOV-016", catalogo_id: "INV-004", cliente_id: "1", productor_id: "1",
     tipo: "entrada",  subtipo: "compra",           cantidad: 100, cantidad_anterior: 0,   cantidad_nueva: 100,
     precio_unitario: 1.20, proveedor_id: "NutriAgro Chile",
-    lote_id: "LOT-003", lote_numero: "NPK-2025-003",
     fecha: shiftDate("2026-05-01"), usuario_id: "1", created_at: shiftDateTime("2026-05-01T08:30:00Z") },
   { id: "MOV-017", catalogo_id: "INV-004", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 20,  cantidad_anterior: 100, cantidad_nueva: 80,
     registro_origen_tipo: "APLICACION_FITOSANITARIA",
-    lote_id: "LOT-003", lote_numero: "NPK-2025-003",
     fecha: shiftDate("2026-05-06"), usuario_id: "4", created_at: shiftDateTime("2026-05-06T08:00:00Z") },
   { id: "MOV-018", catalogo_id: "INV-004", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 15,  cantidad_anterior: 80,  cantidad_nueva: 65,
     registro_origen_tipo: "APLICACION_FITOSANITARIA",
-    lote_id: "LOT-003", lote_numero: "NPK-2025-003",
     fecha: shiftDate("2026-05-11"), usuario_id: "4", created_at: shiftDateTime("2026-05-11T07:30:00Z") },
   { id: "MOV-019", catalogo_id: "INV-004", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 10,  cantidad_anterior: 65,  cantidad_nueva: 55,
     registro_origen_tipo: "APLICACION_FITOSANITARIA",
-    lote_id: "LOT-003", lote_numero: "NPK-2025-003",
     fecha: shiftDate("2026-05-16"), usuario_id: "4", created_at: shiftDateTime("2026-05-16T07:00:00Z") },
   { id: "MOV-020", catalogo_id: "INV-004", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "aplicacion_campo",  cantidad: 10,  cantidad_anterior: 55,  cantidad_nueva: 45,
     registro_origen_tipo: "APLICACION_FITOSANITARIA",
-    lote_id: "LOT-003", lote_numero: "NPK-2025-003",
     fecha: shiftDate("2026-05-21"), usuario_id: "4", created_at: shiftDateTime("2026-05-21T07:15:00Z") },
 
   // INV-005 Sustrato (productor 2)
@@ -549,78 +484,25 @@ const DEMO_MOVIMIENTOS: InvMovimiento[] = [
   { id: "MOV-026", catalogo_id: "INV-006", cliente_id: "1", productor_id: "1",
     tipo: "entrada",  subtipo: "compra",         cantidad: 20, cantidad_anterior: 0,  cantidad_nueva: 20,
     precio_unitario: 89.00, proveedor_id: "BioScience Ltda.",
-    lote_id: "LOT-004", lote_numero: "MS-2024-041",
     fecha: shiftDate("2026-04-25"), usuario_id: "1", created_at: shiftDateTime("2026-04-25T09:00:00Z") },
   { id: "MOV-027", catalogo_id: "INV-006", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "uso_produccion", cantidad: 4,  cantidad_anterior: 20, cantidad_nueva: 16,
     observaciones: "Cultivo in vitro batch 1",
-    lote_id: "LOT-004", lote_numero: "MS-2024-041",
     fecha: shiftDate("2026-05-05"), usuario_id: "3", created_at: shiftDateTime("2026-05-05T10:00:00Z") },
   { id: "MOV-028", catalogo_id: "INV-006", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "uso_produccion", cantidad: 2,  cantidad_anterior: 16, cantidad_nueva: 14,
     observaciones: "Micropropagación fresas",
-    lote_id: "LOT-004", lote_numero: "MS-2024-041",
     fecha: shiftDate("2026-05-10"), usuario_id: "3", created_at: shiftDateTime("2026-05-10T10:30:00Z") },
   { id: "MOV-029", catalogo_id: "INV-006", cliente_id: "1", productor_id: "1",
     tipo: "salida",   subtipo: "uso_produccion", cantidad: 2,  cantidad_anterior: 14, cantidad_nueva: 12,
     observaciones: "Cultivo in vitro batch 2",
-    lote_id: "LOT-004", lote_numero: "MS-2024-041",
     fecha: shiftDate("2026-05-15"), usuario_id: "3", created_at: shiftDateTime("2026-05-15T11:00:00Z") },
   { id: "MOV-030", catalogo_id: "INV-006", cliente_id: "1", productor_id: "1",
     tipo: "ajuste",   subtipo: "conteo_fisico", cantidad: 12,  cantidad_anterior: 12, cantidad_nueva: 12,
     observaciones: "Verificación refrigerador — OK",
-    lote_id: "LOT-004", lote_numero: "MS-2024-041",
     fecha: shiftDate("2026-05-22"), usuario_id: "1", created_at: shiftDateTime("2026-05-22T16:30:00Z") },
 ];
 
-// ─── Datos demo — Lotes ───────────────────────────────────────────────────────
-
-const DEMO_LOTES: InvLote[] = [
-  // INV-003 Azoxystrobin — 2 lotes (FEFO: el primero vence antes)
-  {
-    id: "LOT-001", catalogo_id: "INV-003",
-    numero_lote: "AZX-2024-089",
-    fecha_fabricacion: "2024-03-01",
-    fecha_vencimiento: "2026-09-01",
-    certificado_origen: "SAG-CL-2024-089",
-    proveedor_id: "Agroquímica del Sur",
-    precio_unitario: 45.50,
-    cantidad_inicial: 40, cantidad_actual: 36.2,
-    activo: true, created_at: "2024-04-30T08:00:00Z",
-  },
-  {
-    id: "LOT-002", catalogo_id: "INV-003",
-    numero_lote: "AZX-2025-012",
-    fecha_vencimiento: "2027-03-15",
-    precio_unitario: 47.00,
-    cantidad_inicial: 30, cantidad_actual: 30,
-    activo: true, created_at: "2025-01-15T08:00:00Z",
-  },
-  // INV-004 Fertilizante NPK — 1 lote
-  {
-    id: "LOT-003", catalogo_id: "INV-004",
-    numero_lote: "NPK-2025-003",
-    fecha_vencimiento: "2028-06-30",
-    certificado_origen: "ANMAT-2025-FER-003",
-    proveedor_id: "NutriAg SpA",
-    precio_unitario: 3.20,
-    cantidad_inicial: 60, cantidad_actual: 49,
-    activo: true, created_at: "2025-02-10T08:00:00Z",
-  },
-  // INV-006 Medio MS estéril — lote próximo a vencer (demo alertas)
-  {
-    id: "LOT-004", catalogo_id: "INV-006",
-    numero_lote: "MS-2024-041",
-    fecha_fabricacion: "2024-06-01",
-    fecha_vencimiento: "2026-06-10",
-    certificado_origen: "BioScience-2024-041",
-    proveedor_id: "BioScience Ltda.",
-    precio_unitario: 89.00,
-    cantidad_inicial: 20, cantidad_actual: 9,
-    notas: "Conservar entre 2°C y 8°C",
-    activo: true, created_at: "2024-06-15T08:00:00Z",
-  },
-];
 
 const DEMO_FORMULARIO_MAPAS: InvFormularioMapa[] = [
   {
@@ -657,37 +539,18 @@ const DEMO_FORMULARIO_MAPAS: InvFormularioMapa[] = [
 
 // ─── Context interface ────────────────────────────────────────────────────────
 
-/** Datos de lote opcionales para una línea de orden al momento de recibirla */
-export interface DatosLoteRecepcion {
-  numero_lote:         string;
-  fecha_vencimiento:   string;
-  fecha_fabricacion?:  string;
-  certificado_origen?: string;
-}
-
-/** Qué y cuánto se recibe de una línea — permite recepción parcial */
-export interface DatosRecepcionLinea {
-  /** Cantidad recibida en esta operación. Si se omite, se recibe todo el saldo pendiente. */
-  cantidad?: number;
-  lote?:     DatosLoteRecepcion;
-}
-
 export interface RegistrarMovimientoOpciones {
   precio_unitario?:      number;
   proveedor_id?:         string;
   observaciones?:        string;
   registro_origen_tipo?: string;
-  lote_id?:              string;
-  lote_numero?:          string;
   bloque_ref?:           string;   // ubicación en el mapa del campo (extraído del formulario)
   cultivo_id?:           string;   // cultivo al que pertenece el registro origen
-  orden_linea_id?:       string;   // línea de orden de compra que originó esta entrada (trazabilidad)
 }
 
 interface InventarioContextValue {
   catalogos: InvCatalogo[];
   movimientos: InvMovimiento[];
-  lotes: InvLote[];
   formularioMapas: InvFormularioMapa[];
   agregarProducto:    (p: Omit<InvCatalogo, "id" | "created_at" | "updated_at">) => void;
   editarProducto:     (id: string, cambios: Partial<Omit<InvCatalogo, "id" | "created_at">>) => void;
@@ -705,28 +568,10 @@ interface InventarioContextValue {
   editarRegla:    (id: string, cambios: Partial<Omit<InvFormularioMapa, "id">>) => void;
   toggleRegla:    (id: string) => void;
   eliminarRegla:  (id: string) => void;
-  // Lotes CRUD
-  agregarLote:    (lote: Omit<InvLote, "id" | "created_at">) => InvLote;
-  editarLote:     (id: string, cambios: Partial<Omit<InvLote, "id" | "created_at">>) => void;
-  getLotesByProducto: (catalogoId: string) => InvLote[];
-  /** Devuelve lotes activos de un producto ordenados por FEFO (vencimiento más próximo primero) */
-  getLotesFEFO:       (catalogoId: string) => InvLote[];
   proveedores:             InvProveedor[];
   agregarProveedor:        (p: Omit<InvProveedor, "id" | "created_at" | "updated_at">) => void;
   editarProveedor:         (id: string, cambios: Partial<Omit<InvProveedor, "id" | "created_at">>) => void;
   eliminarProveedor:       (id: string) => void;
-  ordenes:                 InvOrdenCompra[];
-  crearOrden:              (o: Omit<InvOrdenCompra, "id" | "created_at" | "updated_at">) => InvOrdenCompra;
-  editarOrden:             (id: string, cambios: Partial<Omit<InvOrdenCompra, "id" | "created_at">>) => void;
-  eliminarOrden:           (id: string) => void;
-  aprobarOrden:            (id: string, aprobadoPor: string) => void;
-  aprobarLinea:            (ordenId: string, lineaId: string, aprobadoPor: string) => void;
-  rechazarLinea:           (ordenId: string, lineaId: string) => void;
-  recibirOrden:            (id: string, datosPorLinea?: Record<string, DatosRecepcionLinea>) => void;
-  /** Revierte la recepción más reciente de una línea (crea un movimiento de devolución inverso).
-   *  Devuelve false si no hay nada que revertir o si el stock ya se usó (no se puede dejar en negativo). */
-  revertirUltimaRecepcionLinea: (ordenId: string, lineaId: string) => boolean;
-  cancelarOrden:           (id: string) => void;
   getProductosByModulo:    (moduloId: string) => InvCatalogo[];
   getAllProductos:          () => InvCatalogo[];
   getMovimientosByProducto:(catalogoId: string) => InvMovimiento[];
@@ -734,6 +579,13 @@ interface InventarioContextValue {
   getStockCritico:         () => InvCatalogo[];
   getAlertasVencimiento:   () => AlertaVencimiento[];
   simularTrigger:          (tablaNombre: string, datos: Record<string, unknown>, contexto?: { cultivo_id?: string }) => void;
+  // Ventanas de ajuste de stock
+  configVentanas:       ConfigVentanaAjuste[];
+  crearConfigVentana:   (v: Omit<ConfigVentanaAjuste, "id" | "created_at" | "updated_at">) => void;
+  editarConfigVentana:  (id: string, cambios: Partial<Omit<ConfigVentanaAjuste, "id" | "created_at">>) => void;
+  eliminarConfigVentana:(id: string) => void;
+  toggleConfigVentana:  (id: string) => void;
+  isVentanaActivaHoy:   (clienteId: number, productorId?: number) => boolean;
   /** Preview de qué se revertiría al borrar un registro */
   previewReversion:        (tablaNombre: string, datos: Record<string, unknown>) => Array<{ nombre: string; cantidad: number; tipoOriginal: InvMovimientoTipo }>;
   /** Crea movimientos inversos al borrar un registro */
@@ -792,17 +644,6 @@ export function extractBloqueRef(datos: Record<string, unknown>): string | undef
   return undefined;
 }
 
-// Determina el estado de una orden a partir de sus líneas. Solo las líneas
-// aprobadas cuentan para decidir si la orden está "recibido"/"recibido_parcial" —
-// una línea sin aprobar no bloquea el resto de la orden.
-function calcularEstadoOrden(lineas: InvLineaOrden[]): InvOrdenEstado {
-  const aprobadas = lineas.filter(l => l.estado === "aprobado");
-  const algoRecibido = lineas.some(l => l.cantidad_recibida > 0);
-  if (aprobadas.length === 0) return algoRecibido ? "recibido_parcial" : "solicitado";
-  const completa = aprobadas.every(l => l.cantidad_recibida >= l.cantidad);
-  if (completa) return "recibido";
-  return algoRecibido ? "recibido_parcial" : "aprobado";
-}
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -812,7 +653,6 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
   const [catalogos,       setCatalogos]       = useState<InvCatalogo[]>(DEMO_CATALOGOS);
   const [movimientos,     setMovimientos]     = useState<InvMovimiento[]>(DEMO_MOVIMIENTOS);
   const [formularioMapas, setFormularioMapas] = useState<InvFormularioMapa[]>(DEMO_FORMULARIO_MAPAS);
-  const [lotes,           setLotes]           = useState<InvLote[]>(DEMO_LOTES);
 
   const DEMO_PROVEEDORES: InvProveedor[] = [
     { id: "prov-1", nombre: "AgroquímPro S.A.",  ruc: "20100123456", autorizado: true,  modulo_ids: ["laboratorio", "cultivo"],      created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
@@ -839,102 +679,6 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     setProveedores(prev => prev.filter(p => p.id !== id));
   }, []);
 
-  // ── Órdenes de compra ──────────────────────────────────────────────────────
-  const DEMO_ORDENES: InvOrdenCompra[] = [
-    {
-      id: "ord-1", numero: "Agrosa_1", cliente_id: "cli-agrotati", proveedor_id: "prov-1",
-      solicitado_por: "Genesis Rubira", estado: "solicitado", fecha_pedido: "2026-06-12",
-      lineas: [
-        { id: "lin-1", producto_id: "INV-001", cantidad: 10, precio_unitario: 2,   estado: "aprobado",    cantidad_recibida: 0 },
-        { id: "lin-2", producto_id: "INV-002", cantidad: 5,  precio_unitario: 15,  estado: "sin_aprobar", cantidad_recibida: 0 },
-      ],
-      created_at: "2026-04-01T10:00:00Z", updated_at: "2026-04-01T10:00:00Z",
-    },
-    {
-      id: "ord-2", numero: "IX3INTERNATIONAL_1", cliente_id: "cli-agrotati", proveedor_id: "prov-2",
-      solicitado_por: "Genesis Rubira", estado: "solicitado", fecha_pedido: "2026-06-12",
-      lineas: [
-        { id: "lin-3", producto_id: "INV-003", cantidad: 20, precio_unitario: 5,   estado: "sin_aprobar", cantidad_recibida: 0 },
-      ],
-      created_at: "2026-04-01T11:00:00Z", updated_at: "2026-04-01T11:00:00Z",
-    },
-    {
-      id: "ord-3", numero: "IX3INTERNATIONAL_1", cliente_id: "cli-ecuablue", proveedor_id: "prov-2",
-      solicitado_por: "Genesis Rubira", estado: "solicitado", fecha_pedido: "2026-06-12",
-      lineas: [
-        { id: "lin-4", producto_id: "INV-001", cantidad: 8, precio_unitario: 2,   estado: "sin_aprobar", cantidad_recibida: 0 },
-      ],
-      created_at: "2026-04-01T12:00:00Z", updated_at: "2026-04-01T12:00:00Z",
-    },
-    {
-      id: "ord-4", numero: "Agrosa_1", cliente_id: "cli-sierrablue", proveedor_id: "prov-1",
-      solicitado_por: "Genesis Rubira", estado: "solicitado", fecha_pedido: "2026-06-12",
-      lineas: [
-        { id: "lin-5", producto_id: "INV-002", cantidad: 3, precio_unitario: 15, estado: "aprobado", cantidad_recibida: 0 },
-      ],
-      created_at: "2026-04-01T13:00:00Z", updated_at: "2026-04-01T13:00:00Z",
-    },
-  ];
-
-  const [ordenes, setOrdenes] = useState<InvOrdenCompra[]>(DEMO_ORDENES);
-
-  const crearOrden = useCallback((o: Omit<InvOrdenCompra, "id" | "created_at" | "updated_at">): InvOrdenCompra => {
-    const now = new Date().toISOString();
-    const nueva: InvOrdenCompra = { ...o, id: `ord-${Date.now()}`, created_at: now, updated_at: now };
-    setOrdenes(prev => [...prev, nueva]);
-    return nueva;
-  }, []);
-
-  const editarOrden = useCallback((id: string, cambios: Partial<Omit<InvOrdenCompra, "id" | "created_at">>) => {
-    setOrdenes(prev => prev.map(o => o.id === id ? { ...o, ...cambios, updated_at: new Date().toISOString() } : o));
-  }, []);
-
-  const eliminarOrden = useCallback((id: string) => {
-    setOrdenes(prev => prev.filter(o => o.id !== id));
-  }, []);
-
-  const aprobarOrden = useCallback((id: string, aprobadoPor: string) => {
-    setOrdenes(prev => prev.map(o => o.id === id
-      ? {
-          ...o,
-          estado: "aprobado",
-          aprobado_por: aprobadoPor,
-          lineas: o.lineas.map(l => ({ ...l, estado: "aprobado" as const })),
-          updated_at: new Date().toISOString(),
-        }
-      : o));
-  }, []);
-
-  const cancelarOrden = useCallback((id: string) => {
-    setOrdenes(prev => prev.map(o => o.id === id
-      ? { ...o, estado: "cancelado", updated_at: new Date().toISOString() }
-      : o));
-  }, []);
-
-  // Aprobación/rechazo por línea — permite aprobar solo algunos productos de la
-  // orden en vez de todo o nada. El estado de la orden se recalcula a partir de
-  // sus líneas (calcularEstadoOrden); una orden cancelada no se toca.
-  const setLineaEstado = useCallback((ordenId: string, lineaId: string, nuevoEstado: "aprobado" | "sin_aprobar", aprobadoPor?: string) => {
-    setOrdenes(prev => prev.map(o => {
-      if (o.id !== ordenId || o.estado === "cancelado") return o;
-      const lineas = o.lineas.map(l => l.id === lineaId ? { ...l, estado: nuevoEstado } : l);
-      return {
-        ...o,
-        estado: calcularEstadoOrden(lineas),
-        aprobado_por: nuevoEstado === "aprobado" ? (aprobadoPor ?? o.aprobado_por) : o.aprobado_por,
-        lineas,
-        updated_at: new Date().toISOString(),
-      };
-    }));
-  }, []);
-
-  const aprobarLinea = useCallback((ordenId: string, lineaId: string, aprobadoPor: string) => {
-    setLineaEstado(ordenId, lineaId, "aprobado", aprobadoPor);
-  }, [setLineaEstado]);
-
-  const rechazarLinea = useCallback((ordenId: string, lineaId: string) => {
-    setLineaEstado(ordenId, lineaId, "sin_aprobar");
-  }, [setLineaEstado]);
 
   // ── Scope ──────────────────────────────────────────────────────────────────
   const clienteIdStr   = currentUser?.clienteId   ? String(currentUser.clienteId)   : null;
@@ -970,27 +714,6 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     editarProducto(id, { activo: !p.activo });
   }, [editarProducto, catalogos]);
 
-  // ── Lotes CRUD + FEFO ─────────────────────────────────────────────────────
-  const agregarLote = useCallback((lote: Omit<InvLote, "id" | "created_at">): InvLote => {
-    const now   = new Date().toISOString();
-    const nuevo = { ...lote, id: `LOT-${Date.now()}`, created_at: now };
-    setLotes(prev => [...prev, nuevo]);
-    return nuevo;
-  }, []);
-
-  const editarLote = useCallback((id: string, cambios: Partial<Omit<InvLote, "id" | "created_at">>) => {
-    setLotes(prev => prev.map(l => l.id === id ? { ...l, ...cambios } : l));
-  }, []);
-
-  const getLotesByProducto = useCallback((catalogoId: string): InvLote[] =>
-    lotes.filter(l => l.catalogo_id === catalogoId),
-  [lotes]);
-
-  const getLotesFEFO = useCallback((catalogoId: string): InvLote[] =>
-    lotes
-      .filter(l => l.catalogo_id === catalogoId && l.activo && l.cantidad_actual > 0)
-      .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento)),
-  [lotes]);
 
   const registrarMovimiento = useCallback((
     catalogoId: string,
@@ -1030,24 +753,12 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
       proveedor_id:       opciones.proveedor_id,
       observaciones:      opciones.observaciones,
       registro_origen_tipo: opciones.registro_origen_tipo,
-      lote_id:            opciones.lote_id,
-      lote_numero:        opciones.lote_numero,
       bloque_ref:         opciones.bloque_ref,
       cultivo_id:         opciones.cultivo_id,
-      orden_linea_id:     opciones.orden_linea_id,
       fecha:      now.substring(0, 10),
       usuario_id: currentUser ? String(currentUser.id) : "1",
       created_at: now,
     };
-
-    // Actualizar cantidad del lote si se especificó
-    if (opciones.lote_id) {
-      setLotes(prev => prev.map(l => {
-        if (l.id !== opciones.lote_id) return l;
-        const delta = tipo === "entrada" ? cantidad : tipo === "salida" ? -cantidad : (nueva - anterior);
-        return { ...l, cantidad_actual: Math.max(0, l.cantidad_actual + delta) };
-      }));
-    }
 
     setMovimientos(prev => [...prev, mov]);
     setCatalogos(prev => prev.map(p => {
@@ -1065,111 +776,6 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     return true;
   }, [catalogos, currentUser]);
 
-  // Recepción de una orden de compra: por cada línea, registra el movimiento de
-  // entrada (que ya actualiza catálogo y PPP) por la cantidad indicada — puede ser
-  // menor a lo pendiente (recepción parcial) — y deja la trazabilidad orden_linea_id
-  // en ese movimiento. Si se pasa datosPorLinea[lineaId].lote, además crea el lote
-  // correspondiente antes del movimiento. La orden queda en "recibido" solo cuando
-  // todas las líneas completaron su cantidad; si falta algo, queda "recibido_parcial"
-  // y puede volver a llamarse para completar el saldo.
-  const recibirOrden = useCallback((id: string, datosPorLinea?: Record<string, DatosRecepcionLinea>) => {
-    const orden = ordenes.find(o => o.id === id);
-    if (!orden) return;
-
-    const nuevaCantidadRecibida: Record<string, number> = {};
-
-    orden.lineas.forEach(l => {
-      // Las líneas sin aprobar no se reciben — quedan fuera del ciclo de esta orden
-      // hasta que alguien las apruebe explícitamente.
-      if (l.estado !== "aprobado") return;
-      const pendiente = l.cantidad - l.cantidad_recibida;
-      const solicitado = datosPorLinea?.[l.id]?.cantidad;
-      const aRecibir = Math.max(0, Math.min(solicitado ?? pendiente, pendiente));
-      nuevaCantidadRecibida[l.id] = l.cantidad_recibida + aRecibir;
-      if (aRecibir <= 0) return;
-
-      let loteId: string | undefined;
-      let loteNumero: string | undefined;
-      const datosLote = datosPorLinea?.[l.id]?.lote;
-      if (datosLote?.numero_lote && datosLote.fecha_vencimiento) {
-        const nuevoLote = agregarLote({
-          catalogo_id:        l.producto_id,
-          proveedor_id:       orden.proveedor_id,
-          orden_linea_id:     l.id,
-          numero_lote:        datosLote.numero_lote,
-          fecha_vencimiento:  datosLote.fecha_vencimiento,
-          fecha_fabricacion:  datosLote.fecha_fabricacion,
-          certificado_origen: datosLote.certificado_origen,
-          precio_unitario:    l.precio_unitario,
-          cantidad_inicial:   aRecibir,
-          // Se crea en 0: registrarMovimiento() — más abajo, con lote_id — suma la
-          // cantidad real vía el delta de la entrada (mismo patrón que ModalMovimiento).
-          cantidad_actual:    0,
-          activo:             true,
-        });
-        loteId     = nuevoLote.id;
-        loteNumero = nuevoLote.numero_lote;
-      }
-
-      registrarMovimiento(l.producto_id, "entrada", "compra", aRecibir, {
-        precio_unitario:      l.precio_unitario,
-        // Si hay lote, el proveedor real vive en inventario_lotes.proveedor_id —
-        // no lo repetimos aquí para no dejar el mismo dato escrito dos veces.
-        proveedor_id:         loteId ? undefined : orden.proveedor_id,
-        registro_origen_tipo: "ORDEN_COMPRA",
-        orden_linea_id:       l.id,
-        lote_id:              loteId,
-        lote_numero:          loteNumero,
-      });
-    });
-
-    setOrdenes(prev => prev.map(o => {
-      if (o.id !== id) return o;
-      const lineas = o.lineas.map(l => ({ ...l, cantidad_recibida: nuevaCantidadRecibida[l.id] ?? l.cantidad_recibida }));
-      return {
-        ...o,
-        estado: calcularEstadoOrden(lineas),
-        lineas,
-        updated_at: new Date().toISOString(),
-      };
-    }));
-  }, [ordenes, registrarMovimiento, agregarLote]);
-
-  // Deshacer una recepción: ubica el movimiento de entrada/compra más reciente de
-  // esa línea y registra su inverso (salida/devolución) por la misma cantidad y
-  // mismo lote. No borra el movimiento original — se preserva el historial — y
-  // falla (sin tocar nada) si ya no queda stock suficiente para revertir, es decir
-  // si parte de lo recibido ya se consumió en otro movimiento posterior.
-  const revertirUltimaRecepcionLinea = useCallback((ordenId: string, lineaId: string): boolean => {
-    const orden = ordenes.find(o => o.id === ordenId);
-    const linea = orden?.lineas.find(l => l.id === lineaId);
-    if (!orden || !linea) return false;
-
-    const ultimoMov = [...movimientos]
-      .filter(m => m.orden_linea_id === lineaId && m.tipo === "entrada" && m.subtipo === "compra")
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
-    if (!ultimoMov) return false;
-
-    const ok = registrarMovimiento(ultimoMov.catalogo_id, "salida", "devolucion", ultimoMov.cantidad, {
-      lote_id:              ultimoMov.lote_id,
-      lote_numero:          ultimoMov.lote_numero,
-      // Mismo criterio que al recibir: si hay lote, el proveedor vive ahí.
-      proveedor_id:         ultimoMov.lote_id ? undefined : orden.proveedor_id,
-      registro_origen_tipo: "ORDEN_COMPRA_REVERSION",
-      orden_linea_id:       lineaId,
-      observaciones:        `Reversión de recepción — orden ${orden.numero}`,
-    });
-    if (!ok) return false;
-
-    setOrdenes(prev => prev.map(o => {
-      if (o.id !== ordenId) return o;
-      const lineas = o.lineas.map(l => l.id === lineaId
-        ? { ...l, cantidad_recibida: Math.max(0, l.cantidad_recibida - ultimoMov.cantidad) }
-        : l);
-      return { ...o, estado: calcularEstadoOrden(lineas), lineas, updated_at: new Date().toISOString() };
-    }));
-    return true;
-  }, [ordenes, movimientos, registrarMovimiento]);
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const getProductosByModulo = useCallback((moduloId: string) =>
@@ -1364,18 +970,13 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
       } catch { /* not a table */ }
 
       if (tablaRows) {
-        // TablaInsumos: un movimiento por cada fila; aplica FEFO por lote
+        // TablaInsumos: un movimiento por cada fila
         for (const row of tablaRows) {
           const rowCant = Number(row.cantidad);
           if (!row.catalogo_id || isNaN(rowCant) || rowCant <= 0) continue;
-          const loteFefo = lotes
-            .filter(l => l.catalogo_id === row.catalogo_id && l.activo && l.cantidad_actual > 0)
-            .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento))[0];
           registrarMovimiento(row.catalogo_id, mapa.tipo_movimiento, mapa.subtipo, rowCant, {
             registro_origen_tipo: tablaNombre,
             observaciones:        `Automático desde ${tablaNombre}`,
-            lote_id:              loteFefo?.id,
-            lote_numero:          loteFefo?.numero_lote,
             bloque_ref:           bloqueRef,
             cultivo_id:           cultivoId,
           });
@@ -1397,19 +998,14 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
       }
 
       if (isNaN(cant) || cant <= 0) continue;
-      const loteFefoSimple = lotes
-        .filter(l => l.catalogo_id === cid && l.activo && l.cantidad_actual > 0)
-        .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento))[0];
       registrarMovimiento(cid, mapa.tipo_movimiento, mapa.subtipo, cant, {
         registro_origen_tipo: tablaNombre,
         observaciones:        `Automático desde ${tablaNombre}`,
-        lote_id:              loteFefoSimple?.id,
-        lote_numero:          loteFefoSimple?.numero_lote,
         bloque_ref:           bloqueRef,
         cultivo_id:           cultivoId,
       });
     }
-  }, [formularioMapas, registrarMovimiento, lotes, role, clienteIdStr]);
+  }, [formularioMapas, registrarMovimiento, role, clienteIdStr]);
 
   // ── Ajuste delta para edición de TablaInsumos ────────────────────────────
   const ajustarMovimientosTablaInsumos = useCallback((
@@ -1448,10 +1044,6 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
 
         if (Math.abs(delta) < 0.0001) continue; // sin cambio
 
-        const loteFefo = lotes
-          .filter(l => l.catalogo_id === catalogoId && l.activo && l.cantidad_actual > 0)
-          .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento))[0];
-
         const sign = delta > 0 ? `+${delta}` : String(delta);
         const obs  = `Corrección por edición (${sign} ${catalogos.find(c => c.id === catalogoId)?.unidad_medida ?? ""})`;
 
@@ -1460,8 +1052,6 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
           registrarMovimiento(catalogoId, mapa.tipo_movimiento, mapa.subtipo, delta, {
             registro_origen_tipo: tablaNombre,
             observaciones:        obs,
-            lote_id:              loteFefo?.id,
-            lote_numero:          loteFefo?.numero_lote,
             bloque_ref:           bloqueRef,
             cultivo_id:           cultivoId,
           });
@@ -1470,15 +1060,13 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
           registrarMovimiento(catalogoId, invertir(mapa.tipo_movimiento), "devolucion", Math.abs(delta), {
             registro_origen_tipo: tablaNombre,
             observaciones:        obs,
-            lote_id:              loteFefo?.id,
-            lote_numero:          loteFefo?.numero_lote,
             bloque_ref:           bloqueRef,
             cultivo_id:           cultivoId,
           });
         }
       }
     }
-  }, [formularioMapas, registrarMovimiento, lotes, catalogos, role, clienteIdStr]);
+  }, [formularioMapas, registrarMovimiento, catalogos, role, clienteIdStr]);
 
   // ── Ajuste delta para reglas de producto fijo (sin TablaInsumos) ─────────
   const ajustarMovimientosProductoFijo = useCallback((
@@ -1517,10 +1105,6 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
       if (Math.abs(delta) < 0.0001) continue; // sin cambio real
 
       const cid = mapa.catalogo_id;
-      const loteFefo = lotes
-        .filter(l => l.catalogo_id === cid && l.activo && l.cantidad_actual > 0)
-        .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento))[0];
-
       const unidad = catalogos.find(c => c.id === cid)?.unidad_medida ?? "";
       const sign   = delta > 0 ? `+${delta}` : String(delta);
       const obs    = `Corrección por edición (${sign} ${unidad})`;
@@ -1530,8 +1114,6 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
         registrarMovimiento(cid, mapa.tipo_movimiento, mapa.subtipo, delta, {
           registro_origen_tipo: tablaNombre,
           observaciones:        obs,
-          lote_id:              loteFefo?.id,
-          lote_numero:          loteFefo?.numero_lote,
           bloque_ref:           bloqueRef,
           cultivo_id:           cultivoId,
         });
@@ -1540,14 +1122,12 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
         registrarMovimiento(cid, invertir(mapa.tipo_movimiento), "devolucion", Math.abs(delta), {
           registro_origen_tipo: tablaNombre,
           observaciones:        obs,
-          lote_id:              loteFefo?.id,
-          lote_numero:          loteFefo?.numero_lote,
           bloque_ref:           bloqueRef,
           cultivo_id:           cultivoId,
         });
       }
     }
-  }, [formularioMapas, evaluarFormulaCantidad, registrarMovimiento, lotes, catalogos, role, clienteIdStr]);
+  }, [formularioMapas, evaluarFormulaCantidad, registrarMovimiento, catalogos, role, clienteIdStr]);
 
   // ── Transferencia entre áreas ─────────────────────────────────────────────
   const realizarTransferencia = useCallback((
@@ -1625,26 +1205,62 @@ export function InventarioProvider({ children }: { children: ReactNode }) {
     return true;
   }, [catalogos]);
 
+  // ── Configuración de ventanas de ajuste de stock (reglas recurrentes) ────────
+  const [configVentanas, setConfigVentanas] = useState<ConfigVentanaAjuste[]>(CONFIG_VENTANAS_DEMO);
+
+  const crearConfigVentana = useCallback((v: Omit<ConfigVentanaAjuste, "id" | "created_at" | "updated_at">) => {
+    const now = new Date().toISOString();
+    setConfigVentanas(prev => [...prev, { ...v, id: `cv-${Date.now()}`, created_at: now, updated_at: now }]);
+  }, []);
+
+  const editarConfigVentana = useCallback((id: string, cambios: Partial<Omit<ConfigVentanaAjuste, "id" | "created_at">>) => {
+    setConfigVentanas(prev => prev.map(v => v.id === id ? { ...v, ...cambios, updated_at: new Date().toISOString() } : v));
+  }, []);
+
+  const eliminarConfigVentana = useCallback((id: string) => {
+    setConfigVentanas(prev => prev.filter(v => v.id !== id));
+  }, []);
+
+  const toggleConfigVentana = useCallback((id: string) => {
+    setConfigVentanas(prev => prev.map(v => v.id === id ? { ...v, activa: !v.activa, updated_at: new Date().toISOString() } : v));
+  }, []);
+
+  const isVentanaActivaHoy = useCallback((clienteId: number, productorId?: number): boolean => {
+    const cfg = configVentanas.find(v =>
+      v.activa &&
+      v.cliente_id === clienteId &&
+      (v.productor_id === undefined || v.productor_id === productorId)
+    );
+    if (!cfg) return false;
+    const today = new Date();
+    const y = today.getFullYear(), m = today.getMonth();
+    const lastDay = new Date(y, m + 1, 0).getDate();
+    const day = today.getDate();
+    const openDay = lastDay - cfg.dias_apertura;
+    let closeY = y, closeM = m, closeD: number;
+    if (cfg.dias_cierre === -1) { closeD = 1; closeM += 1; if (closeM > 11) { closeM = 0; closeY++; } }
+    else { closeD = lastDay - cfg.dias_cierre; }
+    return day >= openDay && new Date(y, m, day) <= new Date(closeY, closeM, closeD);
+  }, [configVentanas]);
+
   const value = useMemo<InventarioContextValue>(() => ({
-    catalogos, movimientos, formularioMapas, lotes,
+    catalogos, movimientos, formularioMapas,
     proveedores, agregarProveedor, editarProveedor, eliminarProveedor,
-    ordenes, crearOrden, editarOrden, eliminarOrden, aprobarOrden, aprobarLinea, rechazarLinea, recibirOrden, revertirUltimaRecepcionLinea, cancelarOrden,
     agregarProducto, editarProducto, desactivarProducto, registrarMovimiento,
     agregarRegla, editarRegla, toggleRegla, eliminarRegla,
-    agregarLote, editarLote, getLotesByProducto, getLotesFEFO,
     getProductosByModulo, getAllProductos, getMovimientosByProducto,
     getAlertas, getStockCritico, getAlertasVencimiento, simularTrigger,
     previewReversion, revertirMovimientos, ajustarMovimientosTablaInsumos, ajustarMovimientosProductoFijo, realizarTransferencia,
+    configVentanas, crearConfigVentana, editarConfigVentana, eliminarConfigVentana, toggleConfigVentana, isVentanaActivaHoy,
   }), [
-    catalogos, movimientos, formularioMapas, lotes,
+    catalogos, movimientos, formularioMapas,
     proveedores, agregarProveedor, editarProveedor, eliminarProveedor,
-    ordenes, crearOrden, editarOrden, eliminarOrden, aprobarOrden, aprobarLinea, rechazarLinea, recibirOrden, revertirUltimaRecepcionLinea, cancelarOrden,
     agregarProducto, editarProducto, desactivarProducto, registrarMovimiento,
     agregarRegla, editarRegla, toggleRegla, eliminarRegla,
-    agregarLote, editarLote, getLotesByProducto, getLotesFEFO,
     getProductosByModulo, getAllProductos, getMovimientosByProducto,
     getAlertas, getStockCritico, getAlertasVencimiento, simularTrigger,
     previewReversion, revertirMovimientos, ajustarMovimientosTablaInsumos, ajustarMovimientosProductoFijo, realizarTransferencia,
+    configVentanas, crearConfigVentana, editarConfigVentana, eliminarConfigVentana, toggleConfigVentana, isVentanaActivaHoy,
   ]);
 
   return <InventarioContext.Provider value={value}>{children}</InventarioContext.Provider>;

@@ -37,7 +37,7 @@ export interface HardcodedUser {
   modulo?: string;
   clienteId?: number;
   productorId?: number;
-  area_asignada?: string;
+  areas_ids?: number[];         // IDs de áreas asignadas (ref: areas.id)
   /** For supervisor: which specific form definition IDs they can access */
   definiciones_asignadas?: string[];
   activo?: boolean;
@@ -62,6 +62,38 @@ export interface DemoProductor {
   direccion?: string;
 }
 
+// ─── Área — entidades (equivalente a tabla `areas` en BD) ─────────────────────
+
+export interface DemoArea {
+  id:          number;
+  nombre:      string;
+  codigo:      string;
+  descripcion: string;
+}
+
+export const AREAS_DEMO: DemoArea[] = [
+  { id: 1, nombre: "Cultivo",          codigo: "cultivo",          descripcion: "Gestión de cultivos en campo" },
+  { id: 2, nombre: "Cosecha",          codigo: "cosecha",          descripcion: "Operaciones de cosecha" },
+  { id: 3, nombre: "Vivero",           codigo: "vivero",           descripcion: "Producción en vivero" },
+  { id: 4, nombre: "Laboratorio",      codigo: "laboratorio",      descripcion: "Análisis y control de calidad" },
+  { id: 5, nombre: "Post-cosecha",     codigo: "post-cosecha",     descripcion: "Procesamiento y producción post-cosecha" },
+  { id: 6, nombre: "Recursos Humanos", codigo: "recursos-humanos", descripcion: "Gestión de personal de campo" },
+  { id: 7, nombre: "Comercial",        codigo: "comercial",        descripcion: "Ventas y comercialización" },
+];
+
+// ─── area_modulos — qué módulos corresponden a cada área ──────────────────────
+
+export const AREA_MODULOS_DEMO: { area_id: number; modulo: string }[] = [
+  { area_id: 1, modulo: "cultivo" },
+  { area_id: 2, modulo: "cosecha" },
+  { area_id: 3, modulo: "vivero" },
+  { area_id: 4, modulo: "laboratorio" },
+  { area_id: 5, modulo: "post-cosecha" },
+  { area_id: 5, modulo: "produccion" },
+  { area_id: 6, modulo: "recursos-humanos" },
+  { area_id: 7, modulo: "comercial" },
+];
+
 export const CLIENTES_DEMO: DemoCliente[] = [
   { id: 1, nombre: "AgroPro Chile",    ruc: "76.123.456-7", pais: "Chile", direccion: "Av. Apoquindo 4501, Las Condes, Santiago" },
   { id: 2, nombre: "Frutas del Valle", ruc: "80.654.321-K", pais: "Chile", direccion: "Km 12 Ruta 5 Norte, Curicó" },
@@ -84,12 +116,9 @@ export interface UserPermissionOverride {
   createdAt: string;
 }
 
-// ─── Módulos "operativos" — los que se restringen por area_asignada ───────────
+// ─── Módulos operativos — derivados de AREA_MODULOS_DEMO ─────────────────────
 // dashboard, informes, configuracion, gestion-usuarios están fuera de este filtro.
-const AREA_MODULES = [
-  "laboratorio", "vivero", "cultivo", "cosecha",
-  "post-cosecha", "produccion", "recursos-humanos", "comercial",
-] as const;
+const AREA_MODULES = [...new Set(AREA_MODULOS_DEMO.map(am => am.modulo))];
 
 // Usuarios demo para pruebas (más volumen para filtros, destinatarios y roles)
 export const INITIAL_USERS: HardcodedUser[] = [
@@ -128,7 +157,7 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "jefe123",
     role: "jefe_area",
     clienteId: 1,
-    area_asignada: "cultivo", // solo Cultivo
+    areas_ids: [1], // Cultivo
     activo: true,
   },
   {
@@ -138,8 +167,7 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "sup123",
     role: "supervisor",
     clienteId: 1,
-    area_asignada: "cultivo", // solo Cultivo
-    // definiciones_asignadas se puede configurar para limitar formularios
+    areas_ids: [1], // Cultivo
     activo: true,
   },
   {
@@ -148,8 +176,8 @@ export const INITIAL_USERS: HardcodedUser[] = [
     email: "lector@agroworkin.com",
     password: "lector123",
     role: "lector",
-    clienteId: 2, // Frutas del Valle
-    area_asignada: "vivero", // solo Vivero, solo lectura
+    clienteId: 2,
+    areas_ids: [3], // Vivero
     activo: true,
   },
   {
@@ -159,7 +187,7 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "sup123",
     role: "supervisor",
     clienteId: 1,
-    area_asignada: "cultivo",
+    areas_ids: [1], // Cultivo
     activo: true,
   },
   {
@@ -169,7 +197,7 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "sup123",
     role: "supervisor",
     clienteId: 1,
-    area_asignada: "cosecha",
+    areas_ids: [2], // Cosecha
     activo: true,
   },
   {
@@ -179,7 +207,7 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "jefe123",
     role: "jefe_area",
     clienteId: 1,
-    area_asignada: "cosecha",
+    areas_ids: [2], // Cosecha
     activo: true,
   },
   {
@@ -189,7 +217,7 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "lector123",
     role: "lector",
     clienteId: 1,
-    area_asignada: "cultivo",
+    areas_ids: [1], // Cultivo
     activo: true,
   },
   {
@@ -228,7 +256,7 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "jefe123",
     role: "jefe_area",
     clienteId: 2,
-    area_asignada: "vivero",
+    areas_ids: [3], // Vivero
     activo: true,
   },
   {
@@ -238,7 +266,7 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "sup123",
     role: "supervisor",
     clienteId: 2,
-    area_asignada: "vivero",
+    areas_ids: [3], // Vivero
     activo: true,
   },
   {
@@ -248,7 +276,7 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "lector123",
     role: "lector",
     clienteId: 2,
-    area_asignada: "vivero",
+    areas_ids: [3], // Vivero
     activo: true,
   },
   {
@@ -258,7 +286,7 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "sup123",
     role: "supervisor",
     clienteId: 1,
-    area_asignada: "laboratorio",
+    areas_ids: [4], // Laboratorio
     activo: true,
   },
   {
@@ -268,7 +296,7 @@ export const INITIAL_USERS: HardcodedUser[] = [
     password: "lector123",
     role: "lector",
     clienteId: 1,
-    area_asignada: "cosecha",
+    areas_ids: [2], // Cosecha
     activo: true,
   },
   {
@@ -508,6 +536,10 @@ interface RoleContextType {
   addCliente: (c: Omit<DemoCliente, "id">) => DemoCliente;
   updCliente: (id: number, changes: Partial<Omit<DemoCliente, "id">>) => void;
   delCliente: (id: number) => void;
+  // Áreas
+  areas: DemoArea[];
+  getUserAreaNames: (user: HardcodedUser) => string[];
+  getUserModulos: (user: HardcodedUser) => string[];
   // Productores CRUD
   productores: DemoProductor[];
   addProductor: (p: Omit<DemoProductor, "id">) => DemoProductor;
@@ -556,12 +588,13 @@ function saveToStorage(key: string, value: unknown): void {
 
 function mergeStoredUsersWithDemo(storedUsers: HardcodedUser[]): HardcodedUser[] {
   const byEmail = new Map<string, HardcodedUser>();
-  storedUsers.forEach((u) => byEmail.set(u.email.toLowerCase(), u));
-  INITIAL_USERS.forEach((u) => {
+  // Demo users provide the base (including new fields like areas_ids)
+  INITIAL_USERS.forEach((u) => byEmail.set(u.email.toLowerCase(), u));
+  // Stored users override editable fields but inherit new demo fields
+  storedUsers.forEach((u) => {
     const key = u.email.toLowerCase();
-    if (!byEmail.has(key)) {
-      byEmail.set(key, u);
-    }
+    const demo = byEmail.get(key);
+    byEmail.set(key, demo ? { ...demo, ...u, areas_ids: demo.areas_ids } : u);
   });
   return Array.from(byEmail.values());
 }
@@ -719,29 +752,22 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   };
 
   // ─── Module access logic ─────────────────────────────────────────────────────
-  // Roles with area_asignada (jefe_area, supervisor, lector) can only access
-  // their assigned module.
-  // super_admin, cliente_admin → access all modules.
-  // productor → access only modules configured in dashboard profile.
+  // super_admin, cliente_admin → acceso total.
+  // productor → módulos configurados en dashboard profile.
+  // jefe_area, supervisor, lector → solo módulos de sus áreas asignadas (usuario_area_rol).
   const canAccessModule = (modulo: string): boolean => {
-    // Dashboard no está habilitado para supervisor ni lector.
-    if (modulo === "dashboard")   return role !== "supervisor" && role !== "lector";
-    if (modulo === "inventario")  return ROLE_LEVELS[role] >= 2; // supervisor+
-    // super_admin → todo
-    if (role === "super_admin") return true;
-    // cliente_admin → todo de su empresa
+    if (modulo === "dashboard")  return role !== "supervisor" && role !== "lector";
+    if (modulo === "inventario") return ROLE_LEVELS[role] >= 2;
+    if (role === "super_admin")  return true;
     if (role === "cliente_admin") return true;
-    // productor → según módulos activos configurados
     if (role === "productor") return productorCanAccessModule(modulo);
-    // jefe_area, supervisor, lector → solo area_asignada
-    const area = currentUser?.area_asignada;
-    if (!area) return true; // sin restricción si no tiene area asignada
-    // Módulos no-operativos: configuracion para jefe_area y supervisor, informes filtrado
-    if (modulo === "configuracion") return role === "jefe_area" || role === "supervisor";
+    // jefe_area, supervisor, lector → resolvemos por areas_ids
+    const areasIds = currentUser?.areas_ids;
+    if (!areasIds || areasIds.length === 0) return true; // sin áreas → sin restricción
+    if (modulo === "configuracion")    return role === "jefe_area" || role === "supervisor";
     if (modulo === "gestion-usuarios") return false;
-    if (modulo === "informes") return true; // informes filtrado por área en la vista
-    // Check: ¿es el módulo asignado?
-    return modulo === area;
+    if (modulo === "informes")         return true; // filtrado por área en la vista
+    return AREA_MODULOS_DEMO.some(am => areasIds.includes(am.area_id) && am.modulo === modulo);
   };
 
   const getAccessibleModules = (): string[] => {
@@ -901,6 +927,21 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // Helpers de área
+  const getUserAreaNames = (user: HardcodedUser): string[] => {
+    if (!user.areas_ids?.length) return [];
+    return user.areas_ids.map(id => AREAS_DEMO.find(a => a.id === id)?.nombre ?? String(id));
+  };
+
+  const getUserModulos = (user: HardcodedUser): string[] => {
+    if (!user.areas_ids?.length) return [];
+    return [...new Set(
+      AREA_MODULOS_DEMO
+        .filter(am => user.areas_ids!.includes(am.area_id))
+        .map(am => am.modulo)
+    )];
+  };
+
   return (
     <RoleContext.Provider
       value={{
@@ -941,6 +982,9 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         addProductor,
         updProductor,
         delProductor,
+        areas: AREAS_DEMO,
+        getUserAreaNames,
+        getUserModulos,
       }}
     >
       {children}

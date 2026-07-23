@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { useRole } from "@/contexts/RoleContext";
+import { useRole, AREAS_DEMO } from "@/contexts/RoleContext";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
@@ -189,12 +189,12 @@ export default function Perfil() {
                       {productor.nombre}
                     </span>
                   )}
-                  {currentUser.area_asignada && (
+                  {currentUser.areas_ids?.length ? (
                     <span className="flex items-center gap-1">
                       <MapPin className="w-3 h-3 shrink-0" />
-                      {currentUser.area_asignada}
+                      {currentUser.areas_ids.map(id => AREAS_DEMO.find(a => a.id === id)?.nombre).filter(Boolean).join(", ")}
                     </span>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -390,7 +390,7 @@ export default function Perfil() {
                 { label: "Rol",     value: roleName,                        icon: Shield },
                 { label: "Nivel",   value: `${hierarchyLevel} / 6`,         icon: Layers },
                 { label: "Empresa", value: currentClienteName ?? "—",        icon: Building2 },
-                { label: "Área",    value: currentUser.area_asignada ?? "Global", icon: MapPin },
+                { label: "Área", value: currentUser.areas_ids?.length ? currentUser.areas_ids.map(id => AREAS_DEMO.find(a => a.id === id)?.nombre).filter(Boolean).join(", ") : "Global", icon: MapPin },
               ].map(({ label, value, icon: Icon }) => (
                 <div key={label} className="bg-muted/30 border border-border/60 rounded-lg p-3">
                   <div className="flex items-center gap-1.5 mb-1">
